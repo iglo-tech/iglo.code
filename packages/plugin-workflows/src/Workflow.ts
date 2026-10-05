@@ -630,7 +630,7 @@ const make = Effect.gen(function* () {
             attempt.phase = "canceled";
             attempt.reason = run.reason;
           }
-        yield* sql`UPDATE workflow_outbox SET status = 'canceled' WHERE run_id = ${run.id} AND status = 'pending'`;
+        yield* sql`UPDATE workflow_outbox SET status = 'canceled' WHERE run_id = ${run.id} AND status = 'pending' AND kind <> 'interrupt'`;
         for (const attempt of run.attempts)
           if (attempt.threadId) yield* host.cancelPending(target(run, attempt));
       }),
@@ -1055,17 +1055,26 @@ const make = Effect.gen(function* () {
       )
         return;
       const freshness = yield* host.verifyPullRequestHead(review.pullRequest).pipe(Effect.result);
-      const workspaceEvidence = yield* Effect.forEach(review.branches, (branch) => {
-        const attempt = observed.attempts.find((attempt) => attempt.id === branch.attemptId)!;
-        return attempt.launch?.workspace.type === "existing"
-          ? host
-              .verifyWorkspace({
-                projectId: observed.projectId,
-                path: attempt.launch.workspace.path,
-              })
-              .pipe(Effect.result)
-          : Effect.succeed(null);
-      });
+      const workspaceEvidence = yield* Effect.forEach(review.branches, (branch) =>
+        Effect.gen(function* () {
+          const attempt = observed.attempts.find((attempt) => attempt.id === branch.attemptId)!;
+          if (!attempt.threadId || attempt.launch?.workspace.type !== "existing")
+            return yield* error("join", "The reviewer workspace is unavailable.", "unavailable");
+          const native = yield* host.inspect(target(observed, attempt));
+          if (!native.workspacePath)
+            return yield* error("join", "The reviewer workspace is unavailable.", "unavailable");
+          const workspace = yield* host.verifyWorkspace({
+            projectId: observed.projectId,
+            path: native.workspacePath,
+          });
+          return {
+            valid:
+              native.workspacePath === attempt.launch.workspace.path &&
+              workspace.head === review.head &&
+              workspace.clean,
+          };
+        }).pipe(Effect.result),
+      );
       yield* transaction(
         "join",
         Effect.gen(function* () {
@@ -1078,10 +1087,7 @@ const make = Effect.gen(function* () {
           if (attempts.some((attempt) => !terminalAttempt(attempt))) return;
           for (const [index, attempt] of attempts.entries()) {
             const evidence = workspaceEvidence[index];
-            if (
-              evidence?._tag === "Success" &&
-              (evidence.success.head !== current.head || !evidence.success.clean)
-            ) {
+            if (evidence?._tag === "Success" && !evidence.success.valid) {
               attempt.phase = "stale";
               attempt.reason = "The reviewer checkout changed from its frozen input.";
             }
@@ -1093,11 +1099,7 @@ const make = Effect.gen(function* () {
                 ? "stale"
                 : workspaceEvidence.some((item) => item?._tag !== "Success")
                   ? "unresolved"
-                  : workspaceEvidence.some(
-                        (item) =>
-                          item?._tag === "Success" &&
-                          (item.success.head !== current.head || !item.success.clean),
-                      )
+                  : workspaceEvidence.some((item) => item._tag === "Success" && !item.success.valid)
                     ? "stale"
                     : attempts.some((attempt) => attempt.phase === "canceled")
                       ? "canceled"

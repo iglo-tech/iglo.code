@@ -9,13 +9,101 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
-import { CommandId } from "@t3tools/contracts";
+import { CommandId, MessageId } from "@t3tools/contracts";
 import { plugin } from "@t3tools/plugin-workflows/server";
 import { Run } from "@t3tools/plugin-workflows/contracts";
 import { sequence } from "./Workflows.testkit.ts";
 import { makeCoreWorkflowFixture } from "./WorkflowsCore.testkit.ts";
 
 const decodeRun = Schema.decodeUnknownEffect(Run);
+
+it.live.each([false, true])("retains failed interruption across cancel=%s and restart", (cancel) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* makeCoreWorkflowFixture;
+      let failed = true;
+      let interrupts = 0;
+      const host = Host.of({
+        ...test.core,
+        interrupt: (input) =>
+          Effect.suspend(() => {
+            interrupts++;
+            return failed
+              ? Effect.fail(
+                  new PluginError({
+                    pluginId: "host",
+                    operation: "interrupt",
+                    code: "service",
+                    message: "Transient transport failure",
+                  }),
+                )
+              : test.core.interrupt(input);
+          }),
+      });
+      let runtime = yield* test.boot(host);
+      const started = yield* runtime
+        .invoke("start", {
+          ...test.scope,
+          definition: sequence,
+          clientRequestId: "start",
+          input: {},
+          workspace: { type: "current" },
+        })
+        .pipe(Effect.flatMap(decodeRun));
+      yield* runtime.invoke("reconcile", test.scope);
+      const threadId = started.attempts[0]!.threadId!;
+      yield* test.threads.dispatch({
+        type: "message.dispatch",
+        threadId,
+        commandId: CommandId.make("retained-work"),
+        messageId: MessageId.make("retained-input"),
+        text: "Deferred execution",
+        attachments: [],
+        dispatchMode: { type: "defer_start" },
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      const target = { ...test.scope, threadId };
+      expect((yield* test.core.inspect(target)).runs.at(-1)!.status).toBe("preparing");
+      const database = new NodeSqlite.DatabaseSync(test.databasePath);
+      try {
+        database
+          .prepare(
+            "UPDATE workflow_runs SET data = json_set(data, '$.attempts[0].lastActiveAt', 0, '$.attempts[0].remainingMs', 60000) WHERE id = ?",
+          )
+          .run(started.id);
+      } finally {
+        database.close();
+      }
+      yield* runtime.invoke("reconcile", test.scope);
+      yield* runtime.invoke("reconcile", test.scope);
+      const unresolved = yield* runtime
+        .invoke("get", { ...test.scope, runId: started.id })
+        .pipe(Effect.flatMap(decodeRun));
+      expect(unresolved.state).toBe("unresolved");
+      expect(interrupts).toBeGreaterThan(0);
+      if (cancel)
+        yield* runtime.invoke("cancel", {
+          ...test.scope,
+          runId: started.id,
+          expectedRevision: unresolved.revision,
+          clientRequestId: "cancel",
+        });
+      yield* runtime.close;
+      runtime = yield* test.boot(host);
+      failed = false;
+      yield* runtime.invoke("reconcile", test.scope);
+      yield* runtime.invoke("reconcile", test.scope);
+      expect((yield* test.core.inspect(target)).runs.map((run) => run.status)).not.toContain(
+        "preparing",
+      );
+      const retained = yield* runtime
+        .invoke("get", { ...test.scope, runId: started.id })
+        .pipe(Effect.flatMap(decodeRun));
+      expect(retained.state).toBe(cancel ? "canceled" : "unresolved");
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.live.each([false, true])("recovers native ownership after restart, deleted=%s", (deleted) =>
   Effect.scoped(

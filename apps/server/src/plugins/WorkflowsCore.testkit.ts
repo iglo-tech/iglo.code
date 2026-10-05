@@ -97,6 +97,8 @@ export const makeCoreWorkflowFixture = Effect.gen(function* () {
   });
   return {
     core,
+    context,
+    config,
     boot,
     scope: { environmentId: core.environmentId, projectId },
     threads: Context.get(context, Threads.ThreadManagementService),
