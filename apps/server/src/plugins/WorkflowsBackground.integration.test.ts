@@ -37,17 +37,29 @@ it.live.each(["workflow", "host", "direct-core"] as const)(
           },
         });
         const runtime = yield* test.boot(host);
-        const started = yield* runtime
-          .invoke("start", {
-            ...test.scope,
-            clientRequestId: "start",
-            definition: sequence,
-            input: {},
-            workspace: { type: "current" },
-          })
-          .pipe(Effect.flatMap(decodeRun));
+        const started =
+          mode === "workflow"
+            ? yield* runtime
+                .invoke("start", {
+                  ...test.scope,
+                  clientRequestId: "start",
+                  definition: sequence,
+                  input: {},
+                  workspace: { type: "current" },
+                })
+                .pipe(Effect.flatMap(decodeRun))
+            : null;
         yield* runtime.invoke("reconcile", test.scope);
-        const threadId = started.attempts[0]!.threadId!;
+        const threadId =
+          started?.attempts[0]!.threadId ??
+          (yield* test.core.launch({
+            ...test.scope,
+            commandId: CommandId.make("ordinary-background-thread"),
+            title: "Ordinary background execution",
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "fixture" },
+            runtimeMode: "approval-required",
+            workspace: { type: "existing", path: test.config.baseDir, branch: null },
+          })).threadId;
         const now = DateTime.nowUnsafe();
         const runId = RunId.make("settled-run");
         const root = NodeId.make("root");
@@ -189,7 +201,7 @@ it.live.each(["workflow", "host", "direct-core"] as const)(
           yield* host.interrupt({ ...target, runId, commandId: CommandId.make("host-stop") });
         else {
           const current = yield* runtime
-            .invoke("get", { ...test.scope, runId: started.id })
+            .invoke("get", { ...test.scope, runId: started!.id })
             .pipe(Effect.flatMap(decodeRun));
           yield* runtime.invoke("cancel", {
             ...test.scope,

@@ -119,6 +119,7 @@ it.live.each([
       unavailable = false;
       if (scenario === "expired-live") yield* runtime.invoke("reconcile", test.scope);
       else runtime = yield* test.boot(host);
+      if (scenario === "pending-control") yield* runtime.invoke("reconcile", test.scope);
       const checkThread = Effect.gen(function* () {
         const thread = yield* test.threads.getThreadShell(threadId);
         if (scenario === "pending-control" || coreCommitted) expect(thread).not.toBeNull();

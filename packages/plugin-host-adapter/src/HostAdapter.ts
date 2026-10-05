@@ -215,17 +215,25 @@ const make = Effect.gen(function* () {
       !preparation.stages.some((stage) => stage.id === "agent" && stage.status !== "pending")
         ? preparation.preparationId
         : undefined;
-    const progress = delegatedTaskProgress(records);
+    // Aggregate readiness uses the same live-work view as the normalized roster.
+    const progress = delegatedTaskProgress({
+      ...records,
+      subagents: records.subagents.filter(
+        (task) => task.runId === null || !abandoned.has(task.runId),
+      ),
+      providerThreads: [{ pendingBackgroundTasks: background }],
+    });
     const monitorRuns = new Set(
       records.messages
         .filter((message) => message.notification?.source.kind === "monitor")
         .map((message) => message.runId),
     );
-    // A queued follow-up can fail before it starts; it still invalidates an earlier result.
+    // A stopped follow-up or rollback still invalidates an earlier result.
     const failedFollowUp = records.runs
       .filter(
         (run) =>
-          !monitorRuns.has(run.id) && ["failed", "cancelled", "interrupted"].includes(run.status),
+          !monitorRuns.has(run.id) &&
+          ["failed", "cancelled", "interrupted", "rolled_back"].includes(run.status),
       )
       .toSorted((left, right) => right.ordinal - left.ordinal)[0];
     const resultRun =
@@ -253,7 +261,8 @@ const make = Effect.gen(function* () {
       })(),
       outstandingWork: [
         ...(preparationId === undefined ? [] : [{ id: preparationId, status: "running" }]),
-        ...(progress.state !== "result_available"
+        ...(progress.state !== "result_available" &&
+        runs.some((run) => !monitorRuns.has(run.id) && !abandoned.has(run.id))
           ? [{ id: `${target.threadId}:core-work`, status: progress.state }]
           : []),
         ...records.nodes

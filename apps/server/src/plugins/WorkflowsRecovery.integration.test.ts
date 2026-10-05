@@ -158,9 +158,20 @@ it.live.each([false, true])("recovers native ownership after restart, deleted=%s
         clientRequestId: "fresh-thread",
       });
       yield* runtime.invoke("reconcile", test.scope);
-      const retried = yield* runtime
-        .invoke("get", { ...test.scope, runId: actual.id })
-        .pipe(Effect.flatMap(decodeRun));
+      const api = yield* runtime.registry.api("plugins.workflows.subscribe");
+      const updates = api.invoke(test.scope);
+      if (!Stream.isStream(updates)) return yield* Effect.die("Expected subscription");
+      const [retried] = yield* updates.pipe(
+        Stream.mapEffect(() =>
+          runtime
+            .invoke("get", { ...test.scope, runId: actual.id })
+            .pipe(Effect.flatMap(decodeRun)),
+        ),
+        Stream.filter((run) => run.attempts.at(-1)?.phase === "running"),
+        Stream.take(1),
+        Stream.runCollect,
+      );
+      if (!retried) return yield* Effect.die("Expected fresh running attempt");
       expect(retried.state).toBe("running");
       expect(retried.attempts.at(-1)!.threadId).not.toBe(threadId);
       expect(yield* test.threads.getThreadShell(retried.attempts.at(-1)!.threadId!)).not.toBeNull();
