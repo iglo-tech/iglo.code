@@ -32,6 +32,7 @@ export const limits = {
   timeoutMs: { default: 7_200_000, min: 60_000, max: 86_400_000 },
 } as const;
 const text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_000));
+const title = text.check(Schema.isTrimmed());
 export const Id = Schema.String.check(Schema.isPattern(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/));
 const key = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128));
 export const Value = Schema.Union([
@@ -147,7 +148,7 @@ export const Agent = Schema.Struct({
   humanTimeoutMs: Schema.optional(timeout),
 });
 export type Agent = typeof Agent.Type;
-const common = { id: Id, title: text };
+const common = { id: Id, title };
 export const Node = Schema.Union([
   Schema.Struct({
     ...common,
@@ -180,7 +181,7 @@ export const Node = Schema.Union([
       number: Schema.Int.check(Schema.isGreaterThan(0)),
       host: Schema.optional(text),
     }),
-    branches: Schema.Array(Schema.Struct({ id: Id, title: text, ...Agent.fields })).check(
+    branches: Schema.Array(Schema.Struct({ id: Id, title, ...Agent.fields })).check(
       Schema.isMinLength(1),
       Schema.isMaxLength(32),
     ),
@@ -205,7 +206,7 @@ export const Definition = Schema.Struct({
   version: Schema.Literal(1),
   id: Id,
   revision: Schema.Int.check(Schema.isGreaterThan(0)),
-  title: text,
+  title,
   entry: Id,
   atLimit: Id,
   maxVisits: Schema.optional(
@@ -341,7 +342,7 @@ export const RunSummary = Schema.Struct({
   id: Run.fields.id,
   environmentId: EnvironmentId,
   projectId: ProjectId,
-  definition: Schema.Struct({ id: Id, revision: Schema.Int, title: text }),
+  definition: Schema.Struct({ id: Id, revision: Schema.Int, title }),
   state: Run.fields.state,
   revision: Schema.Int,
   currentNode: Id,
@@ -419,7 +420,7 @@ export const SaveInput = Schema.Struct({
 export const ScheduleInput = Schema.Struct({
   ...ScopeInput.fields,
   id: key,
-  title: text,
+  title,
   definitionId: Id,
   input: Data,
   schedule: PluginScheduleInput.fields.schedule,

@@ -456,6 +456,8 @@ const make = Effect.gen(function* () {
   });
   return Host.of({
     environmentId,
+    // Durable plugin intents belong to BoundHost, not the core adapter.
+    cancelPending: () => Effect.void,
     redact: (input) =>
       Effect.gen(function* () {
         const configuration = yield* settings.getSettings;

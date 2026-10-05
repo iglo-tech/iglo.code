@@ -5,6 +5,7 @@ import {
   AuthOrchestrationOperateScope,
   CommandId,
   ProjectId,
+  ThreadId,
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import { Host, Storage, Schedules, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
@@ -422,6 +423,7 @@ it.live(
           environmentId: core.environmentId,
           projectId,
           commandId: CommandId.make("exact-launch"),
+          threadId: ThreadId.make("command-fixture-thread"),
           title: "Exact launch",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
           runtimeMode: "approval-required",
@@ -436,6 +438,12 @@ it.live(
         });
         const accepted = yield* first.host.receipt(input.commandId);
         expect(accepted?.status).toBe("accepted");
+        yield* first.host.cancelPending({
+          environmentId: core.environmentId,
+          projectId,
+          threadId: input.threadId!,
+        });
+        expect(yield* first.host.receipt(input.commandId)).toEqual(accepted);
         yield* git(
           "-c",
           "user.name=Fixture",

@@ -66,6 +66,7 @@ export const fixture = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Queue.shutdown(checkStarts));
   const host = Host.of({
     environmentId,
+    cancelPending: () => Effect.void,
     redact: (input) => Effect.succeed(input.text),
     projects: () =>
       Effect.succeed([{ id: projectId, title: "Workflow", workspaceRoot: directory }]),

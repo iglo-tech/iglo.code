@@ -176,7 +176,7 @@ export function reserveAttempt(
 ) {
   const agent = node.kind === "agent" ? node : branch;
   const attemptId = `${run.id}:${run.visits}:${branch?.id ?? node.id}`;
-  const input: Record<string, Value> = { ...run.input };
+  let input: Record<string, Value> = { ...run.input };
   let bindingReason: string | null = null;
   if (agent?.bindings?.length) {
     for (const binding of agent.bindings) {
@@ -198,9 +198,14 @@ export function reserveAttempt(
     );
     if (problems.length) {
       bindingReason = problems.join(" ");
-      if (!branch) unresolved(run, bindingReason);
     }
   }
+  // Previously persisted runs must also recover without an unencodable attempt snapshot.
+  if (Object.keys(input).length > limits.fields) {
+    bindingReason = `Resolved input exceeds ${limits.fields} fields.`;
+    input = { ...run.input };
+  }
+  if (bindingReason && !branch) unresolved(run, bindingReason);
   const timeoutMs =
     agent?.timeoutMs ??
     (node.kind === "check" ? node.timeoutMs : undefined) ??

@@ -228,7 +228,7 @@ const make = Effect.gen(function* () {
       definition: {
         id: run.definition.id,
         revision: run.definition.revision,
-        title: run.definition.title.slice(0, 240),
+        title: run.definition.title.slice(0, 240).trim(),
       },
       state: run.state,
       revision: run.revision,
@@ -325,9 +325,9 @@ const make = Effect.gen(function* () {
             run.attempts.at(-1)?.threadId;
           return {
             id: run.id,
-            summary: summary.slice(0, 240),
+            summary: summary.slice(0, 240).trim(),
             severity: "warning" as const,
-            reason: reason.slice(0, 500),
+            reason: reason.slice(0, 500).trim(),
             link: {
               pageId: "workflows.runs",
               projectId: run.projectId,
@@ -399,6 +399,17 @@ const make = Effect.gen(function* () {
     const validation = yield* catalog.validate(input, input.definition);
     if (!validation.runnable)
       return yield* error("start", validation.reasons.join(" "), "unsupported");
+    for (const agent of agents(input.definition)) {
+      const names = new Set([
+        ...Object.keys(input.input),
+        ...(agent.bindings ?? []).map((binding) => binding.name),
+      ]);
+      if (names.size > limits.fields)
+        return yield* error(
+          "start",
+          `Run input and agent bindings exceed ${limits.fields} fields.`,
+        );
+    }
     const skills = yield* snapshots(input.projectId, input.definition);
     const base = yield* host.workspace(input.projectId);
     const workspace = input.workspace ?? { type: "exact-ref" as const, ref: base.head ?? "HEAD" };
@@ -594,6 +605,8 @@ const make = Effect.gen(function* () {
             attempt.reason = run.reason;
           }
         yield* sql`UPDATE workflow_outbox SET status = 'canceled' WHERE run_id = ${run.id} AND status = 'pending'`;
+        for (const attempt of run.attempts)
+          if (attempt.threadId) yield* host.cancelPending(target(run, attempt));
       }),
     );
   const retry = (input: typeof CommandInput.Type) =>
@@ -609,6 +622,8 @@ const make = Effect.gen(function* () {
             attempt.phase = "canceled";
             attempt.reason = "Superseded by an explicit retry.";
           }
+        for (const attempt of run.attempts)
+          if (attempt.threadId) yield* host.cancelPending(target(run, attempt));
         admit(run, retryNode, now);
       }),
     );
@@ -1123,8 +1138,9 @@ const make = Effect.gen(function* () {
         checks.delete(attempt.id);
       }
       if (attempt.threadId) {
+        yield* host.cancelPending(target(observed, attempt));
         const launched = attempt.launch ? yield* host.receipt(commandId(attempt, "launch")) : null;
-        if (!launched) return;
+        if (!launched || launched.status !== "accepted") return;
         // A lost follow-up acknowledgement may leave a newer run than executionRunId.
         const state = yield* host.inspect(target(observed, attempt));
         const active = state.runs.filter((run) =>

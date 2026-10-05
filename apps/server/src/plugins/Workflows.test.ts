@@ -7,11 +7,101 @@ import * as Schema from "effect/Schema";
 import { Definition, Run, RunSummary, CatalogEntry } from "@t3tools/plugin-workflows/contracts";
 import * as TestClock from "effect/testing/TestClock";
 import * as FileSystem from "effect/FileSystem";
+import * as Stream from "effect/Stream";
 
 const decodeCatalog = Schema.decodeUnknownEffect(Schema.Array(CatalogEntry));
 const decodeRun = Schema.decodeUnknownEffect(Run);
 const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(RunSummary));
 const decodeDefinition = Schema.decodeUnknownEffect(Definition);
+
+it.effect("rejects whitespace titles before they can terminate shared attention", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture;
+      for (const definition of [
+        { ...sequence, title: " ", entry: "review" },
+        { ...sequence, nodes: sequence.nodes.map((node) => ({ ...node, title: " " })) },
+        {
+          ...parallel,
+          nodes: parallel.nodes.map((node) =>
+            node.kind === "parallel"
+              ? { ...node, branches: node.branches.map((branch) => ({ ...branch, title: " " })) }
+              : node,
+          ),
+        },
+      ]) {
+        expect(
+          (yield* test
+            .invoke("validate", {
+              environmentId: test.environmentId,
+              projectId: test.projectId,
+              definition,
+            })
+            .pipe(Effect.result))._tag,
+        ).toBe("Failure");
+        expect((yield* test.start(definition).pipe(Effect.result))._tag).toBe("Failure");
+      }
+      yield* test.start({ ...sequence, entry: "review", title: `${"x".repeat(239)} rest` });
+      const attention = yield* test.registry
+        .attention(test.environmentId)
+        .pipe(Stream.take(1), Stream.runCollect);
+      expect(attention[0]?.items[0]?.summary).toBe("x".repeat(239));
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("validates the combined run input and binding names before admitting work", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture;
+      const agent = sequence.nodes[0]!;
+      if (agent.kind !== "agent") return yield* Effect.die("Expected agent");
+      const definition = yield* decodeDefinition({
+        ...sequence,
+        nodes: [
+          ...sequence.nodes.map((node) =>
+            node.id === "implement" ? { ...agent, next: { to: "followup" } } : node,
+          ),
+          {
+            ...agent,
+            id: "followup",
+            bindings: [
+              {
+                name: "bound",
+                node: "implement",
+                path: "data.ready",
+                field: { name: "bound", type: "boolean", required: true },
+              },
+            ],
+          },
+        ],
+      });
+      const start = (size: number) =>
+        test
+          .invoke("start", {
+            environmentId: test.environmentId,
+            projectId: test.projectId,
+            clientRequestId: `bound-input-${size}`,
+            definition,
+            input: Object.fromEntries(
+              Array.from({ length: size }, (_, index) => [`seed${index}`, true]),
+            ),
+            workspace: { type: "current" },
+          })
+          .pipe(Effect.flatMap(decodeRun));
+      expect((yield* start(32).pipe(Effect.result))._tag).toBe("Failure");
+      expect(test.launches).toHaveLength(0);
+      const control = yield* start(31);
+      yield* test.reconcile;
+      yield* test.report(control.attempts[0]!.threadId!, completed);
+      test.settle(control.attempts[0]!.threadId!);
+      yield* test.reconcile;
+      const followup = yield* test.wait(control.id, (run) => run.currentNode === "followup");
+      expect(Object.keys(followup.attempts.at(-1)!.input)).toHaveLength(32);
+      expect(followup.attempts.at(-1)!.input.bound).toBe(true);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.effect("joins three isolated frozen reviewers only after every reported execution settles", () =>
   Effect.scoped(

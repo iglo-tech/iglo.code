@@ -61,6 +61,8 @@ export class Host extends Context.Service<
     readonly receipt: (
       commandId: CommandId,
     ) => Effect.Effect<PluginCommandReceipt | null, PluginError>;
+    /** Cancel pending launch/send intents in the owner's private SQL transaction. Native work still needs interruption. */
+    readonly cancelPending: (target: PluginTarget) => Effect.Effect<void, PluginError>;
     readonly inspect: (target: PluginTarget) => Effect.Effect<PluginThreadState, PluginError>;
     /** Unreleased preparation returns unavailable; retry its run with retryPreparation, or a preparation-only launch with launch. */
     readonly send: (
