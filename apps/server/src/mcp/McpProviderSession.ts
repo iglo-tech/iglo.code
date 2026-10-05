@@ -66,6 +66,17 @@ export function updateMcpProviderSessionRuntimePolicy(
   }
 }
 
+export function invalidateMcpProviderSessionRuntimePolicy(
+  threadId: ThreadId,
+  providerInstanceId: ProviderInstanceId,
+): void {
+  const session = sessionsByThread.get(threadId);
+  if (session?.providerInstanceId === providerInstanceId) {
+    const { runtimePolicy: _runtimePolicy, ...config } = session;
+    sessionsByThread.set(threadId, config);
+  }
+}
+
 export function clearMcpProviderSession(threadId: ThreadId): void {
   sessionsByThread.delete(threadId);
 }

@@ -385,6 +385,21 @@ const make = Effect.gen(function* () {
     launch: (input) =>
       Effect.gen(function* () {
         yield* environment(input.environmentId);
+        const existing = yield* receipt(input.commandId);
+        if (existing !== null) {
+          if (existing.status !== "accepted") return existing;
+          const shell = yield* threads
+            .getThreadShell(existing.threadId)
+            .pipe(
+              Effect.mapError((cause) =>
+                fail("launch", "Could not reconcile the launched thread.", cause),
+              ),
+            );
+          // Deleted or archived targets still own their committed acknowledgement.
+          // Live launches continue through preparation replay below.
+          if (shell === null || shell.deletedAt !== null || shell.archivedAt !== null)
+            return existing;
+        }
         const workspace = yield* project(input.projectId);
         const ref =
           input.workspace.type === "exact-ref"
@@ -433,9 +448,10 @@ const make = Effect.gen(function* () {
       }),
     send: (input) =>
       Effect.gen(function* () {
-        yield* inspect(input);
+        yield* environment(input.environmentId);
         const existing = yield* receipt(input.commandId);
         if (existing !== null) return existing;
+        yield* inspect(input);
         yield* threads
           .sendToThread({
             projectId: input.projectId,
@@ -453,9 +469,10 @@ const make = Effect.gen(function* () {
       }),
     interrupt: (input) =>
       Effect.gen(function* () {
-        yield* inspect(input);
+        yield* environment(input.environmentId);
         const existing = yield* receipt(input.commandId);
         if (existing !== null) return existing;
+        yield* inspect(input);
         yield* threads
           .interruptThread({
             projectId: input.projectId,

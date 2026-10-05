@@ -1108,15 +1108,9 @@ it.effect(
         });
         const readOnlyPolicy = { ...runtimePolicy, sandboxPolicy: { type: "readOnly" } };
         yield* runtime.resumeThread({ providerThread, threadId, runtimePolicy: readOnlyPolicy });
-        assert.deepEqual(
-          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
-          readOnlyPolicy,
-        );
+        assert.isUndefined(McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy);
         yield* runtime.resumeThread({ providerThread, threadId });
-        assert.deepEqual(
-          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
-          readOnlyPolicy,
-        );
+        assert.isUndefined(McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy);
         yield* runtime.resumeThread({ providerThread, threadId, runtimePolicy: readOnlyPolicy });
 
         const projection = yield* (yield* ProjectionStore.ProjectionStoreV2).getThreadProjection(
@@ -1124,38 +1118,7 @@ it.effect(
         );
         const runId = idAllocator.derive.run({ threadId, ordinal: 1 });
         const writablePolicy = { ...runtimePolicy, sandboxPolicy: { type: "workspaceWrite" } };
-        yield* manager.open({
-          threadId,
-          providerSessionId,
-          modelSelection,
-          runtimePolicy: writablePolicy,
-        });
-        assert.deepEqual(
-          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
-          readOnlyPolicy,
-        );
-        failingResume = true;
-        const resume = yield* runtime
-          .resumeThread({ providerThread, threadId, modelSelection, runtimePolicy: writablePolicy })
-          .pipe(Effect.result, Effect.forkScoped);
-        yield* Deferred.await(resumeEntered);
-        assert.deepEqual(
-          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
-          readOnlyPolicy,
-        );
-        yield* Deferred.fail(
-          rejectResume,
-          new ProviderAdapterProtocolError({
-            driver: CODEX_DRIVER,
-            detail: "Native resume rejected",
-          }),
-        );
-        assert.equal((yield* Fiber.join(resume))._tag, "Failure");
-        assert.deepEqual(
-          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
-          readOnlyPolicy,
-        );
-        yield* runtime.startTurn({
+        const turnInput = {
           appThread: projection.thread,
           threadId,
           runId,
@@ -1173,7 +1136,34 @@ it.effect(
           },
           modelSelection,
           runtimePolicy: writablePolicy,
+        } satisfies Parameters<typeof runtime.startTurn>[0];
+        yield* runtime.startTurn({ ...turnInput, runtimePolicy: readOnlyPolicy });
+        yield* manager.open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy: writablePolicy,
         });
+        assert.deepEqual(
+          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
+          readOnlyPolicy,
+        );
+        failingResume = true;
+        const resume = yield* runtime
+          .resumeThread({ providerThread, threadId, modelSelection, runtimePolicy: writablePolicy })
+          .pipe(Effect.result, Effect.forkScoped);
+        yield* Deferred.await(resumeEntered);
+        assert.isUndefined(McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy);
+        yield* Deferred.fail(
+          rejectResume,
+          new ProviderAdapterProtocolError({
+            driver: CODEX_DRIVER,
+            detail: "Native resume rejected",
+          }),
+        );
+        assert.equal((yield* Fiber.join(resume))._tag, "Failure");
+        assert.isUndefined(McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy);
+        yield* runtime.startTurn(turnInput);
         assert.deepEqual(
           McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
           writablePolicy,
@@ -1181,6 +1171,19 @@ it.effect(
         const resumes = (yield* Ref.get(state)).resumeCount;
         yield* runtime.resumeThread({ providerThread, threadId, runtimePolicy: readOnlyPolicy });
         assert.equal((yield* Ref.get(state)).resumeCount, resumes);
+        assert.deepEqual(
+          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
+          writablePolicy,
+        );
+        failingResume = false;
+        yield* runtime.resumeThread({
+          providerThread,
+          threadId,
+          modelSelection,
+          runtimePolicy: writablePolicy,
+        });
+        assert.isUndefined(McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy);
+        yield* runtime.startTurn(turnInput);
         assert.deepEqual(
           McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
           writablePolicy,

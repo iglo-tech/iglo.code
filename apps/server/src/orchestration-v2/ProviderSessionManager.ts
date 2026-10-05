@@ -1413,12 +1413,17 @@ export const layerWithOptions = (
               policy,
             ),
           );
-        // Codex thread RPCs acknowledge policy changes. Capture other adapters'
-        // policy at turn start; Claude resume only restores thread identity.
-        const recordThreadPolicy = (
-          threadId: ThreadId,
-          policy: ProviderAdapterV2RuntimePolicy | undefined,
-        ) => (runtime.driver === "codex" ? recordPolicy(threadId, policy) : Effect.void);
+        const invalidatePolicy = (threadId: ThreadId) =>
+          Effect.sync(() =>
+            McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(
+              threadId,
+              runtime.instanceId,
+            ),
+          );
+        // Codex thread RPCs omit turn permission overrides. Treat their policy
+        // as unknown until a turn applies it, including while the RPC is pending.
+        const invalidateThreadPolicy = (threadId: ThreadId) =>
+          runtime.driver === "codex" ? invalidatePolicy(threadId) : Effect.void;
         return {
           ...runtime,
           subscribeEvents,
@@ -1434,8 +1439,8 @@ export const layerWithOptions = (
                 providerInstanceId: runtime.instanceId,
               }),
             ).pipe(
+              Effect.andThen(invalidateThreadPolicy(input.threadId)),
               Effect.andThen(runtime.ensureThread(input)),
-              Effect.tap(() => recordThreadPolicy(input.threadId, input.runtimePolicy)),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
                   providerSessionId,
@@ -1474,9 +1479,9 @@ export const layerWithOptions = (
               Effect.flatMap((loaded) =>
                 loaded
                   ? Effect.succeed(input.providerThread)
-                  : runtime
-                      .resumeThread(input)
-                      .pipe(Effect.tap(() => recordThreadPolicy(threadId, input.runtimePolicy))),
+                  : invalidateThreadPolicy(threadId).pipe(
+                      Effect.andThen(runtime.resumeThread(input)),
+                    ),
               ),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
@@ -1504,8 +1509,8 @@ export const layerWithOptions = (
                 providerInstanceId: runtime.instanceId,
               }),
             ).pipe(
+              Effect.andThen(invalidateThreadPolicy(input.targetThreadId)),
               Effect.andThen(runtime.forkThread(input)),
-              Effect.tap(() => recordThreadPolicy(input.targetThreadId, input.runtimePolicy)),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
                   providerSessionId,
@@ -1532,8 +1537,17 @@ export const layerWithOptions = (
               }),
             ).pipe(
               Effect.andThen(observeActivity(providerSessionId, markBusy(providerSessionId))),
+              // Claude publishes at query application; successful continuations
+              // may only drain an existing process with its previous policy.
+              Effect.andThen(
+                runtime.driver === "claudeAgent" ? Effect.void : invalidatePolicy(input.threadId),
+              ),
               Effect.andThen(runtime.startTurn(input)),
-              Effect.tap(() => recordPolicy(input.threadId, input.runtimePolicy)),
+              Effect.tap(() =>
+                runtime.driver === "claudeAgent"
+                  ? Effect.void
+                  : recordPolicy(input.threadId, input.runtimePolicy),
+              ),
               Effect.catch((error) =>
                 observeActivity(providerSessionId, markIdle(providerSessionId)).pipe(
                   Effect.andThen(Effect.fail(error)),

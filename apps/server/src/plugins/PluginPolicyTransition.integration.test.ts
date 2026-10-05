@@ -15,6 +15,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { Host } from "@t3tools/plugin-host-contract/server";
+import { PluginError } from "@t3tools/plugin-host-contract/schema";
 import { plugin as fixture } from "@t3tools/plugin-fixture/server";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -41,9 +42,9 @@ import { OrchestrationV2EventSinkLayerLive } from "../orchestration-v2/runtimeLa
 
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const settings = Schema.decodeSync(ClaudeSettings)({});
-it.live(
-  "retains the applied Claude policy across no-op resume and rejected replacement",
-  () =>
+it.live.each(["replacement", "continuation", "unchanged continuation"] as const)(
+  "retains the applied Claude policy across %s",
+  (scenario) =>
     Effect.scoped(
       Effect.gen(function* () {
         const plugin = {
@@ -54,6 +55,17 @@ it.live(
               tools: s.tools.map((t) => ({
                 ...t,
                 permission: { ...t.permission, allowInReadOnly: false },
+                invoke: (...[input, caller]: Parameters<typeof t.invoke>) =>
+                  caller.runtimeMode === "full-access"
+                    ? t.invoke(input, caller)
+                    : Effect.fail(
+                        new PluginError({
+                          pluginId: "fixture",
+                          code: "unauthorized",
+                          operation: t.id,
+                          message: "This mutation requires the applied full-access mode.",
+                        }),
+                      ),
               })),
             })),
           ),
@@ -146,11 +158,21 @@ it.live(
         const sessionId = ProviderSessionId.make("policy-promotion-session");
         const readOnlyPolicy = {
           cwd: config.baseDir,
-          runtimeMode: "full-access" as const,
+          runtimeMode:
+            scenario === "replacement" ? ("full-access" as const) : ("approval-required" as const),
           interactionMode: "default" as const,
-          sandboxPolicy: { type: "readOnly" },
+          ...(scenario === "replacement" ? { sandboxPolicy: { type: "readOnly" } } : {}),
         };
-        const writablePolicy = { ...readOnlyPolicy, sandboxPolicy: { type: "workspaceWrite" } };
+        const writablePolicy =
+          scenario === "unchanged continuation"
+            ? readOnlyPolicy
+            : {
+                ...readOnlyPolicy,
+                runtimeMode: "full-access" as const,
+                ...(scenario === "replacement"
+                  ? { sandboxPolicy: { type: "workspaceWrite" } }
+                  : {}),
+              };
         const runtime = yield* manager.open({
           threadId,
           providerSessionId: sessionId,
@@ -162,7 +184,7 @@ it.live(
           modelSelection: selection,
           runtimePolicy: readOnlyPolicy,
         });
-        const projection = yield* threads.getThreadRecords(threadId, []);
+        let projection = yield* threads.getThreadRecords(threadId, []);
         const turn = (attempt: string, runtimePolicy: typeof readOnlyPolicy) => ({
           appThread: projection.thread,
           threadId,
@@ -195,7 +217,9 @@ it.live(
           Effect.forkScoped,
         );
         yield* runtime.startTurn(turn("readonly-turn", readOnlyPolicy));
-        expect(opened[0]?.options.permissionMode).toBe("dontAsk");
+        expect(opened[0]?.options.permissionMode).toBe(
+          scenario === "replacement" ? "dontAsk" : "default",
+        );
         expect(opened[0]?.options.allowedTools).not.toContain(
           "mcp__t3-code__plugin_fixture_report",
         );
@@ -289,6 +313,13 @@ it.live(
         });
         yield* Deferred.await(terminal);
         expect(yield* runtime.hasPendingBackgroundWork!).toBe(true);
+        yield* threads.dispatch({
+          type: "thread.runtime-mode.set",
+          commandId: CommandId.make("select-mode"),
+          threadId,
+          runtimeMode: writablePolicy.runtimeMode,
+        });
+        projection = yield* threads.getThreadRecords(threadId, []);
         yield* manager.open({
           threadId,
           providerSessionId: sessionId,
@@ -301,10 +332,18 @@ it.live(
           modelSelection: selection,
           runtimePolicy: writablePolicy,
         });
-        const refused = yield* runtime
-          .startTurn(turn("writable-turn", writablePolicy))
-          .pipe(Effect.flip);
-        expect(refused.message).toContain("Failed to start");
+        if (scenario === "replacement") {
+          const refused = yield* runtime
+            .startTurn(turn("writable-turn", writablePolicy))
+            .pipe(Effect.flip);
+          expect(refused.message).toContain("Failed to start");
+        } else {
+          const continuation = turn("continuation", writablePolicy);
+          yield* runtime.startTurn({
+            ...continuation,
+            message: { ...continuation.message, createdBy: "agent", creationSource: "provider" },
+          });
+        }
         expect(opened).toHaveLength(1);
         expect(closed).toBe(0);
         const result = yield* call("after");

@@ -534,6 +534,33 @@ export const layer = Layer.effect(
             return active;
           }
 
+          // A supplied identity may belong to a retired plugin occurrence even
+          // when the current schedule id now names an ordinary prompt.
+          if (requestedOccurrenceId !== undefined) {
+            const [requested] = yield* sql<{
+              task_id: string;
+              status: string;
+              error: string | null;
+            }>`SELECT task_id, status, error FROM scheduled_task_occurrences WHERE id = ${requestedOccurrenceId}`;
+            if (requested !== undefined) {
+              if (requested.task_id !== active.id)
+                return yield* taskError("This occurrence identity belongs to another schedule.", {
+                  taskId: active.id,
+                });
+              if (requested.status === "failed")
+                return yield* taskError(requested.error ?? "The scheduled occurrence failed.", {
+                  taskId: active.id,
+                });
+              if (requested.status === "succeeded") return active;
+              if (active.dispatchTarget === undefined) {
+                yield* resolveOrphan(requestedOccurrenceId);
+                return yield* taskError("Schedule no longer owns this plugin occurrence.", {
+                  taskId: active.id,
+                });
+              }
+            }
+          }
+
           const [pending] =
             active.dispatchTarget === undefined
               ? []

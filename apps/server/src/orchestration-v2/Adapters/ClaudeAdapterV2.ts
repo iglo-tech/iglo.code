@@ -6945,9 +6945,18 @@ export function makeClaudeAdapterV2(
             // a denied ExitPlanMode leaves it there. Put the live process back
             // in the thread's mode before the next prompt.
             if (existing.permissionMode !== existing.openedPermissionMode) {
+              McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(
+                turnInput.threadId,
+                adapterOptions.instanceId,
+              );
               yield* existing.query.setPermissionMode(existing.openedPermissionMode);
               existing.permissionMode = existing.openedPermissionMode;
             }
+            McpProviderSession.updateMcpProviderSessionRuntimePolicy(
+              turnInput.threadId,
+              adapterOptions.instanceId,
+              turnInput.runtimePolicy,
+            );
             return existing;
           }
 
@@ -7012,6 +7021,10 @@ export function makeClaudeAdapterV2(
             onUserDialog,
             supportedDialogKinds: ["resume_return"],
           });
+          McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(
+            turnInput.threadId,
+            adapterOptions.instanceId,
+          );
           const querySession = yield* queryRunner
             .open({
               threadId: turnInput.threadId,
@@ -7034,6 +7047,11 @@ export function makeClaudeAdapterV2(
                   : Effect.void,
               ),
             );
+          McpProviderSession.updateMcpProviderSessionRuntimePolicy(
+            turnInput.threadId,
+            adapterOptions.instanceId,
+            turnInput.runtimePolicy,
+          );
           // Marked only after a successful open: a failed create must not
           // leave the runtime believing the native session exists, or the
           // retry would resume a session that was never created.

@@ -106,7 +106,7 @@ export const make = Effect.gen(function* () {
             threadId: caller.threadId,
             providerInstanceId: caller.providerInstanceId,
             providerSessionId: caller.providerSessionId,
-            runtimeMode: policy?.runtimeMode ?? projection.thread.runtimeMode,
+            runtimeMode: policy?.runtimeMode ?? "approval-required",
           });
           const encoded = yield* encodeOutput(result).pipe(
             Effect.mapError(
