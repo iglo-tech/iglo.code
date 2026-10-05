@@ -99,6 +99,8 @@ export function definitionProblems(definition: Definition): string[] {
   const nodes = new Map(definition.nodes.map((node) => [node.id, node]));
   if (nodes.size !== definition.nodes.length) errors.push("Node identities must be unique.");
   if (!nodes.has(definition.entry)) errors.push("The entry node does not exist.");
+  if (nodes.get(definition.entry)?.kind === "join")
+    errors.push("The entry node cannot be a join; start at its fork.");
   const terminal = (id: string) => ["end", "human"].includes(nodes.get(id)?.kind ?? "");
   if (!terminal(definition.atLimit))
     errors.push("The run At limit destination must be an end or human gate.");
@@ -107,6 +109,9 @@ export function definitionProblems(definition: Definition): string[] {
     for (const route of routes(node)) {
       edges++;
       if (!nodes.has(route.to)) errors.push(`${node.id}: unknown route target ${route.to}.`);
+      const target = nodes.get(route.to);
+      if (target?.kind === "join" && (node.kind !== "parallel" || node.id !== target.fork))
+        errors.push(`${node.id}: join ${target.id} must be entered through fork ${target.fork}.`);
       if (route.repeat) {
         edges++;
         if (!terminal(route.repeat.atLimit))

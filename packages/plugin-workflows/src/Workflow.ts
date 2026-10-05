@@ -132,6 +132,7 @@ const make = Effect.gen(function* () {
           error("target", "The requested environment is not this server.", "unavailable"),
         );
   const notify = PubSub.publish(changes, undefined).pipe(Effect.asVoid);
+  const interruptId = (attempt: Attempt) => `${attempt.id}:interrupt:${attempt.resumeCount}`;
   const load = Effect.fnUntraced(function* (id: string) {
     const [row] = yield* sql<{ data: string }>`SELECT data FROM workflow_runs WHERE id = ${id}`;
     if (!row) return yield* error("get", "The workflow run is unavailable.", "unavailable");
@@ -167,7 +168,7 @@ const make = Effect.gen(function* () {
       if (attempt.phase === "reminding" && !attempt.reminderSent)
         yield* enqueue(run, `${attempt.id}:reminder`, "reminder", attempt.id);
       if (["canceled", "interrupted", "unresolved", "stale"].includes(attempt.phase))
-        yield* enqueue(run, `${attempt.id}:interrupt`, "interrupt", attempt.id);
+        yield* enqueue(run, interruptId(attempt), "interrupt", attempt.id);
     }
     mutation++;
     projectVersions.set(run.projectId, (projectVersions.get(run.projectId) ?? 0) + 1);
@@ -810,6 +811,9 @@ const make = Effect.gen(function* () {
     reconcileAfter = rows.length === 100 ? rows.at(-1)!.rowid : 0;
     for (const row of rows) {
       const run = yield* load(row.id);
+      // A previously stranded join can have a completed node effect, so also reconcile its disposition.
+      if (run.definition.nodes.find((node) => node.id === run.currentNode)?.kind === "join")
+        yield* nodeWork(run.id);
       for (const attempt of run.attempts) {
         if (attempt.phase === "launching") {
           const now = yield* Clock.currentTimeMillis;
@@ -994,9 +998,21 @@ const make = Effect.gen(function* () {
     }
     if (node.kind === "join") {
       const review = observed.reviews.findLast((review) => review.fork === node.fork);
+      if (!review || review.result || review.consumed) {
+        yield* transaction(
+          "join-admission",
+          Effect.gen(function* () {
+            const run = yield* load(runId);
+            if (run.state !== "running" || run.currentNode !== node.id) return;
+            const current = run.reviews.findLast((review) => review.fork === node.fork);
+            if (current && !current.result && !current.consumed) return;
+            unresolved(run, `Join ${node.id} has no fresh, unconsumed fork generation.`);
+            yield* persist(run);
+          }),
+        );
+        return;
+      }
       if (
-        !review ||
-        review.result ||
         review.branches.some(
           (branch) =>
             !terminalAttempt(observed.attempts.find((attempt) => attempt.id === branch.attemptId)!),
@@ -1132,27 +1148,35 @@ const make = Effect.gen(function* () {
     const observed = yield* load(item.run_id);
     if (item.kind === "interrupt") {
       const attempt = observed.attempts.find((attempt) => attempt.id === item.attempt_id)!;
+      const isCurrent = (attempt: Attempt) =>
+        ["canceled", "interrupted", "unresolved", "stale"].includes(attempt.phase) &&
+        (item.id === interruptId(attempt) ||
+          (attempt.resumeCount === 0 && item.id === `${attempt.id}:interrupt`));
+      if (!isCurrent(attempt)) return;
       const check = checks.get(attempt.id);
       if (check) {
         yield* Fiber.interrupt(check);
         checks.delete(attempt.id);
       }
-      if (attempt.threadId) {
-        yield* host.cancelPending(target(observed, attempt));
-        const launched = attempt.launch ? yield* host.receipt(commandId(attempt, "launch")) : null;
+      yield* Effect.gen(function* () {
+        const run = yield* load(item.run_id);
+        const current = run.attempts.find((attempt) => attempt.id === item.attempt_id)!;
+        if (!isCurrent(current) || !current.threadId) return;
+        yield* host.cancelPending(target(run, current));
+        const launched = current.launch ? yield* host.receipt(commandId(current, "launch")) : null;
         if (!launched || launched.status !== "accepted") return;
-        // A lost follow-up acknowledgement may leave a newer run than executionRunId.
-        const state = yield* host.inspect(target(observed, attempt));
+        // Hold the command lock so an explicit Resume cannot race an older interruption.
+        const state = yield* host.inspect(target(run, current));
         const active = state.runs.filter((run) =>
           ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
         );
         for (const execution of active)
           yield* host.interrupt({
-            ...target(observed, attempt),
-            commandId: commandId(attempt, `interrupt-${digest(execution.id).slice(0, 16)}`),
+            ...target(run, current),
+            commandId: commandId(current, `interrupt-${digest(execution.id).slice(0, 16)}`),
             runId: execution.id,
           });
-      }
+      }).pipe(lock.withPermits(1));
       return;
     }
     if (observed.state !== "running") return;
