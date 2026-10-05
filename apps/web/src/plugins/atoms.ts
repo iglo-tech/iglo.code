@@ -1,5 +1,4 @@
 import type { EnvironmentId, PluginAttention, PluginCatalog } from "@t3tools/contracts";
-import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
@@ -29,11 +28,12 @@ export function createPluginAtoms<R, E, RpcError>(
       .pipe(Atom.setIdleTTL(0)),
   );
   const availableCatalog = Atom.family((environmentId: EnvironmentId) =>
-    Atom.make((get) =>
-      enabled(get, environmentId)
-        ? Option.getOrNull(AsyncResult.value(get(catalog(environmentId))))
-        : null,
-    ),
+    Atom.make((get) => {
+      if (!enabled(get, environmentId)) return null;
+      const result = get(catalog(environmentId));
+      // During refresh, the cached catalog belongs to the previous connection.
+      return AsyncResult.isSuccess(result) && !result.waiting ? result.value : null;
+    }),
   );
   const attention = Atom.family((environmentId: EnvironmentId) =>
     runtime
