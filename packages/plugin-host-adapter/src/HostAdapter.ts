@@ -20,6 +20,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -47,6 +48,7 @@ import { delegatedTaskProgress } from "../../../apps/server/src/orchestration-v2
 import * as ProcessRunner from "../../../apps/server/src/processRunner.ts";
 import * as McpSessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
 
+const encodeString = Schema.encodeSync(Schema.fromJsonString(Schema.String));
 const fail = (operation: string, message: string, cause?: unknown) =>
   new PluginError({
     pluginId: "host",
@@ -492,7 +494,7 @@ const make = Effect.gen(function* () {
         }
         let text = input.text;
         for (const secret of secrets) {
-          text = text.replaceAll(JSON.stringify(secret).slice(1, -1), "[redacted]");
+          text = text.replaceAll(encodeString(secret).slice(1, -1), "[redacted]");
           text = text.replaceAll(secret, "[redacted]");
         }
         return text;
