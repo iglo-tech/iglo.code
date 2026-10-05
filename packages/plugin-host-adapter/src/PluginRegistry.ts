@@ -112,7 +112,9 @@ const make = Effect.gen(function* () {
   const options = yield* Configuration;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const servicesContext = yield* Effect.context<Host | Scheduler.Scheduler>();
+  const servicesContext = yield* Effect.context<
+    Host | Scheduler.Scheduler | FileSystem.FileSystem | Path.Path
+  >();
   const lifetime = yield* Effect.scope;
   const startLock = yield* Semaphore.make(1);
   const initialized = yield* Deferred.make<void>();

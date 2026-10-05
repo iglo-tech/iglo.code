@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import { RpcGroupFixture, apiScopes } from "@t3tools/plugin-fixture/contracts";
+import { WorkflowRpcGroup, apiScopes as workflowScopes } from "@t3tools/plugin-workflows/contracts";
 import { EnvironmentId, PluginAttention, PluginCatalog, PluginError } from "./pluginHost.ts";
 import { AuthOrchestrationReadScope, EnvironmentAuthorizationError } from "./auth.ts";
 
@@ -21,9 +22,11 @@ export const PluginAttentionRpc = Rpc.make("plugins.attention", {
 /** The single build-time composition point for compiled plugin client APIs. */
 export const CompiledPluginRpcGroup = RpcGroup.make(PluginCatalogRpc, PluginAttentionRpc).merge(
   RpcGroupFixture,
+  WorkflowRpcGroup,
 );
 export const COMPILED_PLUGIN_RPC_SCOPES = {
   "plugins.catalog": AuthOrchestrationReadScope,
   "plugins.attention": AuthOrchestrationReadScope,
   ...apiScopes,
+  ...workflowScopes,
 };

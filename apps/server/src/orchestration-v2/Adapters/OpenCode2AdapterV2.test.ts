@@ -2746,6 +2746,7 @@ describe("OpenCode2 adapter", () => {
           const permissions = [
             ...(runtimeMode === "full-access" ? t3Rules : supervisedRules),
             pluginRule,
+            { action: `${server}_plugin_workflows_report`, resource: "*", effect: "allow" },
           ];
           const fixture = yield* makePluginToolFixture("opencode", threadId);
           const firstCredential = yield* fixture.issue;

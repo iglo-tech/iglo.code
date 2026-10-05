@@ -1,4 +1,11 @@
 import { plugin } from "@t3tools/plugin-fixture/server";
+import { plugin as workflowPlugin } from "@t3tools/plugin-workflows/server";
+import {
+  rpcs as workflowRpcs,
+  apiScopes as workflowScopes,
+  Run as WorkflowRun,
+  CatalogEntry,
+} from "@t3tools/plugin-workflows/contracts";
 import { Host, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
 import * as HostAdapter from "@t3tools/plugin-host-adapter/host";
@@ -21,11 +28,14 @@ import * as Stream from "effect/Stream";
 import * as ServerConfig from "../config.ts";
 
 const decodeReports = Schema.decodeUnknownEffect(Reports);
+const WorkflowRuns = Schema.Array(WorkflowRun);
+const CatalogEntries = Schema.Array(CatalogEntry);
+const decodeWorkflowRuns = Schema.decodeUnknownEffect(WorkflowRuns);
 
 /** Trusted server modules explicitly included in this build. An empty list is supported. */
 export class CompiledPlugins extends Context.Reference<ReadonlyArray<ServerPlugin>>(
   "t3/plugins/CompiledPlugins",
-  { defaultValue: () => [plugin] },
+  { defaultValue: () => [plugin, workflowPlugin] },
 ) {}
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
@@ -37,10 +47,12 @@ export const layer = Layer.unwrap(
       directory: `${config.stateDir}/plugins`,
       plugins: compiledPlugins,
       clientApis: new Map(
-        [ListRpc, ResolveRpc, ScheduleRpc, SubscribeRpc].map((rpc) => [
-          rpc._tag,
-          { rpc, requiredScope: apiScopes[rpc._tag] },
-        ]),
+        [ListRpc, ResolveRpc, ScheduleRpc, SubscribeRpc, ...Object.values(workflowRpcs)].map(
+          (rpc) => [
+            rpc._tag,
+            { rpc, requiredScope: { ...apiScopes, ...workflowScopes }[rpc._tag]! },
+          ],
+        ),
       ),
     });
   }),
@@ -101,6 +113,63 @@ export const handlers = (registry: Registry.PluginRegistry["Service"]) => ({
   "plugins.attention": (input: {
     readonly environmentId: import("@t3tools/contracts").EnvironmentId;
   }) => registry.attention(input.environmentId),
+  [workflowRpcs.catalog._tag]: (input: typeof workflowRpcs.catalog.payloadSchema.Type) =>
+    request(registry, workflowRpcs.catalog._tag, input, CatalogEntries),
+  [workflowRpcs.validate._tag]: (input: typeof workflowRpcs.validate.payloadSchema.Type) =>
+    request(registry, workflowRpcs.validate._tag, input, CatalogEntry),
+  [workflowRpcs.save._tag]: (input: typeof workflowRpcs.save.payloadSchema.Type) =>
+    request(registry, workflowRpcs.save._tag, input, CatalogEntry),
+  [workflowRpcs.start._tag]: (input: typeof workflowRpcs.start.payloadSchema.Type) =>
+    request(registry, workflowRpcs.start._tag, input, WorkflowRun),
+  [workflowRpcs.get._tag]: (input: typeof workflowRpcs.get.payloadSchema.Type) =>
+    request(registry, workflowRpcs.get._tag, input, WorkflowRun),
+  [workflowRpcs.list._tag]: (input: typeof workflowRpcs.list.payloadSchema.Type) =>
+    request(registry, workflowRpcs.list._tag, input, WorkflowRuns),
+  [workflowRpcs.reconcile._tag]: (input: typeof workflowRpcs.reconcile.payloadSchema.Type) =>
+    request(registry, workflowRpcs.reconcile._tag, input, WorkflowRuns),
+  [workflowRpcs.cancel._tag]: (input: typeof workflowRpcs.cancel.payloadSchema.Type) =>
+    request(registry, workflowRpcs.cancel._tag, input, WorkflowRun),
+  [workflowRpcs.retry._tag]: (input: typeof workflowRpcs.retry.payloadSchema.Type) =>
+    request(registry, workflowRpcs.retry._tag, input, WorkflowRun),
+  [workflowRpcs.resume._tag]: (input: typeof workflowRpcs.resume.payloadSchema.Type) =>
+    request(registry, workflowRpcs.resume._tag, input, WorkflowRun),
+  [workflowRpcs.gate._tag]: (input: typeof workflowRpcs.gate.payloadSchema.Type) =>
+    request(registry, workflowRpcs.gate._tag, input, WorkflowRun),
+  [workflowRpcs.schedule._tag]: (input: typeof workflowRpcs.schedule.payloadSchema.Type) =>
+    request(registry, workflowRpcs.schedule._tag, input, Schema.Void),
+  [workflowRpcs.subscribe._tag]: (input: typeof workflowRpcs.subscribe.payloadSchema.Type) =>
+    Stream.unwrap(
+      registry.api(workflowRpcs.subscribe._tag).pipe(
+        Effect.map((api) => {
+          const result = api.invoke(input);
+          return Stream.isStream(result)
+            ? result
+            : Stream.fail(
+                new PluginError({
+                  pluginId: "workflows",
+                  code: "validation",
+                  operation: "subscribe",
+                  message: "This API was registered as a request instead of a subscription.",
+                }),
+              );
+        }),
+      ),
+    ).pipe(
+      Stream.mapEffect((result) =>
+        decodeWorkflowRuns(result).pipe(
+          Effect.mapError(
+            (cause) =>
+              new PluginError({
+                pluginId: "workflows",
+                code: "validation",
+                operation: "subscribe",
+                message: "The plugin returned an invalid subscription response.",
+                cause,
+              }),
+          ),
+        ),
+      ),
+    ),
   [ListRpc._tag]: (input: typeof ListRpc.payloadSchema.Type) =>
     request(registry, ListRpc._tag, input, Reports),
   [ResolveRpc._tag]: (input: typeof ResolveRpc.payloadSchema.Type) =>

@@ -2012,7 +2012,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                     "t3-code": {
                       url: first.endpoint,
                       http_headers: { Authorization: first.authorizationHeader },
-                      tools: { plugin_fixture_report: { approval_mode: "approve" } },
+                      tools: {
+                        plugin_fixture_report: { approval_mode: "approve" },
+                        plugin_workflows_report: { approval_mode: "approve" },
+                      },
                     },
                   },
                 },
@@ -2035,7 +2038,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                     "t3-code": {
                       url: refreshed.endpoint,
                       http_headers: { Authorization: refreshed.authorizationHeader },
-                      tools: { plugin_fixture_report: { approval_mode: "approve" } },
+                      tools: {
+                        plugin_fixture_report: { approval_mode: "approve" },
+                        plugin_workflows_report: { approval_mode: "approve" },
+                      },
                     },
                   },
                 },

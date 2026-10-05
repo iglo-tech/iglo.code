@@ -206,6 +206,20 @@ export const makePluginToolFixture = (
             })
             .pipe(Effect.flatMap((response) => response.text));
         expect(yield* call("tools/list", {})).toContain('"name":"plugin_fixture_report"');
+        expect(yield* call("tools/list", {})).toContain('"name":"plugin_workflows_report"');
+        const unbound = yield* call("tools/call", {
+          name: "plugin_workflows_report",
+          arguments: {
+            version: 1,
+            clientRetryKey: id,
+            outcome: "completed",
+            summary: "Unbound native report",
+            data: {},
+            evidence: [],
+          },
+        });
+        expect(unbound).toContain('"isError":true');
+        expect(unbound).toContain("does not own a workflow attempt");
         const result = yield* call("tools/call", {
           name: "plugin_fixture_report",
           arguments: { id, summary: `${provider} report` },

@@ -1,0 +1,219 @@
+import { expect, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import { Host } from "@t3tools/plugin-host-contract/server";
+import { plugin } from "@t3tools/plugin-workflows/server";
+import * as Registry from "@t3tools/plugin-host-adapter/registry";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpBody from "effect/unstable/http/HttpBody";
+import * as ProviderSessions from "../mcp/McpProviderSession.ts";
+import * as McpSessions from "../mcp/McpSessionRegistry.ts";
+import { Run } from "@t3tools/plugin-workflows/contracts";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import * as Projects from "../project/ProjectService.ts";
+import { startEnvironment } from "./PluginHost.testkit.ts";
+import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
+
+const decodeRun = Schema.decodeUnknownEffect(Run);
+const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(Run));
+
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+it.live("accepts one report for a reserved workflow attempt and returns its receipt on retry", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const config = { ...(yield* makeReplayServerConfig("workflows")), noBrowser: true };
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      yield* spawner.exitCode(ChildProcess.make("git", ["init", config.baseDir]));
+      yield* spawner.exitCode(
+        ChildProcess.make("git", [
+          "-C",
+          config.baseDir,
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "initial",
+        ]),
+      );
+      const { context } = yield* startEnvironment(config, [
+        {
+          ...plugin,
+          acquire: Effect.gen(function* () {
+            const host = yield* Host;
+            // Keep real launch, core receipts and MCP authentication; replace the external provider turn.
+            return yield* plugin.acquire.pipe(
+              Effect.provideService(
+                Host,
+                Host.of({
+                  ...host,
+                  launch: (input) => host.launch({ ...input, instruction: undefined }),
+                }),
+              ),
+            );
+          }),
+        },
+      ]);
+      const host = Context.get(context, Host);
+      const registry = Context.get(context, Registry.PluginRegistry);
+      const projectId = ProjectId.make("workflow-project");
+      yield* Context.get(context, Projects.ProjectService).create({
+        commandId: CommandId.make("workflow-project"),
+        projectId,
+        title: "Workflow",
+        workspaceRoot: config.baseDir,
+      });
+      const invoke = Effect.fnUntraced(function* (method: string, input: unknown) {
+        const api = yield* registry.api(`plugins.workflows.${method}`);
+        const result = api.invoke(input);
+        if (!Effect.isEffect(result)) return yield* Effect.die("Expected a command");
+        return yield* result;
+      });
+      const run = yield* invoke("start", {
+        environmentId: host.environmentId,
+        projectId,
+        clientRequestId: "start-1",
+        workspace: { type: "current" },
+        input: {},
+        definition: {
+          version: 1,
+          id: "sequence",
+          revision: 1,
+          title: "Sequence",
+          entry: "implement",
+          atLimit: "review",
+          nodes: [
+            {
+              id: "implement",
+              kind: "agent",
+              title: "Implement",
+              modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+              runtimeMode: "approval-required",
+              instruction: "Implement the request",
+              report: { fields: [{ name: "ready", type: "boolean", required: true }] },
+              next: { to: "review" },
+            },
+            {
+              id: "review",
+              kind: "human",
+              title: "Review",
+              approve: { to: "done" },
+              changes: { to: "done" },
+            },
+            { id: "done", kind: "end", title: "Done", outcome: "completed" },
+          ],
+        },
+      });
+      expect(run).toMatchObject({
+        state: "running",
+        attempts: [{ nodeId: "implement", phase: "launching" }],
+      });
+      const started = yield* decodeRun(run);
+      const api = yield* registry.api("plugins.workflows.subscribe");
+      const stream = api.invoke({ environmentId: host.environmentId, projectId });
+      if (!Stream.isStream(stream)) return yield* Effect.die("Expected subscription");
+      const active = yield* stream.pipe(
+        Stream.mapEffect((value) => decodeRuns(value)),
+        Stream.flatMap(Stream.fromArray),
+        Stream.filter((run) => run.id === started.id && run.attempts[0]?.phase === "running"),
+        Stream.take(1),
+        Stream.runCollect,
+      );
+      const threadId = active[0]!.attempts[0]!.threadId!;
+      const sessions = Context.get(context, McpSessions.McpSessionRegistry);
+      const http = Context.get(context, HttpClient.HttpClient);
+      const issue = sessions.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+      });
+      const first = (yield* issue).config;
+      ProviderSessions.setMcpProviderSession(first);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => ProviderSessions.clearMcpProviderSession(threadId)),
+      );
+      const report = Effect.fnUntraced(function* (connection: typeof first) {
+        const headers = {
+          authorization: connection.authorizationHeader,
+          accept: "application/json, text/event-stream",
+        };
+        const initialize = yield* http.post(connection.endpoint, {
+          headers,
+          body: HttpBody.text(
+            encodeJson({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: { name: "workflow-test", version: "1" },
+              },
+            }),
+            "application/json",
+          ),
+        });
+        expect(initialize.status).toBe(200);
+        yield* initialize.text;
+        const response = yield* http.post(connection.endpoint, {
+          headers: {
+            ...headers,
+            "mcp-protocol-version": "2025-06-18",
+            ...(initialize.headers["mcp-session-id"]
+              ? { "mcp-session-id": initialize.headers["mcp-session-id"]! }
+              : {}),
+          },
+          body: HttpBody.text(
+            encodeJson({
+              jsonrpc: "2.0",
+              id: 2,
+              method: "tools/call",
+              params: {
+                name: "plugin_workflows_report",
+                arguments: {
+                  version: 1,
+                  clientRetryKey: "native-report",
+                  outcome: "completed",
+                  summary: "Implemented",
+                  data: { ready: true },
+                  evidence: [],
+                },
+              },
+            }),
+            "application/json",
+          ),
+        });
+        return yield* response.text;
+      });
+      const accepted = yield* report(first);
+      expect(accepted).toContain('"isError":false');
+      expect(accepted).toContain(started.attempts[0]!.id);
+      expect(yield* report(first)).toBe(accepted);
+      yield* sessions.revokeProviderSession(first.providerSessionId);
+      const refreshed = (yield* issue).config;
+      ProviderSessions.setMcpProviderSession(refreshed);
+      const revoked = yield* http.post(first.endpoint, {
+        headers: { authorization: first.authorizationHeader },
+        body: HttpBody.text("{}", "application/json"),
+      });
+      expect(revoked.status).toBe(401);
+      expect(yield* report(refreshed)).toBe(accepted);
+      const reported = yield* invoke("get", {
+        environmentId: host.environmentId,
+        projectId,
+        runId: started.id,
+      });
+      expect(reported).toMatchObject({
+        state: "running",
+        trace: [],
+        attempts: [{ phase: "reported", report: { data: { ready: true } } }],
+      });
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);

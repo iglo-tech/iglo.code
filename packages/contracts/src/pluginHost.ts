@@ -149,6 +149,9 @@ export const PluginThreadState = Schema.Struct({
   workspacePath: Schema.String,
   branch: Schema.NullOr(Schema.String),
   preparationId: Schema.optional(Schema.String),
+  nativeSession: Schema.optional(
+    Schema.NullOr(Schema.Struct({ id: Schema.String, canResume: Schema.Boolean })),
+  ),
   runs: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
   outstandingWork: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
   requests: Schema.Array(
@@ -198,11 +201,18 @@ export const PluginLaunchInput = Schema.Struct({
   environmentId: EnvironmentId,
   projectId: ProjectId,
   commandId: CommandId,
+  threadId: Schema.optional(ThreadId),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
+  interactionMode: Schema.optional(Schema.Literals(["default", "plan"])),
   workspace: Schema.Union([
     Schema.Struct({ type: Schema.Literal("current") }),
+    Schema.Struct({
+      type: Schema.Literal("existing"),
+      path: TrimmedNonEmptyString,
+      branch: Schema.NullOr(Schema.String),
+    }),
     Schema.Struct({
       type: Schema.Literal("exact-ref"),
       ref: TrimmedNonEmptyString,

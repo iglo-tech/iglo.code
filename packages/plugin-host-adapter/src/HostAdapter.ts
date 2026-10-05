@@ -41,6 +41,8 @@ import {
 } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { latestUnheldRun } from "@t3tools/shared/orchestrationV2ThreadError";
+import * as ProcessRunner from "../../../apps/server/src/processRunner.ts";
+import * as McpSessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
 
 const fail = (operation: string, message: string, cause?: unknown) =>
   new PluginError({
@@ -92,6 +94,7 @@ const make = Effect.gen(function* () {
   const settings = yield* Settings.ServerSettingsService;
   const git = yield* Git.GitVcsDriver;
   const pullRequests = yield* PullRequests.PullRequestService;
+  const processRunner = yield* ProcessRunner.ProcessRunner;
   const environment = (id: string) =>
     id === environmentId
       ? Effect.void
@@ -199,6 +202,17 @@ const make = Effect.gen(function* () {
       branch: records.thread.branch,
       ...(preparationId === undefined ? {} : { preparationId }),
       runs: runs.map((run) => ({ id: run.id, status: run.status })),
+      nativeSession: (() => {
+        const current = records.providerThreads.find(
+          (thread) => thread.id === records.thread.activeProviderThreadId,
+        );
+        return current?.nativeThreadRef?.nativeId
+          ? {
+              id: current.nativeThreadRef.nativeId,
+              canResume: !["closed", "archived", "error"].includes(current.status),
+            }
+          : null;
+      })(),
       outstandingWork: [
         ...(preparationId === undefined ? [] : [{ id: preparationId, status: "running" }]),
         ...records.nodes
@@ -362,6 +376,45 @@ const make = Effect.gen(function* () {
     );
   return Host.of({
     environmentId,
+    redact: (input) =>
+      Effect.gen(function* () {
+        const configuration = yield* settings.getSettings;
+        const secrets = new Set<string>();
+        const collect = (value: unknown) => {
+          if (!value || typeof value !== "object") return;
+          for (const [name, item] of Object.entries(value)) {
+            if (
+              typeof item === "string" &&
+              item.length >= 8 &&
+              /(?:token|password|secret|credential|key)$/i.test(name)
+            )
+              secrets.add(item);
+            else if (item && typeof item === "object") collect(item);
+          }
+          if (
+            "secret" in value &&
+            value.secret === true &&
+            "value" in value &&
+            typeof value.value === "string" &&
+            value.value.length >= 8
+          )
+            secrets.add(value.value);
+        };
+        collect(configuration);
+        for (const threadId of input.threadIds) {
+          const session = McpSessions.readMcpProviderSession(threadId);
+          if (session) {
+            secrets.add(session.authorizationHeader);
+            secrets.add(session.authorizationHeader.replace(/^Bearer /, ""));
+          }
+        }
+        let text = input.text;
+        for (const secret of secrets) {
+          text = text.replaceAll(JSON.stringify(secret).slice(1, -1), "[redacted]");
+          text = text.replaceAll(secret, "[redacted]");
+        }
+        return text;
+      }).pipe(Effect.mapError((cause) => fail("redact", "Could not redact known secrets.", cause))),
     receipt,
     inspect,
     reconcile,
@@ -424,6 +477,69 @@ const make = Effect.gen(function* () {
       project(projectId).pipe(
         Effect.flatMap((project) => resolveWorkspaceRef(project.workspaceRoot, ref)),
       ),
+    prepareWorkspace: (input) =>
+      Effect.gen(function* () {
+        const workspace = yield* project(input.projectId);
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(input.key))
+          return yield* fail("prepare", "Invalid workspace identity.");
+        const branch = `t3code/plugin-${input.key}`;
+        const refs = yield* git.listRefs({ cwd: workspace.workspaceRoot });
+        const existing = refs.refs.find((ref) => ref.name === branch && ref.worktreePath !== null);
+        const path =
+          existing?.worktreePath ??
+          (yield* git.createWorktree({
+            cwd: workspace.workspaceRoot,
+            refName: input.ref,
+            newRefName: branch,
+            path: null,
+          })).worktree.path;
+        const head = yield* git.resolveCommit({ cwd: path, revision: "HEAD" });
+        return { path, branch, head: head.commitSha };
+      }).pipe(
+        Effect.mapError((cause) =>
+          fail("prepare", "Could not prepare the owned workspace.", cause),
+        ),
+      ),
+    verifyWorkspace: (input) =>
+      Effect.gen(function* () {
+        const workspace = yield* project(input.projectId);
+        const refs = yield* git.listRefs({ cwd: workspace.workspaceRoot });
+        if (
+          input.path !== workspace.workspaceRoot &&
+          !refs.refs.some((ref) => ref.worktreePath === input.path)
+        )
+          return yield* fail("workspace", "The workspace does not belong to this project.");
+        const head = yield* git.resolveCommit({ cwd: input.path, revision: "HEAD" });
+        const status = yield* git.status({ cwd: input.path });
+        return { head: head.commitSha, clean: !status.hasWorkingTreeChanges };
+      }).pipe(
+        Effect.mapError((cause) => fail("workspace", "Could not verify the workspace.", cause)),
+      ),
+    execute: (input) =>
+      Effect.gen(function* () {
+        const workspace = yield* project(input.projectId);
+        const refs = yield* git.listRefs({ cwd: workspace.workspaceRoot });
+        if (
+          input.path !== workspace.workspaceRoot &&
+          !refs.refs.some((ref) => ref.worktreePath === input.path)
+        )
+          return yield* fail("execute", "The workspace does not belong to this project.");
+        const result = yield* processRunner.run({
+          command: input.command,
+          args: input.args,
+          cwd: input.path,
+          timeout: input.timeoutMs,
+          timeoutBehavior: "timedOutResult",
+          maxOutputBytes: 16_384,
+          outputMode: "truncate",
+        });
+        return {
+          exitCode: result.code,
+          timedOut: result.timedOut,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        };
+      }).pipe(Effect.mapError((cause) => fail("execute", "Could not execute the command.", cause))),
     verifyPullRequestHead: (input) =>
       pullRequests
         .verifyHead(input)
@@ -494,21 +610,33 @@ const make = Effect.gen(function* () {
         const launched = yield* launch
           .launch({
             commandId: input.commandId,
+            ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
             projectId: input.projectId,
             title: input.title,
             modelSelection: input.modelSelection,
             runtimeMode: input.runtimeMode,
-            interactionMode: limit?.interactionMode ?? "default",
+            interactionMode:
+              input.interactionMode === "plan" || limit?.interactionMode === "plan"
+                ? "plan"
+                : (input.interactionMode ?? limit?.interactionMode ?? "default"),
             workspaceStrategy:
               input.workspace.type === "current"
                 ? { type: "root" }
-                : {
-                    type: "worktree",
-                    baseRef: ref!,
-                    ...(input.workspace.branch === undefined
-                      ? {}
-                      : { branch: input.workspace.branch }),
-                  },
+                : input.workspace.type === "existing"
+                  ? {
+                      type: "existing_worktree",
+                      worktreePath: input.workspace.path,
+                      ...(input.workspace.branch === null
+                        ? {}
+                        : { branch: input.workspace.branch }),
+                    }
+                  : {
+                      type: "worktree",
+                      baseRef: ref!,
+                      ...(input.workspace.branch === undefined
+                        ? {}
+                        : { branch: input.workspace.branch }),
+                    },
             ...(input.instruction === undefined
               ? {}
               : {
@@ -804,4 +932,4 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(Host, make);
+export const layer = Layer.effect(Host, make).pipe(Layer.provide(ProcessRunner.layer));

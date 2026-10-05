@@ -57,6 +57,7 @@
     "@t3tools/plugin-fixture": "workspace:*",
     "@t3tools/plugin-host-adapter": "workspace:*",
     "@t3tools/plugin-host-contract": "workspace:*",
+    "@t3tools/plugin-workflows": "workspace:*",
     "@t3tools/shared": "workspace:*",
     "@t3tools/ssh": "workspace:*",
     "@t3tools/tailscale": "workspace:*",
