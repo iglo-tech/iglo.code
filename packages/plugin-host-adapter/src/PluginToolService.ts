@@ -8,6 +8,7 @@ import * as Sessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
 import * as Threads from "../../../apps/server/src/orchestration-v2/ThreadManagementService.ts";
 
 const decodeJsonObject = Schema.decodeUnknownEffect(Schema.JsonObject);
+const isReadOnlySandbox = Schema.is(Schema.Struct({ type: Schema.Literal("readOnly") }));
 export class PluginToolService extends Context.Service<
   PluginToolService,
   {
@@ -74,11 +75,16 @@ export const make = Effect.gen(function* () {
               operation: tool.id,
               message: provider?.reason ?? "The selected provider is unavailable.",
             });
-          if (
-            projection.thread.runtimeMode === "approval-required" &&
-            !tool.permission.readOnly &&
-            !tool.permission.allowInReadOnly
-          )
+          // Supervised Claude/OpenCode sessions can mutate. Only Codex defaults
+          // to a read-only sandbox; explicit overrides take precedence.
+          const policy = session.runtimePolicy;
+          const readOnly =
+            policy === undefined ||
+            ((provider.driver === "codex" || provider.driver === "claudeAgent") &&
+              (policy.sandboxPolicy === undefined
+                ? provider.driver === "codex" && policy.runtimeMode === "approval-required"
+                : isReadOnlySandbox(policy.sandboxPolicy)));
+          if (readOnly && !tool.permission.readOnly && !tool.permission.allowInReadOnly)
             return yield* denied(
               "This mutating tool has no explicit allowance for a read-only provider session. Use an allowed permission mode.",
             );
@@ -100,7 +106,7 @@ export const make = Effect.gen(function* () {
             threadId: caller.threadId,
             providerInstanceId: caller.providerInstanceId,
             providerSessionId: caller.providerSessionId,
-            runtimeMode: projection.thread.runtimeMode,
+            runtimeMode: policy?.runtimeMode ?? projection.thread.runtimeMode,
           });
           const encoded = yield* encodeOutput(result).pipe(
             Effect.mapError(

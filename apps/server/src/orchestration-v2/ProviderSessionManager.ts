@@ -1227,6 +1227,7 @@ export const layerWithOptions = (
         readonly providerSessionId: ProviderSessionId;
         readonly threadId: ThreadId;
         readonly providerInstanceId: ProviderInstanceId;
+        readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
       }) =>
         Effect.suspend(() => {
           let preparedForCleanup: PreparedMcpCredential | undefined;
@@ -1271,6 +1272,11 @@ export const layerWithOptions = (
                 );
               }
             }
+            McpProviderSession.updateMcpProviderSessionRuntimePolicy(
+              input.threadId,
+              input.providerInstanceId,
+              input.runtimePolicy,
+            );
           }).pipe(
             Effect.tapError(() =>
               removeThreadAttachment(input).pipe(
@@ -1415,6 +1421,7 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId: input.threadId,
                 providerInstanceId: runtime.instanceId,
+                runtimePolicy: input.runtimePolicy,
               }),
             ).pipe(
               Effect.andThen(runtime.ensureThread(input)),
@@ -1448,6 +1455,9 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId,
                 providerInstanceId: runtime.instanceId,
+                ...(input.runtimePolicy === undefined
+                  ? {}
+                  : { runtimePolicy: input.runtimePolicy }),
               }),
             ).pipe(
               Effect.andThen(
@@ -1480,6 +1490,9 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId: input.targetThreadId,
                 providerInstanceId: runtime.instanceId,
+                ...(input.runtimePolicy === undefined
+                  ? {}
+                  : { runtimePolicy: input.runtimePolicy }),
               }),
             ).pipe(
               Effect.andThen(runtime.forkThread(input)),
@@ -1506,6 +1519,7 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId: input.threadId,
                 providerInstanceId: runtime.instanceId,
+                runtimePolicy: input.runtimePolicy,
               }),
             ).pipe(
               Effect.andThen(observeActivity(providerSessionId, markBusy(providerSessionId))),
@@ -1718,6 +1732,7 @@ export const layerWithOptions = (
                   providerSessionId: input.providerSessionId,
                   threadId: input.threadId,
                   providerInstanceId: existing.runtime.instanceId,
+                  runtimePolicy: input.runtimePolicy,
                 });
                 yield* touchActivity(input.providerSessionId);
                 return existing.exposedRuntime;
@@ -1736,6 +1751,11 @@ export const layerWithOptions = (
               const prepared = yield* prepareMcpSession(
                 input.threadId,
                 input.modelSelection.instanceId,
+              );
+              McpProviderSession.updateMcpProviderSessionRuntimePolicy(
+                input.threadId,
+                input.modelSelection.instanceId,
+                input.runtimePolicy,
               );
               const mcpCredentialId = prepared.mcpCredentialId;
               // The reservation from prepare protects the credential (which

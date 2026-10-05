@@ -1,4 +1,5 @@
 import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import type { ProviderAdapterV2RuntimePolicy } from "../orchestration-v2/ProviderAdapter.ts";
 
 export interface McpProviderSessionConfig {
   readonly environmentId: EnvironmentId;
@@ -17,6 +18,8 @@ export interface McpProviderSessionConfig {
   /** Capabilities the credential grants ("preview", "device"). */
   readonly capabilities?: ReadonlySet<string>;
   readonly readOnlyPluginTools?: ReadonlyArray<string>;
+  /** The policy applied to the native session, including sandbox overrides. */
+  readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
   /**
    * Set when the session may drive devices. Adapters spread this into the
    * provider subprocess environment so the `agent-device` CLI is on PATH and
@@ -50,6 +53,17 @@ export function setMcpProviderSession(config: McpProviderSessionConfig): void {
 
 export function readMcpProviderSession(threadId: ThreadId): McpProviderSessionConfig | undefined {
   return sessionsByThread.get(threadId);
+}
+
+export function updateMcpProviderSessionRuntimePolicy(
+  threadId: ThreadId,
+  providerInstanceId: ProviderInstanceId,
+  runtimePolicy: ProviderAdapterV2RuntimePolicy | undefined,
+): void {
+  const session = sessionsByThread.get(threadId);
+  if (session?.providerInstanceId === providerInstanceId && runtimePolicy !== undefined) {
+    sessionsByThread.set(threadId, { ...session, runtimePolicy });
+  }
 }
 
 export function clearMcpProviderSession(threadId: ThreadId): void {

@@ -1067,7 +1067,7 @@ it.effect(
         yield* eventSink.write({
           events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
         });
-        yield* manager.open({
+        const runtime = yield* manager.open({
           threadId,
           providerSessionId,
           modelSelection,
@@ -1079,6 +1079,7 @@ it.effect(
         assert.equal(captured?.threadId, threadId);
         assert.equal(captured?.providerInstanceId, modelSelection.instanceId);
         assert.equal(captured?.endpoint, "http://127.0.0.1:43123/mcp");
+        assert.deepEqual(captured?.runtimePolicy, runtimePolicy);
         const token = captured?.authorizationHeader.replace(/^Bearer\s+/, "");
         assert.isDefined(token);
         const resolved = yield* registry.resolve(token!);
@@ -1086,6 +1087,57 @@ it.effect(
         assert.deepEqual(
           resolved?.capabilities,
           new Set(["preview", "orchestration", "worktree", "pull-requests"]),
+        );
+
+        const providerThread = makeProviderThread({
+          idAllocator,
+          threadId,
+          providerSessionId,
+          now,
+        });
+        const readOnlyPolicy = { ...runtimePolicy, sandboxPolicy: { type: "readOnly" } };
+        yield* runtime.resumeThread({ providerThread, threadId, runtimePolicy: readOnlyPolicy });
+        assert.deepEqual(
+          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
+          readOnlyPolicy,
+        );
+        yield* runtime.resumeThread({ providerThread, threadId });
+        assert.deepEqual(
+          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
+          readOnlyPolicy,
+        );
+
+        const projection = yield* (yield* ProjectionStore.ProjectionStoreV2).getThreadProjection(
+          threadId,
+        );
+        const runId = idAllocator.derive.run({ threadId, ordinal: 1 });
+        const writablePolicy = { ...runtimePolicy, sandboxPolicy: { type: "workspaceWrite" } };
+        yield* runtime.startTurn({
+          appThread: projection.thread,
+          threadId,
+          runId,
+          runOrdinal: 1,
+          providerTurnOrdinal: 1,
+          attemptId: idAllocator.derive.runAttempt({ runId, attemptOrdinal: 1 }),
+          rootNodeId: idAllocator.derive.rootNode({ runId }),
+          providerThread,
+          message: {
+            createdBy: "user",
+            creationSource: "web",
+            messageId: yield* idAllocator.allocate.message({ threadId, ordinal: 1 }),
+            text: "Apply the writable policy",
+            attachments: [],
+          },
+          modelSelection,
+          runtimePolicy: writablePolicy,
+        });
+        assert.deepEqual(
+          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
+          writablePolicy,
+        );
+        assert.equal(
+          McpProviderSession.readMcpProviderSession(threadId)?.providerSessionId,
+          captured?.providerSessionId,
         );
 
         yield* manager.close(providerSessionId);
