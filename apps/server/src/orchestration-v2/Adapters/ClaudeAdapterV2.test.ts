@@ -1913,7 +1913,7 @@ describe("ClaudeAdapterV2 native session identity", () => {
           const fixture = yield* makePluginToolFixture(
             "claudeAgent",
             ThreadId.make("thread-claude-session-identity"),
-            { workflow: true },
+            { workflow: true, runtimeMode: CLAUDE_TEST_RUNTIME_POLICY.runtimeMode },
           );
           const initialCredential = yield* fixture.issue;
           const first = yield* openTurnWithOrdinal(1, undefined, initialCredential);

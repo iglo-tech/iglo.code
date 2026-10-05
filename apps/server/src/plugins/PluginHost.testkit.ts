@@ -3,6 +3,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   type AuthEnvironmentScope,
+  type RuntimeMode,
   type ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -109,7 +110,7 @@ export const makeClient = (
 export const makePluginToolFixture = (
   provider: "codex" | "claudeAgent" | "opencode",
   requestedThreadId: ThreadId,
-  options?: { readonly workflow?: boolean },
+  options?: { readonly workflow?: boolean; readonly runtimeMode?: RuntimeMode },
 ) =>
   Effect.gen(function* () {
     const config = {
@@ -219,7 +220,7 @@ export const makePluginToolFixture = (
               title: "Work",
               kind: "agent",
               modelSelection: { instanceId: provider, model: "fixture-model" },
-              runtimeMode: "approval-required",
+              runtimeMode: options?.runtimeMode ?? "approval-required",
               instruction: "Submit a typed report",
               report: { fields: [{ name: "ready", type: "boolean", required: true }] },
               next: { to: "done" },
@@ -245,7 +246,7 @@ export const makePluginToolFixture = (
         createdBy: "user",
         creationSource: "web",
         modelSelection: { instanceId: ProviderInstanceId.make(provider), model: "fixture-model" },
-        runtimeMode: "approval-required",
+        runtimeMode: options?.runtimeMode ?? "approval-required",
         interactionMode: "default",
         branch: null,
         worktreePath: null,
