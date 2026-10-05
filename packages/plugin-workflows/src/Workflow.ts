@@ -1177,6 +1177,32 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const verifyReviewFreshness = Effect.fnUntraced(function* (observed: Run, attempt: Attempt) {
+    if (!attempt.reviewId) return true;
+    const review = observed.reviews.find((review) => review.id === attempt.reviewId);
+    const freshness = review
+      ? yield* host.verifyPullRequestHead(review.pullRequest).pipe(Effect.result)
+      : null;
+    if (review && freshness?._tag === "Success" && freshness.success.head === review.head)
+      return true;
+    yield* transaction(
+      "stale-input",
+      Effect.gen(function* () {
+        const run = yield* load(observed.id);
+        const current = run.attempts.find((item) => item.id === attempt.id)!;
+        if (run.state !== "running" || terminalAttempt(current)) return;
+        if (current.threadId) yield* host.cancelPending(target(run, current));
+        current.phase = "stale";
+        current.reason =
+          "The reviewed pull request head changed or cannot be verified before execution.";
+        run.currentNode = review?.fork ?? current.nodeId;
+        unresolved(run, current.reason);
+        yield* persist(run);
+      }),
+    );
+    return false;
+  });
+
   const dispatch = Effect.fnUntraced(function* (item: {
     id: string;
     run_id: string;
@@ -1223,8 +1249,8 @@ const make = Effect.gen(function* () {
       }).pipe(lock.withPermits(1));
       return;
     }
-    if (observed.state !== "running") return;
     if (item.kind === "workspace") {
+      if (["completed", "failed", "canceled"].includes(observed.state)) return;
       if (observed.workspace.type !== "exact-ref" || observed.workspacePath) return;
       const workspace = yield* host.prepareWorkspace({
         projectId: observed.projectId,
@@ -1235,7 +1261,7 @@ const make = Effect.gen(function* () {
         "workspace",
         Effect.gen(function* () {
           const run = yield* load(observed.id);
-          if (run.state !== "running") return;
+          if (["completed", "failed", "canceled"].includes(run.state)) return;
           run.workspacePath = workspace.path;
           run.branch = workspace.branch;
           yield* persist(run);
@@ -1243,6 +1269,7 @@ const make = Effect.gen(function* () {
       );
       return;
     }
+    if (observed.state !== "running") return;
     if (item.kind === "node") {
       yield* nodeWork(observed.id);
       return;
@@ -1281,27 +1308,7 @@ const make = Effect.gen(function* () {
       return;
     }
     if (item.kind !== "launch") return;
-    if (attempt.reviewId) {
-      const review = observed.reviews.find((review) => review.id === attempt.reviewId)!;
-      const freshness = yield* host.verifyPullRequestHead(review.pullRequest).pipe(Effect.result);
-      if (freshness._tag !== "Success" || freshness.success.head !== review.head) {
-        yield* transaction(
-          "stale-input",
-          Effect.gen(function* () {
-            const run = yield* load(observed.id);
-            const current = run.attempts.find((item) => item.id === attempt.id)!;
-            if (run.state !== "running" || terminalAttempt(current)) return;
-            current.phase = "stale";
-            current.reason =
-              "The reviewed pull request head changed or cannot be verified before execution.";
-            run.currentNode = review.fork;
-            unresolved(run, current.reason);
-            yield* persist(run);
-          }),
-        );
-        return;
-      }
-    }
+    if (!(yield* verifyReviewFreshness(observed, attempt))) return;
     if (!observed.workspacePath)
       return yield* error("launch", "The primary workspace is not prepared.", "service");
     const node = observed.definition.nodes.find((node) => node.id === attempt.nodeId)!;
@@ -1392,14 +1399,6 @@ const make = Effect.gen(function* () {
             ref: review.head,
           })
         : { path: observed.workspacePath, branch: observed.branch, head: "" };
-      if (review) {
-        const evidence = yield* host.verifyWorkspace({
-          projectId: observed.projectId,
-          path: workspace.path,
-        });
-        if (evidence.head !== review.head || !evidence.clean)
-          return yield* error("launch", "The reviewer checkout differs from its frozen input.");
-      }
       launch = {
         environmentId: observed.environmentId,
         projectId: observed.projectId,
@@ -1409,7 +1408,12 @@ const make = Effect.gen(function* () {
         modelSelection: agent.modelSelection,
         runtimeMode: agent.runtimeMode,
         interactionMode: agent.interactionMode ?? "default",
-        workspace: { type: "existing", path: workspace.path, branch: workspace.branch },
+        workspace: {
+          type: "existing",
+          path: workspace.path,
+          branch: workspace.branch,
+          ...(review ? { frozenHead: review.head } : {}),
+        },
         instruction: launchInstruction(agent, attempt, review?.head),
       };
       const reservedLaunch = launch;
@@ -1500,14 +1504,17 @@ const make = Effect.gen(function* () {
       yield* reconcileAttempts();
     }).pipe(drainLock.withPermits(1)),
   );
-  // Running checks have no replay guarantee. Retain their ambiguity across restart.
-  const recoverChecks = protect(
+  const recoverAttempts = protect(
     "recover",
     Effect.gen(function* () {
       const rows = yield* sql<{ id: string }>`SELECT id FROM workflow_runs WHERE state = 'running'`;
       for (const row of rows) {
         const run = yield* load(row.id);
-        for (const attempt of run.attempts)
+        for (const attempt of run.attempts) {
+          // Plugin acquisition precedes host recovery; revoke stale authority before its replay.
+          if (attempt.phase === "launching" && attempt.reviewId)
+            yield* verifyReviewFreshness(run, attempt);
+          // Running checks have no replay guarantee. Retain their ambiguity across restart.
           if (!attempt.threadId && attempt.phase === "running")
             yield* completeCheck(run.id, attempt.id, {
               outcome: "unresolved",
@@ -1518,10 +1525,11 @@ const make = Effect.gen(function* () {
               stderr:
                 "The server restarted before retaining the command result. Explicit retry is required.",
             });
+        }
       }
     }),
   );
-  yield* recoverChecks;
+  yield* recoverAttempts;
   yield* schedules.registerDueWork(drain);
   const events = yield* PubSub.subscribe(changes);
   yield* Stream.fromSubscription(events).pipe(

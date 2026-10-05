@@ -464,6 +464,15 @@ const make = Effect.gen(function* () {
     );
     if (!owned) return yield* fail("workspace", "The workspace does not belong to this project.");
   });
+  const verifyWorkspace = Effect.fnUntraced(
+    function* (input: { projectId: ProjectId; path: string }) {
+      yield* ownedWorkspace(input);
+      const head = yield* git.resolveCommit({ cwd: input.path, revision: "HEAD" });
+      const status = yield* git.status({ cwd: input.path });
+      return { head: head.commitSha, clean: !status.hasWorkingTreeChanges };
+    },
+    Effect.mapError((cause) => fail("workspace", "Could not verify the workspace.", cause)),
+  );
   return Host.of({
     environmentId,
     // Durable plugin intents belong to BoundHost, not the core adapter.
@@ -595,15 +604,7 @@ const make = Effect.gen(function* () {
           fail("prepare", "Could not prepare the owned workspace.", cause),
         ),
       ),
-    verifyWorkspace: (input) =>
-      Effect.gen(function* () {
-        yield* ownedWorkspace(input);
-        const head = yield* git.resolveCommit({ cwd: input.path, revision: "HEAD" });
-        const status = yield* git.status({ cwd: input.path });
-        return { head: head.commitSha, clean: !status.hasWorkingTreeChanges };
-      }).pipe(
-        Effect.mapError((cause) => fail("workspace", "Could not verify the workspace.", cause)),
-      ),
+    verifyWorkspace,
     execute: (input) =>
       Effect.gen(function* () {
         yield* ownedWorkspace(input);
@@ -685,6 +686,23 @@ const make = Effect.gen(function* () {
           }
         }
         const workspace = yield* project(input.projectId);
+        if (
+          existing === null &&
+          input.workspace.type === "existing" &&
+          input.workspace.frozenHead !== undefined
+        ) {
+          const evidence = yield* verifyWorkspace({
+            projectId: input.projectId,
+            path: input.workspace.path,
+          });
+          if (evidence.head !== input.workspace.frozenHead || !evidence.clean)
+            return yield* new PluginError({
+              pluginId: "host",
+              operation: "launch",
+              code: "conflict",
+              message: "The checkout differs from its frozen launch input.",
+            });
+        }
         const ref =
           input.workspace.type === "exact-ref"
             ? yield* resolveWorkspaceRef(workspace.workspaceRoot, input.workspace.ref)

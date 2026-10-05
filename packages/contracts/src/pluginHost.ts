@@ -213,6 +213,8 @@ export const PluginLaunchInput = Schema.Struct({
       type: Schema.Literal("existing"),
       path: TrimmedNonEmptyString,
       branch: Schema.NullOr(Schema.String),
+      // Require this commit and clean input before the first launch commits, including recovery.
+      frozenHead: Schema.optional(TrimmedNonEmptyString),
     }),
     Schema.Struct({
       type: Schema.Literal("exact-ref"),

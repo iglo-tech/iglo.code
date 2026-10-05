@@ -219,11 +219,21 @@ export function reserveAttempt(
       : (run.reviews.findLast(
           (review) =>
             run.trace.at(-1)?.sourceIds.includes(review.id) ||
-            agent?.bindings?.some((binding) =>
-              run.definition.nodes.some(
-                (node) =>
-                  node.id === binding.node && node.kind === "join" && node.fork === review.fork,
-              ),
+            run.attempts.some(
+              (source) =>
+                source.reviewId === review.id &&
+                (source.id === run.trace.at(-1)?.attemptId ||
+                  run.trace.at(-1)?.sourceIds.includes(source.id) ||
+                  (source.report &&
+                    run.trace.at(-1)?.sourceIds.includes(source.report.receipt.id))),
+            ) ||
+            agent?.bindings?.some(
+              (binding) =>
+                latestAttempt(run, binding.node)?.reviewId === review.id ||
+                run.definition.nodes.some(
+                  (node) =>
+                    node.id === binding.node && node.kind === "join" && node.fork === review.fork,
+                ),
             ),
         )?.id ?? null),
     generation,
