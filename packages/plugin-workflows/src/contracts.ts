@@ -239,6 +239,7 @@ export const Attempt = Schema.Struct({
   threadId: Schema.NullOr(ThreadId),
   phase: Schema.Literals([
     "launching",
+    "resuming",
     "running",
     "waiting-input",
     "reminding",

@@ -147,6 +147,11 @@ const make = Effect.gen(function* () {
   ) {
     yield* sql`INSERT OR IGNORE INTO workflow_outbox (id, run_id, attempt_id, kind, status) VALUES (${id}, ${run.id}, ${attemptId}, ${kind}, 'pending')`;
   });
+  const cleanupPending = Effect.fnUntraced(function* (runId: string) {
+    const [item] =
+      yield* sql`SELECT id FROM workflow_outbox WHERE run_id = ${runId} AND kind = 'interrupt' AND status = 'pending' LIMIT 1`;
+    return item !== undefined;
+  });
   const persist = Effect.fnUntraced(function* (run: State) {
     run.revision++;
     run.allowedActions = allowedActions(run);
@@ -166,6 +171,9 @@ const make = Effect.gen(function* () {
         yield* enqueue(run, `${run.id}:node:${run.visits}`, "node");
     }
     for (const attempt of run.attempts) {
+      // A disposition and its pending host authority share the same private transaction.
+      if (terminalAttempt(attempt) && attempt.threadId)
+        yield* host.cancelPending(target(run, attempt));
       if (attempt.phase === "reminding" && !attempt.reminderSent)
         yield* enqueue(run, `${attempt.id}:reminder`, "reminder", attempt.id);
       if (["canceled", "interrupted", "unresolved", "stale"].includes(attempt.phase))
@@ -667,7 +675,7 @@ const make = Effect.gen(function* () {
             "unsupported",
           );
         attempt.resumeCount++;
-        attempt.phase = "running";
+        attempt.phase = "resuming";
         attempt.reason = null;
         attempt.lastActiveAt = now;
         attempt.executionRunId = null;
@@ -723,7 +731,11 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const run = yield* load(runId);
         const attempt = run.attempts.find((attempt) => attempt.id === attemptId)!;
-        if (run.state !== "running" || terminalAttempt(attempt) || attempt.phase === "launching")
+        if (
+          run.state !== "running" ||
+          terminalAttempt(attempt) ||
+          ["launching", "resuming"].includes(attempt.phase)
+        )
           return;
         const active = activeRun(state);
         const request = state.requests.some((request) =>
@@ -829,6 +841,27 @@ const make = Effect.gen(function* () {
       }),
     );
   });
+  const expireAdmission = Effect.fnUntraced(function* (run: Run, attempt: Attempt) {
+    const now = yield* Clock.currentTimeMillis;
+    if (now < (attempt.deadline ?? attempt.lastActiveAt + attempt.remainingMs)) return true;
+    yield* transaction(
+      "launch-timeout",
+      Effect.gen(function* () {
+        const current = yield* load(run.id);
+        const owned = current.attempts.find((item) => item.id === attempt.id)!;
+        if (current.state !== "running" || !["launching", "resuming"].includes(owned.phase)) return;
+        const resuming = owned.phase === "resuming";
+        owned.phase = "unresolved";
+        owned.reason = resuming
+          ? "The execution resume deadline expired."
+          : "The execution launch deadline expired.";
+        if (owned.branchId) yield* enqueue(current, `${current.id}:join:${owned.id}`, "node");
+        else unresolved(current, owned.reason);
+        yield* persist(current);
+      }),
+    );
+    return false;
+  });
   const reconcileAttempts = Effect.fnUntraced(function* () {
     const rows = yield* sql<{
       id: string;
@@ -838,7 +871,10 @@ const make = Effect.gen(function* () {
     for (const row of rows) {
       const run = yield* load(row.id);
       // A previously stranded join can have a completed node effect, so also reconcile its disposition.
-      if (run.definition.nodes.find((node) => node.id === run.currentNode)?.kind === "join")
+      if (
+        run.definition.nodes.find((node) => node.id === run.currentNode)?.kind === "join" &&
+        !(yield* cleanupPending(run.id))
+      )
         yield* nodeWork(run.id);
       for (const attempt of run.attempts) {
         if (!attempt.threadId && attempt.phase === "running" && !checks.has(attempt.id))
@@ -851,25 +887,12 @@ const make = Effect.gen(function* () {
             stderr:
               "Execution ended without retaining the check result. Explicit retry is required.",
           });
-        if (attempt.phase === "launching") {
-          const now = yield* Clock.currentTimeMillis;
-          if (now >= (attempt.deadline ?? attempt.lastActiveAt + attempt.remainingMs))
-            yield* transaction(
-              "launch-timeout",
-              Effect.gen(function* () {
-                const current = yield* load(run.id);
-                const owned = current.attempts.find((item) => item.id === attempt.id)!;
-                if (current.state !== "running" || owned.phase !== "launching") return;
-                owned.phase = "unresolved";
-                owned.reason = "The execution launch deadline expired.";
-                if (owned.branchId)
-                  yield* enqueue(current, `${current.id}:join:${owned.id}`, "node");
-                else unresolved(current, owned.reason);
-                yield* persist(current);
-              }),
-            );
-        }
-        if (attempt.threadId && !terminalAttempt(attempt) && attempt.phase !== "launching") {
+        if (["launching", "resuming"].includes(attempt.phase)) yield* expireAdmission(run, attempt);
+        if (
+          attempt.threadId &&
+          !terminalAttempt(attempt) &&
+          !["launching", "resuming"].includes(attempt.phase)
+        ) {
           const inspected = yield* host.inspect(target(run, attempt)).pipe(Effect.result);
           if (inspected._tag === "Success") yield* settle(run.id, attempt.id, inspected.success);
           else if (inspected.failure.code === "unavailable")
@@ -1246,6 +1269,9 @@ const make = Effect.gen(function* () {
             commandId: commandId(current, `interrupt-${digest(execution.id).slice(0, 16)}`),
             runId: execution.id,
           });
+        const stopped = yield* host.inspect(target(run, current));
+        if (activeRun(stopped) || stopped.outstandingWork.length > 0)
+          return yield* error("cleanup", "Owned native work has not stopped yet.", "service");
       }).pipe(lock.withPermits(1));
       return;
     }
@@ -1270,12 +1296,17 @@ const make = Effect.gen(function* () {
       return;
     }
     if (observed.state !== "running") return;
+    // Keep automated continuation pending across cleanup failures and server restarts.
+    if (yield* cleanupPending(observed.id))
+      return yield* error("cleanup", "Owned execution cleanup is still pending.", "service");
     if (item.kind === "node") {
       yield* nodeWork(observed.id);
       return;
     }
     const attempt = observed.attempts.find((attempt) => attempt.id === item.attempt_id)!;
     if (terminalAttempt(attempt)) return;
+    if (["launch", "resume"].includes(item.kind) && !(yield* expireAdmission(observed, attempt)))
+      return;
     if (item.kind === "reminder") {
       if (attempt.reminderSent || attempt.report) return;
       yield* followUp(
@@ -1287,6 +1318,9 @@ const make = Effect.gen(function* () {
       return;
     }
     if (item.kind === "resume") {
+      if (attempt.phase !== "resuming" || item.id !== `${attempt.id}:resume:${attempt.resumeCount}`)
+        return;
+      if (!(yield* verifyReviewFreshness(observed, attempt))) return;
       const native = yield* host.inspect(target(observed, attempt));
       const agent = agentFor(observed, attempt)!;
       const validation = yield* catalog.validate(
@@ -1500,6 +1534,7 @@ const make = Effect.gen(function* () {
           );
         }
         yield* sql`UPDATE workflow_outbox SET status = 'done' WHERE id = ${item.id} AND status = 'pending'`;
+        if (item.kind === "interrupt") yield* notify;
       }
       yield* reconcileAttempts();
     }).pipe(drainLock.withPermits(1)),
@@ -1507,12 +1542,41 @@ const make = Effect.gen(function* () {
   const recoverAttempts = protect(
     "recover",
     Effect.gen(function* () {
-      const rows = yield* sql<{ id: string }>`SELECT id FROM workflow_runs WHERE state = 'running'`;
+      const rows = yield* sql<{ id: string }>`SELECT id FROM workflow_runs`;
       for (const row of rows) {
         const run = yield* load(row.id);
         for (const attempt of run.attempts) {
+          // Repair authority retained by older dispositions before generic host replay.
+          if (terminalAttempt(attempt) && attempt.threadId)
+            yield* host.cancelPending(target(run, attempt));
+          if (run.state !== "running") continue;
+          // Older snapshots called an undelivered Resume running. Recover its admission state.
+          if (attempt.resumeCount > 0 && attempt.phase === "running" && !attempt.executionRunId) {
+            const [pending] =
+              yield* sql`SELECT id FROM workflow_outbox WHERE id = ${`${attempt.id}:resume:${attempt.resumeCount}`} AND kind = 'resume' AND status = 'pending'`;
+            if (pending) {
+              yield* transaction(
+                "recover-resume",
+                Effect.gen(function* () {
+                  const current = yield* load(run.id);
+                  const owned = current.attempts.find((item) => item.id === attempt.id)!;
+                  if (
+                    current.state !== "running" ||
+                    owned.phase !== "running" ||
+                    owned.executionRunId
+                  )
+                    return;
+                  owned.phase = "resuming";
+                  yield* persist(current);
+                }),
+              );
+              attempt.phase = "resuming";
+            }
+          }
+          if (["launching", "resuming"].includes(attempt.phase))
+            yield* expireAdmission(run, attempt);
           // Plugin acquisition precedes host recovery; revoke stale authority before its replay.
-          if (attempt.phase === "launching" && attempt.reviewId)
+          if (["launching", "resuming"].includes(attempt.phase) && attempt.reviewId)
             yield* verifyReviewFreshness(run, attempt);
           // Running checks have no replay guarantee. Retain their ambiguity across restart.
           if (!attempt.threadId && attempt.phase === "running")
