@@ -40,6 +40,7 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
+import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as ModelManifest from "../ModelManifest.ts";
 import { applyProviderCompatibility } from "../providerCompatibility.ts";
@@ -424,7 +425,7 @@ export const ProviderRegistryLive = Layer.effect(
     const providersRef = yield* Ref.make<ReadonlyArray<ServerProvider>>(
       cachedProviders.map((provider) => classifyCompatibility(provider, initialManifest)),
     );
-    const workspaceRefreshesRef = yield* Ref.make<
+    const workspaceRefreshesRef = yield* SynchronizedRef.make<
       ReadonlyMap<ProviderInstance, ReadonlyMap<string, object>>
     >(new Map());
     const maintenanceActionStatesRef = yield* Ref.make<
@@ -904,21 +905,22 @@ export const ProviderRegistryLive = Layer.effect(
     const invalidateWorkspaceSnapshots = Effect.fn("invalidateWorkspaceSnapshots")(function* (
       instanceId?: ProviderInstanceId,
     ) {
-      yield* Ref.update(
-        workspaceRefreshesRef,
-        (refreshes) =>
-          new Map(
-            [...refreshes].filter(([instance]) =>
-              instanceId === undefined ? false : instance.instanceId !== instanceId,
+      yield* SynchronizedRef.updateEffect(workspaceRefreshesRef, (refreshes) =>
+        updateProviders((providers) =>
+          providers.map((provider) =>
+            (instanceId === undefined || provider.instanceId === instanceId) &&
+            provider.workspaceSnapshots?.length
+              ? { ...provider, workspaceSnapshots: [] }
+              : provider,
+          ),
+        ).pipe(
+          Effect.as(
+            new Map(
+              [...refreshes].filter(([instance]) =>
+                instanceId === undefined ? false : instance.instanceId !== instanceId,
+              ),
             ),
           ),
-      );
-      yield* updateProviders((providers) =>
-        providers.map((provider) =>
-          (instanceId === undefined || provider.instanceId === instanceId) &&
-          provider.workspaceSnapshots?.length
-            ? { ...provider, workspaceSnapshots: [] }
-            : provider,
         ),
       );
     });
@@ -951,7 +953,7 @@ export const ProviderRegistryLive = Layer.effect(
       const instance = yield* instanceRegistry.getInstance(input.instanceId);
       if (!instance?.snapshotForCwd) return providers;
       const scan = {};
-      const claimed = yield* Ref.modify(workspaceRefreshesRef, (refreshes) => {
+      const claimed = yield* SynchronizedRef.modify(workspaceRefreshesRef, (refreshes) => {
         const current = refreshes.get(instance);
         if (current?.has(input.cwd) && !input.fresh) return [false, refreshes] as const;
         const next = new Map(refreshes);
@@ -975,10 +977,6 @@ export const ProviderRegistryLive = Layer.effect(
               scopedSnapshot.slashCommandsPending === undefined
             )
               return yield* Ref.get(providersRef);
-            const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
-            const refreshes = yield* Ref.get(workspaceRefreshesRef);
-            if (currentInstance !== instance || refreshes.get(instance)?.get(input.cwd) !== scan)
-              return yield* Ref.get(providersRef);
             const now = yield* DateTime.now;
             const checkedAt = DateTime.formatIso(
               DateTime.makeUnsafe(
@@ -988,24 +986,37 @@ export const ProviderRegistryLive = Layer.effect(
                 ),
               ),
             );
-            // Write only if the cwd's snapshot did not change during the
-            // scan. A session event or another scan that landed first is newer.
-            return yield* updateProviders((currentProviders) =>
-              currentProviders.map((candidate) =>
-                candidate.instanceId === input.instanceId &&
-                Equal.equals(workspaceSnapshotOf(candidate), scannedFrom)
-                  ? upsertProviderWorkspaceSnapshot(candidate, input.cwd, {
-                      ...scopedSnapshot,
-                      checkedAt,
-                    })
-                  : candidate,
-              ),
+            // Keep ownership validation and publication atomic with scan
+            // supersession and Settings invalidation. Probes run outside it.
+            return yield* SynchronizedRef.modifyEffect(workspaceRefreshesRef, (refreshes) =>
+              Effect.gen(function* () {
+                const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
+                if (
+                  currentInstance !== instance ||
+                  refreshes.get(instance)?.get(input.cwd) !== scan
+                )
+                  return [yield* Ref.get(providersRef), refreshes] as const;
+                // A session event that changed the cwd's snapshot during
+                // the scan must also retain its newer catalog.
+                const nextProviders = yield* updateProviders((currentProviders) =>
+                  currentProviders.map((candidate) =>
+                    candidate.instanceId === input.instanceId &&
+                    Equal.equals(workspaceSnapshotOf(candidate), scannedFrom)
+                      ? upsertProviderWorkspaceSnapshot(candidate, input.cwd, {
+                          ...scopedSnapshot,
+                          checkedAt,
+                        })
+                      : candidate,
+                  ),
+                );
+                return [nextProviders, refreshes] as const;
+              }),
             );
           }),
         ),
         Effect.ensuring(
           claimed
-            ? Ref.update(workspaceRefreshesRef, (refreshes) => {
+            ? SynchronizedRef.update(workspaceRefreshesRef, (refreshes) => {
                 const next = new Map(refreshes);
                 const current = new Map(next.get(instance));
                 if (current.get(input.cwd) !== scan) return refreshes;

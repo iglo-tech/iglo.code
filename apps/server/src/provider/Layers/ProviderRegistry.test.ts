@@ -3,6 +3,7 @@ import * as CodexInstallation from "../CodexInstallation.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -1799,6 +1800,42 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             assert.deepStrictEqual(
               (yield* registry.getProviders)[0]?.workspaceSnapshots?.map((s) => s.skills),
               [latestSkills],
+            );
+
+            // Supersession must also win after the old probe finishes but
+            // before it publishes, while the newer probe is still running.
+            const clock = yield* Clock.Clock;
+            const publicationStarted = yield* Deferred.make<void>();
+            const releasePublication = yield* Deferred.make<void>();
+            yield* Ref.set(scopedResult, scopedProvider);
+            const supersededScan = yield* registry
+              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+              .pipe(
+                Effect.provideService(Clock.Clock, {
+                  ...clock,
+                  currentTimeMillis: Deferred.succeed(publicationStarted, undefined).pipe(
+                    Effect.andThen(Deferred.await(releasePublication)),
+                    Effect.andThen(clock.currentTimeMillis),
+                  ),
+                }),
+                Effect.forkChild,
+              );
+            yield* Deferred.await(publicationStarted);
+            const forcedStarted = yield* Deferred.make<void>();
+            const releaseForced = yield* Deferred.make<void>();
+            yield* Ref.set(scanGate, { started: forcedStarted, release: releaseForced });
+            yield* Ref.set(scopedResult, { ...scopedProvider, skills: latestSkills });
+            const forcedScan = yield* registry
+              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace", fresh: true })
+              .pipe(Effect.forkChild);
+            yield* Deferred.await(forcedStarted);
+            yield* Deferred.succeed(releasePublication, undefined);
+            yield* Fiber.join(supersededScan);
+            yield* Deferred.succeed(releaseForced, undefined);
+            yield* Fiber.join(forcedScan);
+            assert.deepStrictEqual(
+              (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+              latestSkills,
             );
 
             // A workspace whose first scan found only personal skills must
