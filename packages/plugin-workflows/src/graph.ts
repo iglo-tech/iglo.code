@@ -97,14 +97,35 @@ export function recoveryNode(run: Run): string | undefined {
 }
 export function allowedActions(run: Run): State["allowedActions"] {
   if (["completed", "failed", "canceled"].includes(run.state)) return [];
-  if (run.state === "awaiting-review") return ["cancel", "approve", "request-changes"];
+  if (run.state === "awaiting-review") {
+    const node = run.definition.nodes.find((node) => node.id === run.currentNode)!;
+    if (!run.automationStopped || node.kind !== "human")
+      return ["cancel", "approve", "request-changes"];
+    const permitted = (route: Route) => {
+      const target =
+        route.repeat && (run.repeats[`${node.id}:${route.to}`] ?? 0) >= route.repeat.max
+          ? route.repeat.atLimit
+          : route.to;
+      return ["human", "end"].includes(
+        run.definition.nodes.find((node) => node.id === target)!.kind,
+      );
+    };
+    return [
+      "cancel",
+      ...(permitted(node.approve) ? ["approve" as const] : []),
+      ...(permitted(node.changes) ? ["request-changes" as const] : []),
+    ];
+  }
   if (run.state === "unresolved")
     return [
       "cancel",
-      ...(run.visits < (run.definition.maxVisits ?? 100) && recoveryNode(run)
+      ...(!run.automationStopped &&
+      run.visits < (run.definition.maxVisits ?? 100) &&
+      recoveryNode(run)
         ? ["retry" as const]
         : []),
-      ...(run.attempts.some(
+      ...(!run.automationStopped &&
+      run.attempts.some(
         (attempt) => attempt.nodeId === run.currentNode && attempt.resumable && !attempt.report,
       )
         ? ["resume" as const]
@@ -119,8 +140,13 @@ export function unresolved(run: State, reason: string) {
 export function admit(run: State, id: string, now: number) {
   let node = run.definition.nodes.find((node) => node.id === id)!;
   if (run.visits >= (run.definition.maxVisits ?? 100) && !["human", "end"].includes(node.kind)) {
+    run.automationStopped = true;
     node = run.definition.nodes.find((node) => node.id === run.definition.atLimit)!;
     run.reason = "The whole-run visit limit was reached.";
+  }
+  if (run.automationStopped && !["human", "end"].includes(node.kind)) {
+    node = run.definition.nodes.find((node) => node.id === run.definition.atLimit)!;
+    run.reason = "The exhausted automation bound permits only human gates or an end.";
   }
   run.currentNode = node.id;
   run.state = "running";
@@ -235,6 +261,7 @@ export function transition(
   let reason = input.reason ?? "Unconditional route.";
   if (route.repeat) {
     if (repeatCount! >= route.repeat.max) {
+      run.automationStopped = true;
       target = route.repeat.atLimit;
       reason = "The repeat limit was reached.";
     } else {
@@ -246,8 +273,16 @@ export function transition(
     run.visits >= (run.definition.maxVisits ?? 100) &&
     !["human", "end"].includes(run.definition.nodes.find((node) => node.id === target)!.kind)
   ) {
+    run.automationStopped = true;
     target = run.definition.atLimit;
     reason = "The whole-run visit limit was reached.";
+  }
+  if (
+    run.automationStopped &&
+    !["human", "end"].includes(run.definition.nodes.find((node) => node.id === target)!.kind)
+  ) {
+    target = run.definition.atLimit;
+    reason = "The exhausted automation bound permits only human gates or an end.";
   }
   run.trace.push({
     id: `${run.id}:edge:${run.trace.length}`,

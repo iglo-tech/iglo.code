@@ -1,11 +1,20 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  CommandId,
+  EventId,
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  RunId,
+} from "@t3tools/contracts";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import { plugin } from "@t3tools/plugin-workflows/server";
 import * as Registry from "@t3tools/plugin-host-adapter/registry";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
@@ -15,6 +24,10 @@ import * as McpSessions from "../mcp/McpSessionRegistry.ts";
 import { Run, RunSummary } from "@t3tools/plugin-workflows/contracts";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as Projects from "../project/ProjectService.ts";
+import * as Git from "../vcs/GitVcsDriver.ts";
+import * as EventSink from "../orchestration-v2/EventSink.ts";
+import * as EventStore from "../orchestration-v2/EventStore.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { startEnvironment } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 
@@ -79,6 +92,41 @@ it.live("accepts one report for a reserved workflow attempt and returns its rece
         title: "Workflow",
         workspaceRoot: config.baseDir,
       });
+      expect(
+        yield* spawner.exitCode(
+          ChildProcess.make("git", ["-C", config.baseDir, "update-ref", "--stdin"], {
+            stdin: Stream.make(
+              new TextEncoder().encode(
+                Array.from(
+                  { length: 110 },
+                  (_, index) => `create refs/heads/a${index.toString().padStart(3, "0")} HEAD\n`,
+                ).join(""),
+              ),
+            ),
+          }),
+        ),
+      ).toBe(0);
+      const workspaceInput = { projectId, key: "workspace-retry", ref: "HEAD", readOnly: false };
+      const owned = yield* host.prepareWorkspace(workspaceInput);
+      const firstRefs = yield* Context.get(context, Git.GitVcsDriver).listRefs({
+        cwd: config.baseDir,
+      });
+      expect(firstRefs.nextCursor).not.toBeNull();
+      expect(firstRefs.refs.some((ref) => ref.name === owned.branch)).toBe(false);
+      expect(yield* host.prepareWorkspace(workspaceInput)).toEqual(owned);
+      expect(yield* host.verifyWorkspace({ projectId, path: owned.path })).toEqual({
+        head: owned.head,
+        clean: true,
+      });
+      expect(
+        yield* host.execute({
+          projectId,
+          path: owned.path,
+          command: "git",
+          args: ["rev-parse", "HEAD"],
+          timeoutMs: 5000,
+        }),
+      ).toMatchObject({ exitCode: 0, timedOut: false, stdout: `${owned.head}\n` });
       const invoke = Effect.fnUntraced(function* (method: string, input: unknown) {
         const api = yield* registry.api(`plugins.workflows.${method}`);
         const result = api.invoke(input);
@@ -222,6 +270,60 @@ it.live("accepts one report for a reserved workflow attempt and returns its rece
         state: "running",
         trace: [],
         attempts: [{ phase: "reported", report: { data: { ready: true } } }],
+      });
+      const now = DateTime.nowUnsafe();
+      const failedId = RunId.make("required-follow-up-failed-before-start");
+      // Core's queued_start_failed disposition retains startedAt=null; persist that actual shape.
+      const sinkContext = yield* Layer.build(
+        EventSink.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(ProjectionStore.layer, EventStore.layerFromOrchestrationEventStore),
+          ),
+          Layer.provide(Layer.succeedContext(context)),
+        ),
+      );
+      yield* Context.get(sinkContext, EventSink.EventSinkV2).write({
+        events: (["completed", "failed"] as const).map((status, index) => {
+          const runId = index === 0 ? RunId.make("reported-execution") : failedId;
+          return {
+            id: EventId.make(`workflow-native-result-${index}`),
+            type: "run.created" as const,
+            threadId,
+            runId,
+            occurredAt: now,
+            payload: {
+              id: runId,
+              threadId,
+              ordinal: index + 1,
+              providerInstanceId: ProviderInstanceId.make("codex"),
+              modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+              providerThreadId: null,
+              userMessageId: MessageId.make(`message-${runId}`),
+              rootNodeId: null,
+              activeAttemptId: null,
+              status,
+              requestedAt: now,
+              startedAt: index === 0 ? now : null,
+              completedAt: now,
+              checkpointId: null,
+              contextHandoffId: null,
+            },
+          };
+        }),
+      });
+      expect(
+        yield* host.inspect({ environmentId: host.environmentId, projectId, threadId }),
+      ).toMatchObject({ resultRunId: failedId, outstandingWork: [] });
+      const failed = yield* stream.pipe(
+        Stream.mapEffect((value) => decodeRuns(value)),
+        Stream.flatMap(Stream.fromArray),
+        Stream.filter((run) => run.id === started.id && run.state === "unresolved"),
+        Stream.take(1),
+        Stream.runCollect,
+      );
+      expect(failed[0]).toMatchObject({
+        state: "unresolved",
+        attempts: [{ phase: "failed" }],
       });
     }),
   ).pipe(Effect.provide(NodeServices.layer)),

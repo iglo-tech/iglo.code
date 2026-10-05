@@ -234,6 +234,7 @@ const make = Effect.gen(function* () {
       revision: run.revision,
       currentNode: run.currentNode,
       visits: run.visits,
+      automationStopped: run.automationStopped,
       reason: run.reason?.slice(0, 500) ?? null,
       gate: run.gate,
       allowedActions: run.allowedActions,
@@ -437,6 +438,7 @@ const make = Effect.gen(function* () {
           currentNode: input.definition.entry,
           visits: 0,
           repeats: {},
+          automationStopped: false,
           attempts: [],
           trace: [],
           reviews: [],
@@ -643,6 +645,12 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         if (run.state !== "awaiting-review" || run.gate?.revision !== input.expectedRevision)
           return yield* error("gate", "This human gate is no longer current.", "conflict");
+        if (!run.allowedActions.includes(input.decision))
+          return yield* error(
+            "gate",
+            "The exhausted automation bound forbids that decision.",
+            "conflict",
+          );
         if (review && (freshness?._tag !== "Success" || freshness.success.head !== review.head)) {
           unresolved(
             run,
@@ -939,6 +947,7 @@ const make = Effect.gen(function* () {
             return;
           }
           if (run.visits + node.branches.length + 1 > (run.definition.maxVisits ?? 100)) {
+            run.automationStopped = true;
             transition(run, node.id, { to: run.definition.atLimit }, now, {
               reason: "Insufficient remaining visits for the entire fork.",
             });

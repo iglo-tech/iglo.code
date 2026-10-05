@@ -4,6 +4,7 @@ import {
   RunId,
   type OrchestrationV2DomainEvent,
   type ProjectId,
+  type VcsRef,
 } from "@t3tools/contracts";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import {
@@ -15,6 +16,7 @@ import {
   type PluginThreadState,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -96,6 +98,7 @@ const make = Effect.gen(function* () {
   const git = yield* Git.GitVcsDriver;
   const pullRequests = yield* PullRequests.PullRequestService;
   const processRunner = yield* ProcessRunner.ProcessRunner;
+  const fs = yield* FileSystem.FileSystem;
   const environment = (id: string) =>
     id === environmentId
       ? Effect.void
@@ -203,9 +206,25 @@ const make = Effect.gen(function* () {
         ? preparation.preparationId
         : undefined;
     const progress = delegatedTaskProgress(records);
+    const monitorRuns = new Set(
+      records.messages
+        .filter((message) => message.notification?.source.kind === "monitor")
+        .map((message) => message.runId),
+    );
+    // A queued follow-up can fail before it starts; it still invalidates an earlier result.
+    const failedFollowUp = records.runs
+      .filter(
+        (run) =>
+          !monitorRuns.has(run.id) && ["failed", "cancelled", "interrupted"].includes(run.status),
+      )
+      .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+    const resultRun =
+      failedFollowUp && failedFollowUp.ordinal > (progress.resultRun?.ordinal ?? 0)
+        ? failedFollowUp
+        : progress.resultRun;
     return {
       ...target,
-      resultRunId: progress.resultRun?.id ?? null,
+      resultRunId: resultRun?.id ?? null,
       title: records.thread.title,
       workspacePath: records.thread.worktreePath ?? workspace.workspaceRoot,
       branch: records.thread.branch,
@@ -403,17 +422,37 @@ const make = Effect.gen(function* () {
         fail("prepare", "The requested exact ref could not be resolved.", cause),
       ),
     );
+  const findWorkspaceRef = Effect.fnUntraced(function* (
+    cwd: string,
+    matches: (ref: VcsRef) => boolean,
+    query?: string,
+  ) {
+    let cursor: number | undefined;
+    do {
+      const page = yield* git.listRefs({
+        cwd,
+        refKind: "local",
+        ...(query ? { query } : {}),
+        ...(cursor === undefined ? { refresh: true } : { cursor }),
+      });
+      const found = page.refs.find(matches);
+      if (found) return found;
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    return null;
+  });
   const ownedWorkspace = Effect.fnUntraced(function* (input: {
     projectId: ProjectId;
     path: string;
   }) {
     const workspace = yield* project(input.projectId);
-    const refs = yield* git.listRefs({ cwd: workspace.workspaceRoot });
-    if (
-      input.path !== workspace.workspaceRoot &&
-      !refs.refs.some((ref) => ref.worktreePath === input.path)
-    )
-      return yield* fail("workspace", "The workspace does not belong to this project.");
+    const path = yield* fs.realPath(input.path);
+    if (path === (yield* fs.realPath(workspace.workspaceRoot))) return;
+    const owned = yield* findWorkspaceRef(
+      workspace.workspaceRoot,
+      (ref) => ref.worktreePath === path,
+    );
+    if (!owned) return yield* fail("workspace", "The workspace does not belong to this project.");
   });
   return Host.of({
     environmentId,
@@ -524,8 +563,11 @@ const make = Effect.gen(function* () {
         if (!/^[a-zA-Z0-9_-]{1,100}$/.test(input.key))
           return yield* fail("prepare", "Invalid workspace identity.");
         const branch = `t3code/plugin-${input.key}`;
-        const refs = yield* git.listRefs({ cwd: workspace.workspaceRoot });
-        const existing = refs.refs.find((ref) => ref.name === branch && ref.worktreePath !== null);
+        const existing = yield* findWorkspaceRef(
+          workspace.workspaceRoot,
+          (ref) => ref.name === branch && ref.worktreePath !== null,
+          branch,
+        );
         const path =
           existing?.worktreePath ??
           (yield* git.createWorktree({
@@ -535,7 +577,7 @@ const make = Effect.gen(function* () {
             path: null,
           })).worktree.path;
         const head = yield* git.resolveCommit({ cwd: path, revision: "HEAD" });
-        return { path, branch, head: head.commitSha };
+        return { path: yield* fs.realPath(path), branch, head: head.commitSha };
       }).pipe(
         Effect.mapError((cause) =>
           fail("prepare", "Could not prepare the owned workspace.", cause),

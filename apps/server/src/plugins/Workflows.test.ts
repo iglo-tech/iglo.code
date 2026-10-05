@@ -300,7 +300,17 @@ it.effect("records one permitted rework and uses At limit on the next request af
   Effect.scoped(
     Effect.gen(function* () {
       const test = yield* fixture;
-      const started = yield* test.start(sequence);
+      const started = yield* test.start(
+        yield* decodeDefinition({
+          ...sequence,
+          nodes: [
+            ...sequence.nodes.map((node) =>
+              node.kind === "human" ? { ...node, approve: { to: "escape" } } : node,
+            ),
+            { ...sequence.nodes[0], id: "escape", next: { to: "done" } },
+          ],
+        }),
+      );
       yield* test.reconcile;
       yield* test.report(started.attempts[0]!.threadId!, completed);
       test.settle(started.attempts[0]!.threadId!);
@@ -338,6 +348,31 @@ it.effect("records one permitted rework and uses At limit on the next request af
         reason: "The repeat limit was reached.",
         repeatCount: 1,
       });
+      expect(limited).toMatchObject({
+        automationStopped: true,
+        allowedActions: ["cancel", "request-changes"],
+      });
+      yield* test.restart;
+      const stopped = yield* test.query(started.id);
+      expect(
+        yield* test
+          .invoke("gate", {
+            ...command,
+            decision: "approve",
+            clientRequestId: "approve-after-limit",
+            expectedRevision: stopped.revision,
+          })
+          .pipe(Effect.flip, Effect.orDie),
+      ).toMatchObject({ code: "conflict" });
+      expect((yield* test.query(started.id)).attempts).toHaveLength(2);
+      const finished = yield* test
+        .invoke("cancel", {
+          ...command,
+          clientRequestId: "cancel-after-limit",
+          expectedRevision: stopped.revision,
+        })
+        .pipe(Effect.flatMap(decodeRun));
+      expect(finished.state).toBe("canceled");
       expect(
         yield* test
           .invoke("gate", { ...command, clientRequestId: "stale-click" })
