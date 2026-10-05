@@ -648,6 +648,49 @@ it.layer(testLayer)("Antigravity provider snapshots", (it) => {
     ),
   );
 
+  it.effect("updates global commands without changing workspace skills or discovery stamps", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness();
+        yield* harness.initialize;
+        yield* harness.provider.onSessionStarted(started);
+        yield* harness.provider.onAvailableCommands(commands);
+        const skills = [{ name: "project", path: "/workspace/SKILL.md", enabled: true }];
+        const discovery = yield* harness.provider.snapshotForCwd("/workspace", skills);
+        yield* harness.provider.commitWorkspaceSnapshot("/workspace", discovery);
+        const otherDiscovery = yield* harness.provider.snapshotForCwd("/other", []);
+        yield* harness.provider.commitWorkspaceSnapshot("/other", otherDiscovery);
+        const before = (yield* harness.provider.snapshot.getSnapshot).workspaceSnapshots?.[0];
+        yield* TestClock.adjust("1 second");
+        yield* harness.provider.onAvailableCommands([{ name: "new-command", description: "" }]);
+        const after = (yield* harness.provider.snapshot.getSnapshot).workspaceSnapshots?.[0];
+        expect(after).toMatchObject({
+          slashCommands: [{ name: "new-command" }],
+          skills,
+          checkedAt: before?.checkedAt,
+        });
+        expect((yield* harness.provider.snapshotForCwd("/workspace")).slashCommands).toEqual([
+          { name: "new-command" },
+        ]);
+        expect((yield* harness.provider.snapshotForCwd("/other")).slashCommands).toEqual([
+          { name: "new-command" },
+        ]);
+        yield* harness.provider.onAvailableCommands(
+          [{ name: "workspace-command", description: "" }],
+          "/other",
+        );
+        expect((yield* harness.provider.snapshotForCwd("/workspace")).slashCommands).toEqual([
+          { name: "new-command" },
+        ]);
+        yield* harness.provider.invalidateCaches;
+        yield* harness.provider.onAvailableCommands([{ name: "after-settings", description: "" }]);
+        expect((yield* harness.provider.snapshot.getSnapshot).workspaceSnapshots).toEqual([]);
+        const recovered = yield* harness.provider.snapshotForCwd("/workspace", skills);
+        expect(recovered.slashCommands).toEqual([{ name: "after-settings" }]);
+      }),
+    ),
+  );
+
   it.effect("invalidates skill catalogs while keeping native workspace commands", () =>
     Effect.scoped(
       Effect.gen(function* () {

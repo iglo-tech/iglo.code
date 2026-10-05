@@ -1987,7 +1987,9 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         }),
       );
 
-      const makeNativeWorkspaceHarness = Effect.fn("makeNativeWorkspaceHarness")(function* () {
+      const makeNativeWorkspaceHarness = Effect.fn("makeNativeWorkspaceHarness")(function* (
+        authenticated = true,
+      ) {
         const instanceId = ProviderInstanceId.make("antigravity");
         const driver = ProviderDriverKind.make("antigravity");
         const initializeResult = { protocolVersion: 1, agentCapabilities: {}, authMethods: [] };
@@ -2005,7 +2007,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             }),
           ),
         );
-        const startSession = (version: string) =>
+        const startSession = (version: string, scoped = true) =>
           native.onSessionStarted(
             {
               sessionId: "fixture-session",
@@ -2013,10 +2015,10 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               initializeResult: { ...initializeResult, agentInfo: { name: "fixture", version } },
               sessionSetupResult: { sessionId: "fixture-session" },
             },
-            "/workspace",
+            scoped ? "/workspace" : undefined,
           );
         yield* native.snapshot.refresh;
-        yield* startSession("baseline");
+        if (authenticated) yield* startSession("baseline");
         const baselineSkills = [
           { name: "baseline", path: "/workspace/baseline/SKILL.md", enabled: true },
         ];
@@ -2079,7 +2081,10 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         const registry = yield* Effect.service(ProviderRegistry.ProviderRegistry).pipe(
           Effect.provide(services),
         );
-        const publishCommands = Effect.fn("publishFixtureCommands")(function* (name: string) {
+        const publishCommands = Effect.fn("publishFixtureCommands")(function* (
+          name: string,
+          scoped = true,
+        ) {
           const publication = yield* registry.streamChanges.pipe(
             Stream.filter((providers) => providers[0]?.slashCommands[0]?.name === name),
             Stream.runHead,
@@ -2088,12 +2093,12 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
           yield* Effect.yieldNow;
           yield* native.onAvailableCommands(
             [{ name, description: "Fixture milestone" }],
-            "/workspace",
+            scoped ? "/workspace" : undefined,
           );
           yield* Fiber.join(publication);
         });
         yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
-        yield* publishCommands("baseline-command");
+        if (authenticated) yield* publishCommands("baseline-command");
         return {
           native,
           registry,
@@ -2206,6 +2211,44 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               assert.strictEqual(
                 recovered[0]?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
                 "after-settings",
+              );
+            }),
+          ),
+      );
+
+      it.effect.each([
+        { fresh: false, authenticated: true },
+        { fresh: true, authenticated: true },
+        { fresh: false, authenticated: false },
+      ])(
+        "propagates global native commands through skill rediscovery (%j)",
+        ({ fresh, authenticated }) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const h = yield* makeNativeWorkspaceHarness(authenticated);
+              const before = (yield* h.registry.getProviders)[0]?.workspaceSnapshots?.[0];
+              yield* TestClock.adjust("1 second");
+              if (!authenticated) yield* h.startSession("signed-in", false);
+              yield* h.publishCommands("new-command", false);
+              const after = (yield* h.registry.getProviders)[0]?.workspaceSnapshots?.[0];
+              assert.deepStrictEqual(after?.skills, h.baselineSkills);
+              assert.strictEqual(after?.checkedAt, before?.checkedAt);
+              assert.deepStrictEqual(
+                after?.slashCommands.map((command) => command.name),
+                ["new-command"],
+              );
+              const reopened = yield* h.registry.refreshWorkspaceSnapshot({
+                instanceId: h.instanceId,
+                cwd: "/workspace",
+                fresh,
+              });
+              assert.deepStrictEqual(
+                reopened[0]?.workspaceSnapshots?.[0]?.slashCommands.map((command) => command.name),
+                ["new-command"],
+              );
+              assert.deepStrictEqual(
+                reopened[0]?.workspaceSnapshots?.[0]?.skills,
+                h.baselineSkills,
               );
             }),
           ),

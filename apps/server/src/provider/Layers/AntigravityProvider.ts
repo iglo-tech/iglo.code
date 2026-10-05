@@ -352,7 +352,14 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
                   },
                 ].slice(-MAX_WORKSPACE_SNAPSHOTS),
               }
-            : {}),
+            : {
+                // The driver publishes native command inventories without a
+                // cwd. Keep discovered workspace catalogs on that inventory.
+                workspaceSnapshots: (state.draft.workspaceSnapshots ?? []).map((entry) => ({
+                  ...entry,
+                  slashCommands,
+                })),
+              }),
         },
       };
     });
