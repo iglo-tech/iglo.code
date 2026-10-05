@@ -1,5 +1,7 @@
 {
   "id": "/",
+  "name": "iglo.code",
+  "short_name": "iglo.code",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

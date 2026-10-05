@@ -2644,8 +2644,8 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Code (Nightly)"
-    : (desktopPackageJson.productName ?? "T3 Code");
+    ? "iglo.code (Nightly)"
+    : (desktopPackageJson.productName ?? "iglo.code");
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -2721,11 +2721,11 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       category: "public.app-category.developer-tools",
       extendInfo: {
         NSScreenCaptureUsageDescription:
-          "T3 Code captures the active window when you use the window capture shortcut.",
+          "iglo.code captures the active window when you use the window capture shortcut.",
       },
       protocols: [
         {
-          name: "T3 Code",
+          name: "iglo.code",
           schemes: ["t3code", "t3code-dev"],
         },
       ],
@@ -2779,7 +2779,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // t3code:// OAuth callbacks to the app.
       protocols: [
         {
-          name: "T3 Code",
+          name: "iglo.code",
           schemes: ["t3code", "t3code-dev"],
         },
       ],
