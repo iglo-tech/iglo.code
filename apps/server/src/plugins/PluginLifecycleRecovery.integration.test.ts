@@ -453,9 +453,10 @@ it.live.each(["automatic", "explicit"] as const)(
         ).pipe(Effect.provideContext(s.server.context));
         yield* Context.get(persistence, EventSink.EventSinkV2).write({ events: seeded });
         const target = { environmentId: s.host.environmentId, projectId: s.projectId, threadId };
-        expect((yield* bound.host.inspect(target)).outstandingWork.map((w) => w.id)).toEqual([
-          "still-running-command",
-        ]);
+        expect((yield* bound.host.inspect(target)).outstandingWork).toContainEqual({
+          id: "still-running-command",
+          status: "running",
+        });
         const input = {
           ...target,
           commandId: CommandId.make("stop-background"),
