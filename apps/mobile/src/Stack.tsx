@@ -22,6 +22,7 @@ import {
 import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/AppText";
+import { MOBILE_APP_NAME } from "./lib/mobileBranding";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import {
   RenderErrorBoundary,
@@ -252,7 +253,7 @@ const SettingsContentStack = createNativeStackNavigator({
     SettingsAbout: createNativeStackScreen({
       screen: SettingsAboutRouteScreen,
       linking: "about",
-      options: { title: "About T3 Code" },
+      options: { title: `About ${MOBILE_APP_NAME}` },
     }),
     SettingsEnvironmentNew: createNativeStackScreen({
       screen: ConnectionsNewRouteScreen,

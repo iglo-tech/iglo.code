@@ -2,10 +2,26 @@
 
 ## First checkout
 
-Install `vp` using the [root README](../../README.md#install-vp). The checkout requires Node 24;
-Bun is optional. From the repository root:
+The checkout requires Node 24 and Vite+ (`vp`); Bun is optional. Set up a coding agent
+using the [provider guide](../user/install.md#providers).
+
+Install `vp` on macOS or Linux:
 
 ```sh
+curl -fsSL https://vite.plus | bash
+```
+
+On Windows, use PowerShell:
+
+```powershell
+irm https://vite.plus/ps1 | iex
+```
+
+Clone the fork and start it:
+
+```sh
+git clone https://github.com/iglo-tech/iglo.code.git
+cd iglo.code
 vp i
 vp run dev
 ```
