@@ -84,7 +84,7 @@ it.effect(
         expect(yield* restarted.service.send(test.input("resume"))).toMatchObject({
           status: "accepted",
         });
-        expect(test.sent).toEqual([CommandId.make("plugin:owner:resume")]);
+        expect(test.sent).toEqual([CommandId.make('plugin:["owner","resume"]')]);
       }),
     ).pipe(Effect.provide(NodeSqlite.layer({ filename: ":memory:" }))),
 );
@@ -104,7 +104,7 @@ it.effect("rolls back host cancellation together with its owner's failed transac
       test.unblock();
       const restarted = yield* test.boot;
       yield* restarted.recover;
-      expect(test.sent).toEqual([CommandId.make("plugin:owner:pending")]);
+      expect(test.sent).toEqual([CommandId.make('plugin:["owner","pending"]')]);
       yield* restarted.recover;
       expect(test.sent).toHaveLength(1);
     }),
