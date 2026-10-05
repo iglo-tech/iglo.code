@@ -2733,7 +2733,10 @@ describe("OpenCode2 adapter", () => {
     (runtimeMode) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const fixture = yield* makePluginToolFixture("opencode", threadId, { workflow: true });
+          const fixture = yield* makePluginToolFixture("opencode", threadId, {
+            workflow: true,
+            runtimeMode: policy().runtimeMode,
+          });
           const workflowThreadId = fixture.threadId;
           const server = `t3-code-${workflowThreadId.replaceAll(/[^a-zA-Z0-9_-]/g, "_")}`;
           const pluginRule = {
