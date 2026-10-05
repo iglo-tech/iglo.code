@@ -14,7 +14,7 @@ Navigation and attention links are bound to the selected environment, with optio
 
 ## Ownership and recovery
 
-`Host` exposes environment-owned project, provider, skills, workspace, fresh PR-head, thread-control, and normalized lifecycle operations. A launch acknowledgement records committed intent, not completed execution. Plugins supply a stable command identity and identical input when retrying. The adapter namespaces identities by plugin, persists intent in its private store before dispatch, pins an exact ref to its resolved SHA, and reconciles core receipts after a lost acknowledgement. Reusing an identity with different input is a conflict.
+`Host` exposes environment-owned project, provider, skills, workspace, fresh PR-head, thread-control, and normalized lifecycle operations. A launch acknowledgement records committed intent, not completed execution. Plugins supply a stable command identity and identical input when retrying. The adapter namespaces identities by plugin, persists intent in its private store before dispatch, pins an exact ref to its resolved SHA, and reconciles core receipts after a lost acknowledgement. Interrupt intent pins the selected run (or an idle no-op); retries never select later work. Plugins may supply an explicit run ID. Reusing an identity with different input is a conflict.
 
 Lifecycle streams are scoped by project/thread and resume from a cursor. Replay is bounded; a missing, future, or over-budget cursor yields a snapshot with `replayGap: true`. Consumers reconcile that snapshot instead of assuming every intermediate event arrived. Subscription interruption closes the underlying consumer.
 

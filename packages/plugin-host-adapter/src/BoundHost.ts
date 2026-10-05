@@ -17,12 +17,30 @@ const Send = PluginTarget.mapFields((fields) => ({
   instruction: Schema.String,
   mode: Schema.Literals(["queue", "auto"]),
 }));
-const Interrupt = PluginTarget.mapFields((fields) => ({ ...fields, commandId: CommandId }));
-const Intent = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("launch"), input: PluginLaunchInput }),
-  Schema.Struct({ kind: Schema.Literal("send"), input: Send }),
+const Interrupt = PluginTarget.mapFields((fields) => ({
+  ...fields,
+  commandId: CommandId,
+  runId: Schema.optional(Schema.String),
+}));
+const LaunchRequest = Schema.Struct({ kind: Schema.Literal("launch"), input: PluginLaunchInput });
+const SendRequest = Schema.Struct({ kind: Schema.Literal("send"), input: Send });
+const Request = Schema.Union([
+  LaunchRequest,
+  SendRequest,
   Schema.Struct({ kind: Schema.Literal("interrupt"), input: Interrupt }),
 ]);
+const Intent = Schema.Union([
+  LaunchRequest,
+  SendRequest,
+  Schema.Struct({
+    kind: Schema.Literal("interrupt"),
+    input: Interrupt.mapFields((fields) => ({
+      ...fields,
+      runId: Schema.optional(Schema.NullOr(Schema.String)),
+    })),
+  }),
+]);
+const encodeRequest = Schema.encodeEffect(Schema.fromJsonString(Request));
 const encodeIntent = Schema.encodeEffect(Schema.fromJsonString(Intent));
 const decodeIntent = Schema.decodeUnknownEffect(Schema.fromJsonString(Intent));
 const encodeReceipt = Schema.encodeEffect(
@@ -50,20 +68,34 @@ export const make = (pluginId: string) =>
     yield* sql`CREATE TABLE IF NOT EXISTS host_commands (id TEXT PRIMARY KEY, request TEXT NOT NULL, intent TEXT NOT NULL, result TEXT)`;
     const coreId = (id: CommandId) => CommandId.make(`plugin:${pluginId}:${id}`);
     const dispatch = Effect.fn("PluginHost.dispatchIntent")(function* (intent: typeof Intent.Type) {
+      if (intent.kind === "interrupt" && intent.input.runId === undefined)
+        return yield* new PluginError({
+          pluginId,
+          code: "conflict",
+          operation: "interrupt",
+          message:
+            "This pending interrupt has no recorded run selection and cannot safely be replayed. Inspect the thread and use a new command identity.",
+        });
       const input = { ...intent.input, commandId: coreId(intent.input.commandId) };
       const result =
         intent.kind === "launch"
           ? yield* core.launch({ ...intent.input, commandId: input.commandId })
           : intent.kind === "send"
             ? yield* core.send({ ...intent.input, commandId: input.commandId })
-            : yield* core.interrupt({ ...intent.input, commandId: input.commandId });
+            : intent.input.runId === null
+              ? null
+              : yield* core.interrupt({
+                  ...intent.input,
+                  commandId: input.commandId,
+                  runId: intent.input.runId!,
+                });
       const receipt = result === null ? null : { ...result, commandId: intent.input.commandId };
       const encoded = yield* encodeReceipt(receipt);
       yield* sql`UPDATE host_commands SET result = ${encoded} WHERE id = ${intent.input.commandId}`;
       return receipt;
     });
     const execute = Effect.fn("PluginHost.executeIntent")(
-      function* (requested: typeof Intent.Type) {
+      function* (requested: typeof Request.Type) {
         if (requested.input.environmentId !== core.environmentId)
           return yield* new PluginError({
             pluginId,
@@ -71,7 +103,7 @@ export const make = (pluginId: string) =>
             operation: requested.kind,
             message: "The requested environment is not this server.",
           });
-        const request = yield* encodeIntent(requested);
+        const request = yield* encodeRequest(requested);
         const [existing] = yield* sql<{
           request: string;
           intent: string;
@@ -89,7 +121,7 @@ export const make = (pluginId: string) =>
           if (existing.result !== null) return yield* decodeReceipt(existing.result);
           return yield* dispatch(yield* decodeIntent(existing.intent));
         }
-        const intent =
+        let intent: typeof Intent.Type =
           requested.kind === "launch" && requested.input.workspace.type === "exact-ref"
             ? {
                 ...requested,
@@ -105,6 +137,16 @@ export const make = (pluginId: string) =>
                 },
               }
             : requested;
+        if (requested.kind === "interrupt") {
+          const state = yield* core.inspect(requested.input);
+          const active = state.runs.findLast((run) =>
+            ["preparing", "starting", "running", "waiting"].includes(run.status),
+          );
+          intent = {
+            ...requested,
+            input: { ...requested.input, runId: requested.input.runId ?? active?.id ?? null },
+          };
+        }
         const encoded = yield* encodeIntent(intent);
         yield* sql`INSERT INTO host_commands (id, request, intent) VALUES (${requested.input.commandId}, ${request}, ${encoded})`;
         return yield* dispatch(intent);

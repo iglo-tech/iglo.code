@@ -1,6 +1,7 @@
 import {
   CommandId,
   MessageId,
+  RunId,
   type OrchestrationV2DomainEvent,
   type ProjectId,
 } from "@t3tools/contracts";
@@ -152,7 +153,9 @@ const make = Effect.gen(function* () {
       title: records.thread.title,
       workspacePath: records.thread.worktreePath ?? workspace.workspaceRoot,
       branch: records.thread.branch,
-      runs: records.runs.map((run) => ({ id: run.id, status: run.status })),
+      runs: records.runs
+        .toSorted((left, right) => left.ordinal - right.ordinal)
+        .map((run) => ({ id: run.id, status: run.status })),
       outstandingWork: [
         ...records.nodes
           .filter((node) => ["pending", "running", "waiting"].includes(node.status))
@@ -454,7 +457,12 @@ const make = Effect.gen(function* () {
         const existing = yield* receipt(input.commandId);
         if (existing !== null) return existing;
         yield* threads
-          .interruptThread(input)
+          .interruptThread({
+            projectId: input.projectId,
+            threadId: input.threadId,
+            commandId: input.commandId,
+            ...(input.runId === undefined ? {} : { runId: RunId.make(input.runId) }),
+          })
           .pipe(
             Effect.mapError((cause) => fail("interrupt", "Could not interrupt the thread.", cause)),
           );

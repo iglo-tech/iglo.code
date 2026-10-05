@@ -47,7 +47,7 @@ export const catalogAtom = models.catalog;
 export const availableCatalogAtom = models.availableCatalog;
 export const attentionAtom = models.attention;
 
-const authorize = (environmentId: EnvironmentId) =>
+const authorize = (environmentId: EnvironmentId, method: string) =>
   Effect.gen(function* () {
     if (!supportsPlugins(yield* getInitialServerConfig()))
       return yield* new PluginError({
@@ -63,6 +63,7 @@ const authorize = (environmentId: EnvironmentId) =>
         (plugin) =>
           plugin.manifest.id === "fixture" &&
           plugin.manifest.hostVersion === 1 &&
+          plugin.manifest.server.api.includes(method) &&
           plugin.status === "available",
       )
     )
@@ -76,17 +77,23 @@ const authorize = (environmentId: EnvironmentId) =>
 const list = createEnvironmentCommand(connectionAtomRuntime, {
   label: "plugins.fixture.list",
   execute: (input: ListInput) =>
-    authorize(input.environmentId).pipe(Effect.andThen(request("plugins.fixture.list", input))),
+    authorize(input.environmentId, "plugins.fixture.list").pipe(
+      Effect.andThen(request("plugins.fixture.list", input)),
+    ),
 });
 const resolve = createEnvironmentCommand(connectionAtomRuntime, {
   label: "plugins.fixture.resolve",
   execute: (input: { environmentId: EnvironmentId; id: string }) =>
-    authorize(input.environmentId).pipe(Effect.andThen(request("plugins.fixture.resolve", input))),
+    authorize(input.environmentId, "plugins.fixture.resolve").pipe(
+      Effect.andThen(request("plugins.fixture.resolve", input)),
+    ),
 });
 const schedule = createEnvironmentCommand(connectionAtomRuntime, {
   label: "plugins.fixture.schedule",
   execute: (input: { environmentId: EnvironmentId; id: string; everyMs: number }) =>
-    authorize(input.environmentId).pipe(Effect.andThen(request("plugins.fixture.schedule", input))),
+    authorize(input.environmentId, "plugins.fixture.schedule").pipe(
+      Effect.andThen(request("plugins.fixture.schedule", input)),
+    ),
 });
 const encodeKey = Schema.encodeSync(Schema.fromJsonString(ListInputSchema));
 const decodeKey = Schema.decodeUnknownSync(Schema.fromJsonString(ListInputSchema));
@@ -96,8 +103,13 @@ const reportsAtom = Atom.family((key: string) => {
     .atom((get) => {
       const catalog = get(availableCatalogAtom(input.environmentId));
       if (
-        !catalog?.plugins.some(
-          (plugin) => plugin.manifest.id === "fixture" && plugin.status === "available",
+        catalog?.environmentId !== input.environmentId ||
+        !catalog.plugins.some(
+          (plugin) =>
+            plugin.manifest.id === "fixture" &&
+            plugin.manifest.hostVersion === 1 &&
+            plugin.manifest.server.api.includes("plugins.fixture.subscribe") &&
+            plugin.status === "available",
         )
       )
         return Stream.fail(

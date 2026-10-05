@@ -60,7 +60,7 @@ export class Host extends Context.Service<
       },
     ) => Effect.Effect<PluginCommandReceipt, PluginError>;
     readonly interrupt: (
-      input: PluginTarget & { readonly commandId: CommandId },
+      input: PluginTarget & { readonly commandId: CommandId; readonly runId?: string },
     ) => Effect.Effect<PluginCommandReceipt | null, PluginError>;
     readonly lifecycle: (
       input: PluginLifecycleScope,

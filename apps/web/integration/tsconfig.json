@@ -1,5 +1,5 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": { "composite": false, "lib": ["ESNext", "DOM", "DOM.Iterable"] },
-  "include": ["*.test.tsx", "vite.config.ts", "../src"]
+  "include": ["*.test.ts", "*.test.tsx", "vite.config.ts", "../src"]
 }
