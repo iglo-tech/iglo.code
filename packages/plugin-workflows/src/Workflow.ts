@@ -383,6 +383,31 @@ const make = Effect.gen(function* () {
       }
     return result;
   });
+  const verifySkill = Effect.fnUntraced(function* (
+    run: Run,
+    attempt: Attempt,
+    operation: "launch" | "resume",
+  ) {
+    if (!attempt.skill) return;
+    const agent = agentFor(run, attempt)!;
+    const skills = yield* host.skills({
+      projectId: run.projectId,
+      providerInstanceId: agent.modelSelection.instanceId,
+    });
+    const current = skills.find((skill) => skill.name === attempt.skill!.name && skill.enabled);
+    const contents = current ? yield* fs.readFileString(current.path).pipe(Effect.result) : null;
+    if (
+      !current ||
+      current.path !== attempt.skill.path ||
+      (attempt.skill.fingerprint &&
+        (contents?._tag !== "Success" || digest(contents.success) !== attempt.skill.fingerprint))
+    )
+      return yield* error(
+        operation,
+        "The selected skill changed or became unavailable.",
+        "unsupported",
+      );
+  });
   const start = Effect.fn("Workflows.start")(function* (requested: StartInput) {
     const input = yield* decodeStart(requested);
     yield* environment(input.environmentId);
@@ -815,6 +840,16 @@ const make = Effect.gen(function* () {
       if (run.definition.nodes.find((node) => node.id === run.currentNode)?.kind === "join")
         yield* nodeWork(run.id);
       for (const attempt of run.attempts) {
+        if (!attempt.threadId && attempt.phase === "running" && !checks.has(attempt.id))
+          yield* completeCheck(run.id, attempt.id, {
+            outcome: "unresolved",
+            exitCode: null,
+            timedOut: false,
+            interrupted: true,
+            stdout: "",
+            stderr:
+              "Execution ended without retaining the check result. Explicit retry is required.",
+          });
         if (attempt.phase === "launching") {
           const now = yield* Clock.currentTimeMillis;
           if (now >= (attempt.deadline ?? attempt.lastActiveAt + attempt.remainingMs))
@@ -1166,8 +1201,12 @@ const make = Effect.gen(function* () {
         const launched = current.launch ? yield* host.receipt(commandId(current, "launch")) : null;
         if (!launched || launched.status !== "accepted") return;
         // Hold the command lock so an explicit Resume cannot race an older interruption.
-        const state = yield* host.inspect(target(run, current));
-        const active = state.runs.filter((run) =>
+        const inspected = yield* host.inspect(target(run, current)).pipe(Effect.result);
+        if (inspected._tag === "Failure") {
+          if (inspected.failure.code === "unavailable") return;
+          return yield* inspected.failure;
+        }
+        const active = inspected.success.runs.filter((run) =>
           ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
         );
         for (const execution of active)
@@ -1232,11 +1271,7 @@ const make = Effect.gen(function* () {
           "The retained session or required capabilities changed.",
           "unsupported",
         );
-      if (attempt.skill?.fingerprint) {
-        const contents = yield* fs.readFileString(attempt.skill.path);
-        if (digest(contents) !== attempt.skill.fingerprint)
-          return yield* error("resume", "The selected skill changed.", "unsupported");
-      }
+      yield* verifySkill(observed, attempt, "resume");
       yield* followUp(observed.id, attempt.id, "resume", launchInstruction(agent, attempt));
       return;
     }
@@ -1337,25 +1372,7 @@ const make = Effect.gen(function* () {
       )
     )
       return yield* error("launch", "Reporting-tool capability is unavailable.", "unsupported");
-    if (attempt.skill) {
-      const skills = yield* host.skills({
-        projectId: observed.projectId,
-        providerInstanceId: agent.modelSelection.instanceId,
-      });
-      const current = skills.find((skill) => skill.name === attempt.skill!.name && skill.enabled);
-      const contents = current ? yield* fs.readFileString(current.path).pipe(Effect.result) : null;
-      if (
-        !current ||
-        current.path !== attempt.skill.path ||
-        (attempt.skill.fingerprint &&
-          (contents?._tag !== "Success" || digest(contents.success) !== attempt.skill.fingerprint))
-      )
-        return yield* error(
-          "launch",
-          "The selected skill changed or became unavailable.",
-          "unsupported",
-        );
-    }
+    yield* verifySkill(observed, attempt, "launch");
     let launch = attempt.launch;
     if (!launch) {
       const review = attempt.branchId

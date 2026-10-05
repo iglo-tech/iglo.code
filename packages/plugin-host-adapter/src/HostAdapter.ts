@@ -185,8 +185,16 @@ const make = Effect.gen(function* () {
         { messageRoles: ["user"] },
       )
       .pipe(
-        Effect.mapError((cause) =>
-          fail("inspect", "The thread is unavailable in this project.", cause),
+        Effect.mapError(
+          (cause) =>
+            new PluginError({
+              pluginId: "host",
+              operation: "inspect",
+              code:
+                cause._tag === "ThreadManagementThreadNotFoundError" ? "unavailable" : "service",
+              message: "The thread is unavailable in this project.",
+              cause,
+            }),
         ),
       );
     const runs = records.runs.toSorted((left, right) => left.ordinal - right.ordinal);

@@ -1,69 +1,221 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeSqlite from "node:sqlite";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
-import * as Context from "effect/Context";
-import * as Scope from "effect/Scope";
+import * as Deferred from "effect/Deferred";
 import * as Exit from "effect/Exit";
-import * as Layer from "effect/Layer";
+import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
-import { Host } from "@t3tools/plugin-host-contract/server";
+import * as Stream from "effect/Stream";
+import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
-import { CommandId, ProjectId } from "@t3tools/contracts";
+import { CommandId } from "@t3tools/contracts";
 import { plugin } from "@t3tools/plugin-workflows/server";
-import { rpcs, apiScopes, Run } from "@t3tools/plugin-workflows/contracts";
-import * as Registry from "@t3tools/plugin-host-adapter/registry";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import * as Scheduler from "../scheduling/Scheduler.ts";
-import * as ScheduleTargets from "../scheduling/ScheduleTargets.ts";
-import * as Projects from "../project/ProjectService.ts";
-import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
-import { startEnvironment } from "./PluginHost.testkit.ts";
-import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import { Run } from "@t3tools/plugin-workflows/contracts";
 import { sequence } from "./Workflows.testkit.ts";
+import { makeCoreWorkflowFixture } from "./WorkflowsCore.testkit.ts";
+
+const decodeRun = Schema.decodeUnknownEffect(Run);
+
+it.live.each([false, true])("recovers native ownership after restart, deleted=%s", (deleted) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* makeCoreWorkflowFixture;
+      let runtime = yield* test.boot();
+      const started = yield* runtime
+        .invoke("start", {
+          ...test.scope,
+          clientRequestId: "start",
+          definition: sequence,
+          input: {},
+          workspace: { type: "current" },
+        })
+        .pipe(Effect.flatMap(decodeRun));
+      yield* runtime.invoke("reconcile", test.scope);
+      const threadId = started.attempts[0]!.threadId!;
+      const target = { ...test.scope, threadId };
+      expect(yield* test.core.inspect(target)).toMatchObject({ threadId });
+      if (deleted)
+        yield* test.threads.dispatch({
+          type: "thread.delete",
+          threadId,
+          commandId: CommandId.make("delete"),
+        });
+      const inspected = yield* test.core.inspect(target).pipe(Effect.result);
+      yield* runtime.close;
+      const database = new NodeSqlite.DatabaseSync(test.databasePath);
+      try {
+        database
+          .prepare(
+            "UPDATE workflow_runs SET data = json_set(data, '$.attempts[0].lastActiveAt', 0, '$.attempts[0].remainingMs', 60000) WHERE id = ?",
+          )
+          .run(started.id);
+      } finally {
+        database.close();
+      }
+      runtime = yield* test.boot();
+      yield* runtime.invoke("reconcile", test.scope);
+      yield* runtime.invoke("reconcile", test.scope);
+      const actual = yield* runtime
+        .invoke("get", { ...test.scope, runId: started.id })
+        .pipe(Effect.flatMap(decodeRun));
+      expect(actual.state).toBe("unresolved");
+      expect(actual.allowedActions).toContain("retry");
+      if (deleted && inspected._tag === "Failure")
+        expect(inspected.failure.code).toBe("unavailable");
+      yield* runtime.invoke("retry", {
+        ...test.scope,
+        runId: actual.id,
+        expectedRevision: actual.revision,
+        clientRequestId: "fresh-thread",
+      });
+      yield* runtime.invoke("reconcile", test.scope);
+      const retried = yield* runtime
+        .invoke("get", { ...test.scope, runId: actual.id })
+        .pipe(Effect.flatMap(decodeRun));
+      expect(retried.state).toBe("running");
+      expect(retried.attempts.at(-1)!.threadId).not.toBe(threadId);
+      expect(yield* test.threads.getThreadShell(retried.attempts.at(-1)!.threadId!)).not.toBeNull();
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live.each([false, true])("retains check settlement or ambiguity after SQL failure=%s", (fail) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* makeCoreWorkflowFixture;
+      const startedExecution = yield* Deferred.make<void>();
+      const releasedExecution = yield* Deferred.make<void>();
+      const failedSettlement = yield* Deferred.make<Fiber.Fiber<unknown, unknown>>();
+      let executions = 0;
+      const host = Host.of({
+        ...test.core,
+        execute: (input) =>
+          Effect.gen(function* () {
+            executions++;
+            yield* Deferred.succeed(startedExecution, undefined);
+            yield* Deferred.await(releasedExecution);
+            const result = yield* test.core.execute(input);
+            expect(result).toMatchObject({ exitCode: 0, timedOut: false });
+            expect(result.stdout.trim()).toMatch(/^[a-f0-9]{40}$/);
+            return result;
+          }),
+      });
+      const observed: ServerPlugin = {
+        ...plugin,
+        acquire: Effect.gen(function* () {
+          const storage = yield* Storage;
+          const transaction = storage.sql.withTransaction;
+          Object.assign(storage.sql, {
+            withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+              transaction(effect).pipe(
+                Effect.onExit((exit) =>
+                  Exit.isFailure(exit)
+                    ? Effect.withFiber((fiber) => Deferred.succeed(failedSettlement, fiber))
+                    : Effect.void,
+                ),
+              ),
+          });
+          return yield* plugin.acquire;
+        }),
+      };
+      const runtime = yield* test.boot(host, observed);
+      const definition = {
+        ...sequence,
+        nodes: [
+          {
+            id: "implement",
+            kind: "check",
+            title: "Check",
+            command: "git",
+            args: ["rev-parse", "HEAD"],
+            timeoutMs: 60_000,
+            next: { to: "review" },
+          },
+          ...sequence.nodes.slice(1),
+        ],
+      };
+      const started = yield* runtime
+        .invoke("start", {
+          ...test.scope,
+          clientRequestId: "start",
+          definition,
+          input: {},
+          workspace: { type: "current" },
+        })
+        .pipe(Effect.flatMap(decodeRun));
+      yield* runtime.invoke("reconcile", test.scope);
+      yield* Deferred.await(startedExecution);
+      if (fail) {
+        const database = new NodeSqlite.DatabaseSync(test.databasePath);
+        try {
+          database.exec(
+            "CREATE TRIGGER fail_check_result BEFORE UPDATE ON workflow_runs WHEN json_extract(NEW.data, '$.attempts[0].check') IS NOT NULL BEGIN SELECT RAISE(ABORT, 'lost check result'); END",
+          );
+        } finally {
+          database.close();
+        }
+      }
+      yield* Deferred.succeed(releasedExecution, undefined);
+      if (fail) {
+        const failedWorker = yield* Deferred.await(failedSettlement);
+        yield* Fiber.await(failedWorker);
+        const database = new NodeSqlite.DatabaseSync(test.databasePath);
+        try {
+          database.exec("DROP TRIGGER fail_check_result");
+          database
+            .prepare(
+              "UPDATE workflow_runs SET data = json_set(data, '$.attempts[0].lastActiveAt', 0, '$.attempts[0].remainingMs', 60000) WHERE id = ?",
+            )
+            .run(started.id);
+        } finally {
+          database.close();
+        }
+      } else {
+        const api = yield* runtime.registry.api("plugins.workflows.subscribe");
+        const stream = api.invoke(test.scope);
+        if (!Stream.isStream(stream)) return yield* Effect.die("Expected subscription");
+        yield* stream.pipe(
+          Stream.filter(
+            (value) =>
+              Array.isArray(value) &&
+              value.some((run) => run.id === started.id && run.state === "awaiting-review"),
+          ),
+          Stream.take(1),
+          Stream.runDrain,
+        );
+      }
+      yield* runtime.invoke("reconcile", test.scope);
+      yield* runtime.invoke("reconcile", test.scope);
+      const actual = yield* runtime
+        .invoke("get", { ...test.scope, runId: started.id })
+        .pipe(Effect.flatMap(decodeRun));
+      expect(actual.state).toBe(fail ? "unresolved" : "awaiting-review");
+      if (fail) expect(actual.attempts[0]!.check).toMatchObject({ outcome: "unresolved" });
+      else expect(actual.attempts[0]!.check).toMatchObject({ outcome: "completed", exitCode: 0 });
+      expect(executions).toBe(1);
+      yield* runtime.close;
+      const restarted = yield* test.boot(host);
+      yield* restarted.invoke("reconcile", test.scope);
+      const retained = yield* restarted
+        .invoke("get", { ...test.scope, runId: started.id })
+        .pipe(Effect.flatMap(decodeRun));
+      expect(retained.state).toBe(actual.state);
+      expect(executions).toBe(1);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.live(
   "canceled pending workflow host intent must not create a core thread on plugin restart",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const config = { ...(yield* makeReplayServerConfig("pr7-cancel-core")), noBrowser: true };
-        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-        yield* spawner.exitCode(ChildProcess.make("git", ["init", config.baseDir]));
-        yield* spawner.exitCode(
-          ChildProcess.make("git", [
-            "-C",
-            config.baseDir,
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "commit",
-            "--allow-empty",
-            "-m",
-            "initial",
-          ]),
-        );
-        const { context } = yield* startEnvironment(config, []);
-        const core = Context.get(context, Host);
-        const projectId = ProjectId.make("private-cancel-project");
-        yield* Context.get(context, Projects.ProjectService).create({
-          commandId: CommandId.make("project"),
-          projectId,
-          title: "Review",
-          workspaceRoot: config.baseDir,
-        });
+        const test = yield* makeCoreWorkflowFixture;
+        const { core, scope, threads } = test;
         let blocked = true;
         const host = Host.of({
           ...core,
-          providers: () =>
-            core.providers().pipe(
-              Effect.map((providers) =>
-                providers.map((provider) => ({
-                  ...provider,
-                  available: provider.instanceId === "codex",
-                })),
-              ),
-            ),
           launch: (input) =>
             blocked
               ? Effect.fail(
@@ -76,41 +228,8 @@ it.live(
                 )
               : core.launch({ ...input, instruction: undefined }),
         });
-        const boot = Effect.fnUntraced(function* () {
-          const lifetime = yield* Scope.make();
-          yield* Effect.addFinalizer(() => Scope.close(lifetime, Exit.void));
-          const services = Layer.mergeAll(
-            Layer.succeedContext(context),
-            NodeServices.layer,
-            Scheduler.layer,
-            ScheduleTargets.layer,
-            Layer.succeed(Host, host),
-          );
-          const pluginContext = yield* Layer.build(
-            Registry.layer({
-              environmentId: core.environmentId,
-              directory: `${config.stateDir}/review-plugins`,
-              plugins: [plugin],
-              clientApis: new Map(
-                Object.values(rpcs).map((rpc) => [
-                  rpc._tag,
-                  { rpc, requiredScope: apiScopes[rpc._tag]! },
-                ]),
-              ),
-            }).pipe(Layer.provide(services)),
-          ).pipe(Scope.provide(lifetime));
-          const registry = Context.get(pluginContext, Registry.PluginRegistry);
-          yield* registry.start;
-          const invoke = Effect.fnUntraced(function* (method: string, input: unknown) {
-            const api = yield* registry.api(`plugins.workflows.${method}`);
-            const effect = api.invoke(input);
-            if (!Effect.isEffect(effect)) return yield* Effect.die("Expected request");
-            return yield* effect;
-          });
-          return { invoke, close: Scope.close(lifetime, Exit.void) };
-        });
+        const boot = () => test.boot(host);
         let runtime = yield* boot();
-        const scope = { environmentId: core.environmentId, projectId };
         const run = yield* runtime
           .invoke("start", {
             ...scope,
@@ -119,12 +238,10 @@ it.live(
             input: {},
             workspace: { type: "current" },
           })
-          .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Run)));
+          .pipe(Effect.flatMap(decodeRun));
         yield* runtime.invoke("reconcile", scope);
         const query = () =>
-          runtime
-            .invoke("get", { ...scope, runId: run.id })
-            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Run)));
+          runtime.invoke("get", { ...scope, runId: run.id }).pipe(Effect.flatMap(decodeRun));
         const control = yield* runtime
           .invoke("start", {
             ...scope,
@@ -133,13 +250,11 @@ it.live(
             input: {},
             workspace: { type: "current" },
           })
-          .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Run)));
+          .pipe(Effect.flatMap(decodeRun));
         yield* runtime.invoke("reconcile", scope);
         const current = yield* query();
         const threadId = current.attempts[0]!.threadId!;
-        expect(
-          yield* Context.get(context, Threads.ThreadManagementService).getThreadShell(threadId),
-        ).toBeNull();
+        expect(yield* threads.getThreadShell(threadId)).toBeNull();
         yield* runtime.invoke("cancel", {
           ...scope,
           runId: run.id,
@@ -152,29 +267,19 @@ it.live(
         runtime = yield* boot();
         yield* runtime.invoke("reconcile", scope);
         const after = yield* query();
-        const coreThread = yield* Context.get(
-          context,
-          Threads.ThreadManagementService,
-        ).getThreadShell(threadId);
+        const coreThread = yield* threads.getThreadShell(threadId);
         expect(after.state).toBe("canceled");
         expect(coreThread).toBeNull();
         const controlThread = control.attempts[0]!.threadId!;
-        expect(
-          yield* Context.get(context, Threads.ThreadManagementService).getThreadShell(
-            controlThread,
-          ),
-        ).not.toBeNull();
+        expect(yield* threads.getThreadShell(controlThread)).not.toBeNull();
         yield* runtime.close;
         runtime = yield* boot();
         yield* runtime.invoke("reconcile", scope);
-        const shell = yield* Context.get(
-          context,
-          Threads.ThreadManagementService,
-        ).getShellSnapshot();
-        expect(shell.threads.filter((thread) => thread.projectId === projectId)).toHaveLength(1);
-        expect(
-          yield* Context.get(context, Threads.ThreadManagementService).getThreadShell(threadId),
-        ).toBeNull();
+        const shell = yield* threads.getShellSnapshot();
+        expect(shell.threads.filter((thread) => thread.projectId === scope.projectId)).toHaveLength(
+          1,
+        );
+        expect(yield* threads.getThreadShell(threadId)).toBeNull();
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
 );

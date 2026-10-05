@@ -48,6 +48,7 @@ export const fixture = Effect.gen(function* () {
   const receipts = new Map<string, PluginCommandReceipt>();
   const launches: PluginLaunchInput[] = [];
   yield* fs.writeFileString(`${directory}/SKILL.md`, "# Code review\nReview the frozen input.");
+  let skillPath = `${directory}/SKILL.md`;
   let head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   let dirty = false;
   let providerAvailable = true;
@@ -81,8 +82,7 @@ export const fixture = Effect.gen(function* () {
           runtimeModes: ["approval-required", "full-access"],
         },
       ]),
-    skills: () =>
-      Effect.succeed([{ name: "code-review", path: `${directory}/SKILL.md`, enabled: true }]),
+    skills: () => Effect.succeed([{ name: "code-review", path: skillPath, enabled: true }]),
     workspace: () => Effect.succeed({ path: directory, branch: "main", head }),
     resolveRef: () => Effect.succeed(head),
     prepareWorkspace: (input) =>
@@ -269,6 +269,9 @@ export const fixture = Effect.gen(function* () {
     report,
     launches,
     commands,
+    setSkillPath: (path: string) => {
+      skillPath = path;
+    },
     holdSend: () => {
       holdSend = true;
     },

@@ -14,6 +14,47 @@ const decodeRun = Schema.decodeUnknownEffect(Run);
 const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(RunSummary));
 const decodeDefinition = Schema.decodeUnknownEffect(Definition);
 
+it.effect.each([false, true])("resume verifies current skill registration, changed=%s", (changed) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture;
+      const definition = yield* decodeDefinition({
+        ...sequence,
+        nodes: [{ ...sequence.nodes[0], skill: "code-review" }, ...sequence.nodes.slice(1)],
+      });
+      const started = yield* test.start(definition);
+      yield* test.reconcile;
+      const threadId = started.attempts[0]!.threadId!;
+      test.settle(threadId, "interrupted");
+      yield* test.reconcile;
+      yield* test.reconcile;
+      const interrupted = yield* test.query(started.id);
+      expect(interrupted.allowedActions).toContain("resume");
+      const original = interrupted.attempts[0]!.skill!;
+      if (changed) {
+        const fs = yield* FileSystem.FileSystem;
+        const replacement = `${test.directory}/replacement-SKILL.md`;
+        yield* fs.writeFileString(replacement, "# Replacement review\nA different skill source.");
+        test.setSkillPath(replacement);
+        expect(yield* fs.readFileString(original.path)).toContain("Review the frozen input.");
+      }
+      yield* test.invoke("resume", {
+        environmentId: test.environmentId,
+        projectId: test.projectId,
+        runId: started.id,
+        expectedRevision: interrupted.revision,
+        clientRequestId: "resume",
+      });
+      yield* test.reconcile;
+      const actual = yield* test.query(started.id);
+      expect(actual.state).toBe(changed ? "unresolved" : "running");
+      expect(actual.attempts[0]!.skill).toEqual(original);
+      expect(test.threads.get(threadId)!.runs).toHaveLength(changed ? 1 : 2);
+      if (changed) expect(actual.reason).toContain("skill changed");
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("rejects whitespace titles before they can terminate shared attention", () =>
   Effect.scoped(
     Effect.gen(function* () {
