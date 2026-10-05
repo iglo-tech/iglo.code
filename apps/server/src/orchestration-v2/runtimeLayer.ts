@@ -1,5 +1,6 @@
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as ScheduleTargets from "../scheduling/ScheduleTargets.ts";
 import * as Layer from "effect/Layer";
 import * as OrchestrationCommandReceipts from "../persistence/Layers/OrchestrationCommandReceipts.ts";
 import * as OrchestrationEventStore from "../persistence/Layers/OrchestrationEventStore.ts";
@@ -320,6 +321,7 @@ export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
   providerContinuationWorkerProvided,
   agentSessionImporterProvided,
 ).pipe(
-  Layer.provide(Scheduler.layer),
+  Layer.provideMerge(Scheduler.layer),
+  Layer.provideMerge(ScheduleTargets.layer),
   Layer.provideMerge(OrchestrationEventInfrastructureLayerLive),
 );

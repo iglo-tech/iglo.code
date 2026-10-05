@@ -56,6 +56,7 @@ import {
   useSidebarVisibility,
 } from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { PluginNavigation } from "../plugins/PluginSlots";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
 
@@ -333,6 +334,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           ) : (
             <ThreadSidebar />
           )}
+          {isOnSettings ? null : <PluginNavigation />}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
         {children}

@@ -120,6 +120,27 @@ function hostedChangeRequest(body: string, additions = 1) {
   };
 }
 
+it.effect("verifies the live PR head even while detail is cached", () =>
+  Effect.gen(function* () {
+    let headSha = "first-head";
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/w", repository: "acme/web" })],
+      providers: [
+        fakeProvider("github", {
+          getChangeRequest: () =>
+            Effect.sync(() => ({ ...hostedChangeRequest("Description"), headSha })),
+        }),
+      ],
+    });
+    const ref = { projectId: "p1" as ProjectId, repository: "acme/web", number: 1 };
+    yield* service.detail(ref);
+    headSha = "second-head";
+    assert.deepEqual(yield* service.verifyHead(ref), { head: "second-head", branch: "feat/1" });
+    headSha = "third-head";
+    assert.strictEqual((yield* service.verifyHead(ref)).head, "third-head");
+  }),
+);
+
 it.effect("caches narrow previews and invalidates them after refresh or mutation", () =>
   Effect.gen(function* () {
     let reads = 0;

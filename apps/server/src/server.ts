@@ -65,6 +65,7 @@ import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/Provide
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
+import * as McpToolPolicy from "./mcp/McpToolPolicy.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { deviceHubProxyRouteLayer } from "./device/DeviceHubProxy.ts";
@@ -75,6 +76,8 @@ import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
+import * as CompiledPlugins from "./plugins/compiled.ts";
+import * as PluginCommandReceipts from "./orchestration-v2/CommandReceiptStore.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
@@ -507,6 +510,10 @@ const ProviderInstallationRefreshLive = Layer.effectDiscard(
 );
 
 const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
+  CompiledPlugins.layer.pipe(
+    Layer.provide(PullRequestServiceLive),
+    Layer.provide(PluginCommandReceipts.layerFromApplicationReceipts),
+  ),
   AgentAwarenessRelay.layer,
   ThreadSettlementWorkerLive,
   Layer.effectDiscard(StorageCleanup.make.pipe(Effect.flatMap((service) => service.start()))).pipe(
@@ -673,7 +680,7 @@ const makeRoutesLayer = Layer.mergeAll(
   Layer.provide(httpCompressionLayer),
 );
 
-const makeServerLayer = Layer.unwrap(
+export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
     const activation = yield* Deferred.make<void>();
@@ -1037,9 +1044,10 @@ const makeServerLayer = Layer.unwrap(
       // PR reads, Git operations, and WebSocket discovery share one process limiter.
       Layer.provide(VcsProcess.layer),
       Layer.provideMerge(PlatformServicesLive),
+      Layer.provide(McpToolPolicy.layer),
     );
   }),
 );
 
 // The CLI supplies configuration.
-export const runServer = Layer.launch(makeServerLayer);
+export const runServer = Layer.launch(layer);

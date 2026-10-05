@@ -973,7 +973,10 @@ export function claudeMcpQueryOverrides(input: {
     return input.allowedTools === undefined ? {} : { allowedTools: input.allowedTools };
   }
   const mcpAllowedTools = input.readOnlySandbox
-    ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
+    ? [
+        ...CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS,
+        ...(session.readOnlyPluginTools ?? []).map((id) => `mcp__t3-code__${id}`),
+      ]
     : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
     allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),

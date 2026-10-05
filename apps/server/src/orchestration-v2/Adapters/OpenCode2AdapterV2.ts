@@ -53,6 +53,7 @@ import {
   type ProviderInstanceId,
   type RunId,
   type RuntimeRequestId,
+  ThreadId,
 } from "@t3tools/contracts";
 import type * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -463,6 +464,14 @@ const mcpRules = (threadId: string | null): ReadonlyArray<Rule> =>
     : [
         { action: "t3-code-*", resource: "*", effect: "deny" },
         { action: `${t3McpServerName(threadId)}_*`, resource: "*", effect: "allow" },
+        ...(
+          McpProviderSession.readMcpProviderSession(ThreadId.make(threadId))?.readOnlyPluginTools ??
+          []
+        ).map((id) => ({
+          action: `${t3McpServerName(threadId)}_${id}`,
+          resource: "*",
+          effect: "allow" as const,
+        })),
       ];
 
 const sessionRules = (

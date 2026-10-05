@@ -210,6 +210,10 @@ export class PullRequestService extends Context.Service<
     readonly subscribeRefreshes: Stream.Stream<number>;
     readonly refreshAfterTurn: (projectId: ProjectId) => Effect.Effect<void>;
     readonly detail: (input: PullRequestRef) => Effect.Effect<PullRequestDetail, PullRequestError>;
+    /** Reads the provider directly for execution decisions; never uses a cached PR head. */
+    readonly verifyHead: (
+      input: PullRequestRef,
+    ) => Effect.Effect<{ readonly head: string; readonly branch: string }, PullRequestError>;
     readonly preview: (
       input: PullRequestRef,
     ) => Effect.Effect<PullRequestPreview, PullRequestError>;
@@ -3275,6 +3279,30 @@ export const make = Effect.gen(function* () {
   return PullRequestService.of({
     routing,
     routingIdentity,
+    verifyHead: credentialCached((input: PullRequestRef) =>
+      requireProject(input).pipe(
+        Effect.flatMap((project) =>
+          project.api
+            .getChangeRequest({
+              cwd: project.project.workspaceRoot,
+              repository: project.repository,
+              host: project.host,
+              number: input.number,
+            })
+            .pipe(Effect.mapError(toPullRequestError("verifyHead"))),
+        ),
+        Effect.flatMap((change) =>
+          change.headSha == null
+            ? Effect.fail(
+                new PullRequestOperationError({
+                  operation: "verifyHead",
+                  detail: "This provider does not expose the current pull request head.",
+                }),
+              )
+            : Effect.succeed({ head: change.headSha, branch: change.headBranch }),
+        ),
+      ),
+    ),
     withRoutingCredential,
     list,
     listStats: (input) =>

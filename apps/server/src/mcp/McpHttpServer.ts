@@ -1,4 +1,5 @@
 import * as NodeCrypto from "node:crypto";
+import * as PluginMcp from "@t3tools/plugin-host-adapter/mcp";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -716,6 +717,7 @@ const McpTransportLive = McpServer.layerHttp({
 }).pipe(Layer.provide(McpAuthMiddlewareLive));
 
 export const layer = Layer.mergeAll(
+  PluginMcp.layer,
   PreviewToolkitRegistrationLive,
   OrchestratorToolkitRegistrationLive,
   ThreadToolkitRegistrationLive,

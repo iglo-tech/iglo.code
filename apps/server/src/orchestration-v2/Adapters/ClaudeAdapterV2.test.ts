@@ -51,6 +51,7 @@ import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { makePluginToolFixture } from "../../plugins/PluginHost.testkit.ts";
 import { PreviewControlsToolkit } from "../../mcp/toolkits/previewControls/tools.ts";
 import { EnvironmentToolkit } from "../../mcp/toolkits/environment/tools.ts";
 import { ProjectToolkit } from "../../mcp/toolkits/project/tools.ts";
@@ -580,6 +581,27 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
         ...ClaudeAdapterV2.CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS,
       ]);
     });
+  });
+
+  it("explicitly allows the mutating report tool in a read-only session", () => {
+    const threadId = ThreadId.make("plugin-read-only");
+    McpProviderSession.setMcpProviderSession({
+      environmentId: EnvironmentId.make("plugin-environment"),
+      threadId,
+      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+      providerSessionId: "plugin-session",
+      endpoint: "http://127.0.0.1:3773/mcp",
+      authorizationHeader: "Bearer plugin",
+      browserToolsAvailable: false,
+      readOnlyPluginTools: ["plugin_fixture_report"],
+    });
+    try {
+      const policy = ClaudeAdapterV2.claudeMcpQueryOverrides({ threadId, readOnlySandbox: true });
+      assert.include(policy.allowedTools ?? [], "mcp__t3-code__plugin_fixture_report");
+      assert.notInclude(policy.allowedTools ?? [], "mcp__t3-code__*");
+    } finally {
+      McpProviderSession.clearMcpProviderSession(threadId);
+    }
   });
 
   it("keys live-query reuse on the MCP-derived pre-approvals", () => {
@@ -1801,7 +1823,11 @@ describe("ClaudeAdapterV2 native fork", () => {
 });
 
 describe("ClaudeAdapterV2 native session identity", () => {
-  const openTurnWithOrdinal = (providerTurnOrdinal: number, nativeThreadHasTurns?: boolean) =>
+  const openTurnWithOrdinal = (
+    providerTurnOrdinal: number,
+    nativeThreadHasTurns?: boolean,
+    pluginCredential?: McpProviderSession.McpProviderSessionConfig,
+  ) =>
     Effect.scoped(
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -1838,6 +1864,8 @@ describe("ClaudeAdapterV2 native session identity", () => {
           },
         });
         const threadId = ThreadId.make("thread-claude-session-identity");
+        if (pluginCredential !== undefined)
+          McpProviderSession.setMcpProviderSession(pluginCredential);
         const providerSessionId = ProviderSessionId.make("provider-session-claude-identity");
         const runtime = yield* adapter.openSession({
           threadId,
@@ -1866,6 +1894,45 @@ describe("ClaudeAdapterV2 native session identity", () => {
         return openedQueries;
       }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
     );
+
+  it.live(
+    "injects plugin reporting tools on new and resumed sessions with refreshed credentials",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fixture = yield* makePluginToolFixture(
+            "claudeAgent",
+            ThreadId.make("thread-claude-session-identity"),
+          );
+          const initialCredential = yield* fixture.issue;
+          const first = yield* openTurnWithOrdinal(1, undefined, initialCredential);
+          assert.equal(first[0]?.options.sessionId, "native-session-identity");
+          const firstConnection = first[0]?.options.mcpServers?.["t3-code"];
+          if (firstConnection === undefined || !("url" in firstConnection))
+            return yield* Effect.die("Missing managed MCP connection");
+          yield* fixture.report(
+            { url: firstConnection.url, headers: firstConnection.headers ?? {} },
+            "first",
+          );
+          const freshCredential = yield* fixture.issue;
+          assert.notEqual(
+            initialCredential.authorizationHeader,
+            freshCredential.authorizationHeader,
+          );
+          const resumed = yield* openTurnWithOrdinal(2, undefined, freshCredential);
+          assert.equal(resumed[0]?.options.resume, "native-session-identity");
+          const resumedConnection = resumed[0]?.options.mcpServers?.["t3-code"];
+          if (resumedConnection === undefined || !("url" in resumedConnection))
+            return yield* Effect.die("Missing resumed MCP connection");
+          yield* fixture.report(
+            { url: resumedConnection.url, headers: resumedConnection.headers ?? {} },
+            "resumed",
+          );
+          assert.include(resumed[0]?.options.allowedTools ?? [], "mcp__t3-code__*");
+        }),
+      ).pipe(Effect.provide(NodeServices.layer)),
+    { timeout: 30_000 },
+  );
 
   it.effect("creates the native session on the first provider turn", () =>
     Effect.gen(function* () {

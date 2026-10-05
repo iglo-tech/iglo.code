@@ -410,7 +410,11 @@ function ScheduledTaskRow({
   return (
     <SettingsRow
       title={task.title}
-      description={<span className="line-clamp-2">{task.prompt}</span>}
+      description={
+        <span className="line-clamp-2">
+          {task.dispatchTarget === undefined ? task.prompt : "Runs a plugin action"}
+        </span>
+      }
       status={
         <div className="flex flex-wrap items-center gap-2">
           <span>
@@ -599,6 +603,7 @@ function ScheduledTaskEditorDialog({
       ...(draft.editingId ? { id: draft.editingId as ScheduledTaskId, requireExisting: true } : {}),
       title: draft.title.trim(),
       prompt: draft.prompt.trim(),
+      ...(task?.dispatchTarget === undefined ? {} : { dispatchTarget: task.dispatchTarget }),
       enabled: draft.enabled,
       schedule,
       projectId: selectedProjectId as ProjectId,
@@ -708,109 +713,119 @@ function ScheduledTaskEditorDialog({
               />
             </Field>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Project" htmlFor="scheduled-task-project">
-                <Select
-                  value={selectedProjectId}
-                  onValueChange={(projectId) =>
-                    setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
-                  }
-                >
-                  <SelectTrigger size="sm" id="scheduled-task-project">
-                    <SelectValue placeholder="Select a project">
-                      {selectedProject?.title}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.title}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </Field>
+            {task?.dispatchTarget === undefined ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Project" htmlFor="scheduled-task-project">
+                    <Select
+                      value={selectedProjectId}
+                      onValueChange={(projectId) =>
+                        setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
+                      }
+                    >
+                      <SelectTrigger size="sm" id="scheduled-task-project">
+                        <SelectValue placeholder="Select a project">
+                          {selectedProject?.title}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup>
+                        {projects.map((project) => (
+                          <SelectItem key={project.id} value={project.id}>
+                            {project.title}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </Field>
 
-              <Field label="Workspace" htmlFor="scheduled-task-workspace">
-                <Select
-                  value={draft.workspaceMode}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({ ...current, workspaceMode: value as WorkspaceMode }))
-                  }
-                >
-                  <SelectTrigger size="sm" id="scheduled-task-workspace">
-                    <SelectValue>{WORKSPACE_MODE_LABELS[draft.workspaceMode]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    <SelectItem value="worktree">Create a new worktree</SelectItem>
-                    <SelectItem value="root">Use the project checkout</SelectItem>
-                    <SelectItem value="existing_worktree">Use a specific checkout</SelectItem>
-                  </SelectPopup>
-                </Select>
-              </Field>
-            </div>
+                  <Field label="Workspace" htmlFor="scheduled-task-workspace">
+                    <Select
+                      value={draft.workspaceMode}
+                      onValueChange={(value) =>
+                        setDraft((current) => ({
+                          ...current,
+                          workspaceMode: value as WorkspaceMode,
+                        }))
+                      }
+                    >
+                      <SelectTrigger size="sm" id="scheduled-task-workspace">
+                        <SelectValue>{WORKSPACE_MODE_LABELS[draft.workspaceMode]}</SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup>
+                        <SelectItem value="worktree">Create a new worktree</SelectItem>
+                        <SelectItem value="root">Use the project checkout</SelectItem>
+                        <SelectItem value="existing_worktree">Use a specific checkout</SelectItem>
+                      </SelectPopup>
+                    </Select>
+                  </Field>
+                </div>
 
-            {draft.workspaceMode === "worktree" ? (
-              <Field label="Base branch" htmlFor="scheduled-task-base-ref">
-                <WorktreeBaseBranchPicker
-                  key={`${environmentId}:${selectedProjectId}`}
-                  id="scheduled-task-base-ref"
-                  environmentId={environmentId}
-                  cwd={selectedProject?.workspaceRoot ?? null}
-                  value={draft.baseRef}
-                  onValueChange={(baseRef) => setDraft((current) => ({ ...current, baseRef }))}
-                  startFromOrigin={draft.startFromOrigin}
-                  onStartFromOriginChange={(startFromOrigin) =>
-                    setDraft((current) => ({ ...current, startFromOrigin }))
-                  }
-                  disabled={saving || !connected}
-                />
-              </Field>
-            ) : null}
-            {draft.workspaceMode === "existing_worktree" ? (
-              <Field label="Checkout path" htmlFor="scheduled-task-checkout">
-                <Input
-                  id="scheduled-task-checkout"
-                  value={draft.existingWorktreePath}
-                  placeholder="/path/to/checkout"
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      existingWorktreePath: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
-            ) : null}
+                {draft.workspaceMode === "worktree" ? (
+                  <Field label="Base branch" htmlFor="scheduled-task-base-ref">
+                    <WorktreeBaseBranchPicker
+                      key={`${environmentId}:${selectedProjectId}`}
+                      id="scheduled-task-base-ref"
+                      environmentId={environmentId}
+                      cwd={selectedProject?.workspaceRoot ?? null}
+                      value={draft.baseRef}
+                      onValueChange={(baseRef) => setDraft((current) => ({ ...current, baseRef }))}
+                      startFromOrigin={draft.startFromOrigin}
+                      onStartFromOriginChange={(startFromOrigin) =>
+                        setDraft((current) => ({ ...current, startFromOrigin }))
+                      }
+                      disabled={saving || !connected}
+                    />
+                  </Field>
+                ) : null}
+                {draft.workspaceMode === "existing_worktree" ? (
+                  <Field label="Checkout path" htmlFor="scheduled-task-checkout">
+                    <Input
+                      id="scheduled-task-checkout"
+                      value={draft.existingWorktreePath}
+                      placeholder="/path/to/checkout"
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          existingWorktreePath: event.target.value,
+                        }))
+                      }
+                    />
+                  </Field>
+                ) : null}
 
-            <Field label="Prompt" htmlFor="scheduled-task-prompt">
-              <Textarea
-                id="scheduled-task-prompt"
-                className="max-h-64 overflow-y-auto"
-                placeholder="What should the agent do each time this runs?"
-                value={draft.prompt}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, prompt: event.target.value }))
-                }
-              />
-            </Field>
+                <Field label="Prompt" htmlFor="scheduled-task-prompt">
+                  <Textarea
+                    id="scheduled-task-prompt"
+                    className="max-h-64 overflow-y-auto"
+                    placeholder="What should the agent do each time this runs?"
+                    value={draft.prompt}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, prompt: event.target.value }))
+                    }
+                  />
+                </Field>
 
-            <Field label="Model">
-              <ProviderModelPicker
-                disabled={saving || !connected}
-                activeInstanceId={activeInstanceId}
-                model={activeModel}
-                lockedProvider={null}
-                instanceEntries={instanceEntries}
-                modelOptionsByInstance={modelOptionsByInstance}
-                isComposerOwned={false}
-                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                onInstanceModelChange={(instanceId, model) =>
-                  setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
-                }
-              />
-            </Field>
-
+                <Field label="Model">
+                  <ProviderModelPicker
+                    disabled={saving || !connected}
+                    activeInstanceId={activeInstanceId}
+                    model={activeModel}
+                    lockedProvider={null}
+                    instanceEntries={instanceEntries}
+                    modelOptionsByInstance={modelOptionsByInstance}
+                    isComposerOwned={false}
+                    triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                    onInstanceModelChange={(instanceId, model) =>
+                      setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
+                    }
+                  />
+                </Field>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                This schedule runs a plugin action. Manage the action in its plugin page.
+              </p>
+            )}
             <div className="space-y-3">
               {task?.schedule.type === "interval" &&
               task.schedule.everyMs < MIN_SCHEDULED_TASK_INTERVAL_MS ? (

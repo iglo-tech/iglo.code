@@ -4,6 +4,8 @@
  * HTTP server. Frames reuse the shapes recorded against 2.0.18.
  */
 import { assert, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { makePluginToolFixture } from "../../plugins/PluginHost.testkit.ts";
 import {
   CheckpointId,
   EnvironmentId,
@@ -2700,6 +2702,93 @@ describe("OpenCode2 adapter", () => {
         assert.equal((yield* Fiber.join(terminal))?.status, "completed");
         yield* runtime.unloadThread!({ providerThread: thread });
       }).pipe(Effect.scoped),
+  );
+
+  it.live(
+    "injects plugin reporting permission on new and resumed managed sessions with refreshed credentials",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const server = "t3-code-thread_opencode2-adapter";
+          const pluginRule = {
+            action: `${server}_plugin_fixture_report`,
+            resource: "*",
+            effect: "allow",
+          };
+          const permissions = [...t3Rules, pluginRule];
+          const fixture = yield* makePluginToolFixture("opencode", threadId);
+          const firstCredential = yield* fixture.issue;
+          const injection = (credential: McpProviderSession.McpProviderSessionConfig) => [
+            out("mcp.add", {
+              server,
+              "location[directory]": WORK,
+              config: {
+                type: "remote",
+                url: credential.endpoint,
+                headers: { Authorization: credential.authorizationHeader },
+                oauth: false,
+              },
+            }),
+            reply("mcp.add", null),
+            out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+            promptAccepted,
+            event("session.execution.succeeded", { sessionID: SESSION }),
+            out("mcp.remove", { server, "location[directory]": WORK }),
+            reply("mcp.remove", null),
+          ];
+          const first = yield* openCode2ReplayRuntimeWithInstructions([
+            ...opening,
+            out("session.create", {
+              location: { directory: WORK },
+              model: { providerID: "opencode", id: "big-pickle" },
+              permissions,
+            }),
+            replyData("session.create", sessionInfo({ permissions })),
+            ...injection(firstCredential),
+          ]);
+          const created = yield* first.ensureThread({
+            threadId,
+            modelSelection: bigPickle,
+            runtimePolicy: policy(),
+          });
+          const initialTerminal = yield* terminalOf(first).pipe(Effect.forkScoped);
+          yield* first.startTurn(turnInput(created));
+          assert.equal((yield* Fiber.join(initialTerminal))?.status, "completed");
+          yield* fixture.report(
+            {
+              url: firstCredential.endpoint,
+              headers: { Authorization: firstCredential.authorizationHeader },
+            },
+            "first",
+          );
+          const freshCredential = yield* fixture.issue;
+          assert.notEqual(firstCredential.authorizationHeader, freshCredential.authorizationHeader);
+          const second = yield* openCode2ReplayRuntimeWithInstructions([
+            ...opening,
+            out("session.get", { sessionID: SESSION }),
+            replyData("session.get", sessionInfo({ permissions })),
+            ...noOpenRequests,
+            ...injection(freshCredential),
+          ]);
+          const resumedThread = yield* second.resumeThread({
+            providerThread: created,
+            threadId,
+            modelSelection: bigPickle,
+            runtimePolicy: policy(),
+          });
+          const resumedTerminal = yield* terminalOf(second).pipe(Effect.forkScoped);
+          yield* second.startTurn(turnInput(resumedThread));
+          assert.equal((yield* Fiber.join(resumedTerminal))?.status, "completed");
+          yield* fixture.report(
+            {
+              url: freshCredential.endpoint,
+              headers: { Authorization: freshCredential.authorizationHeader },
+            },
+            "resumed",
+          );
+        }),
+      ).pipe(Effect.provide(NodeServices.layer)),
+    { timeout: 30_000 },
   );
 
   it.effect("reads user and assistant text from the session's message list", () =>

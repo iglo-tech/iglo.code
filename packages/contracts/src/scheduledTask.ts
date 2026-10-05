@@ -90,10 +90,17 @@ export type ScheduledTaskUpsertSchedule = typeof ScheduledTaskUpsertSchedule.Typ
 export const ScheduledTaskRunStatus = Schema.Literals(["never", "running", "succeeded", "failed"]);
 export type ScheduledTaskRunStatus = typeof ScheduledTaskRunStatus.Type;
 
+export const ScheduledTaskDispatchTarget = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  payload: Schema.Json,
+});
+export type ScheduledTaskDispatchTarget = typeof ScheduledTaskDispatchTarget.Type;
+
 export const ScheduledTask = Schema.Struct({
   id: ScheduledTaskId,
   title: TrimmedNonEmptyString,
   prompt: TrimmedNonEmptyString,
+  dispatchTarget: Schema.optional(ScheduledTaskDispatchTarget),
   enabled: Schema.Boolean,
   schedule: ScheduledTaskSchedule,
   projectId: ProjectId,
@@ -130,6 +137,7 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   commandId: Schema.optional(CommandId),
   title: TrimmedNonEmptyString,
   prompt: TrimmedNonEmptyString,
+  dispatchTarget: Schema.optional(ScheduledTaskDispatchTarget),
   enabled: Schema.Boolean,
   schedule: ScheduledTaskUpsertSchedule,
   projectId: ProjectId,
@@ -157,6 +165,7 @@ export type ScheduledTaskDeleteInput = typeof ScheduledTaskDeleteInput.Type;
 
 export const ScheduledTaskRunNowInput = Schema.Struct({
   id: ScheduledTaskId,
+  occurrenceId: Schema.optional(TrimmedNonEmptyString),
 });
 export type ScheduledTaskRunNowInput = typeof ScheduledTaskRunNowInput.Type;
 

@@ -1222,6 +1222,16 @@ export function codexThreadRuntimeParams(input: {
                 http_headers: {
                   Authorization: mcpSession.authorizationHeader,
                 },
+                ...((mcpSession.readOnlyPluginTools?.length ?? 0) === 0
+                  ? {}
+                  : {
+                      tools: Object.fromEntries(
+                        mcpSession.readOnlyPluginTools!.map((id) => [
+                          id,
+                          { approval_mode: "approve" },
+                        ]),
+                      ),
+                    }),
               },
             },
           }),

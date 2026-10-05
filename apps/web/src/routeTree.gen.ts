@@ -34,6 +34,7 @@ import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$proje
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
+import { Route as ChatPluginsEnvironmentIdPluginIdPageIdRouteImport } from './routes/_chat.plugins.$environmentId.$pluginId.$pageId'
 
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
@@ -161,6 +162,12 @@ const ChatEnvironmentIdThreadIdRoute =
     path: '/$environmentId/$threadId',
     getParentRoute: () => ChatRoute,
   } as any)
+const ChatPluginsEnvironmentIdPluginIdPageIdRoute =
+  ChatPluginsEnvironmentIdPluginIdPageIdRouteImport.update({
+    id: '/plugins/$environmentId/$pluginId/$pageId',
+    path: '/plugins/$environmentId/$pluginId/$pageId',
+    getParentRoute: () => ChatRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
@@ -187,6 +194,7 @@ export interface FileRoutesByFullPath {
   '/settings/storage': typeof SettingsStorageRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/plugins/$environmentId/$pluginId/$pageId': typeof ChatPluginsEnvironmentIdPluginIdPageIdRoute
 }
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
@@ -213,6 +221,7 @@ export interface FileRoutesByTo {
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/plugins/$environmentId/$pluginId/$pageId': typeof ChatPluginsEnvironmentIdPluginIdPageIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -241,6 +250,7 @@ export interface FileRoutesById {
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/_chat/plugins/$environmentId/$pluginId/$pageId': typeof ChatPluginsEnvironmentIdPluginIdPageIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -269,6 +279,7 @@ export interface FileRouteTypes {
     | '/settings/storage'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/plugins/$environmentId/$pluginId/$pageId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/connect'
@@ -295,6 +306,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/plugins/$environmentId/$pluginId/$pageId'
   id:
     | '__root__'
     | '/_chat'
@@ -322,6 +334,7 @@ export interface FileRouteTypes {
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
+    | '/_chat/plugins/$environmentId/$pluginId/$pageId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -511,6 +524,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/plugins/$environmentId/$pluginId/$pageId': {
+      id: '/_chat/plugins/$environmentId/$pluginId/$pageId'
+      path: '/plugins/$environmentId/$pluginId/$pageId'
+      fullPath: '/plugins/$environmentId/$pluginId/$pageId'
+      preLoaderRoute: typeof ChatPluginsEnvironmentIdPluginIdPageIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
   }
 }
 
@@ -519,6 +539,7 @@ interface ChatRouteChildren {
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
+  ChatPluginsEnvironmentIdPluginIdPageIdRoute: typeof ChatPluginsEnvironmentIdPluginIdPageIdRoute
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
@@ -526,6 +547,8 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
+  ChatPluginsEnvironmentIdPluginIdPageIdRoute:
+    ChatPluginsEnvironmentIdPluginIdPageIdRoute,
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)

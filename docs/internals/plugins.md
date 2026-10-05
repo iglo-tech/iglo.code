@@ -1,0 +1,41 @@
+# Compiled plugins
+
+Plugins are trusted server and web modules compiled with this fork. Changing the module set requires rebuilding and restarting the environment. There is no runtime installation or isolation from malicious code or a hung process.
+
+The public boundary is [`plugin-host-contract`](../../packages/plugin-host-contract/src/server.ts), with wire schemas in [`pluginHost.ts`](../../packages/contracts/src/pluginHost.ts) and web contributions in [`web.ts`](../../packages/plugin-host-contract/src/web.ts). Plugin packages import that boundary, their own schemas, and ordinary libraries. The lint rule in `vite.config.ts` rejects core server, provider, persistence, and client-state imports. Only `plugin-host-adapter` adapts upstream services. The Reports fixture demonstrates both entry points without depending on core implementation modules.
+
+## Registration and client compatibility
+
+Server modules are explicitly composed in [`compiled.ts`](../../apps/server/src/plugins/compiled.ts); typed RPC schemas and authorization scopes are composed in [`compiledPlugins.ts`](../../packages/contracts/src/compiledPlugins.ts). Web modules and their environment-bound clients are composed in [`compiled.tsx`](../../apps/web/src/plugins/compiled.tsx). Registering an API requires the identical compiled RPC definition and scope; there is no arbitrary plugin invocation endpoint. Tools, APIs, and schedule targets must use the plugin namespace and match its manifest.
+
+Host interface version 1 rejects conflicting identities, duplicate contributions, missing capabilities, and incompatible versions before publication. Acquisition and migrations run after core recovery in an environment scope. Failure makes that optional plugin unavailable while ordinary T3 boot remains usable. A missing module retains its last descriptor and private database. Independently built clients gate contributions on both the environment capability and manifest. A server page missing from a client build produces an unavailable page in the normal shell. Capability removal or disconnection gates cached values immediately.
+
+Navigation and attention links are bound to the selected environment, with optional project and thread context. A failed or disconnected target never falls back to another server. Attention is a bounded read model owned by the plugin; opening its page or conversation does not resolve it. Pages own their mounted subscriptions. The host shares one attention subscription per environment and closes it when its last reader leaves.
+
+## Ownership and recovery
+
+`Host` exposes environment-owned project, provider, skills, workspace, fresh PR-head, thread-control, and normalized lifecycle operations. A launch acknowledgement records committed intent, not completed execution. Plugins supply a stable command identity and identical input when retrying. The adapter namespaces identities by plugin, persists intent in its private store before dispatch, pins an exact ref to its resolved SHA, and reconciles core receipts after a lost acknowledgement. Reusing an identity with different input is a conflict.
+
+Lifecycle streams are scoped by project/thread and resume from a cursor. Replay is bounded; a missing, future, or over-budget cursor yields a snapshot with `replayGap: true`. Consumers reconcile that snapshot instead of assuming every intermediate event arrived. Subscription interruption closes the underlying consumer.
+
+A plugin's `Storage` SQL client opens only its own environment-local SQLite database under `userdata/plugins/<id>/state.sqlite`. Its integer migration identities and names have a separate ledger. Core and plugin transactions are independent: persist intent, call an idempotent host operation, then record the result. Never assume an atomic transaction across that boundary.
+
+`Schedules` registers due work with the existing scheduler and dispatches named targets through the normal persisted schedule controls. The schedule pipeline records the occurrence identity and immutable project/payload before invoking a target. An interrupted dispatch remains pending for recovery; its plugin must deduplicate domain results by occurrence identity in its own transaction. A dispatch receipt records delivery, while the plugin owns the eventual domain result. Missing targets fail with retained state and an actionable error. Ordinary prompt schedules retain their existing path.
+
+MCP supplies the authenticated environment, thread, provider instance/session, and permission mode. Tool arguments cannot choose that caller. Stale sessions, archived/deleted callers, and unsupported adapters are rejected. Schemas validate arguments and results. A report tool remains truthfully mutating (`readOnly: false`); `allowInReadOnly` grants an explicit reporting allowance and travels with refreshed credentials to the adapter's permission configuration.
+
+## Verified matrix
+
+| Surface or adapter                             | Support and evidence                                                                                                                                                               |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Managed Codex                                  | Actual adapter start/resume replay with server-issued credentials, permission injection, real MCP discovery and accepted reports.                                                  |
+| Managed Claude                                 | Actual query opening for new/resumed sessions, real MCP discovery and reports using the injected connection, refreshed credentials, and an explicit read-only reporting allowlist. |
+| Managed OpenCode 2                             | Actual start/resume transport replay, real MCP discovery and reports, per-thread injection, refreshed credentials, and cleanup. T3 selects this adapter for 2.x.                   |
+| Managed OpenCode 1                             | Unsupported; upgrade to 2.x. Its legacy injection lacks per-thread isolation.                                                                                                      |
+| Cursor, Grok, Antigravity, Pi, ACP             | Plugin tools unsupported until their injection paths are verified. Ordinary provider use is unaffected.                                                                            |
+| Externally owned providers, including OpenCode | Plugin tools unsupported; the environment cannot promise host-owned injection.                                                                                                     |
+| Authenticated web / remote RPC                 | Real server, HTTP MCP, WebSocket per-operation authorization, subscriptions, environment rejection, and restart tests.                                                             |
+| Desktop                                        | Uses the same compiled web contributions. Typechecked; no separate Electron interaction pass.                                                                                      |
+| Mobile                                         | No plugin page rendering in version 1. Ordinary features and generic schedule controls remain compatible and are typechecked.                                                      |
+
+The real-server acceptance suite also covers private migration/state retention through fresh authenticated connections after restart, exact-ref retries after a lost acknowledgement, lifecycle replay and snapshot fallback after deletion, interrupted schedule redelivery, and ordinary threads/prompt schedules with zero compiled plugins. A React renderer check hosts the Reports page in the normal shell against two real environments, exercises page and conversation links and resolution, closes subscriptions on unmount, and verifies missing client modules. Client atom tests verify shared attention cleanup and descriptor downgrade. Browser interaction requires a separately authorized integrated client pass.

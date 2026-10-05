@@ -1,0 +1,167 @@
+import {
+  CommandId,
+  PluginCommandReceipt,
+  PluginError,
+  PluginLaunchInput,
+  PluginTarget,
+} from "@t3tools/plugin-host-contract/schema";
+import { Host, Storage } from "@t3tools/plugin-host-contract/server";
+import * as Effect from "effect/Effect";
+import * as Cause from "effect/Cause";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+
+const Send = PluginTarget.mapFields((fields) => ({
+  ...fields,
+  commandId: CommandId,
+  instruction: Schema.String,
+  mode: Schema.Literals(["queue", "auto"]),
+}));
+const Interrupt = PluginTarget.mapFields((fields) => ({ ...fields, commandId: CommandId }));
+const Intent = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("launch"), input: PluginLaunchInput }),
+  Schema.Struct({ kind: Schema.Literal("send"), input: Send }),
+  Schema.Struct({ kind: Schema.Literal("interrupt"), input: Interrupt }),
+]);
+const encodeIntent = Schema.encodeEffect(Schema.fromJsonString(Intent));
+const decodeIntent = Schema.decodeUnknownEffect(Schema.fromJsonString(Intent));
+const encodeReceipt = Schema.encodeEffect(
+  Schema.fromJsonString(Schema.NullOr(PluginCommandReceipt)),
+);
+const decodeReceipt = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.NullOr(PluginCommandReceipt)),
+);
+const isPluginError = Schema.is(PluginError);
+
+/** Private durable intent bridges plugin SQL and the core command transaction. */
+export const make = (pluginId: string) =>
+  Effect.gen(function* () {
+    const core = yield* Host;
+    const { sql } = yield* Storage;
+    const lock = yield* Semaphore.make(1);
+    const error = (operation: string, message: string, cause?: unknown) =>
+      new PluginError({
+        pluginId,
+        code: "storage",
+        operation,
+        message,
+        ...(cause === undefined ? {} : { cause }),
+      });
+    yield* sql`CREATE TABLE IF NOT EXISTS host_commands (id TEXT PRIMARY KEY, request TEXT NOT NULL, intent TEXT NOT NULL, result TEXT)`;
+    const coreId = (id: CommandId) => CommandId.make(`plugin:${pluginId}:${id}`);
+    const dispatch = Effect.fn("PluginHost.dispatchIntent")(function* (intent: typeof Intent.Type) {
+      const input = { ...intent.input, commandId: coreId(intent.input.commandId) };
+      const result =
+        intent.kind === "launch"
+          ? yield* core.launch({ ...intent.input, commandId: input.commandId })
+          : intent.kind === "send"
+            ? yield* core.send({ ...intent.input, commandId: input.commandId })
+            : yield* core.interrupt({ ...intent.input, commandId: input.commandId });
+      const receipt = result === null ? null : { ...result, commandId: intent.input.commandId };
+      const encoded = yield* encodeReceipt(receipt);
+      yield* sql`UPDATE host_commands SET result = ${encoded} WHERE id = ${intent.input.commandId}`;
+      return receipt;
+    });
+    const execute = Effect.fn("PluginHost.executeIntent")(
+      function* (requested: typeof Intent.Type) {
+        if (requested.input.environmentId !== core.environmentId)
+          return yield* new PluginError({
+            pluginId,
+            code: "unavailable",
+            operation: requested.kind,
+            message: "The requested environment is not this server.",
+          });
+        const request = yield* encodeIntent(requested);
+        const [existing] = yield* sql<{
+          request: string;
+          intent: string;
+          result: string | null;
+        }>`SELECT * FROM host_commands WHERE id = ${requested.input.commandId}`;
+        if (existing !== undefined) {
+          if (existing.request !== request)
+            return yield* new PluginError({
+              pluginId,
+              code: "conflict",
+              operation: requested.kind,
+              message:
+                "This command identity already belongs to a different operation. Retry the original input or use a new identity.",
+            });
+          if (existing.result !== null) return yield* decodeReceipt(existing.result);
+          return yield* dispatch(yield* decodeIntent(existing.intent));
+        }
+        const intent =
+          requested.kind === "launch" && requested.input.workspace.type === "exact-ref"
+            ? {
+                ...requested,
+                input: {
+                  ...requested.input,
+                  workspace: {
+                    ...requested.input.workspace,
+                    ref: yield* core.resolveRef(
+                      requested.input.projectId,
+                      requested.input.workspace.ref,
+                    ),
+                  },
+                },
+              }
+            : requested;
+        const encoded = yield* encodeIntent(intent);
+        yield* sql`INSERT INTO host_commands (id, request, intent) VALUES (${requested.input.commandId}, ${request}, ${encoded})`;
+        return yield* dispatch(intent);
+      },
+      lock.withPermits(1),
+      Effect.mapError((cause) =>
+        isPluginError(cause)
+          ? cause
+          : error(
+              "command",
+              "Could not record or reconcile host command intent. Retry with the same identity.",
+              cause,
+            ),
+      ),
+    );
+    const required = (result: PluginCommandReceipt | null) =>
+      result === null
+        ? Effect.fail(error("receipt", "The committed command has no receipt."))
+        : Effect.succeed(result);
+    const service = Host.of({
+      ...core,
+      launch: (input) => execute({ kind: "launch", input }).pipe(Effect.flatMap(required)),
+      send: (input) => execute({ kind: "send", input }).pipe(Effect.flatMap(required)),
+      interrupt: (input) => execute({ kind: "interrupt", input }),
+      receipt: (id) =>
+        Effect.gen(function* () {
+          const [row] = yield* sql<{
+            result: string | null;
+          }>`SELECT result FROM host_commands WHERE id = ${id}`;
+          if (row === undefined) return null;
+          if (row.result !== null) return yield* decodeReceipt(row.result);
+          const result = yield* core.receipt(coreId(id));
+          return result === null ? null : { ...result, commandId: id };
+        }).pipe(
+          Effect.mapError((cause) =>
+            isPluginError(cause)
+              ? cause
+              : error("receipt", "Could not read the host command receipt.", cause),
+          ),
+        ),
+    });
+    const recover = Effect.gen(function* () {
+      const pending = yield* sql<{
+        intent: string;
+      }>`SELECT intent FROM host_commands WHERE result IS NULL ORDER BY rowid`;
+      for (const row of pending)
+        yield* decodeIntent(row.intent).pipe(
+          Effect.flatMap(dispatch),
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.interrupt
+              : Effect.logWarning("Plugin host command remains pending", { pluginId, cause }),
+          ),
+        );
+    }).pipe(
+      lock.withPermits(1),
+      Effect.mapError((cause) => error("recover", "Could not recover plugin host intents.", cause)),
+    );
+    return { service, recover };
+  });

@@ -20,6 +20,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -47,6 +48,7 @@ import { forkParked, forkParkedFiber } from "./serverActivation.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as PluginRegistry from "@t3tools/plugin-host-adapter/registry";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -537,6 +539,11 @@ const make = (options?: StartupOptions) =>
         ).pipe(Effect.map((targets): AutoBootstrapWelcomeTargets => targets)),
       });
       yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
+      const plugins = yield* Effect.serviceOption(PluginRegistry.PluginRegistry);
+      if (Option.isSome(plugins)) {
+        yield* plugins.value.start;
+        yield* plugins.value.awaitToolsReady;
+      }
       yield* runStartupPhase(
         "projects.auto-pull",
         Effect.gen(function* () {
