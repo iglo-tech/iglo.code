@@ -618,6 +618,7 @@ it.layer(testLayer)("Antigravity provider snapshots", (it) => {
         ];
         const discovered = yield* harness.provider.snapshotForCwd("/workspace", skills);
         expect(discovered.skills).toEqual(skills);
+        yield* harness.provider.commitWorkspaceSnapshot("/workspace", discovered);
         yield* harness.provider.onSessionStarted(started, "/workspace");
         yield* harness.provider.onAvailableCommands(commands, "/workspace");
         const after = yield* harness.provider.snapshot.getSnapshot;
@@ -630,7 +631,13 @@ it.layer(testLayer)("Antigravity provider snapshots", (it) => {
           ...skills,
           { name: "review", path: "/workspace/.agent/skills/review", enabled: true },
         ];
-        yield* harness.provider.snapshotForCwd("/workspace", rescanned);
+        const nextDiscovery = yield* harness.provider.snapshotForCwd("/workspace", rescanned);
+        // An uncommitted probe cannot leak into native session publication.
+        yield* harness.provider.onAvailableCommands(commands, "/workspace");
+        expect(
+          (yield* harness.provider.snapshot.getSnapshot).workspaceSnapshots?.[0]?.skills,
+        ).toEqual(skills);
+        yield* harness.provider.commitWorkspaceSnapshot("/workspace", nextDiscovery);
         yield* harness.provider.onSessionStarted(started, "/workspace");
         expect(
           (yield* harness.provider.snapshot.getSnapshot).workspaceSnapshots?.find(

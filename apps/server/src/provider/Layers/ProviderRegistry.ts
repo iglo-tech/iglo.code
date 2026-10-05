@@ -946,20 +946,29 @@ export const ProviderRegistryLive = Layer.effect(
       const provider = providers.find((candidate) => candidate.instanceId === input.instanceId);
       const workspaceSnapshotOf = (candidate: ServerProvider | undefined) =>
         candidate?.workspaceSnapshots?.find((s) => s.cwd === input.cwd);
-      const scannedFrom = workspaceSnapshotOf(provider);
       if (!provider || !provider.enabled) {
         return providers;
       }
       const instance = yield* instanceRegistry.getInstance(input.instanceId);
       if (!instance?.snapshotForCwd) return providers;
       const scan = {};
-      const claimed = yield* SynchronizedRef.modify(workspaceRefreshesRef, (refreshes) => {
-        const current = refreshes.get(instance);
-        if (current?.has(input.cwd) && !input.fresh) return [false, refreshes] as const;
-        const next = new Map(refreshes);
-        next.set(instance, new Map(current).set(input.cwd, scan));
-        return [true, next] as const;
-      });
+      const { claimed, scannedFrom } = yield* SynchronizedRef.modifyEffect(
+        workspaceRefreshesRef,
+        (refreshes) =>
+          Ref.get(providersRef).pipe(
+            Effect.map((currentProviders) => {
+              const scannedFrom = workspaceSnapshotOf(
+                currentProviders.find((candidate) => candidate.instanceId === input.instanceId),
+              );
+              const current = refreshes.get(instance);
+              const claimed = !current?.has(input.cwd) || input.fresh === true;
+              const next = claimed
+                ? new Map(refreshes).set(instance, new Map(current).set(input.cwd, scan))
+                : refreshes;
+              return [{ claimed, scannedFrom }, next] as const;
+            }),
+          ),
+      );
       // A fresh scan never joins a running one, which may predate the change.
       if (!claimed && !input.fresh) return yield* Ref.get(providersRef);
       // Fresh scans also re-read the machine snapshot after invalidating caches.
@@ -998,19 +1007,29 @@ export const ProviderRegistryLive = Layer.effect(
                   return [yield* Ref.get(providersRef), refreshes] as const;
                 // A session event that changed the cwd's snapshot during
                 // the scan must also retain its newer catalog.
+                let committed = false;
                 const nextProviders = yield* updateProviders((currentProviders) =>
-                  currentProviders.map((candidate) =>
-                    candidate.instanceId === input.instanceId &&
-                    Equal.equals(workspaceSnapshotOf(candidate), scannedFrom)
-                      ? upsertProviderWorkspaceSnapshot(candidate, input.cwd, {
-                          ...scopedSnapshot,
-                          checkedAt,
-                        })
-                      : candidate,
-                  ),
+                  currentProviders.map((candidate) => {
+                    if (
+                      candidate.instanceId !== input.instanceId ||
+                      !Equal.equals(workspaceSnapshotOf(candidate), scannedFrom)
+                    )
+                      return candidate;
+                    committed = true;
+                    return upsertProviderWorkspaceSnapshot(candidate, input.cwd, {
+                      ...scopedSnapshot,
+                      checkedAt,
+                    });
+                  }),
                 );
+                if (committed && instance.commitWorkspaceSnapshot) {
+                  yield* instance.commitWorkspaceSnapshot(input.cwd, {
+                    ...scopedSnapshot,
+                    checkedAt,
+                  });
+                }
                 return [nextProviders, refreshes] as const;
-              }),
+              }).pipe(Effect.uninterruptible),
             );
           }),
         ),

@@ -21,6 +21,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import {
   EnvironmentId,
+  AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
   DEFAULT_SERVER_SETTINGS,
@@ -40,6 +41,7 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
+import { makeAntigravityProvider } from "./AntigravityProvider.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as AntigravityInstallation from "../AntigravityInstallation.ts";
 import * as ModelManifest from "../ModelManifest.ts";
@@ -69,6 +71,7 @@ import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.
 import * as ProviderRegistry from "../Services/ProviderRegistry.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 const decodeServerSettings = Schema.decodeSync(ServerSettings);
+const decodeAntigravitySettings = Schema.decodeSync(AntigravitySettings);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const encodedDefaultServerSettings = encodeServerSettings(DEFAULT_SERVER_SETTINGS);
 
@@ -1613,6 +1616,10 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             readonly started: Deferred.Deferred<void>;
             readonly release: Deferred.Deferred<void>;
           } | null>(null);
+          const lookupGate = yield* Ref.make<{
+            readonly started: Deferred.Deferred<void>;
+            readonly release: Deferred.Deferred<void>;
+          } | null>(null);
           const returnPendingSnapshot = yield* Ref.make(true);
           const probeStarted = yield* Deferred.make<void>();
           const releaseProbe = yield* Deferred.make<void>();
@@ -1677,11 +1684,16 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             ProviderInstanceRegistry.ProviderInstanceRegistry,
             {
               getInstance: (requestedId) =>
-                Ref.get(instancesRef).pipe(
-                  Effect.map((instances) =>
-                    instances.find((instance) => instance.instanceId === requestedId),
-                  ),
-                ),
+                Effect.gen(function* () {
+                  const gate = yield* Ref.getAndSet(lookupGate, null);
+                  if (gate) {
+                    yield* Deferred.succeed(gate.started, undefined);
+                    yield* Deferred.await(gate.release);
+                  }
+                  return (yield* Ref.get(instancesRef)).find(
+                    (instance) => instance.instanceId === requestedId,
+                  );
+                }),
               listInstances: Ref.get(instancesRef),
               listUnavailable: Effect.succeed([]),
               streamChanges: Stream.fromPubSub(registryChanges),
@@ -1838,6 +1850,41 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               latestSkills,
             );
 
+            // A prior scan can publish during the next scan's instance lookup.
+            // The next scan must compare against the catalog at its claim.
+            const priorPublication = yield* Deferred.make<void>();
+            const releasePrior = yield* Deferred.make<void>();
+            yield* Ref.set(scopedResult, scopedProvider);
+            const priorScan = yield* registry
+              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+              .pipe(
+                Effect.provideService(Clock.Clock, {
+                  ...clock,
+                  currentTimeMillis: Deferred.succeed(priorPublication, undefined).pipe(
+                    Effect.andThen(Deferred.await(releasePrior)),
+                    Effect.andThen(clock.currentTimeMillis),
+                  ),
+                }),
+                Effect.forkChild,
+              );
+            yield* Deferred.await(priorPublication);
+            const lookupStarted = yield* Deferred.make<void>();
+            const releaseLookup = yield* Deferred.make<void>();
+            yield* Ref.set(lookupGate, { started: lookupStarted, release: releaseLookup });
+            yield* Ref.set(scopedResult, { ...scopedProvider, skills: latestSkills });
+            const nextScan = yield* registry
+              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace", fresh: true })
+              .pipe(Effect.forkChild);
+            yield* Deferred.await(lookupStarted);
+            yield* Deferred.succeed(releasePrior, undefined);
+            yield* Fiber.join(priorScan);
+            yield* Deferred.succeed(releaseLookup, undefined);
+            yield* Fiber.join(nextScan);
+            assert.deepStrictEqual(
+              (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+              latestSkills,
+            );
+
             // A workspace whose first scan found only personal skills must
             // discover its first project skill on an ordinary later request.
             yield* Ref.set(scopedResult, machineProvider);
@@ -1933,6 +1980,132 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             assert.strictEqual(rebuilt[0]?.workspaceSnapshots, undefined);
           }).pipe(Effect.provide(runtimeServices));
         }),
+      );
+
+      it.effect("keeps superseded Antigravity discovery out of native stream updates", () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const instanceId = ProviderInstanceId.make("antigravity");
+            const driver = ProviderDriverKind.make("antigravity");
+            const initializeResult = {
+              protocolVersion: 1,
+              agentCapabilities: {},
+              authMethods: [],
+            };
+            const native = yield* makeAntigravityProvider(
+              decodeAntigravitySettings({ enabled: true }),
+              {
+                stampIdentity: (draft) => Effect.succeed({ ...draft, instanceId, driver }),
+                probe: Effect.succeed(initializeResult),
+                supportsTextGeneration: Effect.succeed(false),
+              },
+            ).pipe(
+              Effect.provide(
+                Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+                  shouldRunScopeWork: () => Effect.succeed(false),
+                }),
+              ),
+            );
+            yield* native.snapshot.refresh;
+            yield* native.onSessionStarted(
+              {
+                sessionId: "fixture-session",
+                modelConfigId: undefined,
+                initializeResult,
+                sessionSetupResult: { sessionId: "fixture-session" },
+              },
+              "/workspace",
+            );
+            const olderSkills = [
+              { name: "older", path: "/workspace/older/SKILL.md", enabled: true },
+            ];
+            const latestSkills = [
+              { name: "latest", path: "/workspace/latest/SKILL.md", enabled: true },
+            ];
+            const oldStarted = yield* Deferred.make<void>();
+            const releaseOld = yield* Deferred.make<void>();
+            const skillsRef = yield* Ref.make(olderSkills);
+            const instance: ProviderInstance = {
+              instanceId,
+              driverKind: driver,
+              enabled: true,
+              displayName: undefined,
+              continuationIdentity: { driverKind: driver, continuationKey: "antigravity:fixture" },
+              snapshot: native.snapshot,
+              commitWorkspaceSnapshot: native.commitWorkspaceSnapshot,
+              snapshotForCwd: (cwd) =>
+                Effect.gen(function* () {
+                  const skills = yield* Ref.get(skillsRef);
+                  if (skills === olderSkills) {
+                    yield* Deferred.succeed(oldStarted, undefined);
+                    yield* Deferred.await(releaseOld);
+                  }
+                  return yield* native.snapshotForCwd(cwd, skills);
+                }),
+              orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+              textGeneration: {} as ProviderInstance["textGeneration"],
+            };
+            const changes = yield* PubSub.unbounded<void>();
+            const services = yield* Layer.build(
+              ProviderRegistryLive.pipe(
+                Layer.provide(
+                  Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+                    getInstance: () => Effect.succeed(instance),
+                    listInstances: Effect.succeed([instance]),
+                    listUnavailable: Effect.succeed([]),
+                    streamChanges: Stream.fromPubSub(changes),
+                    subscribeChanges: PubSub.subscribe(changes),
+                  }),
+                ),
+                Layer.provide(
+                  ServerConfig.layerTest(process.cwd(), {
+                    prefix: "t3-antigravity-discovery-race-",
+                  }),
+                ),
+                Layer.provide(NodeServices.layer),
+              ),
+            );
+            const registry = yield* Effect.service(ProviderRegistry.ProviderRegistry).pipe(
+              Effect.provide(services),
+            );
+            const oldScan = yield* registry
+              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+              .pipe(Effect.forkChild);
+            yield* Deferred.await(oldStarted);
+            yield* Ref.set(skillsRef, latestSkills);
+            const forcedResult = yield* registry.refreshWorkspaceSnapshot({
+              instanceId,
+              cwd: "/workspace",
+              fresh: true,
+            });
+            assert.deepStrictEqual(forcedResult[0]?.workspaceSnapshots?.[0]?.skills, latestSkills);
+            yield* Deferred.succeed(releaseOld, undefined);
+            yield* Fiber.join(oldScan);
+            // Drain native publication through a subsequent real command event.
+            const afterCommands = yield* registry.streamChanges.pipe(
+              Stream.filter(
+                (providers) =>
+                  providers[0]?.workspaceSnapshots?.[0]?.slashCommands[0]?.name === "after-scan",
+              ),
+              Stream.runHead,
+              Effect.forkChild,
+            );
+            yield* Effect.yieldNow;
+            yield* native.onAvailableCommands(
+              [{ name: "after-scan", description: "Fixture milestone" }],
+              "/workspace",
+            );
+            yield* Fiber.join(afterCommands);
+            assert.deepStrictEqual(
+              (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+              latestSkills,
+            );
+            assert.deepStrictEqual(
+              (yield* native.snapshot.getSnapshot).workspaceSnapshots?.[0]?.skills,
+              latestSkills,
+            );
+          }),
+        ),
       );
 
       it.effect("refreshes OpenCode catalogs and preserves other providers", () =>

@@ -19,6 +19,7 @@ import type * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
 import type { AcpSessionRuntimeStartResult } from "../acp/AcpSessionRuntime.ts";
+import type { ProviderWorkspaceSnapshot } from "../ProviderDriver.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
   makeManualOnlyProviderMaintenanceCapabilities,
@@ -161,9 +162,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     draft: initialDraft,
     authRevision: 0,
   });
-  // Skills the driver discovered on disk per workspace. Session callbacks
-  // rewrite the workspace entry with native commands and must keep these, or
-  // the registry drops the suggestions and never re-reads the workspace.
+  // Only registry-accepted skills may ride native session and health updates.
   const discoveredSkills = new Map<string, ServerProvider["skills"]>();
   const getSnapshot = SubscriptionRef.get(metadata).pipe(
     Effect.flatMap((state) => options.stampIdentity(state.draft)),
@@ -373,28 +372,31 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     discoveredSkills.clear();
   });
 
-  const snapshotForCwd = Effect.fn("AntigravityProvider.snapshotForCwd")(function* (
-    cwd: string,
-    skills?: ServerProvider["skills"],
-  ) {
-    if (skills) {
-      discoveredSkills.set(cwd, skills);
-      // A rescan replaces the stored entry's skills. Session callbacks and
-      // health checks republish that entry, so it must not keep old ones.
-      yield* SubscriptionRef.update(metadata, (state) =>
-        state.draft.workspaceSnapshots?.some((entry) => entry.cwd === cwd)
+  const commitWorkspaceSnapshot = Effect.fn("AntigravityProvider.commitWorkspaceSnapshot")(
+    function* (cwd: string, snapshot: ProviderWorkspaceSnapshot) {
+      yield* SubscriptionRef.update(metadata, (state) => {
+        discoveredSkills.set(cwd, snapshot.skills);
+        return state.draft.workspaceSnapshots?.some((entry) => entry.cwd === cwd)
           ? {
               ...state,
               draft: {
                 ...state.draft,
                 workspaceSnapshots: state.draft.workspaceSnapshots.map((entry) =>
-                  entry.cwd === cwd ? { ...entry, skills } : entry,
+                  entry.cwd === cwd
+                    ? { ...entry, skills: snapshot.skills, checkedAt: snapshot.checkedAt }
+                    : entry,
                 ),
               },
             }
-          : state,
-      );
-    }
+          : state;
+      });
+    },
+  );
+
+  const snapshotForCwd = Effect.fn("AntigravityProvider.snapshotForCwd")(function* (
+    cwd: string,
+    skills?: ServerProvider["skills"],
+  ) {
     const snapshot = yield* getSnapshot;
     const workspace = snapshot.workspaceSnapshots?.find((entry) => entry.cwd === cwd);
     const resolvedSkills = skills ?? workspace?.skills ?? discoveredSkills.get(cwd) ?? [];
@@ -411,5 +413,6 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     onSignedOut: clearAccountMetadata(),
     onAuthRequired: clearAccountMetadata(),
     snapshotForCwd,
+    commitWorkspaceSnapshot,
   };
 });
