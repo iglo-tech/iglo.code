@@ -153,6 +153,7 @@ export const PluginThreadState = Schema.Struct({
     Schema.NullOr(Schema.Struct({ id: Schema.String, canResume: Schema.Boolean })),
   ),
   runs: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
+  resultRunId: Schema.optional(Schema.NullOr(Schema.String)),
   outstandingWork: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
   requests: Schema.Array(
     Schema.Struct({ id: Schema.String, status: Schema.String, kind: Schema.String }),

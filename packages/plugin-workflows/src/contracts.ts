@@ -10,6 +10,7 @@ import {
   PluginError,
   PluginPullRequestRef,
   PluginLaunchInput,
+  PluginScheduleInput,
   type PluginManifest,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Schema from "effect/Schema";
@@ -325,6 +326,7 @@ export const Run = Schema.Struct({
   history: Schema.optional(
     Schema.Struct({
       offset: Schema.Int,
+      tail: Schema.Boolean,
       limit: Schema.Int,
       attempts: Schema.Int,
       trace: Schema.Int,
@@ -333,6 +335,50 @@ export const Run = Schema.Struct({
   ),
 });
 export type Run = typeof Run.Type;
+/** Compact observation; accepted payloads and full history are paged through get. */
+export const RunSummary = Schema.Struct({
+  id: Run.fields.id,
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  definition: Schema.Struct({ id: Id, revision: Schema.Int, title: text }),
+  state: Run.fields.state,
+  revision: Schema.Int,
+  currentNode: Id,
+  visits: Schema.Int,
+  reason: Run.fields.reason,
+  gate: Run.fields.gate,
+  allowedActions: Run.fields.allowedActions,
+  createdAt: Schema.Number,
+  attempts: Schema.Array(
+    Schema.Struct({
+      id: Attempt.fields.id,
+      nodeId: Id,
+      branchId: Attempt.fields.branchId,
+      generation: Schema.Int,
+      threadId: Attempt.fields.threadId,
+      phase: Attempt.fields.phase,
+      reason: Attempt.fields.reason,
+      reportId: Schema.NullOr(Schema.String),
+    }),
+  ).check(Schema.isMaxLength(5)),
+  trace: Schema.Array(
+    Schema.Struct({
+      id: Trace.fields.id,
+      nodeId: Id,
+      attemptId: Trace.fields.attemptId,
+      sourceIds: Trace.fields.sourceIds,
+      chosen: Id,
+      reason: Schema.String,
+    }),
+  ).check(Schema.isMaxLength(1)),
+  reviews: Schema.Array(ReviewSet).check(Schema.isMaxLength(1)),
+});
+export type RunSummary = typeof RunSummary.Type;
+export const RunListInput = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  before: Schema.optional(Schema.String),
+});
 export const CatalogEntry = Schema.Struct({
   source: Schema.String,
   definition: Schema.NullOr(Definition),
@@ -374,21 +420,9 @@ export const ScheduleInput = Schema.Struct({
   title: text,
   definitionId: Id,
   input: Data,
-  schedule: PluginScheduleSchema(),
+  schedule: PluginScheduleInput.fields.schedule,
 });
-function PluginScheduleSchema() {
-  return Schema.Union([
-    Schema.Struct({
-      type: Schema.Literal("interval"),
-      everyMs: Schema.Int.check(Schema.isGreaterThanOrEqualTo(60_000)),
-    }),
-    Schema.Struct({
-      type: Schema.Literal("fixed_time"),
-      timeOfDay: Schema.String,
-      weekdays: Schema.Array(Schema.Int),
-    }),
-  ]);
-}
+
 const error = Schema.Union([PluginError, EnvironmentAuthorizationError]);
 export const rpcs = {
   catalog: Rpc.make("plugins.workflows.catalog", {
@@ -405,19 +439,19 @@ export const rpcs = {
   start: Rpc.make("plugins.workflows.start", { payload: StartInput, success: Run, error }),
   get: Rpc.make("plugins.workflows.get", { payload: RunInput, success: Run, error }),
   list: Rpc.make("plugins.workflows.list", {
-    payload: ScopeInput,
-    success: Schema.Array(Run),
+    payload: RunListInput,
+    success: Schema.Array(RunSummary),
     error,
   }),
   subscribe: Rpc.make("plugins.workflows.subscribe", {
     payload: ScopeInput,
-    success: Schema.Array(Run),
+    success: Schema.Array(RunSummary),
     error,
     stream: true,
   }),
   reconcile: Rpc.make("plugins.workflows.reconcile", {
     payload: ScopeInput,
-    success: Schema.Array(Run),
+    success: Schema.Array(RunSummary),
     error,
   }),
   cancel: Rpc.make("plugins.workflows.cancel", { payload: CommandInput, success: Run, error }),

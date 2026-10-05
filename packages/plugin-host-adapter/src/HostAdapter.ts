@@ -41,6 +41,7 @@ import {
 } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { latestUnheldRun } from "@t3tools/shared/orchestrationV2ThreadError";
+import { delegatedTaskProgress } from "../../../apps/server/src/orchestration-v2/SubagentProjection.ts";
 import * as ProcessRunner from "../../../apps/server/src/processRunner.ts";
 import * as McpSessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
 
@@ -164,14 +165,20 @@ const make = Effect.gen(function* () {
     yield* environment(target.environmentId);
     const workspace = yield* project(target.projectId);
     const records = yield* threads
-      .getProjectThreadRecords(target, [
-        "runs",
-        "nodes",
-        "providerThreads",
-        "turnItems",
-        "runtimeRequests",
-        "checkpoints",
-      ])
+      .getProjectThreadRecords(
+        target,
+        [
+          "runs",
+          "nodes",
+          "messages",
+          "subagents",
+          "providerThreads",
+          "turnItems",
+          "runtimeRequests",
+          "checkpoints",
+        ],
+        { messageRoles: ["user"] },
+      )
       .pipe(
         Effect.mapError((cause) =>
           fail("inspect", "The thread is unavailable in this project.", cause),
@@ -195,8 +202,10 @@ const make = Effect.gen(function* () {
       !preparation.stages.some((stage) => stage.id === "agent" && stage.status !== "pending")
         ? preparation.preparationId
         : undefined;
+    const progress = delegatedTaskProgress(records);
     return {
       ...target,
+      resultRunId: progress.resultRun?.id ?? null,
       title: records.thread.title,
       workspacePath: records.thread.worktreePath ?? workspace.workspaceRoot,
       branch: records.thread.branch,
@@ -215,6 +224,9 @@ const make = Effect.gen(function* () {
       })(),
       outstandingWork: [
         ...(preparationId === undefined ? [] : [{ id: preparationId, status: "running" }]),
+        ...(progress.state !== "result_available"
+          ? [{ id: `${target.threadId}:core-work`, status: progress.state }]
+          : []),
         ...records.nodes
           .filter(
             (node) =>
@@ -355,7 +367,24 @@ const make = Effect.gen(function* () {
           instanceId: provider.instanceId,
           driver,
           toolsSupported: capability.supported,
-          reason: capability.reason,
+          available:
+            provider.enabled &&
+            provider.installed &&
+            provider.availability !== "unavailable" &&
+            !["error", "disabled"].includes(provider.status) &&
+            provider.auth.status !== "unauthenticated",
+          reason:
+            capability.reason ??
+            (!provider.enabled
+              ? "The provider is disabled."
+              : !provider.installed
+                ? "The provider is not installed."
+                : provider.availability === "unavailable"
+                  ? (provider.unavailableReason ?? "The provider driver is unavailable.")
+                  : ["error", "disabled"].includes(provider.status) ||
+                      provider.auth.status === "unauthenticated"
+                    ? (provider.message ?? "The provider is not ready.")
+                    : null),
           runtimeModes: provider.supportedRuntimeModes ?? [
             "approval-required",
             "auto-accept-edits",
@@ -374,6 +403,18 @@ const make = Effect.gen(function* () {
         fail("prepare", "The requested exact ref could not be resolved.", cause),
       ),
     );
+  const ownedWorkspace = Effect.fnUntraced(function* (input: {
+    projectId: ProjectId;
+    path: string;
+  }) {
+    const workspace = yield* project(input.projectId);
+    const refs = yield* git.listRefs({ cwd: workspace.workspaceRoot });
+    if (
+      input.path !== workspace.workspaceRoot &&
+      !refs.refs.some((ref) => ref.worktreePath === input.path)
+    )
+      return yield* fail("workspace", "The workspace does not belong to this project.");
+  });
   return Host.of({
     environmentId,
     redact: (input) =>
@@ -502,13 +543,7 @@ const make = Effect.gen(function* () {
       ),
     verifyWorkspace: (input) =>
       Effect.gen(function* () {
-        const workspace = yield* project(input.projectId);
-        const refs = yield* git.listRefs({ cwd: workspace.workspaceRoot });
-        if (
-          input.path !== workspace.workspaceRoot &&
-          !refs.refs.some((ref) => ref.worktreePath === input.path)
-        )
-          return yield* fail("workspace", "The workspace does not belong to this project.");
+        yield* ownedWorkspace(input);
         const head = yield* git.resolveCommit({ cwd: input.path, revision: "HEAD" });
         const status = yield* git.status({ cwd: input.path });
         return { head: head.commitSha, clean: !status.hasWorkingTreeChanges };
@@ -517,13 +552,7 @@ const make = Effect.gen(function* () {
       ),
     execute: (input) =>
       Effect.gen(function* () {
-        const workspace = yield* project(input.projectId);
-        const refs = yield* git.listRefs({ cwd: workspace.workspaceRoot });
-        if (
-          input.path !== workspace.workspaceRoot &&
-          !refs.refs.some((ref) => ref.worktreePath === input.path)
-        )
-          return yield* fail("execute", "The workspace does not belong to this project.");
+        yield* ownedWorkspace(input);
         const result = yield* processRunner.run({
           command: input.command,
           args: input.args,

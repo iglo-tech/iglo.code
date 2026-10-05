@@ -14,6 +14,7 @@ import { ProviderInstanceId } from "@t3tools/contracts";
 import { plugin } from "@t3tools/plugin-workflows/server";
 import {
   Run,
+  RunSummary,
   ReportReceipt,
   rpcs,
   apiScopes,
@@ -23,6 +24,7 @@ import {
 import * as Registry from "@t3tools/plugin-host-adapter/registry";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ScheduleTargets from "../scheduling/ScheduleTargets.ts";
+import * as Deferred from "effect/Deferred";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -34,7 +36,7 @@ import * as Scope from "effect/Scope";
 import * as Exit from "effect/Exit";
 
 const decodeRun = Schema.decodeUnknownEffect(Run);
-const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(Run));
+const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(RunSummary));
 
 /** Script the execution boundary; the registered plugin and private SQLite store are real. */
 export const fixture = Effect.gen(function* () {
@@ -48,6 +50,7 @@ export const fixture = Effect.gen(function* () {
   yield* fs.writeFileString(`${directory}/SKILL.md`, "# Code review\nReview the frozen input.");
   let head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   let dirty = false;
+  let providerAvailable = true;
   let lostAcknowledgement = false;
   let checkExecution = Effect.succeed({
     exitCode: 0,
@@ -56,6 +59,9 @@ export const fixture = Effect.gen(function* () {
     stderr: "",
   });
   const commands: string[] = [];
+  const sendStarted = yield* Deferred.make<void>();
+  const sendReleased = yield* Deferred.make<void>();
+  let holdSend = false;
   const checkStarts = yield* Queue.unbounded<string>();
   yield* Effect.addFinalizer(() => Queue.shutdown(checkStarts));
   const host = Host.of({
@@ -69,6 +75,7 @@ export const fixture = Effect.gen(function* () {
           instanceId: ProviderInstanceId.make("codex"),
           driver: "codex",
           toolsSupported: true,
+          available: providerAvailable,
           reason: null,
           runtimeModes: ["approval-required", "full-access"],
         },
@@ -141,19 +148,27 @@ export const fixture = Effect.gen(function* () {
             );
       }),
     send: (input) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        const receipt = receipts.get(input.commandId);
+        if (receipt) return receipt;
+        if (holdSend) {
+          yield* Deferred.succeed(sendStarted, undefined);
+          yield* Deferred.await(sendReleased);
+        }
         const state = threads.get(input.threadId)!;
         threads.set(input.threadId, {
           ...state,
           runs: [...state.runs, { id: `${input.commandId}:run`, status: "running" }],
         });
-        return {
+        const accepted = {
           commandId: input.commandId,
           threadId: input.threadId,
           cursor: 2,
           status: "accepted" as const,
           error: null,
         };
+        receipts.set(input.commandId, accepted);
+        return accepted;
       }),
     interrupt: (input) =>
       Effect.sync(() => {
@@ -161,7 +176,11 @@ export const fixture = Effect.gen(function* () {
         if (state)
           threads.set(input.threadId, {
             ...state,
-            runs: state.runs.map((run) => ({ ...run, status: "interrupted" })),
+            runs: state.runs.map((run) =>
+              input.runId === undefined || input.runId === run.id
+                ? { ...run, status: "interrupted" }
+                : run,
+            ),
           });
         return null;
       }),
@@ -249,6 +268,11 @@ export const fixture = Effect.gen(function* () {
     report,
     launches,
     commands,
+    holdSend: () => {
+      holdSend = true;
+    },
+    sendStarted: Deferred.await(sendStarted),
+    releaseSend: Deferred.succeed(sendReleased, undefined),
     nextCheck: Queue.take(checkStarts),
     holdCheck: () => {
       checkExecution = Effect.never;
@@ -276,11 +300,16 @@ export const fixture = Effect.gen(function* () {
       ).pipe(
         Stream.mapEffect((value) => decodeRuns(value)),
         Stream.flatMap((runs) => Stream.fromArray(runs)),
-        Stream.filter((run) => run.id === runId && predicate(run)),
+        Stream.filter((run) => run.id === runId),
+        Stream.mapEffect(() => query(runId)),
+        Stream.filter(predicate),
         Stream.take(1),
         Stream.runCollect,
         Effect.map((runs) => runs[0]!),
       ),
+    setProviderAvailable: (value: boolean) => {
+      providerAvailable = value;
+    },
     setHead: (value: string) => {
       head = value;
     },

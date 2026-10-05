@@ -1,15 +1,16 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Fiber from "effect/Fiber";
 import * as Effect from "effect/Effect";
 import { fixture, sequence, completed, parallel } from "./Workflows.testkit.ts";
 import * as Schema from "effect/Schema";
-import { Definition, Run, CatalogEntry } from "@t3tools/plugin-workflows/contracts";
+import { Definition, Run, RunSummary, CatalogEntry } from "@t3tools/plugin-workflows/contracts";
 import * as TestClock from "effect/testing/TestClock";
 import * as FileSystem from "effect/FileSystem";
 
 const decodeCatalog = Schema.decodeUnknownEffect(Schema.Array(CatalogEntry));
 const decodeRun = Schema.decodeUnknownEffect(Run);
-const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(Run));
+const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(RunSummary));
 const decodeDefinition = Schema.decodeUnknownEffect(Definition);
 
 it.effect("joins three isolated frozen reviewers only after every reported execution settles", () =>
@@ -754,6 +755,200 @@ it.effect(
               .size,
           ).toBe(8);
         }
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("keeps unavailable providers visible and refuses execution before admitting a run", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture;
+      test.setProviderAvailable(false);
+      const scope = { environmentId: test.environmentId, projectId: test.projectId };
+      expect(yield* test.invoke("validate", { ...scope, definition: sequence })).toMatchObject({
+        runnable: false,
+      });
+      expect(yield* test.start(sequence).pipe(Effect.flip, Effect.orDie)).toMatchObject({
+        code: "unsupported",
+      });
+      expect(yield* test.invoke("list", scope)).toEqual([]);
+      expect(test.launches).toHaveLength(0);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("reconciles later runs fairly while an older batch remains in native input waits", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture;
+      const runs = [];
+      for (let index = 0; index < 101; index++) {
+        const run = yield* test.start(sequence, `batch-${index}`);
+        yield* test.reconcile;
+        runs.push(run);
+        const threadId = run.attempts[0]!.threadId!;
+        const state = test.threads.get(threadId)!;
+        test.threads.set(threadId, {
+          ...state,
+          requests: [{ id: "input", kind: "user-input", status: "pending" }],
+        });
+      }
+      const last = runs.at(-1)!;
+      const threadId = last.attempts[0]!.threadId!;
+      test.threads.set(threadId, { ...test.threads.get(threadId)!, requests: [] });
+      yield* test.report(threadId, completed);
+      test.settle(threadId);
+      yield* test.reconcile;
+      yield* test.reconcile;
+      yield* test.reconcile;
+      expect(yield* test.query(last.id)).toMatchObject({ state: "awaiting-review" });
+      const latest = yield* test
+        .invoke("list", { environmentId: test.environmentId, projectId: test.projectId })
+        .pipe(Effect.flatMap(decodeRuns));
+      expect(latest).toHaveLength(20);
+      expect(latest[0]).not.toHaveProperty("input");
+      expect(latest[0]?.attempts[0]).not.toHaveProperty("report");
+      const page = yield* test
+        .invoke("list", {
+          environmentId: test.environmentId,
+          projectId: test.projectId,
+          before: latest.at(-1)!.id,
+        })
+        .pipe(Effect.flatMap(decodeRuns));
+      expect(page).toHaveLength(20);
+      expect(page.some((run) => latest.some((item) => item.id === run.id))).toBe(false);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "serializes a pending protocol follow-up with cancellation and interrupts every owned active run",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const test = yield* fixture;
+        const started = yield* test.start(sequence);
+        yield* test.reconcile;
+        const threadId = started.attempts[0]!.threadId!;
+        test.holdSend();
+        test.settle(threadId);
+        const reconciling = yield* test.reconcile.pipe(Effect.forkScoped);
+        yield* test.sendStarted;
+        const observed = yield* test.query(started.id);
+        const canceling = yield* test
+          .invoke("cancel", {
+            environmentId: test.environmentId,
+            projectId: test.projectId,
+            runId: started.id,
+            expectedRevision: observed.revision + 1,
+            clientRequestId: "cancel-race",
+          })
+          .pipe(Effect.forkScoped);
+        yield* test.releaseSend;
+        yield* Fiber.join(reconciling);
+        const cancellation = yield* Fiber.join(canceling);
+        expect(cancellation).toMatchObject({ state: "canceled" });
+        yield* test.reconcile;
+        expect(test.threads.get(threadId)?.runs.at(-1)?.status).toBe("interrupted");
+        expect(
+          yield* test.report(threadId, completed).pipe(Effect.flip, Effect.orDie),
+        ).toMatchObject({ code: "conflict" });
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "retries unresolved reviews as a new frozen generation rather than revisiting an end",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const test = yield* fixture;
+        const started = yield* test.start(parallel);
+        yield* test.reconcile;
+        const fork = yield* test.wait(
+          started.id,
+          (run) =>
+            run.attempts.length === 3 &&
+            run.attempts.every((attempt) => attempt.phase === "running"),
+        );
+        for (const attempt of fork.attempts) {
+          yield* test.report(attempt.threadId!, { ...completed, data: { verdict: "pass" } });
+          test.settle(attempt.threadId!);
+        }
+        test.setDirty(true);
+        yield* test.reconcile;
+        const stale = yield* test.wait(started.id, (run) => run.state === "unresolved");
+        expect(stale.attempts.every((attempt) => attempt.phase === "stale")).toBe(true);
+        test.setDirty(false);
+        test.setHead("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        yield* test.invoke("retry", {
+          environmentId: test.environmentId,
+          projectId: test.projectId,
+          runId: started.id,
+          expectedRevision: stale.revision,
+          clientRequestId: "new-reviews",
+        });
+        yield* test.reconcile;
+        const repeated = yield* test.wait(
+          started.id,
+          (run) =>
+            run.reviews.at(-1)?.generation === 2 &&
+            run.attempts
+              .filter((attempt) => attempt.generation === 2)
+              .every((attempt) => attempt.phase === "running"),
+        );
+        expect(repeated.reviews.map((review) => review.head)).toEqual([
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        ]);
+        expect(
+          repeated.reviews[1]?.branches.every(
+            (branch) =>
+              !repeated.reviews[0]?.branches.some((old) => old.attemptId === branch.attemptId),
+          ),
+        ).toBe(true);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "uses a project-authored example override for scheduling and retains later native failures",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const test = yield* fixture;
+        const scope = { environmentId: test.environmentId, projectId: test.projectId };
+        const catalog = yield* test.invoke("catalog", scope).pipe(Effect.flatMap(decodeCatalog));
+        const template = catalog.find(
+          (entry) => entry.definition?.id === "development-review",
+        )!.definition!;
+        yield* test.invoke("save", {
+          ...scope,
+          definition: { ...template, title: "Configured review" },
+          expectedRevision: null,
+        });
+        const configured = yield* test.invoke("catalog", scope).pipe(Effect.flatMap(decodeCatalog));
+        expect(configured.filter((entry) => entry.definition?.id === template.id)).toHaveLength(1);
+        yield* test.scheduled("configured-occurrence", template.id);
+        const runs = yield* test.invoke("list", scope).pipe(Effect.flatMap(decodeRuns));
+        expect(runs[0]?.definition.title).toBe("Configured review");
+        const started = yield* test.start(sequence, "later-failure");
+        yield* test.reconcile;
+        const threadId = started.attempts[0]!.threadId!;
+        yield* test.report(threadId, completed);
+        const state = test.threads.get(threadId)!;
+        test.threads.set(threadId, {
+          ...state,
+          runs: [
+            { id: state.runs[0]!.id, status: "completed" },
+            { id: "background-follow-up", status: "failed" },
+          ],
+        });
+        yield* test.reconcile;
+        expect(yield* test.wait(started.id, (run) => run.state === "unresolved")).toMatchObject({
+          attempts: [{ phase: "failed" }],
+          trace: [],
+        });
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
 );

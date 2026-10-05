@@ -12,14 +12,14 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpBody from "effect/unstable/http/HttpBody";
 import * as ProviderSessions from "../mcp/McpProviderSession.ts";
 import * as McpSessions from "../mcp/McpSessionRegistry.ts";
-import { Run } from "@t3tools/plugin-workflows/contracts";
+import { Run, RunSummary } from "@t3tools/plugin-workflows/contracts";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as Projects from "../project/ProjectService.ts";
 import { startEnvironment } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 
 const decodeRun = Schema.decodeUnknownEffect(Run);
-const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(Run));
+const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(RunSummary));
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -54,6 +54,15 @@ it.live("accepts one report for a reserved workflow attempt and returns its rece
                 Host,
                 Host.of({
                   ...host,
+                  providers: () =>
+                    host.providers().pipe(
+                      Effect.map((providers) =>
+                        providers.map((provider) => ({
+                          ...provider,
+                          available: provider.instanceId === "codex",
+                        })),
+                      ),
+                    ),
                   launch: (input) => host.launch({ ...input, instruction: undefined }),
                 }),
               ),

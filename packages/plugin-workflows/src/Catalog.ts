@@ -63,7 +63,11 @@ const make = Effect.gen(function* () {
       const provider = providers.find(
         (provider) => provider.instanceId === agent.modelSelection.instanceId,
       );
-      if (!provider?.toolsSupported || !provider.runtimeModes.includes(agent.runtimeMode))
+      if (
+        !provider?.toolsSupported ||
+        provider.available !== true ||
+        !provider.runtimeModes.includes(agent.runtimeMode)
+      )
         reasons.push(
           `Provider ${agent.modelSelection.instanceId} cannot report in ${agent.runtimeMode}: ${provider?.reason ?? "unavailable"}.`,
         );
@@ -131,7 +135,31 @@ const make = Effect.gen(function* () {
                 },
           );
         }
-        return entries;
+        const authored = new Map<string, number>();
+        for (const entry of entries)
+          if (!entry.source.startsWith("packaged:") && entry.definition)
+            authored.set(entry.definition.id, (authored.get(entry.definition.id) ?? 0) + 1);
+        return entries
+          .filter(
+            (entry) =>
+              !entry.source.startsWith("packaged:") ||
+              !entry.definition ||
+              !authored.has(entry.definition.id),
+          )
+          .map((entry) =>
+            entry.definition &&
+            !entry.source.startsWith("packaged:") &&
+            authored.get(entry.definition.id)! > 1
+              ? {
+                  ...entry,
+                  runnable: false,
+                  reasons: [
+                    ...entry.reasons,
+                    "This workflow identity is duplicated in the project catalog.",
+                  ],
+                }
+              : entry,
+          );
       }),
     );
   const save = (input: typeof SaveInput.Type) =>

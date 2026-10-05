@@ -10,6 +10,11 @@ import {
   ORCHESTRATION_PROTOCOL_VERSION,
   WsRpcGroup,
 } from "@t3tools/contracts";
+import { plugin as workflowPlugin } from "@t3tools/plugin-workflows/server";
+import { plugin as fixturePlugin } from "@t3tools/plugin-fixture/server";
+import { Run as WorkflowRun } from "@t3tools/plugin-workflows/contracts";
+import * as Registry from "@t3tools/plugin-host-adapter/registry";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import type { ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -35,6 +40,7 @@ import * as ProviderSessions from "../mcp/McpProviderSession.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 
+const decodeWorkflowRun = Schema.decodeUnknownEffect(WorkflowRun);
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 export const startEnvironment = (
@@ -102,7 +108,8 @@ export const makeClient = (
 /** Real environment and credentials for an adapter whose native transport is replayed. */
 export const makePluginToolFixture = (
   provider: "codex" | "claudeAgent" | "opencode",
-  threadId: ThreadId,
+  requestedThreadId: ThreadId,
+  options?: { readonly workflow?: boolean },
 ) =>
   Effect.gen(function* () {
     const config = {
@@ -123,7 +130,58 @@ export const makePluginToolFixture = (
         encode({ providers: { opencode: { binaryPath, enabled: true } } }),
       );
     }
-    const server = yield* startEnvironment(config);
+    let threadId = requestedThreadId;
+    if (options?.workflow) {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      yield* spawner.exitCode(ChildProcess.make("git", ["init", config.baseDir]));
+      yield* spawner.exitCode(
+        ChildProcess.make("git", [
+          "-C",
+          config.baseDir,
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "initial",
+        ]),
+      );
+    }
+    const server = yield* startEnvironment(
+      config,
+      options?.workflow
+        ? [
+            fixturePlugin,
+            {
+              ...workflowPlugin,
+              acquire: Effect.gen(function* () {
+                const host = yield* Host;
+                // External provider execution/discovery is replayed; retain core launch and authentication.
+                return yield* workflowPlugin.acquire.pipe(
+                  Effect.provideService(
+                    Host,
+                    Host.of({
+                      ...host,
+                      providers: () =>
+                        host.providers().pipe(
+                          Effect.map((providers) =>
+                            providers.map((item) => ({
+                              ...item,
+                              available: item.instanceId === provider,
+                            })),
+                          ),
+                        ),
+                      launch: (input) => host.launch({ ...input, instruction: undefined }),
+                    }),
+                  ),
+                );
+              }),
+            },
+          ]
+        : undefined,
+    );
     const host = Context.get(server.context, Host);
     if (provider === "opencode")
       yield* Context.get(server.context, Providers.ProviderRegistry).refreshInstance(
@@ -139,20 +197,60 @@ export const makePluginToolFixture = (
       title: "Plugin tool",
       workspaceRoot: config.baseDir,
     });
-    yield* Context.get(server.context, Threads.ThreadManagementService).dispatch({
-      type: "thread.create",
-      commandId: CommandId.make("thread"),
-      threadId,
-      projectId,
-      title: "Plugin caller",
-      createdBy: "user",
-      creationSource: "web",
-      modelSelection: { instanceId: ProviderInstanceId.make(provider), model: "fixture-model" },
-      runtimeMode: "approval-required",
-      interactionMode: "default",
-      branch: null,
-      worktreePath: null,
-    });
+    if (options?.workflow) {
+      const registry = Context.get(server.context, Registry.PluginRegistry);
+      const api = yield* registry.api("plugins.workflows.start");
+      const invocation = api.invoke({
+        environmentId: host.environmentId,
+        projectId,
+        clientRequestId: "native-matrix",
+        input: {},
+        workspace: { type: "current" },
+        definition: {
+          version: 1,
+          id: "native-matrix",
+          revision: 1,
+          title: "Native reporting",
+          entry: "work",
+          atLimit: "done",
+          nodes: [
+            {
+              id: "work",
+              title: "Work",
+              kind: "agent",
+              modelSelection: { instanceId: provider, model: "fixture-model" },
+              runtimeMode: "approval-required",
+              instruction: "Submit a typed report",
+              report: { fields: [{ name: "ready", type: "boolean", required: true }] },
+              next: { to: "done" },
+            },
+            { id: "done", title: "Done", kind: "end", outcome: "completed" },
+          ],
+        },
+      });
+      if (!Effect.isEffect(invocation)) return yield* Effect.die("Expected workflow command");
+      const run = yield* invocation.pipe(Effect.flatMap(decodeWorkflowRun));
+      threadId = run.attempts[0]!.threadId!;
+      const reconcile = yield* registry.api("plugins.workflows.reconcile");
+      const reconciled = reconcile.invoke({ environmentId: host.environmentId, projectId });
+      if (!Effect.isEffect(reconciled)) return yield* Effect.die("Expected reconcile command");
+      yield* reconciled;
+    } else {
+      yield* Context.get(server.context, Threads.ThreadManagementService).dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("thread"),
+        threadId,
+        projectId,
+        title: "Plugin caller",
+        createdBy: "user",
+        creationSource: "web",
+        modelSelection: { instanceId: ProviderInstanceId.make(provider), model: "fixture-model" },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+    }
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => ProviderSessions.clearMcpProviderSession(threadId)),
     );
@@ -207,19 +305,24 @@ export const makePluginToolFixture = (
             .pipe(Effect.flatMap((response) => response.text));
         expect(yield* call("tools/list", {})).toContain('"name":"plugin_fixture_report"');
         expect(yield* call("tools/list", {})).toContain('"name":"plugin_workflows_report"');
-        const unbound = yield* call("tools/call", {
+        const workflow = yield* call("tools/call", {
           name: "plugin_workflows_report",
           arguments: {
             version: 1,
-            clientRetryKey: id,
+            clientRetryKey: "native-workflow-report",
             outcome: "completed",
-            summary: "Unbound native report",
-            data: {},
+            summary: "Native report",
+            data: options?.workflow ? { ready: true } : {},
             evidence: [],
           },
         });
-        expect(unbound).toContain('"isError":true');
-        expect(unbound).toContain("does not own a workflow attempt");
+        if (options?.workflow) {
+          expect(workflow).toContain('"isError":false');
+          expect(workflow).toContain('"attemptId"');
+        } else {
+          expect(workflow).toContain('"isError":true');
+          expect(workflow).toContain("does not own a workflow attempt");
+        }
         const result = yield* call("tools/call", {
           name: "plugin_fixture_report",
           arguments: { id, summary: `${provider} report` },
@@ -228,5 +331,5 @@ export const makePluginToolFixture = (
         expect(result).toContain(encode(threadId));
         expect(result).toContain(encode(host.environmentId));
       });
-    return { issue, report };
+    return { issue, report, threadId };
   });

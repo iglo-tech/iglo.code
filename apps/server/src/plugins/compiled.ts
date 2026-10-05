@@ -4,6 +4,7 @@ import {
   rpcs as workflowRpcs,
   apiScopes as workflowScopes,
   Run as WorkflowRun,
+  RunSummary,
   CatalogEntry,
 } from "@t3tools/plugin-workflows/contracts";
 import { Host, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
@@ -28,7 +29,7 @@ import * as Stream from "effect/Stream";
 import * as ServerConfig from "../config.ts";
 
 const decodeReports = Schema.decodeUnknownEffect(Reports);
-const WorkflowRuns = Schema.Array(WorkflowRun);
+const WorkflowRuns = Schema.Array(RunSummary);
 const CatalogEntries = Schema.Array(CatalogEntry);
 const decodeWorkflowRuns = Schema.decodeUnknownEffect(WorkflowRuns);
 

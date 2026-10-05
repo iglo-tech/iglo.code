@@ -25,6 +25,8 @@ import * as Scope from "effect/Scope";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   Run,
+  RunSummary,
+  RunListInput,
   StartInput,
   ReportInput,
   ReportReceipt,
@@ -54,6 +56,7 @@ import {
   launchInstruction,
   commandId,
   allowedActions,
+  recoveryNode,
   type State,
 } from "./graph.ts";
 
@@ -64,14 +67,14 @@ export class Workflow extends Context.Service<
     readonly start: (input: StartInput) => Effect.Effect<Run, PluginError>;
     readonly get: (input: typeof RunInput.Type) => Effect.Effect<Run, PluginError>;
     readonly list: (
-      input: typeof ScopeInput.Type,
-    ) => Effect.Effect<ReadonlyArray<Run>, PluginError>;
+      input: typeof RunListInput.Type,
+    ) => Effect.Effect<ReadonlyArray<RunSummary>, PluginError>;
     readonly subscribe: (
       input: typeof ScopeInput.Type,
-    ) => Stream.Stream<ReadonlyArray<Run>, PluginError>;
+    ) => Stream.Stream<ReadonlyArray<RunSummary>, PluginError>;
     readonly reconcile: (
       input: typeof ScopeInput.Type,
-    ) => Effect.Effect<ReadonlyArray<Run>, PluginError>;
+    ) => Effect.Effect<ReadonlyArray<RunSummary>, PluginError>;
     readonly report: (
       input: ReportInput,
       caller: PluginToolCaller,
@@ -94,6 +97,8 @@ const decodeRun = Schema.decodeUnknownEffect(Schema.fromJsonString(Run));
 const encodeRun = Schema.encodeEffect(Schema.fromJsonString(Run));
 const decodeReport = Schema.decodeUnknownEffect(ReportInput);
 const encodeReceipt = Schema.encodeEffect(Schema.fromJsonString(ReportReceipt));
+const decodeSummary = Schema.decodeUnknownEffect(Schema.fromJsonString(RunSummary));
+const encodeSummary = Schema.encodeEffect(Schema.fromJsonString(RunSummary));
 const decodeStart = Schema.decodeUnknownEffect(StartInput);
 const activeRun = (state: PluginThreadState) =>
   state.runs.findLast((run) =>
@@ -116,6 +121,8 @@ const make = Effect.gen(function* () {
   const drainLock = yield* Semaphore.make(1);
   const changes = yield* PubSub.sliding<void>(1);
   let mutation = 0;
+  let reconcileAfter = 0;
+  const projectVersions = new Map<string, number>();
   yield* Effect.addFinalizer(() => PubSub.shutdown(changes));
   const checks = new Map<string, Fiber.Fiber<void, PluginError>>();
   const environment = (environmentId: string) =>
@@ -163,6 +170,7 @@ const make = Effect.gen(function* () {
         yield* enqueue(run, `${attempt.id}:interrupt`, "interrupt", attempt.id);
     }
     mutation++;
+    projectVersions.set(run.projectId, (projectVersions.get(run.projectId) ?? 0) + 1);
     return run;
   });
   const transaction = <A, E, R>(operation: string, action: Effect.Effect<A, E, R>) =>
@@ -187,14 +195,15 @@ const make = Effect.gen(function* () {
       }),
     );
   // Queries page durable history; routing always reads the complete private snapshot.
-  const display = Effect.fnUntraced(function* (run: Run, offset = 0, limit = 50) {
+  const display = Effect.fnUntraced(function* (run: Run, offset = 0, limit = 50, tail = false) {
     const page = {
       ...run,
-      attempts: run.attempts.slice(offset, offset + limit),
-      trace: run.trace.slice(offset, offset + limit),
-      reviews: run.reviews.slice(offset, offset + limit),
+      attempts: tail ? run.attempts.slice(-limit) : run.attempts.slice(offset, offset + limit),
+      trace: tail ? run.trace.slice(-limit) : run.trace.slice(offset, offset + limit),
+      reviews: tail ? run.reviews.slice(-limit) : run.reviews.slice(offset, offset + limit),
       history: {
         offset,
+        tail,
         limit,
         attempts: run.attempts.length,
         trace: run.trace.length,
@@ -211,18 +220,61 @@ const make = Effect.gen(function* () {
       ),
     );
   });
-  const list = (input: typeof ScopeInput.Type) =>
+  const summarize = Effect.fnUntraced(function* (run: Run) {
+    const summary = {
+      id: run.id,
+      environmentId: run.environmentId,
+      projectId: run.projectId,
+      definition: {
+        id: run.definition.id,
+        revision: run.definition.revision,
+        title: run.definition.title.slice(0, 240),
+      },
+      state: run.state,
+      revision: run.revision,
+      currentNode: run.currentNode,
+      visits: run.visits,
+      reason: run.reason?.slice(0, 500) ?? null,
+      gate: run.gate,
+      allowedActions: run.allowedActions,
+      createdAt: run.createdAt,
+      attempts: run.attempts.slice(-5).map((attempt) => ({
+        id: attempt.id,
+        nodeId: attempt.nodeId,
+        branchId: attempt.branchId,
+        generation: attempt.generation,
+        threadId: attempt.threadId,
+        phase: attempt.phase,
+        reason: attempt.reason?.slice(0, 500) ?? null,
+        reportId: attempt.report?.receipt.id ?? null,
+      })),
+      trace: run.trace.slice(-1).map(({ id, nodeId, attemptId, sourceIds, chosen, reason }) => ({
+        id,
+        nodeId,
+        attemptId,
+        sourceIds,
+        chosen,
+        reason: reason.slice(0, 500),
+      })),
+      reviews: run.reviews.slice(-1),
+    };
+    return yield* decodeSummary(
+      yield* host.redact({
+        text: yield* encodeSummary(summary),
+        threadIds: run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : [])),
+      }),
+    );
+  });
+  const list = (input: typeof RunListInput.Type) =>
     protect(
       "list",
       Effect.gen(function* () {
         yield* environment(input.environmentId);
         const rows = yield* sql<{
           data: string;
-        }>`SELECT data FROM workflow_runs WHERE project_id = ${input.projectId} ORDER BY rowid DESC LIMIT 20`;
+        }>`SELECT data FROM workflow_runs WHERE project_id = ${input.projectId} AND (${input.before ?? null} IS NULL OR rowid < (SELECT rowid FROM workflow_runs WHERE id = ${input.before ?? null} AND project_id = ${input.projectId})) ORDER BY rowid DESC LIMIT 20`;
         return yield* Effect.forEach(rows, (row) =>
-          decodeRun(row.data).pipe(
-            Effect.flatMap((run) => display(run, Math.max(0, run.attempts.length - 5), 5)),
-          ),
+          decodeRun(row.data).pipe(Effect.flatMap(summarize)),
         );
       }),
     );
@@ -231,9 +283,18 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* environment(input.environmentId);
         const subscription = yield* PubSub.subscribe(changes);
+        let observedVersion = projectVersions.get(input.projectId) ?? 0;
         return Stream.concat(
           Stream.fromEffect(list(input)),
-          Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => list(input))),
+          Stream.fromSubscription(subscription).pipe(
+            Stream.filter(() => {
+              const version = projectVersions.get(input.projectId) ?? 0;
+              if (version === observedVersion) return false;
+              observedVersion = version;
+              return true;
+            }),
+            Stream.mapEffect(() => list(input)),
+          ),
         );
       }),
     );
@@ -246,27 +307,30 @@ const make = Effect.gen(function* () {
       return yield* Effect.forEach(rows, (row) =>
         Effect.gen(function* () {
           const run = yield* decodeRun(row.data);
+          const threadIds = run.attempts.flatMap((attempt) =>
+            attempt.threadId ? [attempt.threadId] : [],
+          );
           const reason = yield* host.redact({
             text:
               run.reason ??
               (run.state === "awaiting-review"
                 ? "The workflow needs a human decision."
                 : "Native execution requires your input."),
-            threadIds: run.attempts.flatMap((attempt) =>
-              attempt.threadId ? [attempt.threadId] : [],
-            ),
+            threadIds,
           });
+          const summary = yield* host.redact({ text: run.definition.title, threadIds });
+          const relatedThread =
+            run.attempts.find((attempt) => attempt.phase === "waiting-input")?.threadId ??
+            run.attempts.at(-1)?.threadId;
           return {
             id: run.id,
-            summary: run.definition.title.slice(0, 240),
+            summary: summary.slice(0, 240),
             severity: "warning" as const,
             reason: reason.slice(0, 500),
             link: {
               pageId: "workflows.runs",
               projectId: run.projectId,
-              ...(run.attempts.at(-1)?.threadId
-                ? { threadId: run.attempts.at(-1)!.threadId! }
-                : {}),
+              ...(relatedThread ? { threadId: relatedThread } : {}),
             },
           };
         }),
@@ -465,7 +529,7 @@ const make = Effect.gen(function* () {
           digest: payloadDigest,
         };
         attempt.report = { ...input, receipt };
-        attempt.phase = "reported";
+        attempt.phase = attempt.waitStartedAt === null ? "reported" : "waiting-input";
         yield* sql`INSERT INTO workflow_reports (attempt_id, digest, receipt) VALUES (${attempt.id}, ${payloadDigest}, ${yield* encodeReceipt(receipt)})`;
         yield* persist(run);
         return receipt;
@@ -537,13 +601,7 @@ const make = Effect.gen(function* () {
           return yield* error("retry", "This run cannot admit a new attempt.", "conflict");
         run.reason = null;
         // New attempts always receive a new thread; old reports never transfer authority.
-        const node = run.definition.nodes.find((node) => node.id === run.currentNode)!;
-        const retryNode =
-          node.kind === "join"
-            ? node.fork
-            : node.kind === "human" && run.gate?.reviewId
-              ? run.reviews.find((review) => review.id === run.gate!.reviewId)!.fork
-              : node.id;
+        const retryNode = recoveryNode(run)!;
         for (const attempt of run.attempts)
           if (!terminalAttempt(attempt)) {
             attempt.phase = "canceled";
@@ -627,16 +685,20 @@ const make = Effect.gen(function* () {
           attempt.phase = "unresolved";
           attempt.reason = "The review branch deadline expired.";
         } else if (request) {
-          if (attempt.waitStartedAt === null) {
+          const enteredWait = attempt.waitStartedAt === null;
+          if (enteredWait) {
             attempt.remainingMs = Math.max(0, attempt.remainingMs - (now - attempt.lastActiveAt));
             attempt.waitStartedAt = now;
             attempt.phase = "waiting-input";
           }
-          if (agent.humanTimeoutMs && now - attempt.waitStartedAt >= agent.humanTimeoutMs) {
+          if (
+            agent.humanTimeoutMs &&
+            now - (attempt.waitStartedAt ?? now) >= agent.humanTimeoutMs
+          ) {
             attempt.phase = "unresolved";
             attempt.reason = "The human-response deadline expired.";
           } else {
-            if (attempt.waitStartedAt === now) yield* persist(run);
+            if (enteredWait) yield* persist(run);
             return;
           }
         } else {
@@ -659,7 +721,7 @@ const make = Effect.gen(function* () {
             return;
           else {
             const execution = state.runs.findLast(
-              (run) => attempt.executionRunId === null || run.id === attempt.executionRunId,
+              (run) => state.resultRunId === undefined || run.id === state.resultRunId,
             );
             if (!execution) return;
             if (["interrupted", "cancelled", "rolled_back"].includes(execution.status)) {
@@ -720,7 +782,9 @@ const make = Effect.gen(function* () {
   const reconcileAttempts = Effect.fnUntraced(function* () {
     const rows = yield* sql<{
       id: string;
-    }>`SELECT id FROM workflow_runs WHERE state = 'running' ORDER BY rowid LIMIT 100`;
+      rowid: number;
+    }>`SELECT id, rowid FROM workflow_runs WHERE state = 'running' AND rowid > ${reconcileAfter} ORDER BY rowid LIMIT 100`;
+    reconcileAfter = rows.length === 100 ? rows.at(-1)!.rowid : 0;
     for (const row of rows) {
       const run = yield* load(row.id);
       for (const attempt of run.attempts) {
@@ -937,6 +1001,16 @@ const make = Effect.gen(function* () {
             run.attempts.find((attempt) => attempt.id === branch.attemptId)!,
           );
           if (attempts.some((attempt) => !terminalAttempt(attempt))) return;
+          for (const [index, attempt] of attempts.entries()) {
+            const evidence = workspaceEvidence[index];
+            if (
+              evidence?._tag === "Success" &&
+              (evidence.success.head !== current.head || !evidence.success.clean)
+            ) {
+              attempt.phase = "stale";
+              attempt.reason = "The reviewer checkout changed from its frozen input.";
+            }
+          }
           current.result =
             freshness._tag !== "Success"
               ? "unresolved"
@@ -954,15 +1028,15 @@ const make = Effect.gen(function* () {
                       ? "canceled"
                       : attempts.some((attempt) => attempt.phase === "stale")
                         ? "stale"
-                        : attempts.some(
-                              (attempt) =>
-                                attempt.phase === "unresolved" ||
-                                attempt.phase === "interrupted" ||
-                                !attempt.report,
-                            )
-                          ? "unresolved"
-                          : attempts.some((attempt) => attempt.phase === "failed")
-                            ? "failed"
+                        : attempts.some((attempt) => attempt.phase === "failed")
+                          ? "failed"
+                          : attempts.some(
+                                (attempt) =>
+                                  attempt.phase === "unresolved" ||
+                                  attempt.phase === "interrupted" ||
+                                  !attempt.report,
+                              )
+                            ? "unresolved"
                             : "all_completed";
           current.consumed = true;
           const selected = choose(node.rules, node.otherwise, joinValues(run, node.fork));
@@ -979,6 +1053,52 @@ const make = Effect.gen(function* () {
     }
   });
 
+  const followUp = Effect.fnUntraced(function* (
+    runId: string,
+    attemptId: string,
+    kind: "reminder" | "resume",
+    instruction: string,
+  ) {
+    yield* protect(
+      kind,
+      Effect.gen(function* () {
+        const run = yield* load(runId);
+        const attempt = run.attempts.find((attempt) => attempt.id === attemptId)!;
+        if (
+          run.state !== "running" ||
+          terminalAttempt(attempt) ||
+          (kind === "reminder" && (attempt.reminderSent || attempt.report))
+        )
+          return;
+        const id = commandId(attempt, kind, kind === "resume" ? attempt.resumeCount : undefined);
+        const receipt =
+          (yield* host.receipt(id)) ??
+          (yield* host.send({ ...target(run, attempt), commandId: id, mode: "auto", instruction }));
+        const state =
+          receipt.status === "accepted"
+            ? yield* host.inspect(target(run, attempt)).pipe(Effect.result)
+            : null;
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            // The command lock remains held until the new owned execution is retained.
+            attempt.executionRunId =
+              state?._tag === "Success" ? (state.success.runs.at(-1)?.id ?? null) : null;
+            if (kind === "reminder") attempt.reminderSent = true;
+            attempt.phase = attempt.report ? "reported" : "running";
+            if (receipt.status === "rejected") {
+              attempt.phase = "unresolved";
+              attempt.reason = receipt.error ?? "The follow-up was rejected.";
+              if (attempt.branchId) yield* enqueue(run, `${run.id}:join:${attempt.id}`, "node");
+              else unresolved(run, attempt.reason);
+            }
+            yield* persist(run);
+          }),
+        );
+        yield* notify;
+      }).pipe(lock.withPermits(1)),
+    );
+  });
+
   const dispatch = Effect.fnUntraced(function* (item: {
     id: string;
     run_id: string;
@@ -993,12 +1113,21 @@ const make = Effect.gen(function* () {
         yield* Fiber.interrupt(check);
         checks.delete(attempt.id);
       }
-      if (attempt.threadId)
-        yield* host.interrupt({
-          ...target(observed, attempt),
-          commandId: commandId(attempt, "interrupt"),
-          ...(attempt.executionRunId === null ? {} : { runId: attempt.executionRunId }),
-        });
+      if (attempt.threadId) {
+        const launched = attempt.launch ? yield* host.receipt(commandId(attempt, "launch")) : null;
+        if (!launched) return;
+        // A lost follow-up acknowledgement may leave a newer run than executionRunId.
+        const state = yield* host.inspect(target(observed, attempt));
+        const active = state.runs.filter((run) =>
+          ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
+        );
+        for (const execution of active)
+          yield* host.interrupt({
+            ...target(observed, attempt),
+            commandId: commandId(attempt, `interrupt-${digest(execution.id).slice(0, 16)}`),
+            runId: execution.id,
+          });
+      }
       return;
     }
     if (observed.state !== "running") return;
@@ -1029,29 +1158,11 @@ const make = Effect.gen(function* () {
     if (terminalAttempt(attempt)) return;
     if (item.kind === "reminder") {
       if (attempt.reminderSent || attempt.report) return;
-      const result = yield* host.send({
-        ...target(observed, attempt),
-        commandId: commandId(attempt, "reminder"),
-        mode: "auto",
-        instruction: `Your execution settled without an accepted workflow report. Call plugin_workflows_report now using the report contract in your launch instructions. This is the only protocol reminder.`,
-      });
-      yield* transaction(
+      yield* followUp(
+        observed.id,
+        attempt.id,
         "reminder",
-        Effect.gen(function* () {
-          const run = yield* load(observed.id);
-          const current = run.attempts.find((item) => item.id === attempt.id)!;
-          if (run.state !== "running" || terminalAttempt(current)) return;
-          current.reminderSent = true;
-          current.phase = current.report ? "reported" : "running";
-          current.executionRunId = null;
-          if (result.status === "rejected") {
-            current.phase = "unresolved";
-            current.reason = result.error;
-            if (!current.branchId)
-              unresolved(run, result.error ?? "Protocol reminder was rejected.");
-          }
-          yield* persist(run);
-        }),
+        "Your execution settled without an accepted workflow report. Call plugin_workflows_report now using the report contract in your launch instructions. This is the only protocol reminder.",
       );
       return;
     }
@@ -1077,12 +1188,7 @@ const make = Effect.gen(function* () {
         if (digest(contents) !== attempt.skill.fingerprint)
           return yield* error("resume", "The selected skill changed.", "unsupported");
       }
-      yield* host.send({
-        ...target(observed, attempt),
-        commandId: commandId(attempt, "resume", attempt.resumeCount),
-        mode: "auto",
-        instruction: launchInstruction(agent, attempt),
-      });
+      yield* followUp(observed.id, attempt.id, "resume", launchInstruction(agent, attempt));
       return;
     }
     if (item.kind !== "launch") return;
@@ -1177,6 +1283,7 @@ const make = Effect.gen(function* () {
         (provider) =>
           provider.instanceId === agent.modelSelection.instanceId &&
           provider.toolsSupported &&
+          provider.available === true &&
           provider.runtimeModes.includes(agent.runtimeMode),
       )
     )

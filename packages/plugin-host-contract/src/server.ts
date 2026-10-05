@@ -89,6 +89,7 @@ export class Host extends Context.Service<
         readonly instanceId: ProviderInstanceId;
         readonly driver: string;
         readonly toolsSupported: boolean;
+        readonly available?: boolean;
         readonly reason: string | null;
         readonly runtimeModes: ReadonlyArray<RuntimeMode>;
       }>,

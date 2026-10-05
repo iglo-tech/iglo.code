@@ -1872,7 +1872,8 @@ describe("ClaudeAdapterV2 native session identity", () => {
             assertComplete: Effect.void,
           },
         });
-        const threadId = ThreadId.make("thread-claude-session-identity");
+        const threadId =
+          pluginCredential?.threadId ?? ThreadId.make("thread-claude-session-identity");
         if (pluginCredential !== undefined)
           McpProviderSession.setMcpProviderSession(pluginCredential);
         const providerSessionId = ProviderSessionId.make("provider-session-claude-identity");
@@ -1912,6 +1913,7 @@ describe("ClaudeAdapterV2 native session identity", () => {
           const fixture = yield* makePluginToolFixture(
             "claudeAgent",
             ThreadId.make("thread-claude-session-identity"),
+            { workflow: true },
           );
           const initialCredential = yield* fixture.issue;
           const first = yield* openTurnWithOrdinal(1, undefined, initialCredential);

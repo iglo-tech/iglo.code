@@ -73,13 +73,37 @@ export function joinValues(run: Run, fork: string): Record<string, Value> {
     ),
   };
 }
+/** Recovery admits fresh work at the source of an unresolved disposition, never another end. */
+export function recoveryNode(run: Run): string | undefined {
+  const node = run.definition.nodes.find((node) => node.id === run.currentNode)!;
+  if (["agent", "check", "parallel"].includes(node.kind)) return node.id;
+  if (node.kind === "join") return node.fork;
+  const review = run.reviews.find(
+    (review) => review.id === run.gate?.reviewId || run.trace.at(-1)?.sourceIds.includes(review.id),
+  );
+  if (review) return review.fork;
+  const source =
+    node.kind === "end"
+      ? run.definition.nodes.find((node) => node.id === run.trace.at(-1)?.nodeId)
+      : node;
+  if (source?.kind === "agent" || source?.kind === "check" || source?.kind === "parallel")
+    return source.id;
+  if (source?.kind === "decision") {
+    const input = run.definition.nodes.find((node) => node.id === source.source);
+    if (input?.kind === "agent" || input?.kind === "check") return input.id;
+    if (input?.kind === "join") return input.fork;
+  }
+  return undefined;
+}
 export function allowedActions(run: Run): State["allowedActions"] {
   if (["completed", "failed", "canceled"].includes(run.state)) return [];
   if (run.state === "awaiting-review") return ["cancel", "approve", "request-changes"];
   if (run.state === "unresolved")
     return [
       "cancel",
-      ...(run.visits < (run.definition.maxVisits ?? 100) ? ["retry" as const] : []),
+      ...(run.visits < (run.definition.maxVisits ?? 100) && recoveryNode(run)
+        ? ["retry" as const]
+        : []),
       ...(run.attempts.some(
         (attempt) => attempt.nodeId === run.currentNode && attempt.resumable && !attempt.report,
       )
@@ -159,17 +183,18 @@ export function reserveAttempt(
     id: attemptId,
     nodeId: node.id,
     branchId: branch?.id ?? null,
-    reviewId:
-      run.reviews.findLast(
-        (review) =>
-          run.trace.at(-1)?.sourceIds.includes(review.id) ||
-          agent?.bindings?.some((binding) =>
-            run.definition.nodes.some(
-              (node) =>
-                node.id === binding.node && node.kind === "join" && node.fork === review.fork,
+    reviewId: branch
+      ? null
+      : (run.reviews.findLast(
+          (review) =>
+            run.trace.at(-1)?.sourceIds.includes(review.id) ||
+            agent?.bindings?.some((binding) =>
+              run.definition.nodes.some(
+                (node) =>
+                  node.id === binding.node && node.kind === "join" && node.fork === review.fork,
+              ),
             ),
-          ),
-      )?.id ?? null,
+        )?.id ?? null),
     generation,
     threadId: agent ? ThreadId.make(`workflow:${attemptId}`) : null,
     phase: bindingReason ? "unresolved" : "launching",
