@@ -145,9 +145,10 @@ export const make = (pluginId: string) =>
             : requested;
         if (requested.kind === "interrupt") {
           const state = yield* core.inspect(requested.input);
-          const active = state.runs.findLast((run) =>
-            ["preparing", "starting", "running", "waiting"].includes(run.status),
-          );
+          const active =
+            state.runs.findLast((run) =>
+              ["preparing", "starting", "running", "waiting"].includes(run.status),
+            ) ?? (state.outstandingWork.length > 0 ? state.runs.at(-1) : undefined);
           intent = {
             ...requested,
             input: { ...requested.input, runId: requested.input.runId ?? active?.id ?? null },

@@ -413,6 +413,16 @@ const make = Effect.gen(function* () {
                   service.attention.pipe(
                     Stream.map((items) => ({ environmentId, pluginId, items })),
                     Stream.mapEffect((item) => decodeAttention(item)),
+                    Stream.catchCause((cause) =>
+                      Cause.hasInterruptsOnly(cause)
+                        ? Stream.fromEffect(Effect.interrupt)
+                        : Stream.fromEffect(
+                            Effect.logWarning("Plugin attention stream unavailable", {
+                              pluginId,
+                              cause,
+                            }).pipe(Effect.as({ environmentId, pluginId, items: [] })),
+                          ),
+                    ),
                   ),
                 ),
                 { concurrency: "unbounded" },

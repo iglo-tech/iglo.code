@@ -22,6 +22,7 @@ import * as Stream from "effect/Stream";
 
 import * as Environment from "../../../apps/server/src/environment/ServerEnvironment.ts";
 import * as Projects from "../../../apps/server/src/project/ProjectService.ts";
+import * as Setup from "../../../apps/server/src/project/WorktreeSetupTracker.ts";
 import * as Threads from "../../../apps/server/src/orchestration-v2/ThreadManagementService.ts";
 import * as Launch from "../../../apps/server/src/orchestration-v2/ThreadLaunchService.ts";
 import * as Receipts from "../../../apps/server/src/orchestration-v2/CommandReceiptStore.ts";
@@ -71,6 +72,7 @@ const make = Effect.gen(function* () {
   const projects = yield* Projects.ProjectService;
   const threads = yield* Threads.ThreadManagementService;
   const launch = yield* Launch.ThreadLaunchService;
+  const setup = yield* Setup.WorktreeSetupTracker;
   const receipts = yield* Receipts.CommandReceiptStoreV2;
   const events = yield* Events.OrchestrationEventStore;
   const providers = yield* Providers.ProviderRegistry;
@@ -405,7 +407,7 @@ const make = Effect.gen(function* () {
           input.workspace.type === "exact-ref"
             ? yield* resolveWorkspaceRef(workspace.workspaceRoot, input.workspace.ref)
             : null;
-        yield* launch
+        const launched = yield* launch
           .launch({
             commandId: input.commandId,
             projectId: input.projectId,
@@ -444,6 +446,32 @@ const make = Effect.gen(function* () {
               ),
             ),
           );
+        // Without a durable run, the private intent must remain pending until the workspace exists.
+        if (
+          input.workspace.type === "exact-ref" &&
+          input.instruction === undefined &&
+          launched.projection.thread.worktreePath === null
+        ) {
+          const completed = yield* setup.stream(launched.threadId).pipe(
+            Stream.filter((snapshot) => snapshot !== null && snapshot.phase !== "running"),
+            Stream.runHead,
+          );
+          const prepared = yield* threads
+            .getThreadShell(launched.threadId)
+            .pipe(
+              Effect.mapError((cause) =>
+                fail("launch", "Could not reconcile workspace preparation.", cause),
+              ),
+            );
+          if (prepared?.worktreePath == null)
+            return yield* fail(
+              "launch",
+              Option.isSome(completed)
+                ? (completed.value?.error ??
+                    "The requested workspace was not prepared. Retry with the same identity.")
+                : "The requested workspace was not prepared. Retry with the same identity.",
+            );
+        }
         return yield* committed(input.commandId);
       }),
     send: (input) =>
@@ -472,13 +500,32 @@ const make = Effect.gen(function* () {
         yield* environment(input.environmentId);
         const existing = yield* receipt(input.commandId);
         if (existing !== null) return existing;
-        yield* inspect(input);
+        const state = yield* inspect(input);
+        const selected =
+          input.runId === undefined
+            ? (state.runs.findLast((run) =>
+                ["preparing", "starting", "running", "waiting"].includes(run.status),
+              ) ?? (state.outstandingWork.length > 0 ? state.runs.at(-1) : undefined))
+            : state.runs.find((run) => run.id === input.runId);
+        if (selected === undefined) {
+          if (input.runId !== undefined)
+            return yield* fail("interrupt", "The requested run is not in this thread.");
+          return null;
+        }
+        if (
+          !["preparing", "starting", "running", "waiting"].includes(selected.status) &&
+          (selected.id !== state.runs.at(-1)?.id ||
+            state.outstandingWork.length === 0 ||
+            selected.status === "rolled_back")
+        )
+          return null;
         yield* threads
-          .interruptThread({
-            projectId: input.projectId,
+          .dispatch({
+            type: "run.interrupt",
             threadId: input.threadId,
             commandId: input.commandId,
-            ...(input.runId === undefined ? {} : { runId: RunId.make(input.runId) }),
+            runId: RunId.make(selected.id),
+            holdQueue: true,
           })
           .pipe(
             Effect.mapError((cause) => fail("interrupt", "Could not interrupt the thread.", cause)),
