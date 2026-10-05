@@ -1982,130 +1982,228 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         }),
       );
 
+      const makeNativeWorkspaceHarness = Effect.fn("makeNativeWorkspaceHarness")(function* () {
+        const instanceId = ProviderInstanceId.make("antigravity");
+        const driver = ProviderDriverKind.make("antigravity");
+        const initializeResult = { protocolVersion: 1, agentCapabilities: {}, authMethods: [] };
+        const native = yield* makeAntigravityProvider(
+          decodeAntigravitySettings({ enabled: true }),
+          {
+            stampIdentity: (draft) => Effect.succeed({ ...draft, instanceId, driver }),
+            probe: Effect.succeed(initializeResult),
+            supportsTextGeneration: Effect.succeed(false),
+          },
+        ).pipe(
+          Effect.provide(
+            Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+              shouldRunScopeWork: () => Effect.succeed(false),
+            }),
+          ),
+        );
+        const startSession = (version: string) =>
+          native.onSessionStarted(
+            {
+              sessionId: "fixture-session",
+              modelConfigId: undefined,
+              initializeResult: { ...initializeResult, agentInfo: { name: "fixture", version } },
+              sessionSetupResult: { sessionId: "fixture-session" },
+            },
+            "/workspace",
+          );
+        yield* native.snapshot.refresh;
+        yield* startSession("baseline");
+        const baselineSkills = [
+          { name: "baseline", path: "/workspace/baseline/SKILL.md", enabled: true },
+        ];
+        const latestSkills = [
+          { name: "latest", path: "/workspace/latest/SKILL.md", enabled: true },
+        ];
+        const skillsRef = yield* Ref.make<ServerProvider["skills"]>(baselineSkills);
+        const calls = yield* Ref.make(0);
+        const scanGate = yield* Ref.make<{
+          readonly started: Deferred.Deferred<void>;
+          readonly release: Deferred.Deferred<void>;
+          readonly afterRead?: boolean;
+        } | null>(null);
+        const instance: ProviderInstance = {
+          instanceId,
+          driverKind: driver,
+          enabled: true,
+          displayName: undefined,
+          continuationIdentity: { driverKind: driver, continuationKey: "antigravity:fixture" },
+          snapshot: native.snapshot,
+          commitWorkspaceSnapshot: native.commitWorkspaceSnapshot,
+          invalidateCaches: native.invalidateCaches,
+          snapshotForCwd: (cwd) =>
+            Effect.gen(function* () {
+              yield* Ref.update(calls, (count) => count + 1);
+              const skills = yield* Ref.get(skillsRef);
+              const gate = yield* Ref.getAndSet(scanGate, null);
+              if (gate && !gate.afterRead) {
+                yield* Deferred.succeed(gate.started, undefined);
+                yield* Deferred.await(gate.release);
+              }
+              const snapshot = yield* native.snapshotForCwd(cwd, skills);
+              if (gate?.afterRead) {
+                yield* Deferred.succeed(gate.started, undefined);
+                yield* Deferred.await(gate.release);
+              }
+              return snapshot;
+            }),
+          orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+          textGeneration: {} as ProviderInstance["textGeneration"],
+        };
+        const changes = yield* PubSub.unbounded<void>();
+        const services = yield* Layer.build(
+          ProviderRegistryLive.pipe(
+            Layer.provide(
+              Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+                getInstance: () => Effect.succeed(instance),
+                listInstances: Effect.succeed([instance]),
+                listUnavailable: Effect.succeed([]),
+                streamChanges: Stream.fromPubSub(changes),
+                subscribeChanges: PubSub.subscribe(changes),
+              }),
+            ),
+            Layer.provide(
+              ServerConfig.layerTest(process.cwd(), { prefix: "t3-native-workspace-race-" }),
+            ),
+            Layer.provide(NodeServices.layer),
+          ),
+        );
+        const registry = yield* Effect.service(ProviderRegistry.ProviderRegistry).pipe(
+          Effect.provide(services),
+        );
+        const publishCommands = Effect.fn("publishFixtureCommands")(function* (name: string) {
+          const publication = yield* registry.streamChanges.pipe(
+            Stream.filter((providers) => providers[0]?.slashCommands[0]?.name === name),
+            Stream.runHead,
+            Effect.forkChild,
+          );
+          yield* Effect.yieldNow;
+          yield* native.onAvailableCommands(
+            [{ name, description: "Fixture milestone" }],
+            "/workspace",
+          );
+          yield* Fiber.join(publication);
+        });
+        yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+        yield* publishCommands("baseline-command");
+        return {
+          native,
+          registry,
+          startSession,
+          publishCommands,
+          skillsRef,
+          scanGate,
+          calls,
+          instanceId,
+          baselineSkills,
+          latestSkills,
+        };
+      });
+
       it.effect("keeps superseded Antigravity discovery out of native stream updates", () =>
         Effect.scoped(
           Effect.gen(function* () {
-            const instanceId = ProviderInstanceId.make("antigravity");
-            const driver = ProviderDriverKind.make("antigravity");
-            const initializeResult = {
-              protocolVersion: 1,
-              agentCapabilities: {},
-              authMethods: [],
-            };
-            const native = yield* makeAntigravityProvider(
-              decodeAntigravitySettings({ enabled: true }),
-              {
-                stampIdentity: (draft) => Effect.succeed({ ...draft, instanceId, driver }),
-                probe: Effect.succeed(initializeResult),
-                supportsTextGeneration: Effect.succeed(false),
-              },
-            ).pipe(
-              Effect.provide(
-                Layer.mock(BackgroundPolicy.BackgroundPolicy)({
-                  shouldRunScopeWork: () => Effect.succeed(false),
-                }),
-              ),
-            );
-            yield* native.snapshot.refresh;
-            yield* native.onSessionStarted(
-              {
-                sessionId: "fixture-session",
-                modelConfigId: undefined,
-                initializeResult,
-                sessionSetupResult: { sessionId: "fixture-session" },
-              },
-              "/workspace",
-            );
-            const olderSkills = [
-              { name: "older", path: "/workspace/older/SKILL.md", enabled: true },
-            ];
-            const latestSkills = [
-              { name: "latest", path: "/workspace/latest/SKILL.md", enabled: true },
-            ];
-            const oldStarted = yield* Deferred.make<void>();
-            const releaseOld = yield* Deferred.make<void>();
-            const skillsRef = yield* Ref.make(olderSkills);
-            const instance: ProviderInstance = {
-              instanceId,
-              driverKind: driver,
-              enabled: true,
-              displayName: undefined,
-              continuationIdentity: { driverKind: driver, continuationKey: "antigravity:fixture" },
-              snapshot: native.snapshot,
-              commitWorkspaceSnapshot: native.commitWorkspaceSnapshot,
-              snapshotForCwd: (cwd) =>
-                Effect.gen(function* () {
-                  const skills = yield* Ref.get(skillsRef);
-                  if (skills === olderSkills) {
-                    yield* Deferred.succeed(oldStarted, undefined);
-                    yield* Deferred.await(releaseOld);
-                  }
-                  return yield* native.snapshotForCwd(cwd, skills);
-                }),
-              orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
-              textGeneration: {} as ProviderInstance["textGeneration"],
-            };
-            const changes = yield* PubSub.unbounded<void>();
-            const services = yield* Layer.build(
-              ProviderRegistryLive.pipe(
-                Layer.provide(
-                  Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
-                    getInstance: () => Effect.succeed(instance),
-                    listInstances: Effect.succeed([instance]),
-                    listUnavailable: Effect.succeed([]),
-                    streamChanges: Stream.fromPubSub(changes),
-                    subscribeChanges: PubSub.subscribe(changes),
-                  }),
-                ),
-                Layer.provide(
-                  ServerConfig.layerTest(process.cwd(), {
-                    prefix: "t3-antigravity-discovery-race-",
-                  }),
-                ),
-                Layer.provide(NodeServices.layer),
-              ),
-            );
-            const registry = yield* Effect.service(ProviderRegistry.ProviderRegistry).pipe(
-              Effect.provide(services),
-            );
-            const oldScan = yield* registry
-              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+            const h = yield* makeNativeWorkspaceHarness();
+            const started = yield* Deferred.make<void>();
+            const release = yield* Deferred.make<void>();
+            yield* Ref.set(h.scanGate, { started, release });
+            const oldScan = yield* h.registry
+              .refreshWorkspaceSnapshot({ instanceId: h.instanceId, cwd: "/workspace" })
               .pipe(Effect.forkChild);
-            yield* Deferred.await(oldStarted);
-            yield* Ref.set(skillsRef, latestSkills);
-            const forcedResult = yield* registry.refreshWorkspaceSnapshot({
-              instanceId,
+            yield* Deferred.await(started);
+            yield* Ref.set(h.skillsRef, h.latestSkills);
+            const forcedResult = yield* h.registry.refreshWorkspaceSnapshot({
+              instanceId: h.instanceId,
               cwd: "/workspace",
               fresh: true,
             });
-            assert.deepStrictEqual(forcedResult[0]?.workspaceSnapshots?.[0]?.skills, latestSkills);
-            yield* Deferred.succeed(releaseOld, undefined);
+            assert.deepStrictEqual(
+              forcedResult[0]?.workspaceSnapshots?.[0]?.skills,
+              h.latestSkills,
+            );
+            yield* Deferred.succeed(release, undefined);
             yield* Fiber.join(oldScan);
-            // Drain native publication through a subsequent real command event.
-            const afterCommands = yield* registry.streamChanges.pipe(
-              Stream.filter(
-                (providers) =>
-                  providers[0]?.workspaceSnapshots?.[0]?.slashCommands[0]?.name === "after-scan",
-              ),
-              Stream.runHead,
-              Effect.forkChild,
-            );
-            yield* Effect.yieldNow;
-            yield* native.onAvailableCommands(
-              [{ name: "after-scan", description: "Fixture milestone" }],
-              "/workspace",
-            );
-            yield* Fiber.join(afterCommands);
+            yield* h.publishCommands("after-scan");
             assert.deepStrictEqual(
-              (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
-              latestSkills,
+              (yield* h.registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+              h.latestSkills,
             );
             assert.deepStrictEqual(
-              (yield* native.snapshot.getSnapshot).workspaceSnapshots?.[0]?.skills,
-              latestSkills,
+              (yield* h.native.snapshot.getSnapshot).workspaceSnapshots?.[0]?.skills,
+              h.latestSkills,
             );
           }),
         ),
+      );
+
+      it.effect.each([false, true])(
+        "keeps refreshed Antigravity skills through session updates (fresh=%s)",
+        (fresh) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const h = yield* makeNativeWorkspaceHarness();
+              const started = yield* Deferred.make<void>();
+              const release = yield* Deferred.make<void>();
+              yield* Ref.set(h.skillsRef, h.latestSkills);
+              yield* Ref.set(h.scanGate, { started, release, afterRead: true });
+              const scan = yield* h.registry
+                .refreshWorkspaceSnapshot({ instanceId: h.instanceId, cwd: "/workspace", fresh })
+                .pipe(Effect.forkChild);
+              yield* Deferred.await(started);
+              yield* TestClock.adjust("1 second");
+              yield* h.startSession("session-update");
+              yield* h.publishCommands("during-session");
+              yield* Deferred.succeed(release, undefined);
+              const result = yield* Fiber.join(scan);
+              assert.strictEqual(result[0]?.version, "session-update");
+              assert.deepStrictEqual(result[0]?.workspaceSnapshots?.[0]?.skills, h.latestSkills);
+              assert.strictEqual(
+                result[0]?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
+                "during-session",
+              );
+              yield* h.publishCommands("after-session");
+              assert.deepStrictEqual(
+                (yield* h.registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+                h.latestSkills,
+              );
+              assert.deepStrictEqual(
+                (yield* h.native.snapshot.getSnapshot).workspaceSnapshots?.[0]?.skills,
+                h.latestSkills,
+              );
+            }),
+          ),
+      );
+
+      it.effect.each([false, true])(
+        "invalidates native workspace catalogs in Settings (all=%s)",
+        (all) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const h = yield* makeNativeWorkspaceHarness();
+              const before = yield* Ref.get(h.calls);
+              yield* Ref.set(h.skillsRef, h.latestSkills);
+              const result = yield* all
+                ? h.registry.refresh()
+                : h.registry.refreshInstance(h.instanceId);
+              assert.strictEqual(yield* Ref.get(h.calls), before);
+              assert.deepStrictEqual(result[0]?.workspaceSnapshots, []);
+              yield* h.startSession("after-settings");
+              yield* h.publishCommands("after-settings");
+              assert.deepStrictEqual((yield* h.registry.getProviders)[0]?.workspaceSnapshots, []);
+              const recovered = yield* h.registry.refreshWorkspaceSnapshot({
+                instanceId: h.instanceId,
+                cwd: "/workspace",
+              });
+              assert.deepStrictEqual(recovered[0]?.workspaceSnapshots?.[0]?.skills, h.latestSkills);
+              assert.strictEqual(
+                recovered[0]?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
+                "after-settings",
+              );
+            }),
+          ),
       );
 
       it.effect("refreshes OpenCode catalogs and preserves other providers", () =>

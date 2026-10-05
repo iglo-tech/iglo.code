@@ -162,10 +162,18 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     draft: initialDraft,
     authRevision: 0,
   });
-  // Only registry-accepted skills may ride native session and health updates.
-  const discoveredSkills = new Map<string, ServerProvider["skills"]>();
+  // Null marks an invalidated catalog. Keep its native commands for the next
+  // lookup, but do not republish it as completed discovery after Settings refresh.
+  const discoveredSkills = new Map<string, ServerProvider["skills"] | null>();
+  const stampSnapshot = (draft: ServerProviderDraft) =>
+    options.stampIdentity({
+      ...draft,
+      workspaceSnapshots: (draft.workspaceSnapshots ?? []).filter(
+        (entry) => discoveredSkills.get(entry.cwd) !== null,
+      ),
+    });
   const getSnapshot = SubscriptionRef.get(metadata).pipe(
-    Effect.flatMap((state) => options.stampIdentity(state.draft)),
+    Effect.flatMap((state) => stampSnapshot(state.draft)),
   );
 
   const checkProvider = Effect.fn("checkAntigravityProvider")(function* () {
@@ -230,7 +238,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         },
       } satisfies AntigravityProviderState;
     });
-    return yield* options.stampIdentity(next.draft);
+    return yield* stampSnapshot(next.draft);
   });
 
   const maintenanceCapabilities =
@@ -249,7 +257,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     enrichSnapshot: ({ publishSnapshot }) =>
       SubscriptionRef.changes(metadata).pipe(
         Stream.runForEach((state) =>
-          options.stampIdentity(state.draft).pipe(Effect.flatMap(publishSnapshot)),
+          stampSnapshot(state.draft).pipe(Effect.flatMap(publishSnapshot)),
         ),
       ),
   });
@@ -292,7 +300,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
                   ...workspaces.filter((entry) => entry.cwd !== cwd),
                   {
                     cwd,
-                    checkedAt: updatedAt,
+                    checkedAt: workspace?.checkedAt ?? updatedAt,
                     slashCommands: workspace?.slashCommands ?? draft.slashCommands,
                     skills: workspace?.skills ?? discoveredSkills.get(cwd) ?? [],
                   },
@@ -333,7 +341,9 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
                   ...(state.draft.workspaceSnapshots ?? []).filter((entry) => entry.cwd !== cwd),
                   {
                     cwd,
-                    checkedAt: updatedAt,
+                    checkedAt:
+                      state.draft.workspaceSnapshots?.find((entry) => entry.cwd === cwd)
+                        ?.checkedAt ?? updatedAt,
                     slashCommands,
                     skills:
                       state.draft.workspaceSnapshots?.find((entry) => entry.cwd === cwd)?.skills ??
@@ -376,20 +386,26 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     function* (cwd: string, snapshot: ProviderWorkspaceSnapshot) {
       yield* SubscriptionRef.update(metadata, (state) => {
         discoveredSkills.set(cwd, snapshot.skills);
-        return state.draft.workspaceSnapshots?.some((entry) => entry.cwd === cwd)
-          ? {
-              ...state,
-              draft: {
-                ...state.draft,
-                workspaceSnapshots: state.draft.workspaceSnapshots.map((entry) =>
-                  entry.cwd === cwd
-                    ? { ...entry, skills: snapshot.skills, checkedAt: snapshot.checkedAt }
-                    : entry,
-                ),
+        const workspace = state.draft.workspaceSnapshots?.find((entry) => entry.cwd === cwd);
+        return {
+          ...state,
+          draft: {
+            ...state.draft,
+            workspaceSnapshots: [
+              ...(state.draft.workspaceSnapshots ?? []).filter((entry) => entry.cwd !== cwd),
+              {
+                cwd,
+                skills: snapshot.skills,
+                checkedAt: snapshot.checkedAt,
+                slashCommands: workspace?.slashCommands ?? state.draft.slashCommands,
               },
-            }
-          : state;
+            ].slice(-MAX_WORKSPACE_SNAPSHOTS),
+          },
+        };
       });
+      return yield* snapshotForCwd(cwd, snapshot.skills).pipe(
+        Effect.map((resolved) => ({ ...resolved, checkedAt: snapshot.checkedAt })),
+      );
     },
   );
 
@@ -397,12 +413,23 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     cwd: string,
     skills?: ServerProvider["skills"],
   ) {
-    const snapshot = yield* getSnapshot;
+    const snapshot = yield* SubscriptionRef.get(metadata).pipe(
+      Effect.flatMap((state) => options.stampIdentity(state.draft)),
+    );
     const workspace = snapshot.workspaceSnapshots?.find((entry) => entry.cwd === cwd);
     const resolvedSkills = skills ?? workspace?.skills ?? discoveredSkills.get(cwd) ?? [];
     return workspace
       ? { ...snapshot, slashCommands: workspace.slashCommands, skills: resolvedSkills }
       : { ...snapshot, skills: resolvedSkills };
+  });
+
+  const invalidateCaches = SubscriptionRef.update(metadata, (state) => {
+    for (const cwd of discoveredSkills.keys()) discoveredSkills.set(cwd, null);
+    const workspaces = (state.draft.workspaceSnapshots ?? []).map((entry) => {
+      discoveredSkills.set(entry.cwd, null);
+      return { ...entry, skills: [] };
+    });
+    return { ...state, draft: { ...state.draft, workspaceSnapshots: workspaces } };
   });
 
   return {
@@ -414,5 +441,6 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     onAuthRequired: clearAccountMetadata(),
     snapshotForCwd,
     commitWorkspaceSnapshot,
+    invalidateCaches,
   };
 });

@@ -84,11 +84,11 @@ export interface ProviderInstance {
   readonly snapshotForCwd?: (
     cwd: string,
   ) => Effect.Effect<ProviderWorkspaceSnapshot, ProviderDriverError>;
-  /** Retain accepted discovery for native session updates, without discovery I/O. */
+  /** Commit accepted skills against current native metadata, without discovery I/O. */
   readonly commitWorkspaceSnapshot?: (
     cwd: string,
     snapshot: ProviderWorkspaceSnapshot,
-  ) => Effect.Effect<void>;
+  ) => Effect.Effect<ProviderWorkspaceSnapshot>;
   readonly refreshModels?: () => Effect.Effect<void, ProviderDriverError>;
   /** Invalidate T3-owned discovery caches before an explicit provider refresh. */
   readonly invalidateCaches?: Effect.Effect<void>;

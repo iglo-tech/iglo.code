@@ -906,22 +906,29 @@ export const ProviderRegistryLive = Layer.effect(
       instanceId?: ProviderInstanceId,
     ) {
       yield* SynchronizedRef.updateEffect(workspaceRefreshesRef, (refreshes) =>
-        updateProviders((providers) =>
-          providers.map((provider) =>
-            (instanceId === undefined || provider.instanceId === instanceId) &&
-            provider.workspaceSnapshots?.length
-              ? { ...provider, workspaceSnapshots: [] }
-              : provider,
-          ),
-        ).pipe(
-          Effect.as(
-            new Map(
-              [...refreshes].filter(([instance]) =>
-                instanceId === undefined ? false : instance.instanceId !== instanceId,
-              ),
+        Effect.gen(function* () {
+          const instances = yield* instanceRegistry.listInstances;
+          yield* Effect.forEach(
+            instances.filter(
+              (instance) => instanceId === undefined || instance.instanceId === instanceId,
             ),
-          ),
-        ),
+            (instance) => instance.invalidateCaches ?? Effect.void,
+            { discard: true },
+          );
+          yield* updateProviders((providers) =>
+            providers.map((provider) =>
+              (instanceId === undefined || provider.instanceId === instanceId) &&
+              provider.workspaceSnapshots?.length
+                ? { ...provider, workspaceSnapshots: [] }
+                : provider,
+            ),
+          );
+          return new Map(
+            [...refreshes].filter(([instance]) =>
+              instanceId === undefined ? false : instance.instanceId !== instanceId,
+            ),
+          );
+        }).pipe(Effect.uninterruptible),
       );
     });
 
@@ -1005,29 +1012,25 @@ export const ProviderRegistryLive = Layer.effect(
                   refreshes.get(instance)?.get(input.cwd) !== scan
                 )
                   return [yield* Ref.get(providersRef), refreshes] as const;
-                // A session event that changed the cwd's snapshot during
-                // the scan must also retain its newer catalog.
-                let committed = false;
+                // Native providers merge accepted skills with their current
+                // commands. Other probes must not replace a newer catalog.
+                const acceptedSnapshot = instance.commitWorkspaceSnapshot
+                  ? yield* instance.commitWorkspaceSnapshot(input.cwd, {
+                      ...scopedSnapshot,
+                      checkedAt,
+                    })
+                  : { ...scopedSnapshot, checkedAt };
                 const nextProviders = yield* updateProviders((currentProviders) =>
                   currentProviders.map((candidate) => {
                     if (
                       candidate.instanceId !== input.instanceId ||
-                      !Equal.equals(workspaceSnapshotOf(candidate), scannedFrom)
+                      (!instance.commitWorkspaceSnapshot &&
+                        !Equal.equals(workspaceSnapshotOf(candidate), scannedFrom))
                     )
                       return candidate;
-                    committed = true;
-                    return upsertProviderWorkspaceSnapshot(candidate, input.cwd, {
-                      ...scopedSnapshot,
-                      checkedAt,
-                    });
+                    return upsertProviderWorkspaceSnapshot(candidate, input.cwd, acceptedSnapshot);
                   }),
                 );
-                if (committed && instance.commitWorkspaceSnapshot) {
-                  yield* instance.commitWorkspaceSnapshot(input.cwd, {
-                    ...scopedSnapshot,
-                    checkedAt,
-                  });
-                }
                 return [nextProviders, refreshes] as const;
               }).pipe(Effect.uninterruptible),
             );

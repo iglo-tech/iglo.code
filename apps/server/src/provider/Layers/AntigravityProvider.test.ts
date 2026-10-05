@@ -648,6 +648,35 @@ it.layer(testLayer)("Antigravity provider snapshots", (it) => {
     ),
   );
 
+  it.effect("invalidates skill catalogs while keeping native workspace commands", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness();
+        yield* harness.initialize;
+        yield* harness.provider.onSessionStarted(started, "/workspace");
+        yield* harness.provider.onAvailableCommands(commands, "/workspace");
+        const skills = [{ name: "old", path: "/workspace/old/SKILL.md", enabled: true }];
+        const discovery = yield* harness.provider.snapshotForCwd("/workspace", skills);
+        yield* harness.provider.commitWorkspaceSnapshot("/workspace", discovery);
+        yield* harness.provider.invalidateCaches;
+        expect((yield* harness.provider.snapshot.refresh).workspaceSnapshots).toEqual([]);
+        yield* harness.provider.onSessionStarted(started, "/workspace");
+        yield* harness.provider.onAvailableCommands(commands, "/workspace");
+        expect((yield* harness.provider.snapshot.getSnapshot).workspaceSnapshots).toEqual([]);
+        const latest = [{ name: "latest", path: "/workspace/latest/SKILL.md", enabled: true }];
+        const next = yield* harness.provider.snapshotForCwd("/workspace", latest);
+        expect(next.slashCommands).toEqual(expectedCommands);
+        yield* harness.provider.commitWorkspaceSnapshot("/workspace", next);
+        expect(
+          (yield* harness.provider.snapshot.getSnapshot).workspaceSnapshots?.[0],
+        ).toMatchObject({
+          skills: latest,
+          slashCommands: expectedCommands,
+        });
+      }),
+    ),
+  );
+
   it.effect("bounds workspace metadata without starting sessions for workspace lookup", () =>
     Effect.scoped(
       Effect.gen(function* () {
