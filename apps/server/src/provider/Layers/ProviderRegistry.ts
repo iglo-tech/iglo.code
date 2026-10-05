@@ -1020,15 +1020,33 @@ export const ProviderRegistryLive = Layer.effect(
                       checkedAt,
                     })
                   : { ...scopedSnapshot, checkedAt };
-                const nextProviders = yield* updateProviders((currentProviders) =>
-                  currentProviders.map((candidate) => {
+                // The native commit can yield while Settings rebuilds an
+                // instance. Recheck identity under the live-source sync lock,
+                // so publication cannot land in its replacement's projection.
+                const nextProviders = yield* syncSemaphore.withPermits(1)(
+                  Effect.gen(function* () {
+                    const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
+                    const liveInstances = yield* Ref.get(liveSubsRef);
                     if (
-                      candidate.instanceId !== input.instanceId ||
-                      (!instance.commitWorkspaceSnapshot &&
-                        !Equal.equals(workspaceSnapshotOf(candidate), scannedFrom))
+                      currentInstance !== instance ||
+                      liveInstances.get(input.instanceId) !== instance
                     )
-                      return candidate;
-                    return upsertProviderWorkspaceSnapshot(candidate, input.cwd, acceptedSnapshot);
+                      return yield* Ref.get(providersRef);
+                    return yield* updateProviders((currentProviders) =>
+                      currentProviders.map((candidate) => {
+                        if (
+                          candidate.instanceId !== input.instanceId ||
+                          (!instance.commitWorkspaceSnapshot &&
+                            !Equal.equals(workspaceSnapshotOf(candidate), scannedFrom))
+                        )
+                          return candidate;
+                        return upsertProviderWorkspaceSnapshot(
+                          candidate,
+                          input.cwd,
+                          acceptedSnapshot,
+                        );
+                      }),
+                    );
                   }),
                 );
                 return [nextProviders, refreshes] as const;

@@ -42,6 +42,7 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import { makeAntigravityProvider } from "./AntigravityProvider.ts";
+import { makeProviderInstanceRegistry } from "./ProviderInstanceRegistryLive.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as AntigravityInstallation from "../AntigravityInstallation.ts";
 import * as ModelManifest from "../ModelManifest.ts";
@@ -66,7 +67,11 @@ import {
   writeProviderStatusCache,
 } from "../providerStatusCache.ts";
 import { COMPACT_SLASH_COMMAND } from "../providerSnapshot.ts";
-import type { ProviderInstance, ProviderWorkspaceSnapshot } from "../ProviderDriver.ts";
+import type {
+  ProviderDriver,
+  ProviderInstance,
+  ProviderWorkspaceSnapshot,
+} from "../ProviderDriver.ts";
 import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "../Services/ProviderRegistry.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
@@ -2202,6 +2207,177 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                 recovered[0]?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
                 "after-settings",
               );
+            }),
+          ),
+      );
+
+      it.effect.each([false, true])(
+        "keeps native discovery with its live instance during commit (rebuild=%s)",
+        (rebuild) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const instanceId = ProviderInstanceId.make("native-rebuild");
+              const driver = ProviderDriverKind.make("antigravity");
+              const commitStarted = yield* Deferred.make<void>();
+              const releaseCommit = yield* Deferred.make<void>();
+              const oldClosed = yield* Deferred.make<void>();
+              let scanFiberId: number | undefined;
+              let paused = false;
+              const publishCommands = new Map<string, (name: string) => Effect.Effect<void>>();
+              const initializeResult = {
+                protocolVersion: 1,
+                agentCapabilities: {},
+                authMethods: [],
+              };
+              const fixtureDriver: ProviderDriver<
+                { revision: string },
+                BackgroundPolicy.BackgroundPolicy | ServerSettingsModule.ServerSettingsService
+              > = {
+                driverKind: driver,
+                metadata: { displayName: "Native rebuild fixture" },
+                configSchema: Schema.Struct({ revision: Schema.String }),
+                defaultConfig: () => ({ revision: "original" }),
+                create: (input) =>
+                  Effect.gen(function* () {
+                    const revision = input.config.revision;
+                    if (revision === "original") {
+                      yield* Scope.addFinalizer(
+                        yield* Scope.Scope,
+                        Deferred.succeed(oldClosed, undefined),
+                      );
+                    }
+                    const native = yield* makeAntigravityProvider(
+                      decodeAntigravitySettings({ enabled: true }),
+                      {
+                        stampIdentity: (draft) =>
+                          Effect.withFiber((fiber) =>
+                            Effect.gen(function* () {
+                              if (
+                                revision === "original" &&
+                                fiber.id === scanFiberId &&
+                                !paused &&
+                                draft.workspaceSnapshots?.some(
+                                  (workspace) => workspace.skills[0]?.name === "original-config",
+                                )
+                              ) {
+                                paused = true;
+                                yield* Deferred.succeed(commitStarted, undefined);
+                                yield* Deferred.await(releaseCommit);
+                              }
+                              return { ...draft, instanceId, driver };
+                            }),
+                          ),
+                        probe: Effect.succeed({
+                          ...initializeResult,
+                          agentInfo: { name: "fixture", version: revision },
+                        }),
+                        supportsTextGeneration: Effect.succeed(false),
+                      },
+                    );
+                    yield* native.snapshot.refresh;
+                    publishCommands.set(revision, (name) =>
+                      native.onAvailableCommands([{ name, description: "Native milestone" }]),
+                    );
+                    return {
+                      instanceId,
+                      driverKind: driver,
+                      enabled: true,
+                      displayName: undefined,
+                      continuationIdentity: { driverKind: driver, continuationKey: revision },
+                      snapshot: native.snapshot,
+                      commitWorkspaceSnapshot: native.commitWorkspaceSnapshot,
+                      invalidateCaches: native.invalidateCaches,
+                      snapshotForCwd: (cwd) =>
+                        native.snapshotForCwd(cwd, [
+                          {
+                            name: `${revision}-config`,
+                            path: `/workspace/${revision}/SKILL.md`,
+                            enabled: true,
+                          },
+                        ]),
+                      orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+                      textGeneration: {} as ProviderInstance["textGeneration"],
+                    } satisfies ProviderInstance;
+                  }).pipe(Effect.orDie),
+              };
+              const instances = yield* makeProviderInstanceRegistry({
+                drivers: [fixtureDriver],
+                configMap: { [instanceId]: { driver, config: { revision: "original" } } },
+              }).pipe(
+                Effect.provide(
+                  Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+                    shouldRunScopeWork: () => Effect.succeed(false),
+                  }),
+                ),
+              );
+              const services = yield* Layer.build(
+                ProviderRegistryLive.pipe(
+                  Layer.provide(
+                    Layer.succeed(
+                      ProviderInstanceRegistry.ProviderInstanceRegistry,
+                      instances.registry,
+                    ),
+                  ),
+                  Layer.provide(
+                    ServerConfig.layerTest(process.cwd(), { prefix: "t3-native-rebuild-" }),
+                  ),
+                  Layer.provide(NodeServices.layer),
+                ),
+              );
+              const registry = yield* Effect.service(ProviderRegistry.ProviderRegistry).pipe(
+                Effect.provide(services),
+              );
+              const scan = yield* Effect.withFiber((fiber) => {
+                scanFiberId = fiber.id;
+                return registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+              }).pipe(Effect.forkChild);
+              yield* Deferred.await(commitStarted);
+              if (rebuild) {
+                const replacement = yield* registry.streamChanges.pipe(
+                  Stream.filter((providers) => providers[0]?.version === "replacement"),
+                  Stream.runHead,
+                  Effect.forkChild,
+                );
+                yield* Effect.yieldNow;
+                yield* instances.mutator.reconcile({
+                  [instanceId]: { driver, config: { revision: "replacement" } },
+                });
+                yield* Deferred.await(oldClosed);
+                yield* Fiber.join(replacement);
+                const nativeUpdate = yield* registry.streamChanges.pipe(
+                  Stream.filter(
+                    (providers) => providers[0]?.slashCommands[0]?.name === "replacement-ready",
+                  ),
+                  Stream.runHead,
+                  Effect.forkChild,
+                );
+                yield* Effect.yieldNow;
+                const publish = publishCommands.get("replacement");
+                if (!publish) return yield* Effect.die("Replacement native fixture missing");
+                yield* publish("replacement-ready");
+                yield* Fiber.join(nativeUpdate);
+                assert.deepStrictEqual((yield* registry.getProviders)[0]?.workspaceSnapshots, []);
+              }
+              yield* Deferred.succeed(releaseCommit, undefined);
+              yield* Fiber.join(scan);
+              const provider = (yield* registry.getProviders)[0];
+              assert.strictEqual(provider?.version, rebuild ? "replacement" : "original");
+              assert.deepStrictEqual(
+                provider?.workspaceSnapshots?.flatMap((workspace) =>
+                  workspace.skills.map((skill) => skill.name),
+                ),
+                rebuild ? [] : ["original-config"],
+              );
+              if (rebuild) {
+                const recovered = yield* registry.refreshWorkspaceSnapshot({
+                  instanceId,
+                  cwd: "/workspace",
+                });
+                assert.deepStrictEqual(
+                  recovered[0]?.workspaceSnapshots?.[0]?.skills.map((skill) => skill.name),
+                  ["replacement-config"],
+                );
+              }
             }),
           ),
       );
