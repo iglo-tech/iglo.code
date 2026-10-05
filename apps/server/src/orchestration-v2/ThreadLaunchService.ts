@@ -102,6 +102,7 @@ type PreparationInput = Pick<
    * records the workspace, and a branch rename may still be running.
    */
   readonly reusedWorktree?: { readonly baseRef: string };
+  readonly resumeWorktree?: boolean;
 };
 
 export interface ThreadLaunchRetryInput {
@@ -245,6 +246,7 @@ const make = Effect.gen(function* () {
     let createdWorktreePath: string | null = null;
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
+    let preparationReleased = false;
     if (input.workspaceStrategy.type === "worktree") {
       yield* setupTracker.begin({
         threadId,
@@ -301,7 +303,12 @@ const make = Effect.gen(function* () {
       // The server owns worktree naming: without an explicit branch, provision
       // under a temporary `t3code/<hash>` name so the worktree never waits on
       // name generation, then rename in the background below.
-      const requestedBranch = input.workspaceStrategy.branch;
+      const recordedBranch = input.resumeWorktree
+        ? (yield* threads
+            .getThreadShell(threadId)
+            .pipe(Effect.mapError(mapError(input, "update-thread", threadId))))?.branch
+        : null;
+      const requestedBranch = recordedBranch ?? input.workspaceStrategy.branch;
       let branch: string | null;
       if (input.workspaceStrategy.type === "worktree" && requestedBranch === undefined) {
         const uuid = yield* randomUuidV4;
@@ -314,6 +321,16 @@ const make = Effect.gen(function* () {
           ? input.workspaceStrategy.worktreePath
           : null;
       if (input.workspaceStrategy.type === "worktree") {
+        // Record generated identity before Git I/O, so a process loss cannot invent
+        // a second branch while the first checkout is still on disk.
+        yield* threads
+          .dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make(`${input.commandId}:workspace-branch:${branch}`),
+            threadId,
+            branch,
+          })
+          .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
         if (runId !== null) {
           yield* threads
             .dispatch({
@@ -374,6 +391,7 @@ const make = Effect.gen(function* () {
               path: null,
             },
             {
+              resume: input.resumeWorktree === true,
               progress: {
                 onWorktreeClaimed: (path) =>
                   Effect.sync(() => {
@@ -398,7 +416,7 @@ const make = Effect.gen(function* () {
         yield* threads
           .dispatch({
             type: "thread.metadata.update",
-            commandId: CommandId.make(`${input.commandId}:workspace`),
+            commandId: CommandId.make(`${input.commandId}:workspace:${yield* randomUuidV4}`),
             threadId,
             branch,
             worktreePath,
@@ -541,6 +559,7 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(mapError(input, "release-run", threadId)));
       }
       yield* setupTracker.stageStatus(threadId, "agent", "done");
+      preparationReleased = true;
       yield* awaitAsyncSetup;
       yield* setupTracker.finish(threadId, "done");
     }).pipe(
@@ -552,10 +571,14 @@ const make = Effect.gen(function* () {
             cancelled ? "cancelled" : "failed",
             cancelled ? null : failureDetail(Cause.squash(cause)),
           );
-          // A cancelled setup leaves nothing behind. A failed one keeps a worktree
-          // the thread recorded, so a retry reuses it, and removes one it never
-          // recorded, which a retry would otherwise duplicate.
-          if (tracked && createdWorktreePath && (cancelled || !workspaceRecorded)) {
+          // Cancellable setup owns its checkout. After release, async setup can
+          // stop without deleting a workspace the launch already acknowledged.
+          // Failure retains recorded worktrees and removes unrecorded ones.
+          if (
+            tracked &&
+            createdWorktreePath &&
+            ((cancelled && !preparationReleased) || !workspaceRecorded)
+          ) {
             if (setupTerminalId)
               yield* terminals
                 .close({ threadId, terminalId: setupTerminalId, deleteHistory: true })
@@ -873,7 +896,11 @@ const make = Effect.gen(function* () {
                     );
               if (preparationStillRequired) {
                 yield* schedulePreparation(
-                  { ...input, workspaceStrategy: preparationStrategy },
+                  {
+                    ...input,
+                    workspaceStrategy: preparationStrategy,
+                    resumeWorktree: Option.isSome(launchReceipt),
+                  },
                   threadId,
                   runId,
                 );
@@ -948,6 +975,7 @@ const make = Effect.gen(function* () {
         commandId: input.commandId,
         projectId: projection.thread.projectId,
         workspaceStrategy: reuse?.strategy ?? workspacePreparation,
+        resumeWorktree: true,
         ...(reuse === null ? {} : { reusedWorktree: reuse.reusedWorktree }),
         ...(message === undefined
           ? {}

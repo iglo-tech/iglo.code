@@ -33,6 +33,7 @@ import * as Git from "../../../apps/server/src/vcs/GitVcsDriver.ts";
 import * as PullRequests from "../../../apps/server/src/pullRequest/PullRequestService.ts";
 import { deriveProviderInstanceConfigMap } from "../../../apps/server/src/provider/Layers/ProviderInstanceRegistryHydration.ts";
 import { providerToolCapability } from "./providerPolicy.ts";
+import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 
 const fail = (operation: string, message: string, cause?: unknown) =>
   new PluginError({
@@ -62,6 +63,10 @@ const normalizedEvent = (
     case "node.updated":
     case "subagent.updated":
       return "work-changed";
+    case "turn-item.updated":
+      return ["command_execution", "dynamic_tool", "subagent"].includes(event.payload.type)
+        ? "work-changed"
+        : null;
     default:
       return event.type.startsWith("thread.") ? "thread-changed" : null;
   }
@@ -142,6 +147,7 @@ const make = Effect.gen(function* () {
         "runs",
         "nodes",
         "providerThreads",
+        "turnItems",
         "runtimeRequests",
         "checkpoints",
       ])
@@ -150,24 +156,32 @@ const make = Effect.gen(function* () {
           fail("inspect", "The thread is unavailable in this project.", cause),
         ),
       );
+    const runs = records.runs.toSorted((left, right) => left.ordinal - right.ordinal);
+    const abandoned = new Set(
+      runs.filter((run) => run.status === "rolled_back").map((run) => run.id),
+    );
+    const background = derivePendingBackgroundWork({
+      latestRun: runs.at(-1),
+      runs,
+      providerThreads: records.providerThreads,
+      turnItems: records.turnItems,
+      activeProviderThreadId: records.thread.activeProviderThreadId,
+    });
     return {
       ...target,
       title: records.thread.title,
       workspacePath: records.thread.worktreePath ?? workspace.workspaceRoot,
       branch: records.thread.branch,
-      runs: records.runs
-        .toSorted((left, right) => left.ordinal - right.ordinal)
-        .map((run) => ({ id: run.id, status: run.status })),
+      runs: runs.map((run) => ({ id: run.id, status: run.status })),
       outstandingWork: [
         ...records.nodes
-          .filter((node) => ["pending", "running", "waiting"].includes(node.status))
+          .filter(
+            (node) =>
+              (node.runId === null || !abandoned.has(node.runId)) &&
+              ["pending", "running", "waiting"].includes(node.status),
+          )
           .map((node) => ({ id: node.id, status: node.status })),
-        ...records.providerThreads.flatMap((thread) =>
-          (thread.pendingBackgroundTasks ?? []).map((task) => ({
-            id: task.taskId,
-            status: "running",
-          })),
-        ),
+        ...background.map((task) => ({ id: task.taskId, status: "running" })),
       ],
       requests: records.runtimeRequests.map((request) => ({
         id: request.id,
@@ -446,16 +460,24 @@ const make = Effect.gen(function* () {
               ),
             ),
           );
-        // Without a durable run, the private intent must remain pending until the workspace exists.
-        if (
-          input.workspace.type === "exact-ref" &&
-          input.instruction === undefined &&
-          launched.projection.thread.worktreePath === null
-        ) {
-          const completed = yield* setup.stream(launched.threadId).pipe(
-            Stream.filter((snapshot) => snapshot !== null && snapshot.phase !== "running"),
-            Stream.runHead,
-          );
+        // Preparation owns the checkout until it releases the agent stage. Async setup
+        // may continue afterward, but a cancellable checkout cannot own a final receipt.
+        if (input.workspace.type === "exact-ref" && input.instruction === undefined) {
+          const current = yield* setup.get(launched.threadId);
+          const completed =
+            launched.projection.thread.worktreePath === null || current?.phase === "running"
+              ? yield* setup.stream(launched.threadId).pipe(
+                  Stream.filter(
+                    (snapshot) =>
+                      snapshot !== null &&
+                      (snapshot.phase !== "running" ||
+                        snapshot.stages.some(
+                          (stage) => stage.id === "agent" && stage.status === "done",
+                        )),
+                  ),
+                  Stream.runHead,
+                )
+              : Option.fromNullishOr(current);
           const prepared = yield* threads
             .getThreadShell(launched.threadId)
             .pipe(

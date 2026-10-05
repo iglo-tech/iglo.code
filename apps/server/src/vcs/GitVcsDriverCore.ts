@@ -3279,37 +3279,132 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const sanitizedBranch = targetBranch.replace(/\//g, "-");
     const repoName = path.basename(input.cwd);
     const worktreePath = input.path ?? path.join(worktreesDir, repoName, sanitizedBranch);
-    const args = input.newRefName
-      ? ["worktree", "add", "-b", input.newRefName, worktreePath, input.refName]
-      : ["worktree", "add", worktreePath, input.refName];
+    let createBranch = input.newRefName !== undefined;
+    let checkoutExists = false;
+    if (options?.resume && input.newRefName && (yield* branchExists(input.cwd, targetBranch))) {
+      const branchCommit = (yield* runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
+        "rev-parse",
+        "--verify",
+        `refs/heads/${targetBranch}^{commit}`,
+      ])).trim();
+      const requestedCommit = (yield* runGitStdout(
+        "GitVcsDriver.createWorktree.resume",
+        input.cwd,
+        ["rev-parse", "--verify", `${input.refName}^{commit}`],
+      )).trim();
+      const registered = parseWorktreeBranchPaths(
+        yield* runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
+          "worktree",
+          "list",
+          "--porcelain",
+          "-z",
+        ]),
+      ).get(targetBranch);
+      const pathMatches =
+        registered === undefined ||
+        (yield* Effect.all([
+          fileSystem.realPath(registered),
+          fileSystem.realPath(worktreePath),
+        ]).pipe(
+          Effect.map(([actual, expected]) => actual === expected),
+          Effect.mapError(
+            (cause) =>
+              new GitCommandError({
+                ...gitCommandContext({
+                  operation: "GitVcsDriver.createWorktree.resume",
+                  cwd: input.cwd,
+                  args: ["worktree", "list"],
+                }),
+                detail: "Could not reconcile the recorded checkout path.",
+                cause,
+              }),
+          ),
+        ));
+      if (branchCommit !== requestedCommit || !pathMatches) {
+        return yield* new GitCommandError({
+          ...gitCommandContext({
+            operation: "GitVcsDriver.createWorktree.resume",
+            cwd: input.cwd,
+            args: ["worktree", "add"],
+          }),
+          detail: "The recorded worktree branch no longer matches its requested revision or path.",
+        });
+      }
+      checkoutExists = registered !== undefined;
+      createBranch = false;
+      if (checkoutExists) {
+        const unchanged = yield* executeGit(
+          "GitVcsDriver.createWorktree.resume",
+          worktreePath,
+          ["diff", "--quiet", "HEAD", "--"],
+          { allowNonZeroExit: true },
+        );
+        const lockPath = (yield* runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, [
+          "rev-parse",
+          "--git-path",
+          "locked",
+        ])).trim();
+        if (
+          unchanged.exitCode !== 0 ||
+          (yield* fileSystem.exists(path.resolve(worktreePath, lockPath)).pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  ...gitCommandContext({
+                    operation: "GitVcsDriver.createWorktree.resume",
+                    cwd: worktreePath,
+                    args: ["rev-parse", "--git-path", "locked"],
+                  }),
+                  detail: "Could not inspect the checkout lock.",
+                  cause,
+                }),
+            ),
+          ))
+        ) {
+          return yield* new GitCommandError({
+            ...gitCommandContext({
+              operation: "GitVcsDriver.createWorktree.resume",
+              cwd: worktreePath,
+              args: ["diff", "--quiet", "HEAD"],
+            }),
+            detail:
+              "The recorded checkout is locked or has changed; it cannot be reconciled automatically.",
+          });
+        }
+      }
+    }
+    const args = createBranch
+      ? ["worktree", "add", "-b", input.newRefName!, worktreePath, input.refName]
+      : ["worktree", "add", worktreePath, targetBranch];
     const progress = options?.progress;
     const onCheckoutProgress = progress?.onCheckoutProgress;
 
     const checkoutWorkers = (yield* readConfigValue(input.cwd, "checkout.workers")) ?? "0";
-    yield* executeGit(
-      "GitVcsDriver.createWorktree",
-      input.cwd,
-      ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
-      {
-        fallbackErrorDetail: "git worktree add failed",
-        timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-        ...(onCheckoutProgress
-          ? {
-              // Git only prints checkout progress when stderr is a tty or the
-              // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
-              env: { GIT_PROGRESS_DELAY: "0", LC_ALL: "C" },
-              progress: {
-                onStderrLine: (line) => {
-                  const parsed = parseGitCheckoutProgressLine(line);
-                  return parsed ? onCheckoutProgress(parsed) : Effect.void;
+    if (!checkoutExists)
+      yield* executeGit(
+        "GitVcsDriver.createWorktree",
+        input.cwd,
+        ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
+        {
+          fallbackErrorDetail: "git worktree add failed",
+          timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+          ...(onCheckoutProgress
+            ? {
+                // Git only prints checkout progress when stderr is a tty or the
+                // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
+                env: { GIT_PROGRESS_DELAY: "0", LC_ALL: "C" },
+                progress: {
+                  onStderrLine: (line) => {
+                    const parsed = parseGitCheckoutProgressLine(line);
+                    return parsed ? onCheckoutProgress(parsed) : Effect.void;
+                  },
                 },
-              },
-            }
-          : {}),
-      },
-    );
+              }
+            : {}),
+        },
+      );
 
-    if (progress?.onWorktreeClaimed) {
+    if (!checkoutExists && progress?.onWorktreeClaimed) {
       yield* progress.onWorktreeClaimed(worktreePath);
     }
 

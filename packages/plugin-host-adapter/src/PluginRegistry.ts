@@ -304,7 +304,18 @@ const make = Effect.gen(function* () {
           }
           // Validate complete wire descriptors before publishing an optional plugin.
           for (const tool of instance.tools) McpTool.make(tool);
-          yield* bound.recover;
+          // Workspace setup belongs to command replay, not server readiness.
+          yield* bound.recover.pipe(
+            Effect.catchCause((cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.interrupt
+                : Effect.logWarning("Plugin host recovery unavailable", {
+                    pluginId: manifest.id,
+                    cause,
+                  }),
+            ),
+            Effect.forkScoped,
+          );
           yield* schedules.start;
           const policy = yield* Effect.serviceOption(McpToolPolicy.McpToolPolicy);
           if (policy._tag === "Some")

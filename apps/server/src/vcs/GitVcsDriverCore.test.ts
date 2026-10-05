@@ -2521,6 +2521,93 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("worktree operations", () => {
+    it.effect("resumes a committed worktree intent without replacing its checkout", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "recover");
+        const input = {
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/recover",
+        };
+        yield* driver.createWorktree(input);
+        yield* fs.writeFileString(path.join(worktreePath, "retained-marker"), "keep");
+        let claimed = 0;
+        const resumed = yield* driver.createWorktree(input, {
+          resume: true,
+          progress: {
+            onWorktreeClaimed: () =>
+              Effect.sync(() => {
+                claimed++;
+              }),
+          },
+        });
+        assert.equal(resumed.worktree.refName, "feature/recover");
+        assert.equal(yield* fs.readFileString(path.join(worktreePath, "retained-marker")), "keep");
+        assert.equal(claimed, 0);
+        // A fresh intent still rejects the existing branch.
+        assert.isTrue((yield* driver.createWorktree(input).pipe(Effect.result))._tag === "Failure");
+        // A cancelled checkout can leave its branch; replay recreates it at the recorded revision.
+        yield* driver.removeWorktree({ cwd, path: worktreePath, force: true });
+        yield* driver.createWorktree(input, { resume: true });
+        assert.equal(
+          yield* git(worktreePath, ["rev-parse", "HEAD"]),
+          yield* git(cwd, ["rev-parse", initialBranch]),
+        );
+      }),
+    );
+    it.effect("rejects changed, locked, and unrelated worktree recovery candidates", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* makeTmpDir("git-worktrees-");
+        const worktreePath = path.join(root, "recover");
+        const input = {
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/recover",
+        };
+        yield* driver.createWorktree(input);
+        const original = yield* git(worktreePath, ["rev-parse", "HEAD"]);
+        assert.isTrue(
+          (yield* driver
+            .createWorktree({ ...input, path: path.join(root, "elsewhere") }, { resume: true })
+            .pipe(Effect.result))._tag === "Failure",
+        );
+        yield* git(cwd, ["worktree", "lock", worktreePath]);
+        assert.isTrue(
+          (yield* driver.createWorktree(input, { resume: true }).pipe(Effect.result))._tag ===
+            "Failure",
+        );
+        yield* git(cwd, ["worktree", "unlock", worktreePath]);
+        yield* fs.writeFileString(path.join(worktreePath, "tracked.txt"), "local edits");
+        yield* git(worktreePath, ["add", "tracked.txt"]);
+        assert.isTrue(
+          (yield* driver.createWorktree(input, { resume: true }).pipe(Effect.result))._tag ===
+            "Failure",
+        );
+        assert.equal(
+          yield* fs.readFileString(path.join(worktreePath, "tracked.txt")),
+          "local edits",
+        );
+        yield* git(worktreePath, ["commit", "-m", "advanced checkout"]);
+        assert.isTrue(
+          (yield* driver.createWorktree(input, { resume: true }).pipe(Effect.result))._tag ===
+            "Failure",
+        );
+        assert.notEqual(yield* git(worktreePath, ["rev-parse", "HEAD"]), original);
+      }),
+    );
+
     it.effect("uses parallel checkout without skipping filters or hooks", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

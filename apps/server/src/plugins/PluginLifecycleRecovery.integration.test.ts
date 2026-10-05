@@ -39,6 +39,8 @@ import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
 import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as SetupTracker from "../project/WorktreeSetupTracker.ts";
+import * as Git from "../vcs/GitVcsDriver.ts";
+import * as Startup from "../serverRuntimeStartup.ts";
 
 const selection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
 const plugin = (id: string, acquire: ServerPlugin["acquire"]): ServerPlugin => ({
@@ -68,6 +70,7 @@ const setup = (plugins: ReadonlyArray<ServerPlugin>) =>
       traceTimingEnabled: false,
     };
     const server = yield* startEnvironment(config, plugins);
+    yield* Context.get(server.context, Startup.ServerRuntimeStartup).awaitCommandReady;
     const host = Context.get(server.context, Host);
     const projects = Context.get(server.context, Projects.ProjectService);
     const threads = Context.get(server.context, Threads.ThreadManagementService);
@@ -110,138 +113,191 @@ const decodeReceipt = Schema.decodeEffect(Schema.fromJsonString(PluginCommandRec
 const decodeInterruptIntent = Schema.decodeEffect(
   Schema.fromJsonString(Schema.Struct({ input: Schema.Struct({ runId: Schema.String }) })),
 );
-it.live.each(["before workspace", "after workspace"] as const)(
-  "recovers exact-ref launch after loss %s",
-  (crash) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        let ready = yield* Deferred.make<{ host: Host["Service"]; storage: Storage["Service"] }>();
-        const commands = plugin(
-          "launch_review",
-          Effect.gen(function* () {
-            yield* Deferred.succeed(ready, { host: yield* Host, storage: yield* Storage });
-            return services(Stream.empty);
-          }),
-        );
-        const s = yield* setup([commands]);
-        const bound = yield* Deferred.await(ready);
-        const spawner = yield* Spawner.ChildProcessSpawner;
-        const git = (...args: string[]) =>
-          spawner
-            .string(ChildProcess.make("git", args, { cwd: s.config.baseDir }))
-            .pipe(Effect.map((output) => output.trim()));
-        yield* git("init", "-b", "main");
-        yield* git(
-          "-c",
-          "user.name=Review",
-          "-c",
-          "user.email=review@example.invalid",
-          "commit",
-          "--allow-empty",
-          "-m",
-          "isolated fixture",
-        );
-        const ref = yield* git("rev-parse", "HEAD");
-        const commandId = CommandId.make("partial-exact-ref");
-        const coreCommandId = CommandId.make(
-          `plugin:${yield* encodeIdentity(["launch_review", commandId])}`,
-        );
-        let threadId = ThreadId.make("partial-launch-thread");
-        const input = {
-          environmentId: s.host.environmentId,
+it.live.each([
+  "before workspace",
+  "after physical checkout",
+  "after workspace",
+  "async setup",
+] as const)("recovers exact-ref launch after loss %s", (crash) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let ready = yield* Deferred.make<{ host: Host["Service"]; storage: Storage["Service"] }>();
+      const commands = plugin(
+        "launch_review",
+        Effect.gen(function* () {
+          yield* Deferred.succeed(ready, { host: yield* Host, storage: yield* Storage });
+          return services(Stream.empty);
+        }),
+      );
+      const s = yield* setup([commands]);
+      const bound = yield* Deferred.await(ready);
+      const spawner = yield* Spawner.ChildProcessSpawner;
+      const git = (...args: string[]) =>
+        spawner
+          .string(ChildProcess.make("git", args, { cwd: s.config.baseDir }))
+          .pipe(Effect.map((output) => output.trim()));
+      yield* git("init", "-b", "main");
+      yield* git(
+        "-c",
+        "user.name=Review",
+        "-c",
+        "user.email=review@example.invalid",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "isolated fixture",
+      );
+      const ref = yield* git("rev-parse", "HEAD");
+      const commandId = CommandId.make("partial-exact-ref");
+      const coreCommandId = CommandId.make(
+        `plugin:${yield* encodeIdentity(["launch_review", commandId])}`,
+      );
+      let threadId = ThreadId.make("partial-launch-thread");
+      const input = {
+        environmentId: s.host.environmentId,
+        projectId: s.projectId,
+        commandId,
+        title: "Exact-ref without initial instruction",
+        modelSelection: selection,
+        runtimeMode: "approval-required" as const,
+        workspace: { type: "exact-ref" as const, ref, branch: "isolated-recovery" },
+      };
+      const request = yield* encodeRequest({ kind: "launch", input });
+      const intent = yield* encodeIntent({ kind: "launch", input, coreCommandId });
+      // Reachable crash prefix: BoundHost intent committed, then the core's thread.create
+      // committed, but process loss happened before ThreadLaunchService forked preparation.
+      yield* bound.storage
+        .sql`INSERT INTO host_commands(id,request,intent) VALUES (${commandId},${request},${intent})`;
+      if (crash !== "after workspace") {
+        yield* s.threads.dispatch({
+          type: "thread.create",
+          commandId: coreCommandId,
+          threadId,
           projectId: s.projectId,
-          commandId,
-          title: "Exact-ref without initial instruction",
+          title: input.title,
           modelSelection: selection,
-          runtimeMode: "approval-required" as const,
-          workspace: { type: "exact-ref" as const, ref, branch: "isolated-recovery" },
-        };
-        const request = yield* encodeRequest({ kind: "launch", input });
-        const intent = yield* encodeIntent({ kind: "launch", input, coreCommandId });
-        // Reachable crash prefix: BoundHost intent committed, then the core's thread.create
-        // committed, but process loss happened before ThreadLaunchService forked preparation.
-        yield* bound.storage
-          .sql`INSERT INTO host_commands(id,request,intent) VALUES (${commandId},${request},${intent})`;
-        if (crash === "before workspace") {
-          yield* s.threads.dispatch({
-            type: "thread.create",
-            commandId: coreCommandId,
-            threadId,
-            projectId: s.projectId,
-            title: input.title,
-            modelSelection: selection,
-            runtimeMode: input.runtimeMode,
-            interactionMode: "default",
-            branch: input.workspace.branch,
-            worktreePath: null,
-            createdBy: "agent",
-            creationSource: "mcp",
-          });
-        } else {
-          threadId = (yield* s.host.launch({ ...input, commandId: coreCommandId })).threadId;
-        }
-        yield* Fiber.interrupt(s.server.fiber);
-        // The ordinary checkout may advance while the environment is stopped.
-        yield* git(
-          "-c",
-          "user.name=Review",
-          "-c",
-          "user.email=review@example.invalid",
-          "commit",
-          "--allow-empty",
-          "-m",
-          "root advanced while offline",
-        );
-        expect(yield* git("rev-parse", "HEAD")).not.toBe(ref);
-        ready = yield* Deferred.make<{ host: Host["Service"]; storage: Storage["Service"] }>();
-        const restarted = yield* startEnvironment(s.config, [commands]);
-        const recovered = yield* Deferred.await(ready);
-        const restartedThreads = Context.get(restarted.context, Threads.ThreadManagementService);
-        const receipt = yield* recovered.host.receipt(commandId);
-        expect(receipt?.status).toBe("accepted");
-        const saved = yield* recovered.storage.sql<{
-          result: string;
-        }>`SELECT result FROM host_commands WHERE id=${commandId}`;
-        expect((yield* decodeReceipt(saved[0]!.result)).status).toBe("accepted");
-        const recoveredThread = yield* restartedThreads.getThreadShell(threadId);
-        expect(recoveredThread?.worktreePath).not.toBe(null);
-        expect(recoveredThread?.branch).toBe(input.workspace.branch);
-        expect(
-          (yield* recovered.host.inspect({
-            environmentId: input.environmentId,
-            projectId: input.projectId,
-            threadId,
-          })).workspacePath,
-        ).toBe(recoveredThread!.worktreePath);
-        const recoveredHead = yield* spawner.string(
-          ChildProcess.make("git", ["rev-parse", "HEAD"], { cwd: recoveredThread!.worktreePath! }),
-        );
-        expect(recoveredHead.trim()).toBe(ref);
-        expect(yield* git("rev-parse", "HEAD")).not.toBe(ref);
-        expect(yield* recovered.host.launch(input)).toEqual(receipt);
-        const tracker = Context.get(restarted.context, SetupTracker.WorktreeSetupTracker);
-        // Control: identical exact-ref request under a fresh durable identity.
-        const fresh = yield* recovered.host.launch({
-          ...input,
-          commandId: CommandId.make("fresh-exact-ref"),
-          workspace: { ...input.workspace, branch: "isolated-control" },
+          runtimeMode: input.runtimeMode,
+          interactionMode: "default",
+          branch: input.workspace.branch,
+          worktreePath: null,
+          createdBy: "agent",
+          creationSource: "mcp",
         });
-        const finished = yield* tracker.stream(fresh.threadId).pipe(
-          Stream.filter((snapshot) => snapshot !== null && snapshot.phase !== "running"),
-          Stream.take(1),
-          Stream.runCollect,
+      } else {
+        threadId = (yield* s.host.launch({ ...input, commandId: coreCommandId })).threadId;
+      }
+      if (crash === "after physical checkout") {
+        const physical = yield* Context.get(s.server.context, Git.GitVcsDriver).createWorktree({
+          cwd: s.config.baseDir,
+          refName: ref,
+          newRefName: input.workspace.branch,
+          baseRefName: ref,
+          path: null,
+        });
+        expect((yield* s.threads.getThreadShell(threadId))?.worktreePath).toBeNull();
+        expect(yield* git("worktree", "list", "--porcelain")).toContain(physical.worktree.path);
+      }
+      if (crash === "async setup") {
+        const gate = s.config.baseDir + "/async-setup-gate";
+        yield* spawner.exitCode(ChildProcess.make("mkfifo", [gate]));
+        yield* Context.get(s.server.context, Projects.ProjectService).update({
+          commandId: CommandId.make("add-async-setup"),
+          projectId: s.projectId,
+          scripts: [
+            {
+              id: "gate",
+              name: "Async setup",
+              icon: "configure",
+              command: `printf 'SETUP_RUNNING\\n'; cat '${gate}'`,
+              runOnWorktreeCreate: true,
+              async: true,
+            },
+          ],
+        });
+      }
+      yield* Fiber.interrupt(s.server.fiber);
+      // The ordinary checkout may advance while the environment is stopped.
+      yield* git(
+        "-c",
+        "user.name=Review",
+        "-c",
+        "user.email=review@example.invalid",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "root advanced while offline",
+      );
+      expect(yield* git("rev-parse", "HEAD")).not.toBe(ref);
+      ready = yield* Deferred.make<{ host: Host["Service"]; storage: Storage["Service"] }>();
+      const restarted = yield* startEnvironment(s.config, [commands]);
+      yield* Context.get(restarted.context, Startup.ServerRuntimeStartup).awaitCommandReady;
+      const recovered = yield* Deferred.await(ready);
+      const restartedThreads = Context.get(restarted.context, Threads.ThreadManagementService);
+      const receipt = yield* recovered.host.launch(input);
+      expect(receipt?.status).toBe("accepted");
+      const saved = yield* recovered.storage.sql<{
+        result: string;
+      }>`SELECT result FROM host_commands WHERE id=${commandId}`;
+      expect((yield* decodeReceipt(saved[0]!.result)).status).toBe("accepted");
+      const recoveredThread = yield* restartedThreads.getThreadShell(threadId);
+      expect(recoveredThread?.worktreePath).not.toBe(null);
+      expect(recoveredThread?.branch).toBe(input.workspace.branch);
+      expect(
+        (yield* recovered.host.inspect({
+          environmentId: input.environmentId,
+          projectId: input.projectId,
+          threadId,
+        })).workspacePath,
+      ).toBe(recoveredThread!.worktreePath);
+      const recoveredHead = yield* spawner.string(
+        ChildProcess.make("git", ["rev-parse", "HEAD"], { cwd: recoveredThread!.worktreePath! }),
+      );
+      expect(recoveredHead.trim()).toBe(ref);
+      expect(yield* git("rev-parse", "HEAD")).not.toBe(ref);
+      expect(yield* recovered.host.launch(input)).toEqual(receipt);
+      const tracker = Context.get(restarted.context, SetupTracker.WorktreeSetupTracker);
+      if (crash === "async setup") {
+        expect((yield* tracker.get(threadId))?.phase).toBe("running");
+        expect(
+          (yield* tracker.get(threadId))?.stages.find((stage) => stage.id === "agent")?.status,
+        ).toBe("done");
+        yield* spawner.exitCode(
+          ChildProcess.make("sh", ["-c", `echo release > '${s.config.baseDir}/async-setup-gate'`]),
         );
-        expect(finished[0]?.phase).toBe("done");
-        const controlThread = yield* restartedThreads.getThreadShell(fresh.threadId);
-        expect(controlThread?.worktreePath).not.toBe(null);
-        expect(controlThread?.branch).toBe("isolated-control");
-        const controlHead = yield* spawner.string(
-          ChildProcess.make("git", ["rev-parse", "HEAD"], { cwd: controlThread!.worktreePath! }),
+        const completed = yield* tracker.stream(threadId).pipe(
+          Stream.filter((snapshot) => snapshot?.phase === "done"),
+          Stream.runHead,
         );
-        expect(controlHead.trim()).toBe(ref);
-        yield* Fiber.interrupt(restarted.fiber);
-      }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+        expect(completed._tag).toBe("Some");
+      }
+      // Control: identical exact-ref request under a fresh durable identity.
+      const fresh = yield* recovered.host.launch({
+        ...input,
+        commandId: CommandId.make("fresh-exact-ref"),
+        workspace: { ...input.workspace, branch: "isolated-control" },
+      });
+      if (crash === "async setup") {
+        expect((yield* tracker.get(fresh.threadId))?.phase).toBe("running");
+        yield* spawner.exitCode(
+          ChildProcess.make("sh", ["-c", `echo release > '${s.config.baseDir}/async-setup-gate'`]),
+        );
+      }
+      const finished = yield* tracker.stream(fresh.threadId).pipe(
+        Stream.filter((snapshot) => snapshot !== null && snapshot.phase !== "running"),
+        Stream.take(1),
+        Stream.runCollect,
+      );
+      expect(finished[0]?.phase).toBe("done");
+      const controlThread = yield* restartedThreads.getThreadShell(fresh.threadId);
+      expect(controlThread?.worktreePath).not.toBe(null);
+      expect(controlThread?.branch).toBe("isolated-control");
+      const controlHead = yield* spawner.string(
+        ChildProcess.make("git", ["rev-parse", "HEAD"], { cwd: controlThread!.worktreePath! }),
+      );
+      expect(controlHead.trim()).toBe(ref);
+      yield* Fiber.interrupt(restarted.fiber);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
 );
 
 it.live.each(["automatic", "explicit"] as const)(
