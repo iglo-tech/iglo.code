@@ -724,6 +724,12 @@ export const layer = Layer.effect(
             }),
           );
           yield* notifyChanged;
+          // A manual plugin operation returns its occurrence result, just as a
+          // retry does. Persist the failed receipt before reporting the failure.
+          if (trigger === "manual" && active.dispatchTarget !== undefined && !runSucceeded)
+            return yield* taskError(lastRunError ?? "The scheduled occurrence failed.", {
+              taskId: active.id,
+            });
           return completed;
         }).pipe(
           Effect.onError((cause) =>

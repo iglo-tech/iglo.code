@@ -1402,24 +1402,26 @@ export const layerWithOptions = (
       ): ProviderAdapterV2SessionRuntime => {
         const providerSessionId = runtime.providerSessionId;
         const subscribeEvents = makeEventSubscription(eventSubscribers);
-        const recordPolicy = (
-          threadId: ThreadId,
-          policy: ProviderAdapterV2RuntimePolicy | undefined,
-        ) =>
-          Effect.sync(() =>
-            McpProviderSession.updateMcpProviderSessionRuntimePolicy(
-              threadId,
-              runtime.instanceId,
-              policy,
-            ),
-          );
+        const policyOwner = (threadId: ThreadId) =>
+          Effect.gen(function* () {
+            const entry = (yield* Ref.get(sessions)).get(sessionKey(providerSessionId));
+            const credential = McpProviderSession.readMcpProviderSession(threadId);
+            return entry?.runtime === runtime &&
+              entry.mcpCredentialIdByThread.get(threadId) === credential?.providerSessionId
+              ? credential
+              : undefined;
+          });
         const invalidatePolicy = (threadId: ThreadId) =>
-          Effect.sync(() =>
-            McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(
-              threadId,
-              runtime.instanceId,
+          policyOwner(threadId).pipe(
+            Effect.tap((owner) =>
+              Effect.sync(() =>
+                McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(owner),
+              ),
             ),
+            Effect.asVoid,
           );
+        const publishesNativePolicy =
+          runtime.driver === "claudeAgent" || runtime.driver === "opencode2";
         // Codex thread RPCs omit turn permission overrides. Treat their policy
         // as unknown until a turn applies it, including while the RPC is pending.
         const invalidateThreadPolicy = (threadId: ThreadId) =>
@@ -1537,16 +1539,22 @@ export const layerWithOptions = (
               }),
             ).pipe(
               Effect.andThen(observeActivity(providerSessionId, markBusy(providerSessionId))),
-              // Claude publishes at query application; successful continuations
-              // may only drain an existing process with its previous policy.
               Effect.andThen(
-                runtime.driver === "claudeAgent" ? Effect.void : invalidatePolicy(input.threadId),
-              ),
-              Effect.andThen(runtime.startTurn(input)),
-              Effect.tap(() =>
-                runtime.driver === "claudeAgent"
-                  ? Effect.void
-                  : recordPolicy(input.threadId, input.runtimePolicy),
+                Effect.gen(function* () {
+                  // Retain the credential owner across native I/O: a detached
+                  // predecessor must not publish into its replacement.
+                  const owner = yield* policyOwner(input.threadId);
+                  if (!publishesNativePolicy)
+                    McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(owner);
+                  yield* runtime.startTurn(input);
+                  // Claude and OpenCode publish where native policy is applied,
+                  // including continuations, resumes and compaction.
+                  if (!publishesNativePolicy)
+                    McpProviderSession.updateMcpProviderSessionRuntimePolicy(
+                      owner,
+                      input.runtimePolicy,
+                    );
+                }),
               ),
               Effect.catch((error) =>
                 observeActivity(providerSessionId, markIdle(providerSessionId)).pipe(

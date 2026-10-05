@@ -55,25 +55,32 @@ export function readMcpProviderSession(threadId: ThreadId): McpProviderSessionCo
   return sessionsByThread.get(threadId);
 }
 
+/** Capture `owner` before native I/O so a retired query cannot change its replacement. */
 export function updateMcpProviderSessionRuntimePolicy(
-  threadId: ThreadId,
-  providerInstanceId: ProviderInstanceId,
+  owner: McpProviderSessionConfig | undefined,
   runtimePolicy: ProviderAdapterV2RuntimePolicy | undefined,
 ): void {
-  const session = sessionsByThread.get(threadId);
-  if (session?.providerInstanceId === providerInstanceId && runtimePolicy !== undefined) {
-    sessionsByThread.set(threadId, { ...session, runtimePolicy });
+  if (owner === undefined || runtimePolicy === undefined) return;
+  const session = sessionsByThread.get(owner.threadId);
+  if (
+    session?.providerInstanceId === owner.providerInstanceId &&
+    session.providerSessionId === owner.providerSessionId
+  ) {
+    sessionsByThread.set(owner.threadId, { ...session, runtimePolicy });
   }
 }
 
 export function invalidateMcpProviderSessionRuntimePolicy(
-  threadId: ThreadId,
-  providerInstanceId: ProviderInstanceId,
+  owner: McpProviderSessionConfig | undefined,
 ): void {
-  const session = sessionsByThread.get(threadId);
-  if (session?.providerInstanceId === providerInstanceId) {
+  if (owner === undefined) return;
+  const session = sessionsByThread.get(owner.threadId);
+  if (
+    session?.providerInstanceId === owner.providerInstanceId &&
+    session.providerSessionId === owner.providerSessionId
+  ) {
     const { runtimePolicy: _runtimePolicy, ...config } = session;
-    sessionsByThread.set(threadId, config);
+    sessionsByThread.set(owner.threadId, config);
   }
 }
 

@@ -6913,6 +6913,9 @@ export function makeClaudeAdapterV2(
           turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
           nativeThreadId: string,
         ) {
+          const credential = McpProviderSession.readMcpProviderSession(turnInput.threadId);
+          const policyOwner =
+            credential?.providerInstanceId === adapterOptions.instanceId ? credential : undefined;
           const queryPolicy = claudeRuntimeQueryPolicyForRuntimePolicy(turnInput.runtimePolicy);
           const mcpOverrides = claudeMcpQueryOverrides({
             threadId: turnInput.threadId,
@@ -6945,16 +6948,12 @@ export function makeClaudeAdapterV2(
             // a denied ExitPlanMode leaves it there. Put the live process back
             // in the thread's mode before the next prompt.
             if (existing.permissionMode !== existing.openedPermissionMode) {
-              McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(
-                turnInput.threadId,
-                adapterOptions.instanceId,
-              );
+              McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(policyOwner);
               yield* existing.query.setPermissionMode(existing.openedPermissionMode);
               existing.permissionMode = existing.openedPermissionMode;
             }
             McpProviderSession.updateMcpProviderSessionRuntimePolicy(
-              turnInput.threadId,
-              adapterOptions.instanceId,
+              policyOwner,
               turnInput.runtimePolicy,
             );
             return existing;
@@ -7021,10 +7020,7 @@ export function makeClaudeAdapterV2(
             onUserDialog,
             supportedDialogKinds: ["resume_return"],
           });
-          McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(
-            turnInput.threadId,
-            adapterOptions.instanceId,
-          );
+          McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(policyOwner);
           const querySession = yield* queryRunner
             .open({
               threadId: turnInput.threadId,
@@ -7048,8 +7044,7 @@ export function makeClaudeAdapterV2(
               ),
             );
           McpProviderSession.updateMcpProviderSessionRuntimePolicy(
-            turnInput.threadId,
-            adapterOptions.instanceId,
+            policyOwner,
             turnInput.runtimePolicy,
           );
           // Marked only after a successful open: a failed create must not

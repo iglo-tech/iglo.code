@@ -2983,6 +2983,13 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
 
     /** Writes the session's rules for `policy` when they differ from what it has. */
     const writeRules = Effect.fnUntraced(function* (state: ThreadState, policy: RulesPolicy) {
+      const threadId = state.providerThread.appThreadId;
+      const credential =
+        state.subagent === undefined && threadId !== null
+          ? McpProviderSession.readMcpProviderSession(threadId)
+          : undefined;
+      const owner = credential?.providerInstanceId === instanceId ? credential : undefined;
+      McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(owner);
       // A subagent's session may use its thread's T3 server, the root's.
       const rules = yield* rulesFor(state, policy, rootOf(state).providerThread.appThreadId);
       if (!sameRules(state.rules, rules)) {
@@ -2993,6 +3000,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         state.rules = rules;
       }
       state.policy = policy;
+      // Resume and compaction apply rules without the manager's startTurn hook.
+      McpProviderSession.updateMcpProviderSessionRuntimePolicy(owner, {
+        ...policy,
+        cwd: state.directory,
+      });
     });
 
     const register = (

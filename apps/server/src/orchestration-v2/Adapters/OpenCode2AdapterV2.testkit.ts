@@ -254,7 +254,7 @@ export const replayServer = (
   });
 
 /** The 2.x adapter over a replayed server. */
-const makeReplayAdapter = (
+export const makeReplayAdapter = (
   transcript: ProviderReplayTranscript,
   options?: {
     readonly external?: boolean;
