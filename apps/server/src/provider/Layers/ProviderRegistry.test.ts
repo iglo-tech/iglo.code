@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -2027,6 +2028,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         ];
         const skillsRef = yield* Ref.make<ServerProvider["skills"]>(baselineSkills);
         const calls = yield* Ref.make(0);
+        const commitMilestone = yield* Ref.make<Deferred.Deferred<void> | null>(null);
         const scanGate = yield* Ref.make<{
           readonly started: Deferred.Deferred<void>;
           readonly release: Deferred.Deferred<void>;
@@ -2039,7 +2041,18 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
           displayName: undefined,
           continuationIdentity: { driverKind: driver, continuationKey: "antigravity:fixture" },
           snapshot: native.snapshot,
-          commitWorkspaceSnapshot: native.commitWorkspaceSnapshot,
+          commitWorkspaceSnapshot: (cwd, snapshot) =>
+            native
+              .commitWorkspaceSnapshot(cwd, snapshot)
+              .pipe(
+                Effect.tap(() =>
+                  Ref.get(commitMilestone).pipe(
+                    Effect.flatMap((milestone) =>
+                      milestone ? Deferred.succeed(milestone, undefined) : Effect.void,
+                    ),
+                  ),
+                ),
+              ),
           invalidateCaches: native.invalidateCaches,
           snapshotForCwd: (cwd) =>
             Effect.gen(function* () {
@@ -2061,12 +2074,29 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
           textGeneration: {} as ProviderInstance["textGeneration"],
         };
         const changes = yield* PubSub.unbounded<void>();
+        const instances = yield* Ref.make<ReadonlyArray<ProviderInstance>>([instance]);
+        const persistenceStarted = yield* Deferred.make<void>();
+        const releasePersistence = yield* Deferred.make<void>();
+        const fileSystem = yield* FileSystem.FileSystem;
+        const blockedFileSystem: FileSystem.FileSystem = {
+          ...fileSystem,
+          writeFileString: (filePath, contents, options) =>
+            filePath.includes("new-provider.json")
+              ? Deferred.succeed(persistenceStarted, undefined).pipe(
+                  Effect.andThen(Deferred.await(releasePersistence)),
+                  Effect.andThen(fileSystem.writeFileString(filePath, contents, options)),
+                )
+              : fileSystem.writeFileString(filePath, contents, options),
+        };
         const services = yield* Layer.build(
           ProviderRegistryLive.pipe(
             Layer.provide(
               Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
-                getInstance: () => Effect.succeed(instance),
-                listInstances: Effect.succeed([instance]),
+                getInstance: (instanceId) =>
+                  Ref.get(instances).pipe(
+                    Effect.map((rows) => rows.find((row) => row.instanceId === instanceId)),
+                  ),
+                listInstances: Ref.get(instances),
                 listUnavailable: Effect.succeed([]),
                 streamChanges: Stream.fromPubSub(changes),
                 subscribeChanges: PubSub.subscribe(changes),
@@ -2075,6 +2105,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             Layer.provide(
               ServerConfig.layerTest(process.cwd(), { prefix: "t3-native-workspace-race-" }),
             ),
+            Layer.provide(Layer.succeed(FileSystem.FileSystem, blockedFileSystem)),
             Layer.provide(NodeServices.layer),
           ),
         );
@@ -2086,7 +2117,11 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
           scoped = true,
         ) {
           const publication = yield* registry.streamChanges.pipe(
-            Stream.filter((providers) => providers[0]?.slashCommands[0]?.name === name),
+            Stream.filter(
+              (providers) =>
+                providers.find((provider) => provider.instanceId === instanceId)?.slashCommands[0]
+                  ?.name === name,
+            ),
             Stream.runHead,
             Effect.forkChild,
           );
@@ -2107,6 +2142,30 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
           skillsRef,
           scanGate,
           calls,
+          commitMilestone,
+          blockAddition: Effect.gen(function* () {
+            const newId = ProviderInstanceId.make("new-provider");
+            const snapshot = {
+              ...(yield* native.snapshot.getSnapshot),
+              instanceId: newId,
+              workspaceSnapshots: [],
+            };
+            yield* Ref.set(instances, [
+              instance,
+              {
+                ...instance,
+                instanceId: newId,
+                snapshot: {
+                  ...instance.snapshot,
+                  getSnapshot: Effect.succeed(snapshot),
+                  streamChanges: Stream.empty,
+                },
+              },
+            ]);
+            yield* PubSub.publish(changes, undefined);
+            yield* Deferred.await(persistenceStarted);
+          }),
+          releaseAddition: Deferred.succeed(releasePersistence, undefined),
           instanceId,
           baselineSkills,
           latestSkills,
@@ -2211,6 +2270,53 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               assert.strictEqual(
                 recovered[0]?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
                 "after-settings",
+              );
+            }),
+          ),
+      );
+
+      it.effect.each([
+        { fresh: false, overlap: false },
+        { fresh: true, overlap: false },
+        { fresh: false, overlap: true },
+        { fresh: true, overlap: true },
+      ])(
+        "preserves native commands when discovery waits for another provider (%j)",
+        ({ fresh, overlap }) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const h = yield* makeNativeWorkspaceHarness();
+              if (overlap) yield* h.blockAddition;
+              yield* Ref.set(h.skillsRef, h.latestSkills);
+              const committed = yield* Deferred.make<void>();
+              yield* Ref.set(h.commitMilestone, committed);
+              const scan = yield* h.registry
+                .refreshWorkspaceSnapshot({ instanceId: h.instanceId, cwd: "/workspace", fresh })
+                .pipe(Effect.forkChild);
+              yield* Deferred.await(committed);
+              if (!overlap) yield* Fiber.join(scan);
+              yield* h.publishCommands("new-command", false);
+              const before = (yield* h.registry.getProviders).find(
+                (provider) => provider.instanceId === h.instanceId,
+              );
+              assert.strictEqual(
+                before?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
+                "new-command",
+              );
+              if (overlap) yield* h.releaseAddition;
+              yield* Fiber.join(scan);
+              const provider = (yield* h.registry.getProviders).find(
+                (provider) => provider.instanceId === h.instanceId,
+              );
+              assert.deepStrictEqual(provider?.workspaceSnapshots?.[0]?.skills, h.latestSkills);
+              assert.strictEqual(
+                provider?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
+                "new-command",
+              );
+              assert.strictEqual(
+                (yield* h.native.snapshot.getSnapshot).workspaceSnapshots?.[0]?.slashCommands[0]
+                  ?.name,
+                "new-command",
               );
             }),
           ),

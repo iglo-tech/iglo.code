@@ -1043,7 +1043,16 @@ export const ProviderRegistryLive = Layer.effect(
                         return upsertProviderWorkspaceSnapshot(
                           candidate,
                           input.cwd,
-                          acceptedSnapshot,
+                          // Native streams own commands; discovery owns skills.
+                          // Read commands inside the atomic projection update.
+                          instance.commitWorkspaceSnapshot
+                            ? {
+                                ...acceptedSnapshot,
+                                slashCommands:
+                                  workspaceSnapshotOf(candidate)?.slashCommands ??
+                                  candidate.slashCommands,
+                              }
+                            : acceptedSnapshot,
                         );
                       }),
                     );
