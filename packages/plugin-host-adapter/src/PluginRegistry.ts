@@ -37,6 +37,7 @@ import type { AuthEnvironmentScope } from "@t3tools/contracts";
 
 import * as PluginSchedules from "./PluginSchedules.ts";
 import * as BoundHost from "./BoundHost.ts";
+import * as McpTool from "./McpTool.ts";
 import * as Scheduler from "../../../apps/server/src/scheduling/Scheduler.ts";
 import * as McpToolPolicy from "../../../apps/server/src/mcp/McpToolPolicy.ts";
 import { PROVIDER_TOOL_MATRIX } from "./providerPolicy.ts";
@@ -195,6 +196,7 @@ const make = Effect.gen(function* () {
       yield* catalogSql`INSERT INTO manifests (id, data) VALUES (${manifest.id}, ${encodedManifest}) ON CONFLICT(id) DO UPDATE SET data = excluded.data`;
       const scope = yield* Scope.make("sequential");
       yield* Scope.addFinalizer(lifetime, Scope.close(scope, Exit.void));
+      // The plugin scope must override the parent scope captured in servicesContext.
       const acquired = yield* Effect.exit(
         Effect.gen(function* () {
           const directory = path.join(options.directory, manifest.id);
@@ -300,19 +302,19 @@ const make = Effect.gen(function* () {
                 message: `API ${api.rpc._tag} must match the compiled transport schema and authorization scope.`,
               });
           }
-          // Unsupported schema conversion is an optional registration failure, before MCP publication.
-          for (const tool of instance.tools) Schema.toJsonSchemaDocument(tool.input);
+          // Validate complete wire descriptors before publishing an optional plugin.
+          for (const tool of instance.tools) McpTool.make(tool);
           yield* bound.recover;
           yield* schedules.start;
           const policy = yield* Effect.serviceOption(McpToolPolicy.McpToolPolicy);
           if (policy._tag === "Some")
             yield* policy.value.register(
               instance.tools
-                .filter((tool) => tool.permission.allowInReadOnly)
+                .filter((tool) => tool.permission.readOnly || tool.permission.allowInReadOnly)
                 .map((tool) => tool.id),
             );
           return instance;
-        }).pipe(Effect.provideContext(servicesContext), Scope.provide(scope)),
+        }).pipe(Scope.provide(scope), Effect.provideContext(servicesContext)),
       );
       if (Exit.isFailure(acquired)) {
         if (Cause.hasInterruptsOnly(acquired.cause)) return yield* Effect.interrupt;

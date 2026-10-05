@@ -30,10 +30,11 @@ const Request = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("interrupt"), input: Interrupt }),
 ]);
 const Intent = Schema.Union([
-  LaunchRequest,
-  SendRequest,
+  LaunchRequest.mapFields((fields) => ({ ...fields, coreCommandId: Schema.optional(CommandId) })),
+  SendRequest.mapFields((fields) => ({ ...fields, coreCommandId: Schema.optional(CommandId) })),
   Schema.Struct({
     kind: Schema.Literal("interrupt"),
+    coreCommandId: Schema.optional(CommandId),
     input: Interrupt.mapFields((fields) => ({
       ...fields,
       runId: Schema.optional(Schema.NullOr(Schema.String)),
@@ -41,6 +42,9 @@ const Intent = Schema.Union([
   }),
 ]);
 const encodeRequest = Schema.encodeEffect(Schema.fromJsonString(Request));
+const encodeCoreIdentity = Schema.encodeEffect(
+  Schema.fromJsonString(Schema.Tuple([Schema.String, CommandId])),
+);
 const encodeIntent = Schema.encodeEffect(Schema.fromJsonString(Intent));
 const decodeIntent = Schema.decodeUnknownEffect(Schema.fromJsonString(Intent));
 const encodeReceipt = Schema.encodeEffect(
@@ -66,7 +70,9 @@ export const make = (pluginId: string) =>
         ...(cause === undefined ? {} : { cause }),
       });
     yield* sql`CREATE TABLE IF NOT EXISTS host_commands (id TEXT PRIMARY KEY, request TEXT NOT NULL, intent TEXT NOT NULL, result TEXT)`;
-    const coreId = (id: CommandId) => CommandId.make(`plugin:${pluginId}:${id}`);
+    // Pending intents written by older hosts must retain their original core receipt identity.
+    const coreId = (intent: typeof Intent.Type) =>
+      intent.coreCommandId ?? CommandId.make(`plugin:${pluginId}:${intent.input.commandId}`);
     const dispatch = Effect.fn("PluginHost.dispatchIntent")(function* (intent: typeof Intent.Type) {
       if (intent.kind === "interrupt" && intent.input.runId === undefined)
         return yield* new PluginError({
@@ -76,7 +82,7 @@ export const make = (pluginId: string) =>
           message:
             "This pending interrupt has no recorded run selection and cannot safely be replayed. Inspect the thread and use a new command identity.",
         });
-      const input = { ...intent.input, commandId: coreId(intent.input.commandId) };
+      const input = { ...intent.input, commandId: coreId(intent) };
       const result =
         intent.kind === "launch"
           ? yield* core.launch({ ...intent.input, commandId: input.commandId })
@@ -147,6 +153,13 @@ export const make = (pluginId: string) =>
             input: { ...requested.input, runId: requested.input.runId ?? active?.id ?? null },
           };
         }
+        // A tuple separates public IDs from child-step suffixes and legacy plugin:id prefixes.
+        intent = {
+          ...intent,
+          coreCommandId: CommandId.make(
+            `plugin:${yield* encodeCoreIdentity([pluginId, requested.input.commandId])}`,
+          ),
+        };
         const encoded = yield* encodeIntent(intent);
         yield* sql`INSERT INTO host_commands (id, request, intent) VALUES (${requested.input.commandId}, ${request}, ${encoded})`;
         return yield* dispatch(intent);
@@ -175,10 +188,11 @@ export const make = (pluginId: string) =>
         Effect.gen(function* () {
           const [row] = yield* sql<{
             result: string | null;
-          }>`SELECT result FROM host_commands WHERE id = ${id}`;
+            intent: string;
+          }>`SELECT result, intent FROM host_commands WHERE id = ${id}`;
           if (row === undefined) return null;
           if (row.result !== null) return yield* decodeReceipt(row.result);
-          const result = yield* core.receipt(coreId(id));
+          const result = yield* core.receipt(coreId(yield* decodeIntent(row.intent)));
           return result === null ? null : { ...result, commandId: id };
         }).pipe(
           Effect.mapError((cause) =>

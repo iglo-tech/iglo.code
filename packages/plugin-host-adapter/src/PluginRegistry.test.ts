@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -173,6 +175,70 @@ it.effect("retains a missing plugin's descriptor and private database across res
       expect(absent.plugins[0]?.reason).toContain("absent from the current build");
       expect(yield* fs.exists(`${directory}/example/state.sqlite`)).toBe(true);
       expect((yield* start([durable])).plugins[0]?.status).toBe("available");
+    }),
+  ).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        Scheduler.layer,
+        Layer.mock(Host)({ environmentId: EnvironmentId.make("test") }),
+      ),
+    ),
+  ),
+);
+
+it.live.each([false, true])("owns acquired resources with rejected=%s", (rejected) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-plugin-lifetime-" });
+      let acquired = 0;
+      let released = 0;
+      let storage: Storage["Service"] | undefined;
+      const candidate: ServerPlugin = {
+        ...plugin,
+        acquire: Effect.gen(function* () {
+          storage = yield* Storage;
+          yield* Effect.acquireRelease(
+            Effect.sync(() => {
+              acquired++;
+            }),
+            () =>
+              Effect.sync(() => {
+                released++;
+              }),
+          );
+          return {
+            tools: [],
+            api: [],
+            scheduleTargets: rejected
+              ? [{ id: "example.unadvertised", invoke: () => Effect.void }]
+              : [],
+            attention: Stream.empty,
+          };
+        }),
+      };
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const context = yield* Layer.build(
+            PluginRegistry.layer({
+              environmentId: EnvironmentId.make("test"),
+              directory,
+              plugins: [candidate],
+            }),
+          );
+          const registry = Context.get(context, PluginRegistry.PluginRegistry);
+          yield* registry.start;
+          expect((yield* registry.catalog).plugins[0]?.status).toBe(
+            rejected ? "unavailable" : "available",
+          );
+          expect(acquired).toBe(1);
+          expect(released).toBe(rejected ? 1 : 0);
+          expect(Exit.isSuccess(yield* Effect.exit(storage!.sql`SELECT 1`))).toBe(!rejected);
+        }),
+      );
+      expect(released).toBe(1);
+      expect(Exit.isFailure(yield* Effect.exit(storage!.sql`SELECT 1`))).toBe(true);
     }),
   ).pipe(
     Effect.provide(

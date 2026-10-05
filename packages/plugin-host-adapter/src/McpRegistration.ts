@@ -9,6 +9,7 @@ import { McpServer, McpSchema } from "effect/unstable/ai";
 import * as Registry from "./PluginRegistry.ts";
 import * as Invocation from "../../../apps/server/src/mcp/McpInvocationContext.ts";
 import * as PluginTools from "./PluginToolService.ts";
+import * as McpTool from "./McpTool.ts";
 
 const encodeText = Schema.encodeEffect(Schema.fromJsonString(Schema.Json));
 
@@ -23,25 +24,9 @@ const register = Effect.gen(function* () {
   const tools = yield* PluginTools.make.pipe(Effect.provideService(Host, host));
   yield* registry.awaitStarted;
   for (const { pluginId, tool } of yield* registry.tools) {
-    const inputSchema = Schema.toJsonSchemaDocument(tool.input);
     const invoke = tools.bind(pluginId, tool);
     yield* server.addTool({
-      tool: new McpSchema.Tool({
-        name: tool.id,
-        description: tool.description,
-        inputSchema: {
-          ...inputSchema.schema,
-          ...(Object.keys(inputSchema.definitions).length === 0
-            ? {}
-            : { $defs: inputSchema.definitions }),
-        },
-        annotations: {
-          readOnlyHint: tool.permission.readOnly,
-          destructiveHint: tool.permission.destructive,
-          idempotentHint: tool.permission.idempotent,
-          openWorldHint: false,
-        },
-      }),
+      tool: McpTool.make(tool),
       annotations: Context.empty(),
       handle: (payload) =>
         Effect.withFiber((fiber) => {
