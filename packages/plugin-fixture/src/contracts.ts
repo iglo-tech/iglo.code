@@ -47,8 +47,8 @@ export const manifest = {
 } satisfies PluginManifest;
 
 export const ReportInput = Schema.Struct({
-  id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
-  summary: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(240)),
+  id: Schema.String.check(Schema.isTrimmed(), Schema.isMinLength(1), Schema.isMaxLength(128)),
+  summary: Schema.String.check(Schema.isTrimmed(), Schema.isMinLength(1), Schema.isMaxLength(240)),
 });
 export type ReportInput = typeof ReportInput.Type;
 export const Report = Schema.Struct({

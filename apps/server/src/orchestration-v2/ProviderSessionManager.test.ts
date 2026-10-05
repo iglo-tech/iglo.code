@@ -294,6 +294,7 @@ function makeProviderAdapter(
     readonly hasPendingBackgroundWork?: Effect.Effect<boolean>;
     readonly hangSessionScopeClose?: boolean;
     readonly beforeUnload?: Effect.Effect<void>;
+    readonly beforeResume?: Effect.Effect<void, ProviderAdapterProtocolError>;
   } = {},
 ): ProviderAdapterV2Shape {
   return {
@@ -360,10 +361,15 @@ function makeProviderAdapter(
             : { hasPendingBackgroundWork: options.hasPendingBackgroundWork }),
           ensureThread: () => unimplemented("ensureThread unused in test"),
           resumeThread: (threadInput) =>
-            Ref.update(state, (current) => ({
-              ...current,
-              resumeCount: current.resumeCount + 1,
-            })).pipe(Effect.as(threadInput.providerThread)),
+            (options.beforeResume ?? Effect.void).pipe(
+              Effect.andThen(
+                Ref.update(state, (current) => ({
+                  ...current,
+                  resumeCount: current.resumeCount + 1,
+                })),
+              ),
+              Effect.as(threadInput.providerThread),
+            ),
           startTurn: () => Effect.void,
           steerTurn: () => Effect.void,
           interruptTurn: () =>
@@ -410,6 +416,7 @@ function makeTestLayer(input: {
   readonly hasPendingBackgroundWork?: Effect.Effect<boolean>;
   readonly hangSessionScopeClose?: boolean;
   readonly beforeUnload?: Effect.Effect<void>;
+  readonly beforeResume?: Effect.Effect<void, ProviderAdapterProtocolError>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
   readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
 }) {
@@ -432,6 +439,7 @@ function makeTestLayer(input: {
         ? {}
         : { hangSessionScopeClose: input.hangSessionScopeClose }),
       ...(input.beforeUnload === undefined ? {} : { beforeUnload: input.beforeUnload }),
+      ...(input.beforeResume === undefined ? {} : { beforeResume: input.beforeResume }),
     }),
   );
   const providerEventIngestorTestLayer = ProviderEventIngestor.layer.pipe(
@@ -1052,6 +1060,9 @@ it.effect(
       const mcpConfigs = yield* Ref.make<
         ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
       >([]);
+      const resumeEntered = yield* Deferred.make<void>();
+      const rejectResume = yield* Deferred.make<void, ProviderAdapterProtocolError>();
+      let failingResume = false;
       const effect = Effect.gen(function* () {
         const eventSink = yield* EventSink.EventSinkV2;
         const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -1079,7 +1090,7 @@ it.effect(
         assert.equal(captured?.threadId, threadId);
         assert.equal(captured?.providerInstanceId, modelSelection.instanceId);
         assert.equal(captured?.endpoint, "http://127.0.0.1:43123/mcp");
-        assert.deepEqual(captured?.runtimePolicy, runtimePolicy);
+        assert.isUndefined(McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy);
         const token = captured?.authorizationHeader.replace(/^Bearer\s+/, "");
         assert.isDefined(token);
         const resolved = yield* registry.resolve(token!);
@@ -1106,12 +1117,44 @@ it.effect(
           McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
           readOnlyPolicy,
         );
+        yield* runtime.resumeThread({ providerThread, threadId, runtimePolicy: readOnlyPolicy });
 
         const projection = yield* (yield* ProjectionStore.ProjectionStoreV2).getThreadProjection(
           threadId,
         );
         const runId = idAllocator.derive.run({ threadId, ordinal: 1 });
         const writablePolicy = { ...runtimePolicy, sandboxPolicy: { type: "workspaceWrite" } };
+        yield* manager.open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy: writablePolicy,
+        });
+        assert.deepEqual(
+          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
+          readOnlyPolicy,
+        );
+        failingResume = true;
+        const resume = yield* runtime
+          .resumeThread({ providerThread, threadId, modelSelection, runtimePolicy: writablePolicy })
+          .pipe(Effect.result, Effect.forkScoped);
+        yield* Deferred.await(resumeEntered);
+        assert.deepEqual(
+          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
+          readOnlyPolicy,
+        );
+        yield* Deferred.fail(
+          rejectResume,
+          new ProviderAdapterProtocolError({
+            driver: CODEX_DRIVER,
+            detail: "Native resume rejected",
+          }),
+        );
+        assert.equal((yield* Fiber.join(resume))._tag, "Failure");
+        assert.deepEqual(
+          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
+          readOnlyPolicy,
+        );
         yield* runtime.startTurn({
           appThread: projection.thread,
           threadId,
@@ -1135,6 +1178,13 @@ it.effect(
           McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
           writablePolicy,
         );
+        const resumes = (yield* Ref.get(state)).resumeCount;
+        yield* runtime.resumeThread({ providerThread, threadId, runtimePolicy: readOnlyPolicy });
+        assert.equal((yield* Ref.get(state)).resumeCount, resumes);
+        assert.deepEqual(
+          McpProviderSession.readMcpProviderSession(threadId)?.runtimePolicy,
+          writablePolicy,
+        );
         assert.equal(
           McpProviderSession.readMcpProviderSession(threadId)?.providerSessionId,
           captured?.providerSessionId,
@@ -1151,6 +1201,13 @@ it.effect(
             state,
             idleTimeoutMs: 1_000,
             mcpConfigs,
+            beforeResume: Effect.suspend(() =>
+              failingResume
+                ? Deferred.succeed(resumeEntered, undefined).pipe(
+                    Effect.andThen(Deferred.await(rejectResume)),
+                  )
+                : Effect.void,
+            ),
           }),
         ),
       );

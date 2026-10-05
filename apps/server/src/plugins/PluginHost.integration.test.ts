@@ -159,6 +159,22 @@ it.live(
           arguments: { id: "bad-report", summary: "x".repeat(241) },
         });
         expect(invalid.text).toContain('"isError":true');
+        for (const arguments_ of [
+          { id: "blank-summary", summary: "   " },
+          { id: "blank-summary-newline", summary: "\n\t" },
+          { id: "blank-summary-leading", summary: " Needs a decision" },
+          { id: "blank-summary-trailing", summary: "Needs a decision " },
+          { id: "   ", summary: "Needs a decision" },
+          { id: " report-leading", summary: "Needs a decision" },
+          { id: "report-trailing ", summary: "Needs a decision" },
+        ]) {
+          const rejected = yield* call("tools/call", {
+            name: "plugin_fixture_report",
+            arguments: arguments_,
+          });
+          expect(rejected.text).toContain('"isError":true');
+          expect(rejected.text).toContain('"code":"validation"');
+        }
         const fresh = yield* Context.get(context, McpSessions.McpSessionRegistry).issue({
           threadId: launched.threadId,
           providerInstanceId: ProviderInstanceId.make("codex"),

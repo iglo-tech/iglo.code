@@ -1227,7 +1227,6 @@ export const layerWithOptions = (
         readonly providerSessionId: ProviderSessionId;
         readonly threadId: ThreadId;
         readonly providerInstanceId: ProviderInstanceId;
-        readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
       }) =>
         Effect.suspend(() => {
           let preparedForCleanup: PreparedMcpCredential | undefined;
@@ -1272,11 +1271,6 @@ export const layerWithOptions = (
                 );
               }
             }
-            McpProviderSession.updateMcpProviderSessionRuntimePolicy(
-              input.threadId,
-              input.providerInstanceId,
-              input.runtimePolicy,
-            );
           }).pipe(
             Effect.tapError(() =>
               removeThreadAttachment(input).pipe(
@@ -1408,6 +1402,23 @@ export const layerWithOptions = (
       ): ProviderAdapterV2SessionRuntime => {
         const providerSessionId = runtime.providerSessionId;
         const subscribeEvents = makeEventSubscription(eventSubscribers);
+        const recordPolicy = (
+          threadId: ThreadId,
+          policy: ProviderAdapterV2RuntimePolicy | undefined,
+        ) =>
+          Effect.sync(() =>
+            McpProviderSession.updateMcpProviderSessionRuntimePolicy(
+              threadId,
+              runtime.instanceId,
+              policy,
+            ),
+          );
+        // Codex thread RPCs acknowledge policy changes. Capture other adapters'
+        // policy at turn start; Claude resume only restores thread identity.
+        const recordThreadPolicy = (
+          threadId: ThreadId,
+          policy: ProviderAdapterV2RuntimePolicy | undefined,
+        ) => (runtime.driver === "codex" ? recordPolicy(threadId, policy) : Effect.void);
         return {
           ...runtime,
           subscribeEvents,
@@ -1421,10 +1432,10 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId: input.threadId,
                 providerInstanceId: runtime.instanceId,
-                runtimePolicy: input.runtimePolicy,
               }),
             ).pipe(
               Effect.andThen(runtime.ensureThread(input)),
+              Effect.tap(() => recordThreadPolicy(input.threadId, input.runtimePolicy)),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
                   providerSessionId,
@@ -1455,16 +1466,17 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId,
                 providerInstanceId: runtime.instanceId,
-                ...(input.runtimePolicy === undefined
-                  ? {}
-                  : { runtimePolicy: input.runtimePolicy }),
               }),
             ).pipe(
               Effect.andThen(
                 isProviderThreadLoaded({ providerSessionId, threadId, providerThreadKey }),
               ),
               Effect.flatMap((loaded) =>
-                loaded ? Effect.succeed(input.providerThread) : runtime.resumeThread(input),
+                loaded
+                  ? Effect.succeed(input.providerThread)
+                  : runtime
+                      .resumeThread(input)
+                      .pipe(Effect.tap(() => recordThreadPolicy(threadId, input.runtimePolicy))),
               ),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
@@ -1490,12 +1502,10 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId: input.targetThreadId,
                 providerInstanceId: runtime.instanceId,
-                ...(input.runtimePolicy === undefined
-                  ? {}
-                  : { runtimePolicy: input.runtimePolicy }),
               }),
             ).pipe(
               Effect.andThen(runtime.forkThread(input)),
+              Effect.tap(() => recordThreadPolicy(input.targetThreadId, input.runtimePolicy)),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
                   providerSessionId,
@@ -1519,11 +1529,11 @@ export const layerWithOptions = (
                 providerSessionId,
                 threadId: input.threadId,
                 providerInstanceId: runtime.instanceId,
-                runtimePolicy: input.runtimePolicy,
               }),
             ).pipe(
               Effect.andThen(observeActivity(providerSessionId, markBusy(providerSessionId))),
               Effect.andThen(runtime.startTurn(input)),
+              Effect.tap(() => recordPolicy(input.threadId, input.runtimePolicy)),
               Effect.catch((error) =>
                 observeActivity(providerSessionId, markIdle(providerSessionId)).pipe(
                   Effect.andThen(Effect.fail(error)),
@@ -1732,7 +1742,6 @@ export const layerWithOptions = (
                   providerSessionId: input.providerSessionId,
                   threadId: input.threadId,
                   providerInstanceId: existing.runtime.instanceId,
-                  runtimePolicy: input.runtimePolicy,
                 });
                 yield* touchActivity(input.providerSessionId);
                 return existing.exposedRuntime;
@@ -1751,11 +1760,6 @@ export const layerWithOptions = (
               const prepared = yield* prepareMcpSession(
                 input.threadId,
                 input.modelSelection.instanceId,
-              );
-              McpProviderSession.updateMcpProviderSessionRuntimePolicy(
-                input.threadId,
-                input.modelSelection.instanceId,
-                input.runtimePolicy,
               );
               const mcpCredentialId = prepared.mcpCredentialId;
               // The reservation from prepare protects the credential (which

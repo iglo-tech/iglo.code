@@ -394,11 +394,18 @@ export const layer = Layer.effect(
       );
 
     const deleteRow = (id: ScheduledTaskId) =>
-      sql`DELETE FROM scheduled_tasks WHERE task_id = ${id}`.pipe(
-        Effect.mapError((cause) =>
-          taskError("Could not delete schedule task.", { taskId: id, cause }),
-        ),
-      );
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`DELETE FROM scheduled_tasks WHERE task_id = ${id}`;
+            yield* sql`UPDATE scheduled_task_occurrences SET status = 'failed', error = 'Schedule was deleted.' WHERE task_id = ${id} AND status = 'pending'`;
+          }),
+        )
+        .pipe(
+          Effect.mapError((cause) =>
+            taskError("Could not delete schedule task.", { taskId: id, cause }),
+          ),
+        );
 
     // Run-state transitions use targeted UPDATEs (never the full-row upsert) so
     // a completing run cannot resurrect a deleted task or clobber concurrent
@@ -474,10 +481,13 @@ export const layer = Layer.effect(
         ),
       );
 
+    const resolveOrphan = (occurrenceId: string) =>
+      sql`UPDATE scheduled_task_occurrences SET status = 'failed', error = 'Schedule no longer owns this plugin occurrence.' WHERE id = ${occurrenceId} AND status = 'pending'`;
+
     const runTask = Effect.fn("ScheduledTaskService.runTask")(
       function* (
         task: ScheduledTask,
-        trigger: "scheduled" | "manual",
+        trigger: "scheduled" | "manual" | "recovery",
         requestedOccurrenceId?: string,
       ) {
         const reserved = yield* Ref.modify(activeRuns, (active) => {
@@ -502,6 +512,8 @@ export const layer = Layer.effect(
           // the poll loaded it — none of those may fire.
           const active = yield* findTask(task.id);
           if (active === null) {
+            if (trigger === "recovery" && requestedOccurrenceId !== undefined)
+              yield* resolveOrphan(requestedOccurrenceId);
             // A manual run on a just-deleted task must fail loudly, not report
             // a successful run that never dispatched.
             if (trigger === "manual") {
@@ -531,6 +543,19 @@ export const layer = Layer.effect(
                   project_id: string;
                   started_at: string;
                 }>`SELECT * FROM scheduled_task_occurrences WHERE task_id = ${active.id} AND status = 'pending' ORDER BY rowid LIMIT 1`;
+          if (
+            trigger === "recovery" &&
+            active.dispatchTarget === undefined &&
+            requestedOccurrenceId !== undefined
+          )
+            yield* resolveOrphan(requestedOccurrenceId);
+          // Recovery belongs to the committed plugin occurrence, never a
+          // replacement prompt task or a fresh run of a reused schedule id.
+          if (
+            trigger === "recovery" &&
+            (pending === undefined || pending.id !== requestedOccurrenceId)
+          )
+            return active;
           if (
             pending !== undefined &&
             requestedOccurrenceId !== undefined &&
@@ -721,12 +746,14 @@ export const layer = Layer.effect(
     const runDueTasks = Effect.fn("ScheduledTaskService.runDueTasks")(function* () {
       const now = yield* localNow;
       const pending = yield* sql<{
+        id: string;
         task_id: string;
-      }>`SELECT DISTINCT task_id FROM scheduled_task_occurrences WHERE status = 'pending'`;
+      }>`SELECT id, task_id FROM scheduled_task_occurrences WHERE status = 'pending' ORDER BY rowid`;
       for (const row of pending) {
         const task = yield* findTask(ScheduledTaskId.make(row.task_id));
-        if (task !== null)
-          yield* runTask(task, "manual").pipe(
+        if (task === null || task.dispatchTarget === undefined) yield* resolveOrphan(row.id);
+        else
+          yield* runTask(task, "recovery", row.id).pipe(
             Effect.catch((cause) =>
               Effect.logWarning("Scheduled target recovery failed", { taskId: task.id, cause }),
             ),
