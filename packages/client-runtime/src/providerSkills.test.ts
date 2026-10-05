@@ -253,6 +253,24 @@ describe("workspace provider snapshots", () => {
     expect(resolveProviderSlashCommandsForCwd(provider, null)).toEqual(provider.slashCommands);
   });
 
+  it("keeps a previous catalog usable without treating it as revalidated", () => {
+    const workspace = provider.workspaceSnapshots[0]!;
+    const checkedAt = workspace.checkedAt;
+    expect(hasCompleteProviderWorkspaceSnapshot(provider, "/workspace/project-a", checkedAt)).toBe(
+      false,
+    );
+    expect(resolveProviderSkillsForCwd(provider, "/workspace/project-a")).toEqual([
+      { name: "project", path: "/workspace/project-a/SKILL.md", enabled: true },
+    ]);
+    const refreshed = {
+      ...provider,
+      workspaceSnapshots: [{ ...workspace, checkedAt: "2026-01-01T00:02:00.000Z" }],
+    };
+    expect(hasCompleteProviderWorkspaceSnapshot(refreshed, "/workspace/project-a", checkedAt)).toBe(
+      true,
+    );
+  });
+
   it("uses partial workspace skills and commands while keeping discovery retryable", () => {
     const partial = {
       ...provider,

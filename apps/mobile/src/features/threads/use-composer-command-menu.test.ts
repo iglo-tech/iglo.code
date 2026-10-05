@@ -184,7 +184,13 @@ describe("workspace command discovery retry", () => {
   it("retries partial commands after the cooldown without editing the draft", async () => {
     const recovered = {
       ...provider,
-      workspaceSnapshots: [{ ...provider.workspaceSnapshots[0], slashCommandsPending: false }],
+      workspaceSnapshots: [
+        {
+          ...provider.workspaceSnapshots[0],
+          slashCommandsPending: false,
+          checkedAt: "2026-01-01T00:01:00.000Z",
+        },
+      ],
     };
     refreshProviders.mockResolvedValueOnce({ _tag: "Success", value: { providers: [provider] } });
     refreshProviders.mockResolvedValue({ _tag: "Success", value: { providers: [recovered] } });
@@ -230,6 +236,7 @@ describe("workspace command discovery retry", () => {
       workspaceSnapshots: provider.workspaceSnapshots.map((snapshot) => ({
         ...snapshot,
         slashCommandsPending: false,
+        checkedAt: "2026-01-01T00:01:00.000Z",
       })),
     };
     refreshProviders.mockResolvedValueOnce({ _tag: "Success", value: { providers: [missing] } });
@@ -258,6 +265,7 @@ describe("workspace command discovery retry", () => {
       workspaceSnapshots: provider.workspaceSnapshots.map((snapshot) => ({
         ...snapshot,
         slashCommandsPending: false,
+        checkedAt: "2026-01-01T00:01:00.000Z",
       })),
     };
     refreshProviders.mockResolvedValue({ _tag: "Success", value: { providers: [missing] } });
@@ -279,6 +287,7 @@ describe("workspace command discovery retry", () => {
       workspaceSnapshots: provider.workspaceSnapshots.map((snapshot) => ({
         ...snapshot,
         slashCommandsPending: false,
+        checkedAt: "2026-01-01T00:01:00.000Z",
       })),
     };
     refreshProviders.mockRejectedValueOnce(new Error("Connection lost"));

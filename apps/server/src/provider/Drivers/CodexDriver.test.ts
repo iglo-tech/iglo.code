@@ -38,6 +38,10 @@ import * as CodexAdapterV2 from "../../orchestration-v2/Adapters/CodexAdapterV2.
 import * as IdAllocator from "../../orchestration-v2/IdAllocator.ts";
 import { ProviderAdapterV2RuntimePolicy } from "../../orchestration-v2/ProviderAdapter.ts";
 import * as ProviderCredentialStore from "../ProviderCredentialStore.ts";
+import * as ProviderRegistry from "../Services/ProviderRegistry.ts";
+import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
+import { ProviderRegistryLive } from "../Layers/ProviderRegistry.ts";
+import * as PubSub from "effect/PubSub";
 
 const testLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-codex-driver-maintenance-",
@@ -91,6 +95,157 @@ const noSpawn = ChildProcessSpawner.make(() =>
 const encodeCredentials = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 it.layer(testLayer)("CodexDriver", (it) => {
+  it.effect("ordinary workspace discovery recovers after a managed Codex probe fails", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("managed-workspace-recovery");
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const peerPath = NodePath.join(config.stateDir, "workspace-peer.cjs");
+      const cwd = config.stateDir;
+      const personalSkill = { name: "personal", path: "/personal/SKILL.md", enabled: true };
+      const projectSkill = { name: "project", path: NodePath.join(cwd, "SKILL.md"), enabled: true };
+      const personalSkillJson = yield* encodeCredentials(personalSkill);
+      const projectSkillJson = yield* encodeCredentials(projectSkill);
+      const cwdJson = yield* encodeCredentials(cwd);
+      yield* fs.writeFileString(
+        peerPath,
+        `
+        const readline = require("node:readline");
+        readline.createInterface({ input: process.stdin }).on("line", (line) => {
+          const request = JSON.parse(line);
+          if (request.id === undefined) return;
+          let result;
+          switch (request.method) {
+            case "initialize": result = { userAgent: "codex/0.160.0", codexHome: process.cwd(), platformFamily: "unix", platformOs: "macos" }; break;
+            case "account/read": result = { account: null, requiresOpenaiAuth: false }; break;
+            case "model/list": result = { data: [], nextCursor: null }; break;
+            case "account/rateLimits/read": result = { rateLimits: { primary: null, secondary: null, credits: null, planType: null } }; break;
+            case "skills/list": result = { data: [{ cwd: request.params.cwds[0], errors: [], skills: [${personalSkillJson}, ...(request.params.cwds[0] === ${cwdJson} ? [${projectSkillJson}] : [])].map(skill => ({ ...skill, description: skill.name, shortDescription: null, interface: null, scope: "user" })) }] }; break;
+            default: result = {};
+          }
+          process.stdout.write(JSON.stringify({ id: request.id, result }) + "\\n");
+        });
+      `,
+      );
+      const credentials = new Map<string, Uint8Array>();
+      const secrets = ServerSecretStore.ServerSecretStore.of({
+        get: (key) => Effect.sync(() => Option.fromUndefinedOr(credentials.get(key))),
+        set: (key, value) =>
+          Effect.sync(() => {
+            credentials.set(key, value);
+          }),
+        remove: (key) =>
+          Effect.sync(() => {
+            credentials.delete(key);
+          }),
+        create: () => Effect.die("unused"),
+        getOrCreateRandom: () => Effect.die("unused"),
+      });
+      yield* Effect.gen(function* () {
+        const store = yield* ProviderCredentialStore.make("codex-chatgpt", instanceId);
+        const json = yield* encodeCredentials({
+          clientId: "oaiapp_test",
+          accessToken: "test-access",
+          refreshToken: "test-refresh",
+          expiresAt: Number.MAX_SAFE_INTEGER,
+          earliestRefreshAt: null,
+          scopes: ["chatgpt.tokens.use.direct"],
+          subject: "test-user",
+          email: null,
+        });
+        yield* store.set(new TextEncoder().encode(json));
+        let failProbe = false;
+        const executable = {
+          executablePath: process.execPath,
+          managedVersionDirectory: null,
+          source: "local" as const,
+          version: "0.160.0",
+        };
+        const installation = yield* CodexInstallation.CodexInstallation;
+        const instance = yield* CodexDriver.create({
+          instanceId,
+          enabled: true,
+          displayName: "Workspace recovery",
+          environment: [],
+          config: {
+            ...CodexDriver.defaultConfig(),
+            setupMode: "managed",
+            homePath: NodePath.join(cwd, "codex-home"),
+          },
+        }).pipe(
+          Effect.provideService(
+            CodexInstallation.CodexInstallation,
+            CodexInstallation.CodexInstallation.of({
+              ...installation,
+              resolve: () => Effect.succeed(executable),
+              acquire: () => Effect.succeed(executable),
+            }),
+          ),
+          Effect.provideService(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make((command) => {
+              if (!ChildProcess.isStandardCommand(command))
+                return Effect.die("Expected a Codex probe");
+              if (failProbe && command.options.cwd === cwd)
+                return Effect.fail(
+                  PlatformError.badArgument({
+                    module: "ChildProcessSpawner",
+                    method: "spawn",
+                    description: "Temporary workspace probe failure",
+                  }),
+                );
+              return spawner.spawn(
+                ChildProcess.make(process.execPath, [peerPath], command.options),
+              );
+            }),
+          ),
+        );
+        const machine = yield* instance.snapshot.refresh;
+        expect(machine.skills.map((skill) => skill.name)).toEqual(["personal"]);
+        const changes = yield* PubSub.unbounded<void>();
+        const services = yield* Layer.build(
+          ProviderRegistryLive.pipe(
+            Layer.provide(
+              Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+                getInstance: (requestedId) =>
+                  Effect.succeed(requestedId === instanceId ? instance : undefined),
+                listInstances: Effect.succeed([instance]),
+                listUnavailable: Effect.succeed([]),
+                streamChanges: Stream.fromPubSub(changes),
+                subscribeChanges: PubSub.subscribe(changes),
+              }),
+            ),
+            Layer.provide(Layer.succeed(ServerConfig.ServerConfig, config)),
+            Layer.provide(ModelManifest.layerTest),
+            Layer.provide(NodeServices.layer),
+          ),
+        );
+        const registry = yield* Effect.service(ProviderRegistry.ProviderRegistry).pipe(
+          Effect.provide(services),
+        );
+        failProbe = true;
+        const failed = yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd });
+        expect(failed[0]?.workspaceSnapshots).toBeUndefined();
+        expect(failed[0]?.skills.map((skill) => skill.name)).toEqual(["personal"]);
+        failProbe = false;
+        const recovered = yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd });
+        expect(recovered[0]?.workspaceSnapshots?.[0]?.skills.map((skill) => skill.name)).toEqual([
+          "personal",
+          "project",
+        ]);
+      }).pipe(
+        Effect.provideService(ServerSecretStore.ServerSecretStore, secrets),
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ models: [] }))),
+          ),
+        ),
+      );
+    }),
+  );
+
   it.effect("disconnect refreshes a restored managed account while its auth flow is idle", () =>
     Effect.gen(function* () {
       const instanceId = ProviderInstanceId.make("restored-managed-account");

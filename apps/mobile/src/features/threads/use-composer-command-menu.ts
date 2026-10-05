@@ -180,6 +180,7 @@ export function useComposerCommandMenu({
   hasCompactableConversation,
   offersUsageLimits = false,
   enabled = true,
+  isRouteFocused = true,
   onChangeDraftMessage,
   onUpdateInteractionMode,
   onUsageLimits,
@@ -200,6 +201,7 @@ export function useComposerCommandMenu({
   /** Whether T3 itself offers /usage-limits for the selected provider. */
   readonly offersUsageLimits?: boolean;
   readonly enabled?: boolean;
+  readonly isRouteFocused?: boolean;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onUpdateInteractionMode?: (mode: ProviderInteractionMode) => void;
   /** Picking /usage-limits is the action itself; the draft keeps nothing of it. */
@@ -242,6 +244,12 @@ export function useComposerCommandMenu({
       selectedProviderStatus ? resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd) : [],
     [projectCwd, selectedProviderStatus],
   );
+  const trigger = useMemo(() => {
+    if (!enabled || selection.start !== selection.end) {
+      return null;
+    }
+    return detectComposerTrigger(draftMessage, selection.end);
+  }, [draftMessage, enabled, selection]);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -251,6 +259,9 @@ export function useComposerCommandMenu({
     projectCwd,
   );
   const workspaceRefreshKeyRef = useRef<string | null>(null);
+  const workspacePreviousCheckedAtRef = useRef<string | undefined>(undefined);
+  const workspaceRefreshAttemptRef = useRef<object | null>(null);
+  const workspaceBoundaryRef = useRef({ key: "", pickerOpen: false, focused: false });
   const [workspaceRefreshRetry, setWorkspaceRefreshRetry] = useState<{
     key: string;
     notBefore: number;
@@ -263,6 +274,35 @@ export function useComposerCommandMenu({
     selectedProviderStatus?.workspaceSnapshots?.some(
       (snapshot) => snapshot.cwd === projectCwd && snapshot.slashCommandsPending === true,
     ) ?? false;
+  const workspacePickerOpen = trigger?.kind === "skill" || trigger?.kind === "slash-command";
+  useEffect(() => {
+    const key = JSON.stringify([workspaceRefreshScopeKey, ownerKey]);
+    const previous = workspaceBoundaryRef.current;
+    if (
+      previous.key !== key ||
+      (workspacePickerOpen && !previous.pickerOpen) ||
+      (isRouteFocused && !previous.focused)
+    ) {
+      workspaceRefreshKeyRef.current = null;
+      workspaceRefreshAttemptRef.current = null;
+      workspacePreviousCheckedAtRef.current = selectedProviderStatus?.workspaceSnapshots?.find(
+        (snapshot) => snapshot.cwd === projectCwd,
+      )?.checkedAt;
+      setWorkspaceRefreshRetry(null);
+    }
+    workspaceBoundaryRef.current = {
+      key,
+      pickerOpen: workspacePickerOpen,
+      focused: isRouteFocused,
+    };
+  }, [
+    workspaceRefreshScopeKey,
+    ownerKey,
+    workspacePickerOpen,
+    isRouteFocused,
+    selectedProviderStatus,
+    projectCwd,
+  ]);
   useEffect(() => {
     if (
       !workspaceSlashCommandsPending ||
@@ -287,10 +327,17 @@ export function useComposerCommandMenu({
     hadWorkspaceSnapshotRef.current = hasWorkspaceSnapshot;
   }, [hasWorkspaceSnapshot]);
   useEffect(() => {
-    if (!environmentId || !projectCwd || !selectedProviderInstanceId) return;
+    if (!isRouteFocused || !environmentId || !projectCwd || !selectedProviderInstanceId) return;
     const key = `${environmentId}:${selectedProviderInstanceId}:${projectCwd}`;
     if (workspaceRefreshKeyRef.current === key) return;
-    if (hasWorkspaceSnapshot) {
+    if (
+      workspaceRefreshRetry?.key === key &&
+      hasCompleteProviderWorkspaceSnapshot(
+        selectedProviderStatus,
+        projectCwd,
+        workspacePreviousCheckedAtRef.current,
+      )
+    ) {
       workspaceRefreshKeyRef.current = key;
       setWorkspaceRefreshRetry(null);
       return;
@@ -298,8 +345,11 @@ export function useComposerCommandMenu({
     const retry = workspaceRefreshRetry;
     if (retry?.key === key && Date.now() < retry.notBefore) return;
     workspaceRefreshKeyRef.current = key;
+    const attempt = {};
+    workspaceRefreshAttemptRef.current = attempt;
+    const previousCheckedAt = workspacePreviousCheckedAtRef.current;
     const retryLater = () => {
-      if (workspaceRefreshKeyRef.current !== key) return;
+      if (workspaceRefreshAttemptRef.current !== attempt) return;
       workspaceRefreshKeyRef.current = null;
       setWorkspaceRefreshRetry({
         key,
@@ -317,8 +367,9 @@ export function useComposerCommandMenu({
             (provider) => provider.instanceId === selectedProviderInstanceId,
           ),
           projectCwd,
+          previousCheckedAt,
         );
-      if (!refreshed && workspaceRefreshKeyRef.current === key) {
+      if (!refreshed) {
         retryLater();
       }
     }, retryLater);
@@ -326,18 +377,16 @@ export function useComposerCommandMenu({
     draftMessage,
     environmentId,
     hasWorkspaceSnapshot,
+    selectedProviderStatus,
+    ownerKey,
+    workspacePickerOpen,
+    isRouteFocused,
     projectCwd,
     refreshProviders,
     selectedProviderInstanceId,
     workspaceRefreshRetry,
   ]);
 
-  const trigger = useMemo(() => {
-    if (!enabled || selection.start !== selection.end) {
-      return null;
-    }
-    return detectComposerTrigger(draftMessage, selection.end);
-  }, [draftMessage, enabled, selection]);
   const pathSearch = useComposerPathSearch({
     environmentId,
     cwd: trigger?.kind === "path" ? projectCwd : null,

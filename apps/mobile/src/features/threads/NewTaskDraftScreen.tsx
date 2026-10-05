@@ -12,6 +12,7 @@ import {
   CommonActions,
   StackActions,
   useFocusEffect,
+  useIsFocused,
   useNavigation,
   usePreventRemove,
   type NavigationAction,
@@ -198,6 +199,7 @@ export function NewTaskDraftScreen(props: {
   const projects = useProjects();
   const flow = useNewTaskFlow();
   const navigation = useNavigation();
+  const isRouteFocused = useIsFocused();
   const {
     consumeShare,
     getShare,
@@ -479,6 +481,7 @@ export function NewTaskDraftScreen(props: {
     [flow.attachments],
   );
   const composerMenu = useComposerCommandMenu({
+    isRouteFocused,
     draftMessage: flow.prompt,
     ownerKey: flow.draftKey,
     environmentId: selectedProject?.environmentId ?? null,

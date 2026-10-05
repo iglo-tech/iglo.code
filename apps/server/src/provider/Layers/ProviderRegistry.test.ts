@@ -1571,7 +1571,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         }),
       );
 
-      it.effect("deduplicates cwd probes and clears snapshots when an instance rebuilds", () =>
+      it.effect("revalidates cwd catalogs across refresh and rebuild", () =>
         Effect.gen(function* () {
           const driver = ProviderDriverKind.make("codex");
           const instanceId = ProviderInstanceId.make("codex");
@@ -1750,23 +1750,28 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
               (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.slashCommandsPending,
               undefined,
             );
-            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
-            assert.strictEqual(yield* Ref.get(snapshotCalls), 3);
             const newSkills = [
-              ...scopedProvider.skills,
+              { ...scopedProvider.skills[0], description: "Updated project skill" },
               { name: "added", path: "/workspace/added/SKILL.md", enabled: true },
+              { name: "personal", path: "/global/personal/SKILL.md", enabled: true },
             ];
             yield* Ref.set(scopedResult, { ...scopedProvider, skills: newSkills });
+            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            assert.deepStrictEqual(
+              (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+              newSkills,
+            );
+            yield* Ref.set(scopedResult, scopedProvider);
             yield* registry.refreshWorkspaceSnapshot({
               instanceId,
               cwd: "/workspace",
               fresh: true,
             });
-            assert.strictEqual(yield* Ref.get(snapshotCalls), 4);
+            assert.strictEqual(yield* Ref.get(snapshotCalls), 5);
             assert.strictEqual(yield* Ref.get(cacheInvalidations), 1);
             assert.deepStrictEqual(
               (yield* registry.getProviders)[0]?.workspaceSnapshots?.map((s) => s.skills),
-              [newSkills],
+              [scopedProvider.skills],
             );
 
             // A slow fresh scan that read older files must not overwrite a
@@ -1794,6 +1799,86 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             assert.deepStrictEqual(
               (yield* registry.getProviders)[0]?.workspaceSnapshots?.map((s) => s.skills),
               [latestSkills],
+            );
+
+            // A workspace whose first scan found only personal skills must
+            // discover its first project skill on an ordinary later request.
+            yield* Ref.set(scopedResult, machineProvider);
+            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/other-workspace" });
+            yield* Ref.set(scopedResult, { ...scopedProvider, skills: newSkills });
+            const otherWorkspace = yield* registry.refreshWorkspaceSnapshot({
+              instanceId,
+              cwd: "/other-workspace",
+            });
+            assert.deepStrictEqual(
+              otherWorkspace[0]?.workspaceSnapshots?.find(
+                (snapshot) => snapshot.cwd === "/other-workspace",
+              )?.skills,
+              newSkills,
+            );
+            assert.deepStrictEqual(
+              otherWorkspace[0]?.workspaceSnapshots?.find(
+                (snapshot) => snapshot.cwd === "/workspace",
+              )?.skills,
+              latestSkills,
+            );
+            yield* Ref.set(scopedResult, machineProvider);
+            const removed = yield* registry.refreshWorkspaceSnapshot({
+              instanceId,
+              cwd: "/other-workspace",
+            });
+            assert.deepStrictEqual(
+              removed[0]?.workspaceSnapshots?.find(
+                (snapshot) => snapshot.cwd === "/other-workspace",
+              )?.skills,
+              machineProvider.skills,
+            );
+
+            yield* registry.refreshInstance(instanceId);
+            assert.deepStrictEqual((yield* registry.getProviders)[0]?.workspaceSnapshots, []);
+            yield* Ref.set(scopedResult, { ...scopedProvider, skills: latestSkills });
+            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            assert.deepStrictEqual(
+              (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+              latestSkills,
+            );
+
+            // Settings refresh invalidates even an initial scan still in
+            // flight, and its finalizer cannot release a newer scan's claim.
+            const invalidatedStarted = yield* Deferred.make<void>();
+            const releaseInvalidated = yield* Deferred.make<void>();
+            yield* registry.refreshInstance(instanceId);
+            yield* Ref.set(scopedResult, machineProvider);
+            yield* Ref.set(scanGate, {
+              started: invalidatedStarted,
+              release: releaseInvalidated,
+            });
+            const invalidatedScan = yield* registry
+              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+              .pipe(Effect.forkChild);
+            yield* Deferred.await(invalidatedStarted);
+            yield* registry.refreshInstance(instanceId);
+            yield* Ref.set(scopedResult, { ...scopedProvider, skills: latestSkills });
+            yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            yield* Deferred.succeed(releaseInvalidated, undefined);
+            yield* Fiber.join(invalidatedScan);
+            const retained = yield* registry.getProviders;
+            assert.deepStrictEqual(retained[0]?.workspaceSnapshots?.[0]?.skills, latestSkills);
+            yield* Ref.set(returnPendingSnapshot, true);
+            const failed = yield* registry.refreshWorkspaceSnapshot({
+              instanceId,
+              cwd: "/workspace",
+            });
+            assert.deepStrictEqual(failed[0]?.workspaceSnapshots?.[0]?.skills, latestSkills);
+            yield* Ref.set(returnPendingSnapshot, false);
+            yield* Ref.set(scopedResult, scopedProvider);
+            const recovered = yield* registry.refreshWorkspaceSnapshot({
+              instanceId,
+              cwd: "/workspace",
+            });
+            assert.deepStrictEqual(
+              recovered[0]?.workspaceSnapshots?.[0]?.skills,
+              scopedProvider.skills,
             );
 
             yield* Ref.set(instancesRef, [rebuiltInstance]);
