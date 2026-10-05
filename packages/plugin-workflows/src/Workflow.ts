@@ -122,6 +122,7 @@ const make = Effect.gen(function* () {
   const changes = yield* PubSub.sliding<void>(1);
   let mutation = 0;
   let reconcileAfter = 0;
+  let outboxAfter = 0;
   const projectVersions = new Map<string, number>();
   yield* Effect.addFinalizer(() => PubSub.shutdown(changes));
   const checks = new Map<string, Fiber.Fiber<void, PluginError>>();
@@ -1208,8 +1209,10 @@ const make = Effect.gen(function* () {
           if (inspected.failure.code === "unavailable") return;
           return yield* inspected.failure;
         }
-        const active = inspected.success.runs.filter((run) =>
-          ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
+        const active = inspected.success.runs.filter(
+          (execution, index, runs) =>
+            ["preparing", "queued", "starting", "running", "waiting"].includes(execution.status) ||
+            (index === runs.length - 1 && inspected.success.outstandingWork.length > 0),
         );
         for (const execution of active)
           yield* host.interrupt({
@@ -1460,7 +1463,6 @@ const make = Effect.gen(function* () {
     "drain",
     Effect.gen(function* () {
       // Finite batches yield to cancellation; the scheduler drains any remaining durable work.
-      let after = 0;
       for (let count = 0; count < 256; count++) {
         const [item] = yield* sql<{
           id: string;
@@ -1468,9 +1470,12 @@ const make = Effect.gen(function* () {
           attempt_id: string | null;
           kind: string;
           rowid: number;
-        }>`SELECT rowid, * FROM workflow_outbox WHERE status = 'pending' AND rowid > ${after} ORDER BY rowid LIMIT 1`;
-        if (!item) break;
-        after = item.rowid;
+        }>`SELECT rowid, * FROM workflow_outbox WHERE status = 'pending' AND rowid > ${outboxAfter} ORDER BY rowid LIMIT 1`;
+        if (!item) {
+          outboxAfter = 0;
+          break;
+        }
+        outboxAfter = item.rowid;
         const result = yield* protect("dispatch", dispatch(item)).pipe(Effect.result);
         if (result._tag === "Failure") {
           if (["service", "storage"].includes(result.failure.code)) continue;

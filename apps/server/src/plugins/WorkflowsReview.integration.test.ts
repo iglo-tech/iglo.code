@@ -1,17 +1,12 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import { CommandId, EventId, MessageId, ProviderInstanceId, RunId } from "@t3tools/contracts";
 import { Run, Definition } from "@t3tools/plugin-workflows/contracts";
-import * as EventSink from "../orchestration-v2/EventSink.ts";
-import * as EventStore from "../orchestration-v2/EventStore.ts";
-import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { parallel } from "./Workflows.testkit.ts";
 import { makeCoreWorkflowFixture } from "./WorkflowsCore.testkit.ts";
 
@@ -82,15 +77,6 @@ it.live.each(["unchanged", "redirected-same-head", "redirected-new-head"] as con
             worktreePath: null,
             branch: "main",
           });
-        const services = yield* Layer.build(
-          EventSink.layer.pipe(
-            Layer.provide(
-              Layer.mergeAll(ProjectionStore.layer, EventStore.layerFromOrchestrationEventStore),
-            ),
-            Layer.provide(Layer.succeedContext(test.context)),
-          ),
-        );
-        const sink = Context.get(services, EventSink.EventSinkV2);
         const tool = (yield* runtime.registry.tools).find(
           (item) => item.tool.id === "plugin_workflows_report",
         )!.tool;
@@ -114,7 +100,7 @@ it.live.each(["unchanged", "redirected-same-head", "redirected-new-head"] as con
           );
           const now = DateTime.nowUnsafe();
           const runId = RunId.make(`review-${index}`);
-          yield* sink.write({
+          yield* test.sink.write({
             events: [
               {
                 id: EventId.make(`completed-${index}`),

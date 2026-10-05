@@ -12,6 +12,9 @@ import { rpcs, apiScopes } from "@t3tools/plugin-workflows/contracts";
 import * as Registry from "@t3tools/plugin-host-adapter/registry";
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
+import * as EventSink from "../orchestration-v2/EventSink.ts";
+import * as EventStore from "../orchestration-v2/EventStore.ts";
+import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ScheduleTargets from "../scheduling/ScheduleTargets.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -37,6 +40,12 @@ export const makeCoreWorkflowFixture = Effect.gen(function* () {
     ]),
   );
   const { context } = yield* startEnvironment(config, []);
+  const eventContext = yield* Layer.build(
+    EventSink.layer.pipe(
+      Layer.provide(Layer.mergeAll(Projections.layer, EventStore.layerFromOrchestrationEventStore)),
+      Layer.provide(Layer.succeedContext(context)),
+    ),
+  );
   const actual = Context.get(context, Host);
   const projectId = ProjectId.make("workflow-core-project");
   yield* Context.get(context, Projects.ProjectService).create({
@@ -99,6 +108,7 @@ export const makeCoreWorkflowFixture = Effect.gen(function* () {
     core,
     context,
     config,
+    sink: Context.get(eventContext, EventSink.EventSinkV2),
     boot,
     scope: { environmentId: core.environmentId, projectId },
     threads: Context.get(context, Threads.ThreadManagementService),

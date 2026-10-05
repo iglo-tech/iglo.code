@@ -209,17 +209,26 @@ export function definitionProblems(definition: Definition): string[] {
     visited.add(id);
   };
   for (const id of nodes.keys()) walk(id);
-  const canReachTerminal = (id: string, seen = new Set<string>()): boolean => {
-    if (terminal(id)) return true;
-    if (seen.has(id) || !nodes.has(id)) return false;
-    seen.add(id);
-    return routes(nodes.get(id)!).some(
-      (route) =>
-        canReachTerminal(route.to, new Set(seen)) ||
-        (route.repeat !== undefined && terminal(route.repeat.atLimit)),
-    );
-  };
-  for (const id of nodes.keys()) if (!canReachTerminal(id)) errors.push(`${id}: no terminal path.`);
+  const predecessors = new Map<string, string[]>();
+  for (const node of nodes.values())
+    for (const route of routes(node)) {
+      const destinations = [route.to];
+      if (route.repeat && terminal(route.repeat.atLimit)) destinations.push(route.repeat.atLimit);
+      for (const destination of destinations) {
+        const previous = predecessors.get(destination) ?? [];
+        previous.push(node.id);
+        predecessors.set(destination, previous);
+      }
+    }
+  const reachable = new Set([...nodes.keys()].filter(terminal));
+  const pending = [...reachable];
+  for (let index = 0; index < pending.length; index++)
+    for (const predecessor of predecessors.get(pending[index]!) ?? [])
+      if (!reachable.has(predecessor)) {
+        reachable.add(predecessor);
+        pending.push(predecessor);
+      }
+  for (const id of nodes.keys()) if (!reachable.has(id)) errors.push(`${id}: no terminal path.`);
   return errors;
 }
 export function evaluate(predicate: Predicate, values: Readonly<Record<string, Value>>): boolean {
