@@ -76,7 +76,7 @@ function EnvironmentPluginNavigation({ environmentId }: { environmentId: Environ
                 size="sm"
                 onClick={() => plugin.context.navigate(item.link)}
               >
-                {item.summary}
+                <span className="min-w-0 truncate">{item.summary}</span>
               </Button>
             ));
       })}
