@@ -2735,7 +2735,7 @@ describe("OpenCode2 adapter", () => {
         Effect.gen(function* () {
           const fixture = yield* makePluginToolFixture("opencode", threadId, {
             workflow: true,
-            runtimeMode: policy().runtimeMode,
+            runtimeMode: policy(runtimeMode).runtimeMode,
           });
           const workflowThreadId = fixture.threadId;
           const server = `t3-code-${workflowThreadId.replaceAll(/[^a-zA-Z0-9_-]/g, "_")}`;

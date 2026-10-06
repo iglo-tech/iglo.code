@@ -37,6 +37,9 @@ it.live.each([
   "unchanged-legacy-outage",
   "skill-unchanged-outage",
   "skill-changed-outage",
+  "provider-unsupported-outage",
+  "provider-unavailable-outage",
+  "provider-mode-outage",
 ] as const)("retains Resume admission and review authority: %s", (scenario) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -49,7 +52,9 @@ it.live.each([
       const live = scenario.includes("live");
       const skillCase = scenario.startsWith("skill-");
       const skillChanged = scenario === "skill-changed-outage";
-      const admitted = !changed && !canceled && !expired && !skillChanged;
+      const providerCase = scenario.startsWith("provider-");
+      const admitted = !changed && !canceled && !expired && !skillChanged && !providerCase;
+      let providerValid = true;
       const test = yield* makeCoreWorkflowFixture;
       const fs = yield* FileSystem.FileSystem;
       const skillPath = `${test.config.baseDir}/SKILL.md`;
@@ -62,6 +67,22 @@ it.live.each([
       const host = Host.of({
         ...test.core,
         lifecycle: () => Stream.never,
+        providers: () =>
+          test.core.providers().pipe(
+            Effect.map((providers) =>
+              providers.map((provider) => ({
+                ...provider,
+                toolsSupported: scenario !== "provider-unsupported-outage" || providerValid,
+                available:
+                  provider.available === true &&
+                  (scenario !== "provider-unavailable-outage" || providerValid),
+                runtimeModes:
+                  scenario === "provider-mode-outage" && !providerValid
+                    ? []
+                    : provider.runtimeModes,
+              })),
+            ),
+          ),
         skills: () => Effect.succeed([{ name: "authored-skill", path: skillPath, enabled: true }]),
         verifyPullRequestHead: () => Effect.sync(() => ({ head, branch: "feature" })),
         send: (input) =>
@@ -347,6 +368,7 @@ it.live.each([
         }
         if (changed) yield* advanceHead;
         if (skillChanged) yield* fs.writeFileString(skillPath, "# Skill\nDifferent work");
+        providerValid = false;
         sendUnavailable = false;
         if (!live) runtime = yield* test.boot(host);
         yield* runtime.invoke("reconcile", test.scope);

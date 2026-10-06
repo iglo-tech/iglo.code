@@ -110,6 +110,13 @@ const target = (run: Run, attempt: Attempt): PluginTarget => ({
   threadId: attempt.threadId!,
 });
 
+/** Probe every owned admission; a busy receipt keeps settlement and cleanup pending. */
+const admissionIds = (attempt: Attempt) => [
+  commandId(attempt, "launch"),
+  commandId(attempt, "reminder"),
+  ...(attempt.resumeCount > 0 ? [commandId(attempt, "resume", attempt.resumeCount)] : []),
+];
+
 /** Charge only execution time between observations, excluding overlapping native input waits. */
 const executionElapsed = (requests: PluginThreadState["requests"], from: number, until: number) => {
   let cursor = from;
@@ -410,6 +417,24 @@ const make = Effect.gen(function* () {
       }
     return result;
   });
+  const verifyProvider = Effect.fnUntraced(function* (
+    run: Run,
+    attempt: Attempt,
+    operation: "launch" | "resume",
+  ) {
+    const agent = agentFor(run, attempt)!;
+    const providers = yield* host.providers();
+    if (
+      !providers.some(
+        (provider) =>
+          provider.instanceId === agent.modelSelection.instanceId &&
+          provider.toolsSupported &&
+          provider.available === true &&
+          provider.runtimeModes.includes(agent.runtimeMode),
+      )
+    )
+      return yield* error(operation, "Reporting-tool capability is unavailable.", "unsupported");
+  });
   const verifySkill = Effect.fnUntraced(function* (
     run: Run,
     attempt: Attempt,
@@ -594,6 +619,8 @@ const make = Effect.gen(function* () {
           acceptedAt: now,
           digest: payloadDigest,
         };
+        // Revoke undispatched follow-up work atomically with the immutable report receipt.
+        yield* host.cancelPending(target(run, attempt));
         attempt.report = { ...input, receipt };
         attempt.phase = attempt.waitStartedAt === null ? "reported" : "waiting-input";
         yield* sql`INSERT INTO workflow_reports (attempt_id, digest, receipt) VALUES (${attempt.id}, ${payloadDigest}, ${yield* encodeReceipt(receipt)})`;
@@ -738,158 +765,164 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const settle = Effect.fnUntraced(function* (
-    runId: string,
-    attemptId: string,
-    state: PluginThreadState,
-  ) {
-    const now = yield* Clock.currentTimeMillis;
-    yield* transaction(
-      "settlement",
-      Effect.gen(function* () {
-        const run = yield* load(runId);
-        const attempt = run.attempts.find((attempt) => attempt.id === attemptId)!;
-        if (
-          run.state !== "running" ||
-          terminalAttempt(attempt) ||
-          ["launching", "resuming"].includes(attempt.phase)
-        )
-          return;
-        const active = activeRun(state);
-        const pendingRequests = state.requests.filter((request) =>
-          ["pending", "waiting"].includes(request.status),
-        );
-        const request = pendingRequests.length > 0;
-        const agent = agentFor(run, attempt)!;
-        const accountingFrom = Math.max(
-          attempt.lastActiveAt,
-          attempt.waitStartedAt ?? attempt.lastActiveAt,
-        );
-        const humanExpired =
-          agent.humanTimeoutMs !== undefined &&
-          state.requests.some((request) => {
-            const end =
-              request.resolvedAt ??
-              (["pending", "waiting"].includes(request.status) ? now : request.createdAt);
-            return end > accountingFrom && end - request.createdAt >= agent.humanTimeoutMs!;
-          });
-        attempt.nativeSessionId = state.nativeSession?.id ?? null;
-        if (attempt.deadline !== null && now >= attempt.deadline) {
-          attempt.phase = "unresolved";
-          attempt.reason = "The review branch deadline expired.";
-        } else if (humanExpired) {
-          attempt.phase = "unresolved";
-          attempt.reason = "The human-response deadline expired.";
-        } else if (request) {
-          const waitStartedAt = Math.min(
-            now,
-            ...pendingRequests.map((request) => request.createdAt),
+  const settle = Effect.fnUntraced(
+    function* (runId: string, attemptId: string) {
+      const run = yield* load(runId);
+      const attempt = run.attempts.find((attempt) => attempt.id === attemptId)!;
+      if (
+        run.state !== "running" ||
+        terminalAttempt(attempt) ||
+        ["launching", "resuming"].includes(attempt.phase)
+      )
+        return;
+      for (const id of admissionIds(attempt)) yield* host.receipt(id);
+      // Read native work after admission settles, under the same lock as owner decisions.
+      const state = yield* host.inspect(target(run, attempt));
+      const now = yield* Clock.currentTimeMillis;
+      const before = mutation;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          const active = activeRun(state);
+          const pendingRequests = state.requests.filter((request) =>
+            ["pending", "waiting"].includes(request.status),
           );
-          const enteredWait = attempt.waitStartedAt !== waitStartedAt;
-          if (enteredWait) {
-            const until = Math.max(accountingFrom, waitStartedAt);
-            attempt.remainingMs = Math.max(
-              0,
-              attempt.remainingMs - executionElapsed(state.requests, accountingFrom, until),
-            );
-            attempt.lastActiveAt = until;
-            attempt.waitStartedAt = waitStartedAt;
-            attempt.phase = "waiting-input";
-          }
-          if (attempt.remainingMs === 0) {
+          const request = pendingRequests.length > 0;
+          const agent = agentFor(run, attempt)!;
+          const accountingFrom = Math.max(
+            attempt.lastActiveAt,
+            attempt.waitStartedAt ?? attempt.lastActiveAt,
+          );
+          const humanExpired =
+            agent.humanTimeoutMs !== undefined &&
+            state.requests.some((request) => {
+              const end =
+                request.resolvedAt ??
+                (["pending", "waiting"].includes(request.status) ? now : request.createdAt);
+              return end > accountingFrom && end - request.createdAt >= agent.humanTimeoutMs!;
+            });
+          attempt.nativeSessionId = state.nativeSession?.id ?? null;
+          if (attempt.deadline !== null && now >= attempt.deadline) {
             attempt.phase = "unresolved";
-            attempt.reason = "The execution timeout expired.";
+            attempt.reason = "The review branch deadline expired.";
+          } else if (humanExpired) {
+            attempt.phase = "unresolved";
+            attempt.reason = "The human-response deadline expired.";
+          } else if (request) {
+            const waitStartedAt = Math.min(
+              now,
+              ...pendingRequests.map((request) => request.createdAt),
+            );
+            const enteredWait = attempt.waitStartedAt !== waitStartedAt;
+            if (enteredWait) {
+              const until = Math.max(accountingFrom, waitStartedAt);
+              attempt.remainingMs = Math.max(
+                0,
+                attempt.remainingMs - executionElapsed(state.requests, accountingFrom, until),
+              );
+              attempt.lastActiveAt = until;
+              attempt.waitStartedAt = waitStartedAt;
+              attempt.phase = "waiting-input";
+            }
+            if (attempt.remainingMs === 0) {
+              attempt.phase = "unresolved";
+              attempt.reason = "The execution timeout expired.";
+            } else {
+              if (enteredWait) yield* persist(run);
+              return;
+            }
           } else {
-            if (enteredWait) yield* persist(run);
-            return;
-          }
-        } else {
-          if (
-            attempt.waitStartedAt !== null ||
-            state.requests.some(
-              (request) => request.resolvedAt !== null && request.resolvedAt > accountingFrom,
-            )
-          ) {
-            attempt.remainingMs = Math.max(
-              0,
-              attempt.remainingMs - executionElapsed(state.requests, accountingFrom, now),
-            );
-            attempt.waitStartedAt = null;
-            attempt.lastActiveAt = now;
-            attempt.phase = attempt.report ? "reported" : "running";
-            yield* persist(run);
-          }
-          if (now - attempt.lastActiveAt >= attempt.remainingMs) {
-            attempt.phase = "unresolved";
-            attempt.reason = "The execution timeout expired.";
-          } else if (
-            active ||
-            state.outstandingWork.length > 0 ||
-            state.checkpoints.some((checkpoint) =>
-              ["pending", "capturing", "running"].includes(checkpoint.status),
-            )
-          )
-            return;
-          else {
-            const execution = state.runs.findLast(
-              (run) => state.resultRunId === undefined || run.id === state.resultRunId,
-            );
-            if (!execution) return;
-            if (["interrupted", "cancelled", "rolled_back"].includes(execution.status)) {
-              attempt.phase = "interrupted";
-              attempt.resumable =
-                state.nativeSession?.canResume === true &&
-                !attempt.report &&
-                attempt.remainingMs > now - attempt.lastActiveAt &&
-                (attempt.deadline === null || attempt.deadline > now);
-              attempt.remainingMs = Math.max(0, attempt.remainingMs - (now - attempt.lastActiveAt));
-              attempt.reason = "Native execution was explicitly interrupted.";
-            } else if (
-              execution.status === "failed" ||
-              state.checkpoints.some((checkpoint) =>
-                ["failed", "missing", "error", "stale"].includes(checkpoint.status),
+            if (
+              attempt.waitStartedAt !== null ||
+              state.requests.some(
+                (request) => request.resolvedAt !== null && request.resolvedAt > accountingFrom,
               )
             ) {
-              attempt.phase = "failed";
-              attempt.reason = "Native execution or checkpoint failed.";
-            } else if (execution.status !== "completed") return;
-            else if (!attempt.report) {
-              if (!attempt.reminderSent) {
-                attempt.phase = "reminding";
-                yield* persist(run);
-                return;
-              }
+              attempt.remainingMs = Math.max(
+                0,
+                attempt.remainingMs - executionElapsed(state.requests, accountingFrom, now),
+              );
+              attempt.waitStartedAt = null;
+              attempt.lastActiveAt = now;
+              attempt.phase = attempt.report ? "reported" : "running";
+              yield* persist(run);
+            }
+            if (now - attempt.lastActiveAt >= attempt.remainingMs) {
               attempt.phase = "unresolved";
-              attempt.reason = "Execution settled after one reminder without an accepted report.";
-            } else
-              attempt.phase =
-                attempt.report.outcome === "completed"
-                  ? "completed"
-                  : attempt.report.outcome === "failed"
-                    ? "failed"
-                    : "unresolved";
+              attempt.reason = "The execution timeout expired.";
+            } else if (
+              active ||
+              state.outstandingWork.length > 0 ||
+              state.checkpoints.some((checkpoint) =>
+                ["pending", "capturing", "running"].includes(checkpoint.status),
+              )
+            )
+              return;
+            else {
+              const execution = state.runs.findLast(
+                (run) => state.resultRunId === undefined || run.id === state.resultRunId,
+              );
+              if (!execution) return;
+              if (["interrupted", "cancelled", "rolled_back"].includes(execution.status)) {
+                attempt.phase = "interrupted";
+                attempt.resumable =
+                  state.nativeSession?.canResume === true &&
+                  !attempt.report &&
+                  attempt.remainingMs > now - attempt.lastActiveAt &&
+                  (attempt.deadline === null || attempt.deadline > now);
+                attempt.remainingMs = Math.max(
+                  0,
+                  attempt.remainingMs - (now - attempt.lastActiveAt),
+                );
+                attempt.reason = "Native execution was explicitly interrupted.";
+              } else if (
+                execution.status === "failed" ||
+                state.checkpoints.some((checkpoint) =>
+                  ["failed", "missing", "error", "stale"].includes(checkpoint.status),
+                )
+              ) {
+                attempt.phase = "failed";
+                attempt.reason = "Native execution or checkpoint failed.";
+              } else if (execution.status !== "completed") return;
+              else if (!attempt.report) {
+                if (!attempt.reminderSent) {
+                  attempt.phase = "reminding";
+                  yield* persist(run);
+                  return;
+                }
+                attempt.phase = "unresolved";
+                attempt.reason = "Execution settled after one reminder without an accepted report.";
+              } else
+                attempt.phase =
+                  attempt.report.outcome === "completed"
+                    ? "completed"
+                    : attempt.report.outcome === "failed"
+                      ? "failed"
+                      : "unresolved";
+            }
           }
-        }
-        if (attempt.branchId === null) {
-          const node = run.definition.nodes.find((node) => node.id === attempt.nodeId)!;
-          if (node.kind === "agent") {
-            if (attempt.phase === "completed")
-              transition(run, node.id, node.next, now, {
-                attemptId,
-                sourceIds: [attempt.report!.receipt.id],
-              });
-            else if (node.onUnresolved)
-              transition(run, node.id, node.onUnresolved, now, {
-                attemptId,
-                reason: attempt.reason ?? "The agent reported unsuccessful execution.",
-              });
-            else unresolved(run, attempt.reason ?? "The agent reported unsuccessful execution.");
-          }
-        } else yield* enqueue(run, `${run.id}:join:${attempt.id}`, "node");
-        yield* persist(run);
-      }),
-    );
-  });
+          if (attempt.branchId === null) {
+            const node = run.definition.nodes.find((node) => node.id === attempt.nodeId)!;
+            if (node.kind === "agent") {
+              if (attempt.phase === "completed")
+                transition(run, node.id, node.next, now, {
+                  attemptId,
+                  sourceIds: [attempt.report!.receipt.id],
+                });
+              else if (node.onUnresolved)
+                transition(run, node.id, node.onUnresolved, now, {
+                  attemptId,
+                  reason: attempt.reason ?? "The agent reported unsuccessful execution.",
+                });
+              else unresolved(run, attempt.reason ?? "The agent reported unsuccessful execution.");
+            }
+          } else yield* enqueue(run, `${run.id}:join:${attempt.id}`, "node");
+          yield* persist(run);
+        }),
+      );
+      if (mutation !== before) yield* notify;
+    },
+    (effect) => protect("settlement", effect.pipe(lock.withPermits(1))),
+  );
   const expireAdmission = Effect.fnUntraced(function* (run: Run, attempt: Attempt) {
     const now = yield* Clock.currentTimeMillis;
     if (now < (attempt.deadline ?? attempt.lastActiveAt + attempt.remainingMs)) return true;
@@ -942,9 +975,8 @@ const make = Effect.gen(function* () {
           !terminalAttempt(attempt) &&
           !["launching", "resuming"].includes(attempt.phase)
         ) {
-          const inspected = yield* host.inspect(target(run, attempt)).pipe(Effect.result);
-          if (inspected._tag === "Success") yield* settle(run.id, attempt.id, inspected.success);
-          else if (inspected.failure.code === "unavailable")
+          const settlement = yield* settle(run.id, attempt.id).pipe(Effect.result);
+          if (settlement._tag === "Failure" && settlement.failure.code === "unavailable")
             yield* transaction(
               "reconcile",
               Effect.gen(function* () {
@@ -1299,8 +1331,8 @@ const make = Effect.gen(function* () {
         const current = run.attempts.find((attempt) => attempt.id === item.attempt_id)!;
         if (!isCurrent(current) || !current.threadId) return;
         yield* host.cancelPending(target(run, current));
-        const launched = current.launch ? yield* host.receipt(commandId(current, "launch")) : null;
-        if (!launched || launched.status !== "accepted") return;
+        const [launched] = yield* Effect.forEach(admissionIds(current), (id) => host.receipt(id));
+        if (!current.launch || !launched || launched.status !== "accepted") return;
         // Hold the command lock so an explicit Resume cannot race an older interruption.
         const inspected = yield* host.inspect(target(run, current)).pipe(Effect.result);
         if (inspected._tag === "Failure") {
@@ -1456,17 +1488,7 @@ const make = Effect.gen(function* () {
       return;
     }
     const agent = agentFor(observed, attempt)!;
-    const providers = yield* host.providers();
-    if (
-      !providers.some(
-        (provider) =>
-          provider.instanceId === agent.modelSelection.instanceId &&
-          provider.toolsSupported &&
-          provider.available === true &&
-          provider.runtimeModes.includes(agent.runtimeMode),
-      )
-    )
-      return yield* error("launch", "Reporting-tool capability is unavailable.", "unsupported");
+    yield* verifyProvider(observed, attempt, "launch");
     yield* verifySkill(observed, attempt, "launch");
     let launch = attempt.launch;
     if (!launch) {
@@ -1627,7 +1649,7 @@ const make = Effect.gen(function* () {
           // Plugin acquisition precedes host recovery; revoke stale authority before its replay.
           if (["launching", "resuming"].includes(attempt.phase) && attempt.reviewId)
             yield* verifyReviewFreshness(run, attempt);
-          if (["launching", "resuming"].includes(attempt.phase) && attempt.skill) {
+          if (["launching", "resuming"].includes(attempt.phase) && attempt.threadId) {
             const operation = attempt.phase === "resuming" ? "resume" : "launch";
             const id = commandId(
               attempt,
@@ -1636,10 +1658,13 @@ const make = Effect.gen(function* () {
             );
             const committed = yield* host.receipt(id);
             if (committed?.status !== "accepted") {
-              const validation = yield* verifySkill(run, attempt, operation).pipe(Effect.result);
+              const validation = yield* verifyProvider(run, attempt, operation).pipe(
+                Effect.andThen(verifySkill(run, attempt, operation)),
+                Effect.result,
+              );
               if (validation._tag === "Failure")
                 yield* transaction(
-                  "recover-skill",
+                  "recover-admission",
                   Effect.gen(function* () {
                     const current = yield* load(run.id);
                     const owned = current.attempts.find((item) => item.id === attempt.id)!;
@@ -1709,10 +1734,13 @@ const make = Effect.gen(function* () {
     readonly definitionId: string;
     readonly input: StartInput["input"];
   }) {
-    const id = `workflow-${digest([host.environmentId, input.projectId, input.occurrenceId]).slice(0, 32)}`;
+    const clientRequestId = `schedule:${digest(input.occurrenceId)}`;
+    const id = `workflow-${digest([host.environmentId, input.projectId, clientRequestId]).slice(0, 32)}`;
+    // Receipts retained by older versions used the raw occurrence identity.
+    const legacyId = `workflow-${digest([host.environmentId, input.projectId, input.occurrenceId]).slice(0, 32)}`;
     const [previous] = yield* sql<{
       result: string;
-    }>`SELECT result FROM workflow_commands WHERE id = ${id}`;
+    }>`SELECT result FROM workflow_commands WHERE id IN (${id}, ${legacyId})`;
     if (previous) return yield* decodeRun(previous.result);
     const entries = yield* catalog.list({
       environmentId: host.environmentId,
@@ -1730,7 +1758,7 @@ const make = Effect.gen(function* () {
     return yield* start({
       environmentId: host.environmentId,
       projectId: input.projectId,
-      clientRequestId: input.occurrenceId,
+      clientRequestId,
       definition: entry.definition,
       input: input.input,
     });
