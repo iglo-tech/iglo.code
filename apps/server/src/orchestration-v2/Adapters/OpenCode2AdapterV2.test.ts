@@ -80,6 +80,10 @@ const mcpRules = [
   { action: "t3-code-*", resource: "*", effect: "deny" },
   { action: "t3-code-thread_opencode2-adapter_*", resource: "*", effect: "allow" },
 ];
+const supervisedMcpRules = [
+  ...mcpRules,
+  { action: "t3-code-thread_opencode2-adapter_plugin_*", resource: "*", effect: "ask" },
+];
 const t3Rules = [{ action: "*", resource: "*", effect: "allow" }, ...mcpRules];
 const sessionInfo = (overrides: Record<string, unknown> = {}) => ({
   id: SESSION,
@@ -277,7 +281,7 @@ const supervisedRules = [
   { action: "edit", resource: "*", effect: "ask" },
   { action: "external_directory", resource: "*", effect: "ask" },
   ...buildPaths,
-  ...mcpRules,
+  ...supervisedMcpRules,
 ];
 
 // The first ask and question form the spike recorded (recordings/permission, question).
@@ -778,7 +782,7 @@ describe("OpenCode2 adapter", () => {
         // A subagent's session may use its thread's T3 MCP server.
         out("session.update", {
           sessionID: CHILD,
-          permissions: [...supervisedRules.slice(0, 3), ...mcpRules],
+          permissions: [...supervisedRules.slice(0, 3), ...supervisedMcpRules],
         }),
         reply("session.update", null),
         out("session.prompt", { sessionID: SESSION, text: "<any>" }),
@@ -1897,7 +1901,7 @@ describe("OpenCode2 adapter", () => {
               ...supervisedRules.slice(0, 3),
               { action: "shell", resource: "echo *", effect: "allow" },
               // A subagent's session may use its thread's T3 MCP server.
-              ...mcpRules,
+              ...supervisedMcpRules,
             ],
           }),
           reply("session.update", null),
@@ -2072,7 +2076,7 @@ describe("OpenCode2 adapter", () => {
         // The subagent gets them too before its execution runs anything.
         out("session.update", {
           sessionID: CHILD,
-          permissions: [...supervisedRules.slice(0, 3), ...mcpRules],
+          permissions: [...supervisedRules.slice(0, 3), ...supervisedMcpRules],
         }),
         reply("session.update", null),
         event("session.execution.started", { sessionID: CHILD }),
@@ -2704,9 +2708,9 @@ describe("OpenCode2 adapter", () => {
       }).pipe(Effect.scoped),
   );
 
-  it.live(
-    "injects plugin reporting permission on new and resumed managed sessions with refreshed credentials",
-    () =>
+  it.live.each(["full-access", "approval-required"] as const)(
+    "injects plugin reporting permission on new and resumed managed sessions with refreshed credentials in %s",
+    (runtimeMode) =>
       Effect.scoped(
         Effect.gen(function* () {
           const server = "t3-code-thread_opencode2-adapter";
@@ -2715,7 +2719,14 @@ describe("OpenCode2 adapter", () => {
             resource: "*",
             effect: "allow",
           };
-          const permissions = [...t3Rules, pluginRule];
+          const paths =
+            runtimeMode === "full-access"
+              ? []
+              : [out("agent.list", "<any>"), reply("agent.list", agentList)];
+          const permissions = [
+            ...(runtimeMode === "full-access" ? t3Rules : supervisedRules),
+            pluginRule,
+          ];
           const fixture = yield* makePluginToolFixture("opencode", threadId);
           const firstCredential = yield* fixture.issue;
           const injection = (credential: McpProviderSession.McpProviderSessionConfig) => [
@@ -2738,6 +2749,7 @@ describe("OpenCode2 adapter", () => {
           ];
           const first = yield* openCode2ReplayRuntimeWithInstructions([
             ...opening,
+            ...paths,
             out("session.create", {
               location: { directory: WORK },
               model: { providerID: "opencode", id: "big-pickle" },
@@ -2749,10 +2761,10 @@ describe("OpenCode2 adapter", () => {
           const created = yield* first.ensureThread({
             threadId,
             modelSelection: bigPickle,
-            runtimePolicy: policy(),
+            runtimePolicy: policy(runtimeMode),
           });
           const initialTerminal = yield* terminalOf(first).pipe(Effect.forkScoped);
-          yield* first.startTurn(turnInput(created));
+          yield* first.startTurn(turnInput(created, bigPickle, runtimeMode));
           assert.equal((yield* Fiber.join(initialTerminal))?.status, "completed");
           yield* fixture.report(
             {
@@ -2768,16 +2780,17 @@ describe("OpenCode2 adapter", () => {
             out("session.get", { sessionID: SESSION }),
             replyData("session.get", sessionInfo({ permissions })),
             ...noOpenRequests,
+            ...paths,
             ...injection(freshCredential),
           ]);
           const resumedThread = yield* second.resumeThread({
             providerThread: created,
             threadId,
             modelSelection: bigPickle,
-            runtimePolicy: policy(),
+            runtimePolicy: policy(runtimeMode),
           });
           const resumedTerminal = yield* terminalOf(second).pipe(Effect.forkScoped);
-          yield* second.startTurn(turnInput(resumedThread));
+          yield* second.startTurn(turnInput(resumedThread, bigPickle, runtimeMode));
           assert.equal((yield* Fiber.join(resumedTerminal))?.status, "completed");
           yield* fixture.report(
             {

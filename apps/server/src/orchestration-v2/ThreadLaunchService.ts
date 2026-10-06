@@ -632,6 +632,24 @@ const make = Effect.gen(function* () {
               ),
             );
           }
+          if (tracked && runId === null && !preparationReleased) {
+            yield* threads
+              .dispatch({
+                type: "thread.metadata.update",
+                commandId: CommandId.make(`${input.commandId}:workspace-settled:${preparationId}`),
+                threadId,
+              })
+              .pipe(
+                Effect.catchCause((persistCause) =>
+                  Effect.logWarning("Failed to persist workspace preparation settlement", {
+                    commandId: input.commandId,
+                    threadId,
+                    preparationId,
+                    cause: persistCause,
+                  }),
+                ),
+              );
+          }
         }),
       ),
     );

@@ -116,6 +116,7 @@ export interface PluginTool {
     readonly EncodingServices: never;
   };
   readonly output: Schema.Top & {
+    readonly Encoded: Schema.JsonObject;
     readonly DecodingServices: never;
     readonly EncodingServices: never;
   };
@@ -133,11 +134,11 @@ export interface PluginTool {
 }
 
 /** Erases types only after binding each schema to its typed handler. */
-export const tool = <I, O>(definition: {
+export const tool = <I, O, E extends Schema.JsonObject>(definition: {
   readonly id: string;
   readonly description: string;
   readonly input: Schema.Codec<I>;
-  readonly output: Schema.Codec<O>;
+  readonly output: Schema.Codec<O, E>;
   readonly permission: PluginTool["permission"];
   readonly invoke: (input: I, caller: PluginToolCaller) => Effect.Effect<O, PluginError>;
 }): PluginTool => ({

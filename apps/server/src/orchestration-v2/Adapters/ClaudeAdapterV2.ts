@@ -116,6 +116,7 @@ import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanc
 import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "../../provider/T3OrchestrationInstructions.ts";
 import { buildRuntimeInstructions } from "../../provider/RuntimeInstructions.ts";
 import { mcpToolPresentation, normalizeMcpText } from "../../provider/McpToolPresentation.ts";
+import { coreMcpToolNames } from "../../mcp/coreMcpToolNames.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as IdAllocator from "../IdAllocator.ts";
 import { makeProviderFailure, makeProviderRetryTurnItem } from "../ProviderFailure.ts";
@@ -954,15 +955,13 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
 // above that and the server's own wait timeout is what ends a long call.
 export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 
-// The SDK's `allowedTools` only pre-approves tool calls; availability is the
-// separate `tools` option. Attaching the t3-code MCP server therefore always
-// pre-approves its tools (headless modes like `dontAsk` deny anything that is
-// not pre-approved), but read-only sandboxes pre-approve only the annotated
-// read-only orchestrator tools so a read-only session cannot silently spawn
-// threads or scheduled tasks.
+// `allowedTools` pre-approves calls. Supervised queries keep core grants and
+// explicitly allowed plugin tools; other plugin mutations use canUseTool.
+// Read-only sandboxes retain their narrower core allowlist for headless modes.
 export function claudeMcpQueryOverrides(input: {
   readonly threadId: ThreadId;
   readonly readOnlySandbox: boolean;
+  readonly supervised?: boolean;
   readonly allowedTools?: ReadonlyArray<string>;
 }): {
   readonly allowedTools?: ReadonlyArray<string>;
@@ -977,7 +976,11 @@ export function claudeMcpQueryOverrides(input: {
         ...CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS,
         ...(session.readOnlyPluginTools ?? []).map((id) => `mcp__t3-code__${id}`),
       ]
-    : [CLAUDE_T3_MCP_TOOL_WILDCARD];
+    : input.supervised
+      ? [...coreMcpToolNames, ...(session.readOnlyPluginTools ?? [])].map(
+          (id) => `mcp__t3-code__${id}`,
+        )
+      : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
     allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),
     mcpServers: {
@@ -6919,6 +6922,7 @@ export function makeClaudeAdapterV2(
           const queryPolicy = claudeRuntimeQueryPolicyForRuntimePolicy(turnInput.runtimePolicy);
           const mcpOverrides = claudeMcpQueryOverrides({
             threadId: turnInput.threadId,
+            supervised: shouldInstallClaudePermissionCallback(queryPolicy),
             readOnlySandbox:
               sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",
             ...(queryPolicy.allowedTools === undefined

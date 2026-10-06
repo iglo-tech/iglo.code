@@ -5,6 +5,7 @@ import { McpSchema } from "effect/unstable/ai";
 /** Use the same wire descriptor for guarded validation and MCP publication. */
 export const make = (tool: PluginTool) => {
   const input = Schema.toJsonSchemaDocument(tool.input);
+  const output = Schema.toJsonSchemaDocument(tool.output);
   return new McpSchema.Tool({
     name: tool.id,
     description: tool.description,
@@ -13,6 +14,11 @@ export const make = (tool: PluginTool) => {
       type: "object",
       ...input.schema,
       ...(Object.keys(input.definitions).length === 0 ? {} : { $defs: input.definitions }),
+    },
+    outputSchema: {
+      type: "object",
+      ...output.schema,
+      ...(Object.keys(output.definitions).length === 0 ? {} : { $defs: output.definitions }),
     },
     annotations: {
       readOnlyHint: tool.permission.readOnly,

@@ -455,15 +455,24 @@ const t3McpServerName = (threadId: string) =>
 /**
  * The rules that keep T3's MCP servers to their own thread, after the mode's:
  * the last matching rule wins, so every thread's T3 server is denied and then
- * this thread's own is allowed again, in every mode. A subagent's session
- * inherits the thread's.
+ * this thread's own is allowed again. Supervised plugin mutations ask unless
+ * explicitly allowed. A subagent's session inherits the thread's.
  */
-const mcpRules = (threadId: string | null): ReadonlyArray<Rule> =>
+const mcpRules = (threadId: string | null, policy: RulesPolicy): ReadonlyArray<Rule> =>
   threadId === null
     ? []
     : [
         { action: "t3-code-*", resource: "*", effect: "deny" },
         { action: `${t3McpServerName(threadId)}_*`, resource: "*", effect: "allow" },
+        ...(policy.runtimeMode === "full-access"
+          ? []
+          : [
+              {
+                action: `${t3McpServerName(threadId)}_plugin_*`,
+                resource: "*",
+                effect: "ask" as const,
+              },
+            ]),
         ...(
           McpProviderSession.readMcpProviderSession(ThreadId.make(threadId))?.readOnlyPluginTools ??
           []
@@ -492,7 +501,7 @@ const sessionRules = (
   // are never denied: the free tier refuses sessions whose rules deny them.
   ...(policy.interactionMode === "plan" ? [rule("edit", "deny")] : []),
   ...paths,
-  ...mcpRules(threadId),
+  ...mcpRules(threadId, policy),
 ];
 
 const sameRules = (left: ReadonlyArray<Rule> | undefined, right: ReadonlyArray<Rule>) =>
