@@ -58,6 +58,7 @@ export class Host extends Context.Service<
     readonly retryPreparation: (
       input: PluginTarget & { readonly commandId: CommandId; readonly runId: string },
     ) => Effect.Effect<PluginCommandReceipt, PluginError>;
+    /** In-flight dispatch returns a retryable service error; null means settled without a core receipt. */
     readonly receipt: (
       commandId: CommandId,
     ) => Effect.Effect<PluginCommandReceipt | null, PluginError>;

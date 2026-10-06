@@ -366,6 +366,21 @@ export const make = (pluginId: string) =>
       result === null
         ? Effect.fail(error("receipt", "The committed command has no receipt."))
         : Effect.succeed(result);
+    const settled = (id: CommandId) =>
+      lock.activeKeys.pipe(
+        Effect.flatMap((active) =>
+          active.includes(id)
+            ? Effect.fail(
+                new PluginError({
+                  pluginId,
+                  code: "service",
+                  operation: "receipt",
+                  message: "This host command is still dispatching. Reconcile its receipt again.",
+                }),
+              )
+            : Effect.void,
+        ),
+      );
     const service = Host.of({
       ...core,
       launch: (input) => execute({ kind: "launch", input }).pipe(Effect.flatMap(required)),
@@ -400,6 +415,8 @@ export const make = (pluginId: string) =>
         ),
       receipt: (id) =>
         Effect.gen(function* () {
+          // Absence is only authoritative once a dispatched operation can no longer commit.
+          yield* settled(id);
           const [row] = yield* sql<{
             result: string | null;
             intent: string;
@@ -409,6 +426,7 @@ export const make = (pluginId: string) =>
           const result = yield* core.receipt(coreId(yield* decodeIntent(row.intent)));
           return result === null ? null : { ...result, commandId: id };
         }).pipe(
+          Effect.tap(() => settled(id)),
           Effect.mapError((cause) =>
             isPluginError(cause)
               ? cause

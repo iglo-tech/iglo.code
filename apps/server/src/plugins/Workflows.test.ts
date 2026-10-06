@@ -6,6 +6,7 @@ import { fixture, sequence, completed, parallel } from "./Workflows.testkit.ts";
 import * as Schema from "effect/Schema";
 import { Definition, Run, RunSummary, CatalogEntry } from "@t3tools/plugin-workflows/contracts";
 import * as TestClock from "effect/testing/TestClock";
+import * as Clock from "effect/Clock";
 import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
 
@@ -282,7 +283,9 @@ it.effect(
         const state = test.threads.get(threadId)!;
         test.threads.set(threadId, {
           ...state,
-          requests: [{ id: "input", kind: "user-input", status: "pending" }],
+          requests: [
+            { id: "input", kind: "user-input", status: "pending", createdAt: 0, resolvedAt: null },
+          ],
         });
         yield* test.reconcile;
         yield* TestClock.adjust("2 minutes");
@@ -295,7 +298,15 @@ it.effect(
         test.threads.set(threadId, {
           ...state,
           runs: [{ id: state.runs[0]!.id, status: "interrupted" }],
-          requests: [],
+          requests: [
+            {
+              id: "input",
+              kind: "user-input",
+              status: "resolved",
+              createdAt: 0,
+              resolvedAt: yield* Clock.currentTimeMillis,
+            },
+          ],
         });
         yield* test.reconcile;
         const interrupted = yield* test.wait(run.id, (run) => run.state === "unresolved");
@@ -770,7 +781,9 @@ it.effect("expires an agent execution and review human waits at their persisted 
         const state = test.threads.get(attempt.threadId!)!;
         test.threads.set(attempt.threadId!, {
           ...state,
-          requests: [{ id: "approval", kind: "approval", status: "pending" }],
+          requests: [
+            { id: "approval", kind: "approval", status: "pending", createdAt: 0, resolvedAt: null },
+          ],
         });
       }
       yield* test.reconcile;
@@ -956,7 +969,9 @@ it.effect("reconciles later runs fairly while an older batch remains in native i
         const state = test.threads.get(threadId)!;
         test.threads.set(threadId, {
           ...state,
-          requests: [{ id: "input", kind: "user-input", status: "pending" }],
+          requests: [
+            { id: "input", kind: "user-input", status: "pending", createdAt: 0, resolvedAt: null },
+          ],
         });
       }
       const last = runs.at(-1)!;

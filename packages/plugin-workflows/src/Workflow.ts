@@ -110,6 +110,24 @@ const target = (run: Run, attempt: Attempt): PluginTarget => ({
   threadId: attempt.threadId!,
 });
 
+/** Charge only execution time between observations, excluding overlapping native input waits. */
+const executionElapsed = (requests: PluginThreadState["requests"], from: number, until: number) => {
+  let cursor = from;
+  let elapsed = 0;
+  for (const request of requests.toSorted((left, right) => left.createdAt - right.createdAt)) {
+    const start = Math.max(from, request.createdAt);
+    const end = Math.min(
+      until,
+      request.resolvedAt ??
+        (["pending", "waiting"].includes(request.status) ? until : request.createdAt),
+    );
+    if (end <= cursor || start >= until) continue;
+    elapsed += Math.max(0, start - cursor);
+    cursor = Math.max(cursor, end);
+  }
+  return elapsed + Math.max(0, until - cursor);
+};
+
 const make = Effect.gen(function* () {
   const host = yield* Host;
   const { sql } = yield* Storage;
@@ -738,33 +756,64 @@ const make = Effect.gen(function* () {
         )
           return;
         const active = activeRun(state);
-        const request = state.requests.some((request) =>
+        const pendingRequests = state.requests.filter((request) =>
           ["pending", "waiting"].includes(request.status),
         );
+        const request = pendingRequests.length > 0;
         const agent = agentFor(run, attempt)!;
+        const accountingFrom = Math.max(
+          attempt.lastActiveAt,
+          attempt.waitStartedAt ?? attempt.lastActiveAt,
+        );
+        const humanExpired =
+          agent.humanTimeoutMs !== undefined &&
+          state.requests.some((request) => {
+            const end =
+              request.resolvedAt ??
+              (["pending", "waiting"].includes(request.status) ? now : request.createdAt);
+            return end > accountingFrom && end - request.createdAt >= agent.humanTimeoutMs!;
+          });
         attempt.nativeSessionId = state.nativeSession?.id ?? null;
         if (attempt.deadline !== null && now >= attempt.deadline) {
           attempt.phase = "unresolved";
           attempt.reason = "The review branch deadline expired.";
+        } else if (humanExpired) {
+          attempt.phase = "unresolved";
+          attempt.reason = "The human-response deadline expired.";
         } else if (request) {
-          const enteredWait = attempt.waitStartedAt === null;
+          const waitStartedAt = Math.min(
+            now,
+            ...pendingRequests.map((request) => request.createdAt),
+          );
+          const enteredWait = attempt.waitStartedAt !== waitStartedAt;
           if (enteredWait) {
-            attempt.remainingMs = Math.max(0, attempt.remainingMs - (now - attempt.lastActiveAt));
-            attempt.waitStartedAt = now;
+            const until = Math.max(accountingFrom, waitStartedAt);
+            attempt.remainingMs = Math.max(
+              0,
+              attempt.remainingMs - executionElapsed(state.requests, accountingFrom, until),
+            );
+            attempt.lastActiveAt = until;
+            attempt.waitStartedAt = waitStartedAt;
             attempt.phase = "waiting-input";
           }
-          if (
-            agent.humanTimeoutMs &&
-            now - (attempt.waitStartedAt ?? now) >= agent.humanTimeoutMs
-          ) {
+          if (attempt.remainingMs === 0) {
             attempt.phase = "unresolved";
-            attempt.reason = "The human-response deadline expired.";
+            attempt.reason = "The execution timeout expired.";
           } else {
             if (enteredWait) yield* persist(run);
             return;
           }
         } else {
-          if (attempt.waitStartedAt !== null) {
+          if (
+            attempt.waitStartedAt !== null ||
+            state.requests.some(
+              (request) => request.resolvedAt !== null && request.resolvedAt > accountingFrom,
+            )
+          ) {
+            attempt.remainingMs = Math.max(
+              0,
+              attempt.remainingMs - executionElapsed(state.requests, accountingFrom, now),
+            );
             attempt.waitStartedAt = null;
             attempt.lastActiveAt = now;
             attempt.phase = attempt.report ? "reported" : "running";
@@ -1578,6 +1627,33 @@ const make = Effect.gen(function* () {
           // Plugin acquisition precedes host recovery; revoke stale authority before its replay.
           if (["launching", "resuming"].includes(attempt.phase) && attempt.reviewId)
             yield* verifyReviewFreshness(run, attempt);
+          if (["launching", "resuming"].includes(attempt.phase) && attempt.skill) {
+            const operation = attempt.phase === "resuming" ? "resume" : "launch";
+            const id = commandId(
+              attempt,
+              operation,
+              operation === "resume" ? attempt.resumeCount : undefined,
+            );
+            const committed = yield* host.receipt(id);
+            if (committed?.status !== "accepted") {
+              const validation = yield* verifySkill(run, attempt, operation).pipe(Effect.result);
+              if (validation._tag === "Failure")
+                yield* transaction(
+                  "recover-skill",
+                  Effect.gen(function* () {
+                    const current = yield* load(run.id);
+                    const owned = current.attempts.find((item) => item.id === attempt.id)!;
+                    if (current.state !== "running" || terminalAttempt(owned)) return;
+                    owned.phase = "unresolved";
+                    owned.reason = validation.failure.message;
+                    if (owned.branchId)
+                      yield* enqueue(current, `${current.id}:join:${owned.id}`, "node");
+                    else unresolved(current, owned.reason);
+                    yield* persist(current);
+                  }),
+                );
+            }
+          }
           // Running checks have no replay guarantee. Retain their ambiguity across restart.
           if (!attempt.threadId && attempt.phase === "running")
             yield* completeCheck(run.id, attempt.id, {

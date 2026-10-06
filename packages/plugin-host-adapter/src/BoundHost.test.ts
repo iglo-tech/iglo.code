@@ -120,6 +120,12 @@ it.effect("retains a core commit from a send already dispatched when its owner c
       const recovery = yield* bound.recover.pipe(Effect.forkScoped);
       yield* test.sendStarted;
       yield* test.sql.withTransaction(bound.service.cancelPending(test.target));
+      expect(
+        yield* bound.service.receipt(CommandId.make("pending")).pipe(Effect.flip),
+      ).toMatchObject({
+        code: "service",
+        operation: "receipt",
+      });
       yield* test.releaseSend;
       yield* Fiber.join(recovery);
       yield* test.sql`DROP TRIGGER fail_ack`;

@@ -16,6 +16,7 @@ import {
   type PluginThreadState,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -278,6 +279,8 @@ const make = Effect.gen(function* () {
         id: request.id,
         status: request.status,
         kind: request.kind,
+        createdAt: DateTime.toEpochMillis(request.createdAt),
+        resolvedAt: request.resolvedAt === null ? null : DateTime.toEpochMillis(request.resolvedAt),
       })),
       checkpoints: records.checkpoints.map((checkpoint) => ({
         id: checkpoint.id,

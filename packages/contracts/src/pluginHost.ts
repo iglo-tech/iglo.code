@@ -156,7 +156,13 @@ export const PluginThreadState = Schema.Struct({
   resultRunId: Schema.optional(Schema.NullOr(Schema.String)),
   outstandingWork: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
   requests: Schema.Array(
-    Schema.Struct({ id: Schema.String, status: Schema.String, kind: Schema.String }),
+    Schema.Struct({
+      id: Schema.String,
+      status: Schema.String,
+      kind: Schema.String,
+      createdAt: Schema.Number,
+      resolvedAt: Schema.NullOr(Schema.Number),
+    }),
   ),
   checkpoints: Schema.Array(
     Schema.Struct({

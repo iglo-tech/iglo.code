@@ -4,6 +4,7 @@ import * as NodeSqlite from "node:sqlite";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
+import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -34,6 +35,8 @@ it.live.each([
   "unchanged-expired-outage",
   "unchanged-expired-live-outage",
   "unchanged-legacy-outage",
+  "skill-unchanged-outage",
+  "skill-changed-outage",
 ] as const)("retains Resume admission and review authority: %s", (scenario) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -44,8 +47,13 @@ it.live.each([
       const expired = scenario.includes("expired");
       const legacy = scenario.includes("legacy");
       const live = scenario.includes("live");
-      const admitted = !changed && !canceled && !expired;
+      const skillCase = scenario.startsWith("skill-");
+      const skillChanged = scenario === "skill-changed-outage";
+      const admitted = !changed && !canceled && !expired && !skillChanged;
       const test = yield* makeCoreWorkflowFixture;
+      const fs = yield* FileSystem.FileSystem;
+      const skillPath = `${test.config.baseDir}/SKILL.md`;
+      if (skillCase) yield* fs.writeFileString(skillPath, "# Skill\nOriginal work");
       const frozen = yield* test.core.resolveRef(test.scope.projectId, "HEAD");
       let head = frozen;
       let sends = 0;
@@ -54,6 +62,7 @@ it.live.each([
       const host = Host.of({
         ...test.core,
         lifecycle: () => Stream.never,
+        skills: () => Effect.succeed([{ name: "authored-skill", path: skillPath, enabled: true }]),
         verifyPullRequestHead: () => Effect.sync(() => ({ head, branch: "feature" })),
         send: (input) =>
           Effect.gen(function* () {
@@ -136,6 +145,7 @@ it.live.each([
             modelSelection: { instanceId: "codex", model: "fixture" },
             runtimeMode: "approval-required",
             instruction: "Apply the change authorized by the review",
+            skill: skillCase ? "authored-skill" : undefined,
             report: { fields: [] },
             next: { to: "done" },
           },
@@ -336,12 +346,14 @@ it.live.each([
           }
         }
         if (changed) yield* advanceHead;
+        if (skillChanged) yield* fs.writeFileString(skillPath, "# Skill\nDifferent work");
         sendUnavailable = false;
         if (!live) runtime = yield* test.boot(host);
         yield* runtime.invoke("reconcile", test.scope);
       }
       const observed = yield* get(started.id);
       expect(observed.state).toBe(canceled ? "canceled" : admitted ? "running" : "unresolved");
+      if (skillChanged) expect(observed.reason).toContain("skill");
       const native = yield* test.core.inspect({ ...test.scope, threadId });
       expect(sends).toBe(admitted ? 1 : 0);
       expect(native.runs).toHaveLength(admitted ? 2 : 1);

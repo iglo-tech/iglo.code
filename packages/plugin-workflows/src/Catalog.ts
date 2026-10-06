@@ -169,9 +169,25 @@ const make = Effect.gen(function* () {
         const directory = yield* root(input);
         const entry = yield* validate(input, input.definition);
         if (!entry.runnable) return yield* error("save", entry.reasons.join(" "));
-        const filename = path.join(directory, `${input.definition.id}.yaml`);
-        const exists = yield* fs.exists(filename);
-        const previous = exists ? (yield* read(filename, input.projectId)).definition : null;
+        const authored = (yield* list(input)).filter(
+          (entry) =>
+            !entry.source.startsWith("packaged:") && entry.definition?.id === input.definition.id,
+        );
+        if (authored.length > 1)
+          return yield* error(
+            "save",
+            "This workflow identity is duplicated in the project catalog.",
+            "conflict",
+          );
+        const source = authored[0]?.source ?? `${location}/${input.definition.id}.yaml`;
+        const filename = path.join(directory, path.basename(source));
+        if (!authored[0] && (yield* fs.exists(filename)))
+          return yield* error(
+            "save",
+            "The destination already contains another or invalid workflow definition.",
+            "conflict",
+          );
+        const previous = authored[0]?.definition;
         if (
           (previous?.revision ?? null) !== input.expectedRevision ||
           input.definition.revision !== (input.expectedRevision ?? 0) + 1
@@ -191,7 +207,7 @@ const make = Effect.gen(function* () {
         yield* fs
           .rename(temporary, filename)
           .pipe(Effect.ensuring(fs.remove(temporary).pipe(Effect.ignore)));
-        return { ...entry, source: `${location}/${input.definition.id}.yaml` };
+        return { ...entry, source };
       }).pipe(lock.withPermits(1)),
     );
   return Catalog.of({ validate, list, save });
