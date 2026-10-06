@@ -147,6 +147,7 @@ export const PluginThreadState = Schema.Struct({
   title: Schema.String,
   workspacePath: Schema.String,
   branch: Schema.NullOr(Schema.String),
+  preparationId: Schema.optional(Schema.String),
   runs: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
   outstandingWork: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
   requests: Schema.Array(

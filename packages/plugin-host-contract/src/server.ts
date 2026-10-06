@@ -60,7 +60,11 @@ export class Host extends Context.Service<
       },
     ) => Effect.Effect<PluginCommandReceipt, PluginError>;
     readonly interrupt: (
-      input: PluginTarget & { readonly commandId: CommandId; readonly runId?: string },
+      input: PluginTarget & {
+        readonly commandId: CommandId;
+        readonly runId?: string;
+        readonly preparationId?: string;
+      },
     ) => Effect.Effect<PluginCommandReceipt | null, PluginError>;
     readonly lifecycle: (
       input: PluginLifecycleScope,
@@ -175,6 +179,7 @@ export class Schedules extends Context.Service<
     readonly upsert: (input: PluginScheduleInput) => Effect.Effect<PluginSchedule, PluginError>;
     readonly list: () => Effect.Effect<ReadonlyArray<PluginSchedule>, PluginError>;
     readonly delete: (id: string) => Effect.Effect<void, PluginError>;
+    /** The retry identity is private to this plugin; dispatch receives a host-scoped id. */
     readonly runNow: (id: string, occurrenceId: string) => Effect.Effect<void, PluginError>;
     readonly registerDueWork: (
       run: Effect.Effect<void, PluginError>,

@@ -167,13 +167,21 @@ const make = Effect.gen(function* () {
       turnItems: records.turnItems,
       activeProviderThreadId: records.thread.activeProviderThreadId,
     });
+    const preparation = yield* setup.get(target.threadId);
+    const preparationId =
+      preparation?.phase === "running" &&
+      !preparation.stages.some((stage) => stage.id === "agent" && stage.status !== "pending")
+        ? preparation.preparationId
+        : undefined;
     return {
       ...target,
       title: records.thread.title,
       workspacePath: records.thread.worktreePath ?? workspace.workspaceRoot,
       branch: records.thread.branch,
+      ...(preparationId === undefined ? {} : { preparationId }),
       runs: runs.map((run) => ({ id: run.id, status: run.status })),
       outstandingWork: [
+        ...(preparationId === undefined ? [] : [{ id: preparationId, status: "running" }]),
         ...records.nodes
           .filter(
             (node) =>
@@ -373,16 +381,23 @@ const make = Effect.gen(function* () {
     workspace: (projectId) =>
       project(projectId).pipe(
         Effect.flatMap((project) =>
-          Effect.all({
-            status: git.status({ cwd: project.workspaceRoot }),
-            head: git.resolveCommit({ cwd: project.workspaceRoot, revision: "HEAD" }),
-          }).pipe(
-            Effect.map(({ status, head }) => ({
+          Effect.gen(function* () {
+            const status = yield* git.status({ cwd: project.workspaceRoot });
+            if (!status.isRepo) return { path: project.workspaceRoot, branch: null, head: null };
+            const head = yield* git.execute({
+              operation: "PluginHost.workspace.head",
+              cwd: project.workspaceRoot,
+              args: ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+              allowNonZeroExit: true,
+            });
+            if (head.exitCode !== 0 && head.exitCode !== 1)
+              return yield* fail("workspace", "Could not read workspace revision.", head.stderr);
+            return {
               path: project.workspaceRoot,
               branch: status.refName,
-              head: head.commitSha,
-            })),
-          ),
+              head: head.exitCode === 0 ? head.stdout.trim() : null,
+            };
+          }),
         ),
         Effect.mapError((cause) => fail("workspace", "Could not read workspace metadata.", cause)),
       ),
@@ -548,6 +563,29 @@ const make = Effect.gen(function* () {
         const existing = yield* receipt(input.commandId);
         if (existing !== null) return existing;
         const state = yield* inspect(input);
+        if (input.runId !== undefined && input.preparationId !== undefined)
+          return yield* fail("interrupt", "Choose one run or workspace preparation to interrupt.");
+        const activeRun = state.runs.findLast((run) =>
+          ["preparing", "starting", "running", "waiting"].includes(run.status),
+        );
+        const preparationId =
+          input.preparationId ??
+          (input.runId === undefined && activeRun === undefined ? state.preparationId : undefined);
+        if (preparationId !== undefined) {
+          yield* setup.cancel(input.threadId, preparationId);
+          yield* threads
+            .dispatch({
+              type: "thread.metadata.update",
+              commandId: input.commandId,
+              threadId: input.threadId,
+            })
+            .pipe(
+              Effect.mapError((cause) =>
+                fail("interrupt", "Could not acknowledge workspace cancellation.", cause),
+              ),
+            );
+          return yield* receipt(input.commandId);
+        }
         const selected =
           input.runId === undefined
             ? (state.runs.findLast((run) =>

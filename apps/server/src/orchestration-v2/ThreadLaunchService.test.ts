@@ -195,7 +195,18 @@ function makeHarness(options: HarnessOptions = {}) {
       }),
   );
   const launch = ThreadLaunch.layer.pipe(
-    Layer.provide(Layer.mergeAll(externalServices, threadManagement, receipts, IdAllocator.layer)),
+    Layer.provide(
+      Layer.mergeAll(
+        externalServices,
+        threadManagement,
+        receipts,
+        IdAllocator.layer,
+        Layer.succeed(
+          FileSystem.FileSystem,
+          FileSystem.makeNoop({ exists: () => Effect.succeed(true) }),
+        ),
+      ),
+    ),
   );
   const projectedProjects = Layer.mock(ProjectStore.ProjectStoreV2)({
     get: (requestedProjectId) =>

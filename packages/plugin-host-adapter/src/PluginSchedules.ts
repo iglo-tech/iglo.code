@@ -20,6 +20,9 @@ import * as Scheduler from "../../../apps/server/src/scheduling/Scheduler.ts";
 import * as ScheduleTargets from "../../../apps/server/src/scheduling/ScheduleTargets.ts";
 import * as ScheduledTasks from "../../../apps/server/src/scheduledTasks/ScheduledTaskService.ts";
 const isPluginError = Schema.is(PluginError);
+const encodeOccurrenceIdentity = Schema.encodeEffect(
+  Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String])),
+);
 
 export class ScheduleRegistration extends Context.Service<
   ScheduleRegistration,
@@ -120,11 +123,11 @@ export const make = Effect.gen(function* () {
           Effect.mapError((cause) => error("delete", cause)),
         ),
       runNow: (value, occurrenceId) =>
-        service().pipe(
-          Effect.flatMap((service) => service.runNow({ id: id(value), occurrenceId })),
-          Effect.asVoid,
-          Effect.mapError((cause) => error("runNow", cause)),
-        ),
+        Effect.gen(function* () {
+          const core = yield* service();
+          const scopedOccurrenceId = `plugin:${yield* encodeOccurrenceIdentity([pluginId, occurrenceId])}`;
+          yield* core.runNow({ id: id(value), occurrenceId: scopedOccurrenceId });
+        }).pipe(Effect.mapError((cause) => error("runNow", cause))),
       registerDueWork: (run) => scheduler.register(`plugin:${pluginId}`, run),
     }),
     start: Effect.gen(function* () {

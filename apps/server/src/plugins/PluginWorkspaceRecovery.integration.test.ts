@@ -378,51 +378,154 @@ it.live.each(["untracked", "tracked", "clean"] as const)(
     ),
 );
 
-it.live("keeps failed synchronous setup retryable with the original launch identity", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const s = yield* fixture;
-      const marker = s.config.baseDir + "/setup-results";
-      const configure = (fails: boolean) =>
-        s.projects.update({
+it.live.each([false, true])(
+  "keeps failed synchronous setup retryable with tracked edits=%s",
+  (trackedEdits) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const s = yield* fixture;
+        const marker = s.config.baseDir + "/setup-results";
+        const configure = (fails: boolean) =>
+          s.projects.update({
+            projectId: s.projectId,
+            commandId: CommandId.make(fails ? "bad-setup" : "good-setup"),
+            scripts: [
+              {
+                id: "setup",
+                name: "Setup",
+                icon: "configure",
+                command: `${fails && trackedEdits ? "printf setup-edited > tracked.txt; " : ""}printf '${fails ? "failed" : "good"}\\n' >> '${marker}'; exit ${fails ? 23 : 0}`,
+                runOnWorktreeCreate: true,
+                async: false,
+              },
+            ],
+          });
+        yield* configure(true);
+        const failed = yield* s.bound.host.launch(s.input).pipe(Effect.result);
+        expect(failed._tag).toBe("Failure");
+        const shell = (yield* s.threads.getShellSnapshot()).threads[0]!;
+        const tracker = Context.get(s.server.context, Tracker.WorktreeSetupTracker);
+        expect((yield* tracker.get(shell.id))?.phase).toBe("failed");
+        expect(
+          (yield* s.bound.storage.sql<{
+            result: string | null;
+          }>`SELECT result FROM host_commands WHERE id=${s.input.commandId}`)[0]?.result,
+        ).toBeNull();
+        yield* configure(false);
+        const recovered = yield* s.bound.host.launch(s.input);
+        expect(recovered.status).toBe("accepted");
+        expect(recovered.threadId).toBe(shell.id);
+        const preserved = (yield* s.threads.getThreadShell(shell.id))!.worktreePath!;
+        expect(preserved).toBe(shell.worktreePath);
+        if (trackedEdits)
+          expect(yield* s.fs.readFileString(preserved + "/tracked.txt")).toBe("setup-edited");
+        expect(yield* s.fs.readFileString(marker)).toBe("failed\ngood\n");
+        const repeat = yield* s.bound.host.launch(s.input);
+        expect(repeat).toEqual(recovered);
+        expect(yield* s.fs.readFileString(marker)).toBe("failed\ngood\n");
+        expect((yield* s.threads.getShellSnapshot()).threads).toHaveLength(1);
+        yield* Fiber.interrupt(s.server.fiber);
+      }),
+    ).pipe(
+      Effect.provide(NodeServices.layer),
+      Effect.exit,
+      Effect.map((exit) => expect(exit._tag).toBe("Success")),
+    ),
+);
+
+it.live(
+  "preparation interrupts keep their selected attempt after lost acknowledgement and restart",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const s = yield* fixture;
+        const fifo = s.config.baseDir + "/cancel-gate";
+        yield* s.spawner.exitCode(ChildProcess.make("mkfifo", [fifo]));
+        yield* s.projects.update({
           projectId: s.projectId,
-          commandId: CommandId.make(fails ? "bad-setup" : "good-setup"),
+          commandId: CommandId.make("gate-script"),
           scripts: [
             {
               id: "setup",
               name: "Setup",
               icon: "configure",
-              command: `printf '${fails ? "failed" : "good"}\\n' >> '${marker}'; exit ${fails ? 23 : 0}`,
+              command: `printf 'CANCEL_READY\\n'; cat '${fifo}'`,
               runOnWorktreeCreate: true,
               async: false,
             },
           ],
         });
-      yield* configure(true);
-      const failed = yield* s.bound.host.launch(s.input).pipe(Effect.result);
-      expect(failed._tag).toBe("Failure");
-      const shell = (yield* s.threads.getShellSnapshot()).threads[0]!;
-      const tracker = Context.get(s.server.context, Tracker.WorktreeSetupTracker);
-      expect((yield* tracker.get(shell.id))?.phase).toBe("failed");
-      expect(
-        (yield* s.bound.storage.sql<{
-          result: string | null;
-        }>`SELECT result FROM host_commands WHERE id=${s.input.commandId}`)[0]?.result,
-      ).toBeNull();
-      yield* configure(false);
-      const recovered = yield* s.bound.host.launch(s.input);
-      expect(recovered.status).toBe("accepted");
-      expect(recovered.threadId).toBe(shell.id);
-      expect(yield* s.fs.readFileString(marker)).toBe("failed\ngood\n");
-      const repeat = yield* s.bound.host.launch(s.input);
-      expect(repeat).toEqual(recovered);
-      expect(yield* s.fs.readFileString(marker)).toBe("failed\ngood\n");
-      expect((yield* s.threads.getShellSnapshot()).threads).toHaveLength(1);
-      yield* Fiber.interrupt(s.server.fiber);
-    }),
-  ).pipe(
-    Effect.provide(NodeServices.layer),
-    Effect.exit,
-    Effect.map((exit) => expect(exit._tag).toBe("Success")),
-  ),
+        const launching = yield* s.bound.host
+          .launch(s.input)
+          .pipe(Effect.result, Effect.forkScoped);
+        const created = yield* s.bound.host
+          .lifecycle({
+            environmentId: s.input.environmentId,
+            projectId: s.projectId,
+            afterCursor: 0,
+          })
+          .pipe(
+            Stream.filter((x) => x.kind === "event"),
+            Stream.runHead,
+          );
+        if (created._tag !== "Some" || created.value.kind !== "event")
+          return yield* Effect.die("missing thread");
+        const target = {
+          environmentId: s.input.environmentId,
+          projectId: s.projectId,
+          threadId: created.value.threadId,
+        };
+        const tracker = Context.get(s.server.context, Tracker.WorktreeSetupTracker);
+        const waitGate = (current: Tracker.WorktreeSetupTracker["Service"]) =>
+          current.stream(target.threadId).pipe(
+            Stream.filter(
+              (x) => x?.stages.some((stage) => stage.tail.includes("CANCEL_READY")) === true,
+            ),
+            Stream.runHead,
+          );
+        yield* waitGate(tracker);
+        const before = yield* s.bound.host.inspect(target);
+        expect(before.runs).toEqual([]);
+        expect(before.preparationId).toBeDefined();
+        expect(before.outstandingWork).toContainEqual({
+          id: before.preparationId,
+          status: "running",
+        });
+        const stop = { ...target, commandId: CommandId.make("stop-preparation") };
+        yield* s.bound.storage
+          .sql`CREATE TRIGGER lose_stop_ack BEFORE UPDATE OF result ON host_commands WHEN OLD.id='stop-preparation' BEGIN SELECT RAISE(ABORT,'lost acknowledgement'); END`;
+        expect((yield* s.bound.host.interrupt(stop).pipe(Effect.result))._tag).toBe("Failure");
+        expect((yield* tracker.get(target.threadId))?.phase).toBe("cancelled");
+        expect((yield* Fiber.join(launching))._tag).toBe("Failure");
+        const committed = yield* s.bound.host.receipt(stop.commandId);
+        expect(committed?.status).toBe("accepted");
+        const restarted = yield* s.restart();
+        const current = Context.get(restarted.server.context, Tracker.WorktreeSetupTracker);
+        yield* waitGate(current);
+        const resumed = yield* restarted.bound.host.inspect(target);
+        expect(resumed.preparationId).toBeDefined();
+        expect(resumed.preparationId).not.toBe(before.preparationId);
+        yield* restarted.bound.storage.sql`DROP TRIGGER lose_stop_ack`;
+        expect(yield* restarted.bound.host.interrupt(stop)).toEqual(committed);
+        expect((yield* current.get(target.threadId))?.phase).toBe("running");
+        yield* restarted.bound.host.interrupt({
+          ...stop,
+          commandId: CommandId.make("stale-attempt"),
+          preparationId: before.preparationId!,
+        });
+        expect((yield* current.get(target.threadId))?.phase).toBe("running");
+        const cancelled = yield* restarted.bound.host.interrupt({
+          ...stop,
+          commandId: CommandId.make("stop-current"),
+        });
+        expect(cancelled?.status).toBe("accepted");
+        expect((yield* current.get(target.threadId))?.phase).toBe("cancelled");
+        expect((yield* restarted.bound.host.inspect(target)).preparationId).toBeUndefined();
+        yield* Fiber.interrupt(restarted.server.fiber);
+      }),
+    ).pipe(
+      Effect.provide(NodeServices.layer),
+      Effect.exit,
+      Effect.map((exit) => expect(exit._tag).toBe("Success")),
+    ),
 );

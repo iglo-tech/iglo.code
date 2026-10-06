@@ -24,6 +24,7 @@ import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -174,6 +175,7 @@ const make = Effect.gen(function* () {
   const cloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
   const terminals = yield* TerminalManager.TerminalManager;
   const git = yield* GitWorkflow.GitWorkflowService;
+  const fileSystem = yield* FileSystem.FileSystem;
   const setupScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -243,6 +245,7 @@ const make = Effect.gen(function* () {
     if (input.workspaceStrategy.type === "worktree") {
       yield* setupTracker.begin({
         threadId,
+        preparationId,
         branch: input.workspaceStrategy.branch ?? null,
         baseRef: input.workspaceStrategy.baseRef,
         stages: ["fetch", "checkout", "setup-script", "agent"],
@@ -251,6 +254,7 @@ const make = Effect.gen(function* () {
     } else if (reused !== undefined) {
       yield* setupTracker.begin({
         threadId,
+        preparationId,
         branch: input.workspaceStrategy.branch ?? null,
         baseRef: reused.baseRef,
         stages: ["setup-script", "agent"],
@@ -900,14 +904,27 @@ const make = Effect.gen(function* () {
         // A retried root launch prepares the folder its first attempt bound, so
         // a Scratch thread keeps its own. Other root launches bind no folder.
         const boundWorktreePath = projection.thread.worktreePath;
+        // Setup can leave tracked edits in its recorded checkout. Reuse those;
+        // adoption checks still protect unrecorded recovery candidates.
+        const reusedWorktree =
+          shouldSchedule &&
+          runId === null &&
+          Option.isSome(launchReceipt) &&
+          workspaceStrategy.type === "worktree" &&
+          boundWorktreePath !== null &&
+          (yield* fileSystem
+            .exists(boundWorktreePath)
+            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))))
+            ? { baseRef: workspaceStrategy.baseRef }
+            : undefined;
         const preparationStrategy: ThreadLaunchWorkspaceStrategy =
           Option.isSome(launchReceipt) &&
-          workspaceStrategy.type === "root" &&
+          (workspaceStrategy.type === "root" || reusedWorktree !== undefined) &&
           boundWorktreePath !== null
             ? {
                 type: "existing_worktree",
                 worktreePath: boundWorktreePath,
-                branch: workspaceStrategy.branch,
+                branch: projection.thread.branch ?? workspaceStrategy.branch,
               }
             : workspaceStrategy;
         if (shouldSchedule) {
@@ -929,6 +946,7 @@ const make = Effect.gen(function* () {
                     ...input,
                     workspaceStrategy: preparationStrategy,
                     resumeWorktree: Option.isSome(launchReceipt),
+                    ...(reusedWorktree === undefined ? {} : { reusedWorktree }),
                   },
                   threadId,
                   runId,

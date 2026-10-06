@@ -21,6 +21,7 @@ const Interrupt = PluginTarget.mapFields((fields) => ({
   ...fields,
   commandId: CommandId,
   runId: Schema.optional(Schema.String),
+  preparationId: Schema.optional(Schema.String),
 }));
 const LaunchRequest = Schema.Struct({ kind: Schema.Literal("launch"), input: PluginLaunchInput });
 const SendRequest = Schema.Struct({ kind: Schema.Literal("send"), input: Send });
@@ -89,13 +90,23 @@ export const make = (pluginId: string) =>
           ? yield* core.launch({ ...intent.input, commandId: input.commandId })
           : intent.kind === "send"
             ? yield* core.send({ ...intent.input, commandId: input.commandId })
-            : intent.input.runId === null
-              ? null
-              : yield* core.interrupt({
-                  ...intent.input,
+            : intent.input.preparationId !== undefined
+              ? yield* core.interrupt({
+                  environmentId: intent.input.environmentId,
+                  projectId: intent.input.projectId,
+                  threadId: intent.input.threadId,
                   commandId: input.commandId,
-                  runId: intent.input.runId!,
-                });
+                  preparationId: intent.input.preparationId,
+                })
+              : intent.input.runId === null
+                ? null
+                : yield* core.interrupt({
+                    environmentId: intent.input.environmentId,
+                    projectId: intent.input.projectId,
+                    threadId: intent.input.threadId,
+                    commandId: input.commandId,
+                    runId: intent.input.runId!,
+                  });
       const receipt = result === null ? null : { ...result, commandId: intent.input.commandId };
       const encoded = yield* encodeReceipt(receipt);
       yield* sql`UPDATE host_commands SET result = ${encoded} WHERE id = ${intent.input.commandId}`;
@@ -145,14 +156,35 @@ export const make = (pluginId: string) =>
               }
             : requested;
         if (requested.kind === "interrupt") {
+          if (requested.input.runId !== undefined && requested.input.preparationId !== undefined)
+            return yield* new PluginError({
+              pluginId,
+              code: "conflict",
+              operation: "interrupt",
+              message: "Choose one run or workspace preparation to interrupt.",
+            });
           const state = yield* core.inspect(requested.input);
+          const activeRun = state.runs.findLast((run) =>
+            ["preparing", "starting", "running", "waiting"].includes(run.status),
+          );
+          const preparationId =
+            requested.input.preparationId ??
+            (requested.input.runId === undefined && activeRun === undefined
+              ? state.preparationId
+              : undefined);
           const active =
-            state.runs.findLast((run) =>
-              ["preparing", "starting", "running", "waiting"].includes(run.status),
-            ) ?? (state.outstandingWork.length > 0 ? state.runs.at(-1) : undefined);
+            activeRun ??
+            (preparationId === undefined && state.outstandingWork.length > 0
+              ? state.runs.at(-1)
+              : undefined);
           intent = {
             ...requested,
-            input: { ...requested.input, runId: requested.input.runId ?? active?.id ?? null },
+            input: {
+              ...requested.input,
+              runId:
+                preparationId === undefined ? (requested.input.runId ?? active?.id ?? null) : null,
+              ...(preparationId === undefined ? {} : { preparationId }),
+            },
           };
         }
         // A tuple separates public IDs from child-step suffixes and legacy plugin:id prefixes.
