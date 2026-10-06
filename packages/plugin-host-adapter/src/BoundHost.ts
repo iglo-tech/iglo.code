@@ -383,6 +383,8 @@ export const make = (pluginId: string) =>
               message: "The requested environment is not this server.",
             });
           // Only existing work intents lose authority. New resume commands on the same thread remain valid.
+          // SQL serializes this write with replay. Taking the dispatch lock here would invert
+          // its order with an owner's transaction; already dispatched work needs interruption.
           yield* sql`INSERT OR IGNORE INTO host_canceled_commands (id)
             SELECT id FROM host_commands WHERE result IS NULL
               AND json_extract(intent, '$.kind') IN ('launch', 'send')
@@ -390,7 +392,6 @@ export const make = (pluginId: string) =>
               AND json_extract(intent, '$.input.projectId') = ${target.projectId}
               AND json_extract(intent, '$.input.threadId') = ${target.threadId}`;
         }).pipe(
-          lock.withPermits(1),
           Effect.mapError((cause) =>
             isPluginError(cause)
               ? cause
