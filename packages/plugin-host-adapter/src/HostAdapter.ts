@@ -485,7 +485,13 @@ const make = Effect.gen(function* () {
                 fail("launch", "Could not reconcile workspace preparation.", cause),
               ),
             );
-          if (prepared?.worktreePath == null)
+          const cancelledBeforeRelease =
+            Option.isSome(completed) &&
+            completed.value?.phase === "cancelled" &&
+            !completed.value.stages.some(
+              (stage) => stage.id === "agent" && stage.status === "done",
+            );
+          if (prepared?.worktreePath == null || cancelledBeforeRelease)
             return yield* fail(
               "launch",
               Option.isSome(completed)

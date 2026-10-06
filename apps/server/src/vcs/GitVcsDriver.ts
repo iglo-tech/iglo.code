@@ -151,6 +151,8 @@ export interface CreateWorktreeProgress {
 export interface CreateWorktreeOptions {
   /** Reconcile the branch/path of a persisted provisioning intent, without resetting it. */
   readonly resume?: boolean;
+  /** Stable provisioning identity; branch creation records it for recovery and cleanup ownership. */
+  readonly ownerId?: string;
   readonly progress?: CreateWorktreeProgress;
   /**
    * The project-over-environment `worktreeSubmodules` setting. Null (or

@@ -28,6 +28,7 @@ import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Encoding from "effect/Encoding";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -115,6 +116,7 @@ const decodeInterruptIntent = Schema.decodeEffect(
 );
 it.live.each([
   "before workspace",
+  "after branch reservation",
   "after physical checkout",
   "after workspace",
   "async setup",
@@ -186,14 +188,29 @@ it.live.each([
       } else {
         threadId = (yield* s.host.launch({ ...input, commandId: coreCommandId })).threadId;
       }
+      if (crash === "after branch reservation") {
+        yield* git(
+          "update-ref",
+          "--create-reflog",
+          "-m",
+          `t3code-worktree:${Encoding.encodeHex(new TextEncoder().encode(`launch:${coreCommandId}`))}`,
+          `refs/heads/${input.workspace.branch}`,
+          ref,
+          "",
+        );
+        expect((yield* s.threads.getThreadShell(threadId))?.worktreePath).toBeNull();
+      }
       if (crash === "after physical checkout") {
-        const physical = yield* Context.get(s.server.context, Git.GitVcsDriver).createWorktree({
-          cwd: s.config.baseDir,
-          refName: ref,
-          newRefName: input.workspace.branch,
-          baseRefName: ref,
-          path: null,
-        });
+        const physical = yield* Context.get(s.server.context, Git.GitVcsDriver).createWorktree(
+          {
+            cwd: s.config.baseDir,
+            refName: ref,
+            newRefName: input.workspace.branch,
+            baseRefName: ref,
+            path: null,
+          },
+          { ownerId: `launch:${coreCommandId}` },
+        );
         expect((yield* s.threads.getThreadShell(threadId))?.worktreePath).toBeNull();
         expect(yield* git("worktree", "list", "--porcelain")).toContain(physical.worktree.path);
       }

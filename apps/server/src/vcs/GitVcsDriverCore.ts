@@ -3281,7 +3281,50 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const worktreePath = input.path ?? path.join(worktreesDir, repoName, sanitizedBranch);
     let createBranch = input.newRefName !== undefined;
     let checkoutExists = false;
-    if (options?.resume && input.newRefName && (yield* branchExists(input.cwd, targetBranch))) {
+    const branchExistsBeforeClaim =
+      options?.resume === true &&
+      input.newRefName !== undefined &&
+      (yield* branchExists(input.cwd, targetBranch));
+    if (options?.ownerId !== undefined && input.newRefName !== undefined) {
+      const ownerMarker = `t3code-worktree:${Encoding.encodeHex(new TextEncoder().encode(options.ownerId))}`;
+      if (options.resume && branchExistsBeforeClaim) {
+        const history = yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
+          "reflog",
+          "show",
+          "--format=%gs",
+          `refs/heads/${targetBranch}`,
+        ]);
+        if (!history.split("\n").includes(ownerMarker)) {
+          return yield* new GitCommandError({
+            ...gitCommandContext({
+              operation: "GitVcsDriver.createWorktree.ownership",
+              cwd: input.cwd,
+              args: ["reflog", "show"],
+            }),
+            detail: "The existing branch belongs to a different provisioning intent.",
+          });
+        }
+      } else {
+        const commit = (yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
+          "rev-parse",
+          "--verify",
+          `${input.refName}^{commit}`,
+        ])).trim();
+        // Atomically reserve a new branch and its owner before checkout I/O.
+        // An empty old value refuses an existing ref, including a concurrent claim.
+        yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+          "update-ref",
+          "--create-reflog",
+          "-m",
+          ownerMarker,
+          `refs/heads/${targetBranch}`,
+          commit,
+          "",
+        ]);
+      }
+      createBranch = false;
+    }
+    if (options?.resume && input.newRefName && branchExistsBeforeClaim) {
       const branchCommit = (yield* runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
         "rev-parse",
         "--verify",

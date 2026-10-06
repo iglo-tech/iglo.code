@@ -247,6 +247,7 @@ const make = Effect.gen(function* () {
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
     let preparationReleased = false;
+    const preparationId = yield* randomUuidV4;
     if (input.workspaceStrategy.type === "worktree") {
       yield* setupTracker.begin({
         threadId,
@@ -326,7 +327,7 @@ const make = Effect.gen(function* () {
         yield* threads
           .dispatch({
             type: "thread.metadata.update",
-            commandId: CommandId.make(`${input.commandId}:workspace-branch:${branch}`),
+            commandId: CommandId.make(`${input.commandId}:workspace-branch:${preparationId}`),
             threadId,
             branch,
           })
@@ -392,6 +393,7 @@ const make = Effect.gen(function* () {
             },
             {
               resume: input.resumeWorktree === true,
+              ownerId: runId === null ? `launch:${input.commandId}` : `run:${runId}`,
               progress: {
                 onWorktreeClaimed: (path) =>
                   Effect.sync(() => {
@@ -416,7 +418,7 @@ const make = Effect.gen(function* () {
         yield* threads
           .dispatch({
             type: "thread.metadata.update",
-            commandId: CommandId.make(`${input.commandId}:workspace:${yield* randomUuidV4}`),
+            commandId: CommandId.make(`${input.commandId}:workspace:${preparationId}`),
             threadId,
             branch,
             worktreePath,
@@ -594,7 +596,9 @@ const make = Effect.gen(function* () {
                   threads
                     .dispatch({
                       type: "thread.metadata.update",
-                      commandId: CommandId.make(`${input.commandId}:cancel-workspace`),
+                      commandId: CommandId.make(
+                        `${input.commandId}:cancel-workspace:${preparationId}`,
+                      ),
                       threadId,
                       worktreePath: null,
                       branch: null,

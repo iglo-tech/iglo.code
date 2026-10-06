@@ -5,6 +5,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { assert, it, describe } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Encoding from "effect/Encoding";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -2521,6 +2522,61 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("worktree operations", () => {
+    it.effect("requires the original owner to resume a reserved branch and checkout", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "owned");
+        const input = {
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/owned",
+        };
+        const ownerId = "first-launch";
+        // Reachable process-loss prefix: the atomic branch reservation committed,
+        // but worktree checkout has not run yet.
+        yield* git(cwd, [
+          "update-ref",
+          "--create-reflog",
+          "-m",
+          `t3code-worktree:${Encoding.encodeHex(new TextEncoder().encode(ownerId))}`,
+          `refs/heads/${input.newRefName}`,
+          yield* git(cwd, ["rev-parse", "HEAD"]),
+          "",
+        ]);
+        assert.equal(
+          (yield* driver
+            .createWorktree(input, { ownerId: "other-launch", resume: true })
+            .pipe(Effect.result))._tag,
+          "Failure",
+        );
+        assert.equal(yield* fs.exists(worktreePath), false);
+        yield* driver.createWorktree(input, { ownerId, resume: true });
+        yield* fs.writeFileString(path.join(worktreePath, "untracked-work"), "keep");
+        assert.equal(
+          (yield* driver
+            .createWorktree(input, { ownerId: "other-launch", resume: true })
+            .pipe(Effect.result))._tag,
+          "Failure",
+        );
+        assert.equal(
+          (yield* driver.createWorktree(input, { ownerId }).pipe(Effect.result))._tag,
+          "Failure",
+        );
+        yield* driver.createWorktree(input, { ownerId, resume: true });
+        assert.equal(yield* fs.readFileString(path.join(worktreePath, "untracked-work")), "keep");
+        yield* driver.removeWorktree({ cwd, path: worktreePath, force: true });
+        yield* driver.createWorktree(input, { ownerId, resume: true });
+        assert.equal(
+          yield* git(worktreePath, ["rev-parse", "HEAD"]),
+          yield* git(cwd, ["rev-parse", initialBranch]),
+        );
+      }),
+    );
     it.effect("resumes a committed worktree intent without replacing its checkout", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
