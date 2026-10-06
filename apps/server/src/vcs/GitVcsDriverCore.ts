@@ -3287,6 +3287,22 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       (yield* branchExists(input.cwd, targetBranch));
     if (options?.ownerId !== undefined && input.newRefName !== undefined) {
       const ownerMarker = `t3code-worktree:${Encoding.encodeHex(new TextEncoder().encode(options.ownerId))}`;
+      const ownerHash = yield* crypto
+        .digest("SHA-256", new TextEncoder().encode(options.ownerId))
+        .pipe(
+          Effect.map(Encoding.encodeHex),
+          Effect.mapError(
+            (cause) =>
+              new GitCommandError({
+                operation: "GitVcsDriver.createWorktree.ownership",
+                command: "crypto.digest SHA-256",
+                cwd: input.cwd,
+                detail: "Could not identify the worktree owner.",
+                cause,
+              }),
+          ),
+        );
+      const ownerRef = `refs/t3/worktree-owners/${ownerHash}`;
       if (options.resume && branchExistsBeforeClaim) {
         const history = yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
           "reflog",
@@ -3294,7 +3310,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           "--format=%gs",
           `refs/heads/${targetBranch}`,
         ]);
-        if (!history.split("\n").includes(ownerMarker)) {
+        if (
+          !history
+            .split("\n")
+            .some((entry) => entry === ownerMarker || entry === `branch: Created from ${ownerRef}`)
+        ) {
           return yield* new GitCommandError({
             ...gitCommandContext({
               operation: "GitVcsDriver.createWorktree.ownership",
@@ -3310,17 +3330,38 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           "--verify",
           `${input.refName}^{commit}`,
         ])).trim();
-        // Atomically reserve a new branch and its owner before checkout I/O.
-        // An empty old value refuses an existing ref, including a concurrent claim.
-        yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
-          "update-ref",
-          "--create-reflog",
-          "-m",
-          ownerMarker,
-          `refs/heads/${targetBranch}`,
-          commit,
-          "",
-        ]);
+        const symbolicRef = (yield* runGitStdout(
+          "GitVcsDriver.createWorktree.ownership",
+          input.cwd,
+          ["rev-parse", "--symbolic-full-name", input.refName],
+        )).trim();
+        // A private alias puts the owner into Git's atomic branch-creation reflog
+        // while preserving Git's native upstream and rebase configuration.
+        yield* Effect.gen(function* () {
+          yield* runGit(
+            "GitVcsDriver.createWorktree.ownership",
+            input.cwd,
+            symbolicRef.startsWith("refs/")
+              ? ["symbolic-ref", ownerRef, symbolicRef]
+              : ["update-ref", "--no-deref", ownerRef, commit],
+          );
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "branch",
+            "--create-reflog",
+            ...(symbolicRef.startsWith("refs/") ? [] : ["--no-track"]),
+            targetBranch,
+            ownerRef,
+          ]);
+        }).pipe(
+          Effect.ensuring(
+            runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+              "update-ref",
+              "--no-deref",
+              "-d",
+              ownerRef,
+            ]).pipe(Effect.ignore),
+          ),
+        );
       }
       createBranch = false;
     }

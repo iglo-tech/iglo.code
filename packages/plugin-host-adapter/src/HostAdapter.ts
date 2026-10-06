@@ -463,9 +463,24 @@ const make = Effect.gen(function* () {
         // Preparation owns the checkout until it releases the agent stage. Async setup
         // may continue afterward, but a cancellable checkout cannot own a final receipt.
         if (input.workspace.type === "exact-ref" && input.instruction === undefined) {
+          const workspaceReady = () =>
+            receipts.getByCommandId(CommandId.make(`${input.commandId}:workspace-ready`)).pipe(
+              Effect.map(
+                (stored) =>
+                  Option.isSome(stored) &&
+                  stored.value.status === "accepted" &&
+                  stored.value.commandType === "thread.metadata.update" &&
+                  stored.value.threadId === launched.threadId,
+              ),
+              Effect.mapError((cause) =>
+                fail("launch", "Could not reconcile workspace preparation.", cause),
+              ),
+            );
           const current = yield* setup.get(launched.threadId);
           const completed =
-            launched.projection.thread.worktreePath === null || current?.phase === "running"
+            !(yield* workspaceReady()) ||
+            launched.projection.thread.worktreePath === null ||
+            current?.phase === "running"
               ? yield* setup.stream(launched.threadId).pipe(
                   Stream.filter(
                     (snapshot) =>
@@ -491,7 +506,11 @@ const make = Effect.gen(function* () {
             !completed.value.stages.some(
               (stage) => stage.id === "agent" && stage.status === "done",
             );
-          if (prepared?.worktreePath == null || cancelledBeforeRelease)
+          if (
+            !(yield* workspaceReady()) ||
+            prepared?.worktreePath == null ||
+            cancelledBeforeRelease
+          )
             return yield* fail(
               "launch",
               Option.isSome(completed)

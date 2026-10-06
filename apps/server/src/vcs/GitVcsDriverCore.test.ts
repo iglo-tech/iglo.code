@@ -2522,6 +2522,53 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("worktree operations", () => {
+    it.effect.each(["true", "false", "always", "inherit", "simple"] as const)(
+      "owned worktrees preserve native tracking policy: %s",
+      (policy) =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          const remote = yield* makeTmpDir("git-remote-");
+          const { initialBranch } = yield* initRepoWithCommit(cwd);
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          const path = yield* Path.Path;
+          yield* git(remote, ["init", "--bare"]);
+          yield* git(cwd, ["remote", "add", "origin", remote]);
+          yield* git(cwd, ["push", "origin", "HEAD:refs/heads/dev"]);
+          yield* git(cwd, ["branch", "--set-upstream-to=origin/dev", initialBranch]);
+          yield* git(cwd, ["tag", "fixture-tag"]);
+          yield* git(cwd, ["config", "branch.autoSetupMerge", policy]);
+          yield* git(cwd, ["config", "branch.autoSetupRebase", "always"]);
+          const head = yield* git(cwd, ["rev-parse", "HEAD"]);
+          const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "owned");
+          const config = () =>
+            git(cwd, ["config", "--get-regexp", "^branch\\.dev\\.(remote|merge|rebase)$"]).pipe(
+              Effect.catch(() => Effect.succeed("")),
+            );
+          for (const refName of ["origin/dev", initialBranch, head, "fixture-tag"]) {
+            const input = { cwd, path: worktreePath, refName, newRefName: "dev" };
+            yield* driver.createWorktree(input);
+            const nativeConfig = yield* config();
+            yield* driver.removeWorktree({ cwd, path: worktreePath });
+            yield* git(cwd, ["branch", "-D", "dev"]);
+            yield* driver.createWorktree(input, { ownerId: `policy:${policy}:${refName}` });
+            assert.equal(yield* config(), nativeConfig);
+            yield* driver.createWorktree(input, {
+              ownerId: `policy:${policy}:${refName}`,
+              resume: true,
+            });
+            assert.equal(yield* config(), nativeConfig);
+            assert.equal(yield* git(worktreePath, ["rev-parse", "HEAD"]), head);
+            assert.equal(yield* git(cwd, ["rev-parse", "origin/dev"]), head);
+            assert.equal(
+              yield* git(cwd, ["for-each-ref", "--format=%(refname)", "refs/t3/worktree-owners/"]),
+              "",
+            );
+            yield* driver.removeWorktree({ cwd, path: worktreePath });
+            yield* git(cwd, ["branch", "-D", "dev"]);
+          }
+        }),
+    );
+
     it.effect("requires the original owner to resume a reserved branch and checkout", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

@@ -9,7 +9,7 @@ import { Host, Storage } from "@t3tools/plugin-host-contract/server";
 import * as Effect from "effect/Effect";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
+import * as KeyedLock from "@t3tools/shared/KeyedLock";
 
 const Send = PluginTarget.mapFields((fields) => ({
   ...fields,
@@ -42,6 +42,7 @@ const Intent = Schema.Union([
   }),
 ]);
 const encodeRequest = Schema.encodeEffect(Schema.fromJsonString(Request));
+const decodeRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(Request));
 const encodeCoreIdentity = Schema.encodeEffect(
   Schema.fromJsonString(Schema.Tuple([Schema.String, CommandId])),
 );
@@ -60,7 +61,7 @@ export const make = (pluginId: string) =>
   Effect.gen(function* () {
     const core = yield* Host;
     const { sql } = yield* Storage;
-    const lock = yield* Semaphore.make(1);
+    const lock = yield* KeyedLock.make<CommandId>();
     const error = (operation: string, message: string, cause?: unknown) =>
       new PluginError({
         pluginId,
@@ -165,7 +166,7 @@ export const make = (pluginId: string) =>
         yield* sql`INSERT INTO host_commands (id, request, intent) VALUES (${requested.input.commandId}, ${request}, ${encoded})`;
         return yield* dispatch(intent);
       },
-      lock.withPermits(1),
+      (effect, requested) => lock.withLock(requested.input.commandId, effect),
       Effect.mapError((cause) =>
         isPluginError(cause)
           ? cause
@@ -205,19 +206,22 @@ export const make = (pluginId: string) =>
     });
     const recover = Effect.gen(function* () {
       const pending = yield* sql<{
-        intent: string;
-      }>`SELECT intent FROM host_commands WHERE result IS NULL ORDER BY rowid`;
-      for (const row of pending)
-        yield* decodeIntent(row.intent).pipe(
-          Effect.flatMap(dispatch),
-          Effect.catchCause((cause) =>
-            Cause.hasInterruptsOnly(cause)
-              ? Effect.interrupt
-              : Effect.logWarning("Plugin host command remains pending", { pluginId, cause }),
+        request: string;
+      }>`SELECT request FROM host_commands WHERE result IS NULL ORDER BY rowid`;
+      yield* Effect.forEach(
+        pending,
+        (row) =>
+          decodeRequest(row.request).pipe(
+            Effect.flatMap(execute),
+            Effect.catchCause((cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.interrupt
+                : Effect.logWarning("Plugin host command remains pending", { pluginId, cause }),
+            ),
           ),
-        );
+        { concurrency: "unbounded", discard: true },
+      );
     }).pipe(
-      lock.withPermits(1),
       Effect.mapError((cause) => error("recover", "Could not recover plugin host intents.", cause)),
     );
     return { service, recover };

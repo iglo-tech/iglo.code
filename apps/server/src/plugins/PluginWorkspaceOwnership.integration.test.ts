@@ -208,8 +208,8 @@ it.live("does not acknowledge cancelled preparation before its metadata clears",
       yield* Fiber.interrupt(launching);
       expect(yield* s.tracker.cancel(threadId)).toBe(true);
       expect((yield* s.threads.getThreadShell(threadId))!.worktreePath).toBeNull();
-      // Recreate the reachable prefix after cancellation is published but before
-      // cleanup clears the binding. Receipt reconciliation must reject this state.
+      // Recreate the prefix after cancellation is published but before cleanup
+      // clears the binding. A retry must prepare again before acknowledging it.
       yield* s.threads.dispatch({
         type: "thread.metadata.update",
         commandId: CommandId.make("cancelled-before-metadata-clear"),
@@ -217,7 +217,11 @@ it.live("does not acknowledge cancelled preparation before its metadata clears",
         branch: prepared.branch,
         worktreePath: prepared.worktreePath,
       });
-      expect((yield* s.host.launch(s.input).pipe(Effect.result))._tag).toBe("Failure");
+      const retrying = yield* s.host.launch(s.input).pipe(Effect.result, Effect.forkScoped);
+      yield* s.waitGate(threadId);
+      expect(retrying.pollUnsafe()).toBeUndefined();
+      expect(yield* s.tracker.cancel(threadId)).toBe(true);
+      expect((yield* Fiber.join(retrying))._tag).toBe("Failure");
       const rows = yield* s.storage.sql<{ result: string | null }>`
           SELECT result FROM host_commands WHERE id=${s.input.commandId}`;
       expect(rows[0]?.result).toBeNull();
