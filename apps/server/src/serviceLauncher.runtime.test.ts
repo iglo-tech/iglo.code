@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - Acceptance setup builds real executables and release archives served by a local HTTP fixture.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
