@@ -321,14 +321,14 @@ describe("findEsmImportsOfExternalPackages", () => {
     assert.deepStrictEqual(findEsmImportsOfExternalPackages(source), ["real-package"]);
   });
 
-  it("allows optional dynamic Bun built-ins but rejects static imports", () => {
+  it("allows Bun built-ins in static and dynamic imports", () => {
     assert.deepStrictEqual(
       findEsmImportsOfExternalPackages('const load = () => import("bun:sqlite");'),
       [],
     );
     assert.deepStrictEqual(
       findEsmImportsOfExternalPackages('import { Database } from "bun:sqlite";'),
-      ["bun:sqlite"],
+      [],
     );
   });
 

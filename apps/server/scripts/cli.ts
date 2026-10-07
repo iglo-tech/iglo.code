@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -9,8 +9,15 @@ import * as Path from "effect/Path";
 import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+import {
+  NPM_LAUNCHER_PACKAGE_NAME,
+  NPM_PLATFORM_PACKAGE_SCOPE,
+} from "../../../scripts/build-npm-platform-packages.ts";
 import { DEVELOPMENT_ICON_OVERRIDES } from "../../../scripts/lib/brand-assets.ts";
 import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-executable-imports.ts";
+import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
+import { CLI_ARCHIVE_PLATFORM_KEYS } from "@t3tools/shared/cliRelease";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
   ServerCliBuildAssetMissingError,
@@ -81,12 +88,13 @@ const buildCmd = Command.make(
       const serverDir = path.join(repoRoot, "apps/server");
 
       yield* Effect.log("[cli] Running tsdown...");
+      const bundleCommand = yield* resolveSpawnCommand("vp", ["pack"]);
       yield* runCommand(
-        ChildProcess.make(process.execPath, ["--run", "build:bundle"], {
+        ChildProcess.make(bundleCommand.command, bundleCommand.args, {
           cwd: serverDir,
           stdout: config.verbose ? "inherit" : "ignore",
           stderr: "inherit",
-          shell: false,
+          shell: bundleCommand.shell,
         }),
       );
 
@@ -113,7 +121,7 @@ const buildExeCmd = Command.make(
     verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
     target: Flag.String("target").pipe(
       Flag.withDescription(
-        "Cross-build for <platform>-<arch> in nodejs.org naming (for example darwin-x64); defaults to the host.",
+        "Compile for darwin-arm64, linux-x64, or linux-arm64; defaults to the host.",
       ),
       Flag.optional,
     ),
@@ -125,7 +133,20 @@ const buildExeCmd = Command.make(
       const repoRoot = yield* RepoRoot;
       const serverDir = path.join(repoRoot, "apps/server");
 
-      yield* Effect.log("[cli] Building single-executable...");
+      const hostPlatform = yield* HostProcessPlatform;
+      const hostArch = yield* HostProcessArchitecture;
+      const target = Option.getOrElse(config.target, () => `${hostPlatform}-${hostArch}`);
+      if (!CLI_ARCHIVE_PLATFORM_KEYS.some((supported) => supported === target)) {
+        return yield* Effect.fail(
+          new Error(
+            `Unsupported CLI target "${target}". Supported targets: ${CLI_ARCHIVE_PLATFORM_KEYS.join(", ")}.`,
+          ),
+        );
+      }
+      if (process.versions.bun !== BUN_VERSION) {
+        return yield* Effect.fail(new Error(`Build the CLI with Bun ${BUN_VERSION}.`));
+      }
+      yield* Effect.log("[cli] Building Bun executable...");
       const spawnCommand = yield* resolveSpawnCommand("vp", ["pack"]);
       yield* runCommand(
         ChildProcess.make(spawnCommand.command, spawnCommand.args, {
@@ -133,10 +154,6 @@ const buildExeCmd = Command.make(
           env: {
             ...process.env,
             T3CODE_PACK_EXE: "1",
-            ...Option.match(config.target, {
-              onNone: () => ({}),
-              onSome: (target) => ({ T3CODE_PACK_EXE_TARGET: target }),
-            }),
           },
           stdout: config.verbose ? "inherit" : "ignore",
           stderr: "inherit",
@@ -144,21 +161,47 @@ const buildExeCmd = Command.make(
         }),
       );
 
-      // The executable can only `import` built-ins. A file-backed import
-      // passes the bundler and `node dist/bin.mjs`, then throws inside the
-      // binary, so read the emitted module graph rather than trusting config.
+      // Disk-backed packages must resolve beside the executable rather than
+      // becoming another embedded graph with missing native or SDK assets.
       const bundlePath = path.join(serverDir, "dist-exe/bin.mjs");
       const specifiers = findEsmImportsOfExternalPackages(yield* fs.readFileString(bundlePath));
       if (specifiers.length > 0) {
         return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
       }
+      const executablePath = path.join(serverDir, "dist-exe", `t3-${target}`);
+      // Bun disables package.json loading in executables by default, including
+      // the exports and dependency resolution needed by disk-backed packages.
+      yield* runCommand(
+        ChildProcess.make(
+          process.execPath,
+          [
+            "build",
+            "--compile",
+            "--compile-autoload-package-json",
+            `--target=bun-${target}`,
+            "--outfile",
+            executablePath,
+            bundlePath,
+          ],
+          {
+            cwd: serverDir,
+            stdout: config.verbose ? "inherit" : "ignore",
+            stderr: "inherit",
+          },
+        ),
+      );
+      if (target === "darwin-arm64" && hostPlatform === "darwin") {
+        yield* runCommand(
+          ChildProcess.make("codesign", ["--force", "--sign", "-", executablePath]),
+        );
+      }
       yield* Effect.log(
-        "[cli] Built dist-exe/t3 (expects client/, resource-monitor/, and the runtime-external node_modules beside it; scripts/build-cli-archive.ts assembles that tree)",
+        `[cli] Built ${executablePath} (archive adds client/, runtime/bun, resource-monitor/, and runtime-external node_modules).`,
       );
     }),
 ).pipe(
   Command.withDescription(
-    "Build the server as a Node single-executable (needs a Node 25.7+ host for --build-sea). The binary still resolves native packages from a node_modules tree beside it.",
+    "Build the server as a Bun executable. Native packages resolve from node_modules beside it.",
   ),
 );
 
@@ -168,7 +211,7 @@ const buildExeCmd = Command.make(
 
 /**
  * Publishes the tarballs scripts/build-npm-platform-packages.ts produced:
- * every `@t3code/t3-<platform>.tgz` first, `t3.tgz` (the launcher) last, so
+ * every `@iglo-tech/iglo-code-<platform>.tgz` first, `@iglo-tech/iglo-code.tgz` (the launcher) last, so
  * the launcher is never installable before the executables it depends on.
  * Tarballs rather than directories because `npm publish <dir>` strips the
  * `node_modules/` the executable loads its native addons from.
@@ -192,17 +235,17 @@ const publishCmd = Command.make(
       // npm runs with cwd set to the packages dir below, so tarball paths are
       // resolved once here rather than joined twice.
       const packagesDir = path.resolve(config.packagesDir);
-      const scopeDir = path.join(packagesDir, "@t3code");
-      const launcherTarball = path.join(packagesDir, "t3.tgz");
+      const scopeDir = path.join(packagesDir, NPM_PLATFORM_PACKAGE_SCOPE);
+      const launcherTarball = path.join(packagesDir, `${NPM_LAUNCHER_PACKAGE_NAME}.tgz`);
       const platformTarballs = (yield* fs
         .readDirectory(scopeDir)
         .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => [])))
-        .filter((entry) => entry.startsWith("t3-") && entry.endsWith(".tgz"))
+        .filter((entry) => entry.startsWith("iglo-code-") && entry.endsWith(".tgz"))
         .sort()
         .map((entry) => path.join(scopeDir, entry));
       if (platformTarballs.length === 0) {
         return yield* new ServerCliBuildAssetMissingError({
-          assetPath: path.join(scopeDir, "t3-<platform>.tgz"),
+          assetPath: path.join(scopeDir, "iglo-code-<platform>.tgz"),
         });
       }
       if (!(yield* fs.exists(launcherTarball))) {
@@ -231,7 +274,7 @@ const publishCmd = Command.make(
     }),
 ).pipe(
   Command.withDescription(
-    "Publish the @t3code/t3-<platform> tarballs and then the t3 launcher to npm.",
+    "Publish the @iglo-tech/iglo-code-<platform> tarballs and then the fork launcher to npm.",
   ),
 );
 

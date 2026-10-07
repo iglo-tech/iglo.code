@@ -126,6 +126,11 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -149,7 +154,7 @@ jobs:
           if [[ "${GITHUB_EVENT_NAME}" == "schedule" || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-preview}" == "nightly" ) ]]; then
             nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
 
-            node scripts/resolve-nightly-release.ts \
+            bun scripts/resolve-nightly-release.ts \
               --date "$nightly_date" \
               --run-number "$NIGHTLY_RUN_NUMBER" \
               --sha "$NIGHTLY_SHA" \
@@ -162,7 +167,7 @@ jobs:
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-preview}" == "preview" ]]; then
             nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
 
-            node scripts/resolve-nightly-release.ts \
+            bun scripts/resolve-nightly-release.ts \
               --channel preview \
               --date "$nightly_date" \
               --run-number "$NIGHTLY_RUN_NUMBER" \
@@ -207,7 +212,7 @@ jobs:
       - id: previous_tag
         name: Resolve previous release tag
         run: |
-          node scripts/resolve-previous-release-tag.ts \
+          bun scripts/resolve-previous-release-tag.ts \
             --channel "${{ steps.release_meta.outputs.release_channel }}" \
             --current-tag "${{ steps.release_meta.outputs.tag }}" \
             --github-output
@@ -235,6 +240,11 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -266,6 +276,11 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -304,6 +319,11 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -312,7 +332,7 @@ jobs:
           run-install: true
 
       - name: Install Chromium for server browser integration tests
-        run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+        run: bun apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
 
       - name: Test
         run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
@@ -351,6 +371,11 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -450,6 +475,11 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -486,7 +516,7 @@ jobs:
           cat "$config_path" >> "$GITHUB_ENV"
 
       - name: Align package versions to release version
-        run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
+        run: bun scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
       - uses: ./.github/actions/setup-apt-mirrors
 
@@ -565,49 +595,6 @@ jobs:
       rust_target: aarch64-unknown-linux-gnu
       resource_key: linux-arm64
 
-  # The Windows jobs start with the other platforms. Their checkout, install,
-  # and toolchain setup take longer than the same-arch Linux job needs to
-  # upload its CLI archive, so the wait inside is usually instant.
-  cli_win_x64:
-    name: CLI Windows x64
-    needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
-    uses: ./.github/workflows/release-cli.yml
-    secrets: inherit
-    with:
-      version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ needs.preflight.outputs.ref }}
-      clerk_publishable_key: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
-      clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
-      clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
-      relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
-      label: Windows x64
-      runner: blacksmith-32vcpu-windows-2025
-      platform: win
-      arch: x64
-      rust_target: x86_64-pc-windows-msvc
-      resource_key: win32-x64
-
-  cli_win_arm64:
-    name: CLI Windows arm64
-    needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
-    uses: ./.github/workflows/release-cli.yml
-    secrets: inherit
-    with:
-      version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ needs.preflight.outputs.ref }}
-      clerk_publishable_key: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
-      clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
-      clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
-      relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
-      label: Windows arm64
-      runner: windows-11-arm
-      platform: win
-      arch: arm64
-      rust_target: aarch64-pc-windows-msvc
-      resource_key: win32-arm64
-
   # npm gets the same bytes as the GitHub Release: the launcher plus one
   # package per CLI archive. Preview publishes too, under the `preview`
   # dist-tag, which nothing resolves unless asked for by name.
@@ -623,10 +610,8 @@ jobs:
         cli_mac_arm64,
         cli_linux_x64,
         cli_linux_arm64,
-        cli_win_x64,
-        cli_win_arm64,
       ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_server.result == 'success' && needs.cli_mac_arm64.result == 'success' && needs.cli_linux_x64.result == 'success' && needs.cli_linux_arm64.result == 'success' && needs.cli_win_x64.result == 'success' && needs.cli_win_arm64.result == 'success' }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_server.result == 'success' && needs.cli_mac_arm64.result == 'success' && needs.cli_linux_x64.result == 'success' && needs.cli_linux_arm64.result == 'success' }}
     runs-on: ubuntu-24.04 # blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
@@ -641,6 +626,11 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -660,34 +650,25 @@ jobs:
           path: release-cli
 
       - name: Build npm packages from CLI archives
-        run: node scripts/build-npm-platform-packages.ts --archives-dir release-cli --version "${{ needs.preflight.outputs.version }}" --output-dir npm-packages
+        run: bun scripts/build-npm-platform-packages.ts --archives-dir release-cli --version "${{ needs.preflight.outputs.version }}" --output-dir npm-packages
 
       # A dry run of every package first: an auth or scope error here (the
-      # @t3code org missing, a package without a trusted publisher) fails
+      # @iglo-tech org missing, a package without a trusted publisher) fails
       # before anything is live, instead of after some platforms already are.
       - name: Check npm publish access (dry run)
         run: |
-          if ! node apps/server/scripts/cli.ts publish --packages-dir npm-packages --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --provenance --dry-run --verbose; then
-            echo "::error::npm publish --dry-run failed. Make sure the @t3code npm org exists and that t3 and every @t3code/t3-<platform> package has a trusted publisher registered for .github/workflows/release.yml (see docs/operations/release.md)." >&2
+          if ! bun apps/server/scripts/cli.ts publish --packages-dir npm-packages --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --provenance --dry-run --verbose; then
+            echo "::error::npm publish --dry-run failed. Make sure the @iglo-tech npm org exists and that @iglo-tech/iglo-code and every @iglo-tech/iglo-code-<platform> package has a trusted publisher registered for .github/workflows/release.yml (see docs/operations/release.md)." >&2
             exit 1
           fi
 
       - name: Publish CLI packages
-        run: node apps/server/scripts/cli.ts publish --packages-dir npm-packages --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --provenance --verbose
+        run: bun apps/server/scripts/cli.ts publish --packages-dir npm-packages --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --provenance --verbose
 
   release:
     name: Publish GitHub Release
-    needs:
-      [
-        preflight,
-        cli_mac_arm64,
-        cli_linux_x64,
-        cli_linux_arm64,
-        cli_win_x64,
-        cli_win_arm64,
-        publish_cli,
-      ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.cli_mac_arm64.result == 'success' && needs.cli_linux_x64.result == 'success' && needs.cli_linux_arm64.result == 'success' && needs.cli_win_x64.result == 'success' && needs.cli_win_arm64.result == 'success' && needs.publish_cli.result == 'success' }}
+    needs: [preflight, cli_mac_arm64, cli_linux_x64, cli_linux_arm64, publish_cli]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.cli_mac_arm64.result == 'success' && needs.cli_linux_x64.result == 'success' && needs.cli_linux_arm64.result == 'success' && needs.publish_cli.result == 'success' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
@@ -701,6 +682,11 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -726,7 +712,7 @@ jobs:
           set -euo pipefail
           cd release-assets
           shopt -s nullglob
-          archives=(t3-*.tar.gz t3-*.zip)
+          archives=(t3-*.tar.gz)
           if [[ ${#archives[@]} -eq 0 ]]; then
             echo "No CLI archives were produced." >&2
             exit 1
@@ -740,7 +726,6 @@ jobs:
         run: |
           {
             echo 'files<<EOF'
-            echo 'release-assets/*.zip'
             echo 'release-assets/*.tar.gz'
             echo 'release-assets/SHA256SUMS'
             echo 'EOF'
@@ -759,7 +744,7 @@ jobs:
           > [!WARNING]
           > **This is a preview build. Do not install it unless you know exactly why you are here.**
           >
-          > Preview builds are cut by maintainers from unreleased branches to exercise the release pipeline. They can be broken, receive no fixes, are never offered as updates, and are not supported. If you want T3 Code, install the [latest release](https://github.com/pingdotgg/t3code/releases/latest) or a nightly instead.
+          > Preview builds are cut by maintainers from unreleased branches to exercise the release pipeline. They can be broken, receive no fixes, are never offered as updates, and are not supported. If you want T3 Code, install the [latest release](https://github.com/iglo-tech/iglo.code/releases/latest) or a nightly instead.
 
           Built from `${{ needs.preflight.outputs.ref }}`.
           EOF
@@ -823,6 +808,11 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -848,7 +838,7 @@ jobs:
           cat "$config_path" >> "$GITHUB_ENV"
 
       - name: Align package versions to release version
-        run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
+        run: bun scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
       - name: Refresh release lockfile
         run: vp install --lockfile-only --ignore-scripts
@@ -918,6 +908,11 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -991,6 +986,11 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -1054,6 +1054,11 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -1114,6 +1119,11 @@ jobs:
           echo "name=${APP_SLUG}[bot]" >> "$GITHUB_OUTPUT"
           echo "email=${user_id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -1128,7 +1138,7 @@ jobs:
         name: Update version strings
         env:
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
-        run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION" --github-output
+        run: bun scripts/update-release-package-versions.ts "$RELEASE_VERSION" --github-output
 
       - name: Format package.json files
         if: steps.update_versions.outputs.changed == 'true'
@@ -1179,6 +1189,11 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -1213,7 +1228,7 @@ jobs:
           DISCORD_MENTION_ROLE_ID: ${{ secrets.DISCORD_RELEASE_NIGHTLY_ROLE_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
         run: |
-          node scripts/notify-discord-release.ts prerelease \
+          bun scripts/notify-discord-release.ts prerelease \
             --role-id "$DISCORD_MENTION_ROLE_ID" \
             --release-name "${{ needs.preflight.outputs.release_name }}" \
             --release-version "${{ needs.preflight.outputs.version }}" \
@@ -1228,7 +1243,7 @@ jobs:
           DISCORD_MENTION_ROLE_ID: ${{ secrets.DISCORD_RELEASE_LATEST_ROLE_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
         run: |
-          node scripts/notify-discord-release.ts latest \
+          bun scripts/notify-discord-release.ts latest \
             --role-id "$DISCORD_MENTION_ROLE_ID" \
             --release-name "${{ needs.preflight.outputs.release_name }}" \
             --release-version "${{ needs.preflight.outputs.version }}" \
