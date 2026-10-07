@@ -158,6 +158,7 @@ export type WebhookTriggerResult =
   | { readonly _tag: "expired" };
 
 const decodeTask = Schema.decodeUnknownEffect(ScheduledTask);
+const sameTask = Schema.toEquivalence(ScheduledTask);
 const decodeTaskId = Schema.decodeUnknownOption(ScheduledTaskId);
 const decodeScheduleJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ScheduledTask.fields.schedule),
@@ -645,7 +646,7 @@ export const layer = Layer.effect(
             const current = yield* findTask(task.id);
             // The pending lookup can yield to edits. Compare decoded values under
             // the write transaction, including edits sharing the same millisecond.
-            if (current === null || JSON.stringify(current) !== JSON.stringify(task)) return false;
+            if (current === null || !sameTask(current, task)) return false;
             yield* sql`
           UPDATE scheduled_tasks
           SET updated_at = ${startedAtIso},
@@ -952,7 +953,7 @@ export const layer = Layer.effect(
         .withTransaction(
           Effect.gen(function* () {
             const current = yield* findTask(task.id);
-            if (current === null || JSON.stringify(current) !== JSON.stringify(task)) return;
+            if (current === null || !sameTask(current, task)) return;
             yield* sql`
           UPDATE scheduled_tasks
           SET next_run_at = ${next},

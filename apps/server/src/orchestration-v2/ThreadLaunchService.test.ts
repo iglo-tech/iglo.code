@@ -76,6 +76,13 @@ import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 const projectId = ProjectId.make("project:launch-test");
 const otherProjectId = ProjectId.make("project:launch-other");
 const encodeThreadProjection = Schema.encodeEffect(OrchestrationV2ThreadProjectionJson);
+const legacyTask = ScheduledTask.mapFields(({ lastDelivery: _delivery, ...fields }) => fields);
+const decodeLegacyList = Schema.decodeUnknownEffect(
+  Schema.Struct({ tasks: ForwardCompatibleArray(legacyTask) }),
+);
+const decodeLegacyRunNow = Schema.decodeUnknownEffect(Schema.Struct({ task: legacyTask }));
+const encodeTaskList = Schema.encodeEffect(ScheduledTaskListResult);
+const encodeTaskRunNow = Schema.encodeEffect(ScheduledTaskRunNowResult);
 const modelSelection = {
   instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.1-codex",
@@ -348,18 +355,10 @@ it.effect.each(
       const result = yield* tasks.runNow({ id: task.id });
       assert.equal(result.task.lastDelivery, "dispatched");
       // Remote clients can be upgraded independently from their server.
-      const legacyTask = ScheduledTask.mapFields(
-        ({ lastDelivery: _delivery, ...fields }) => fields,
-      );
-      const legacyList = Schema.Struct({ tasks: ForwardCompatibleArray(legacyTask) });
-      const legacyRunNow = Schema.Struct({ task: legacyTask });
-      const wireList = Schema.encodeSync(ScheduledTaskListResult)(yield* tasks.list());
-      assert.lengthOf(Schema.decodeUnknownSync(legacyList)(wireList).tasks, 1);
-      const wireResult = Schema.encodeSync(ScheduledTaskRunNowResult)(result);
-      assert.equal(
-        Schema.decodeUnknownSync(legacyRunNow)(wireResult).task.lastRunStatus,
-        "succeeded",
-      );
+      const wireList = yield* encodeTaskList(yield* tasks.list());
+      assert.lengthOf((yield* decodeLegacyList(wireList)).tasks, 1);
+      const wireResult = yield* encodeTaskRunNow(result);
+      assert.equal((yield* decodeLegacyRunNow(wireResult)).task.lastRunStatus, "succeeded");
       const projectThreads = yield* threads.listProjectThreads({
         projectId,
         includeSubagents: false,
