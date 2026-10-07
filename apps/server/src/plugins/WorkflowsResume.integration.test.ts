@@ -40,6 +40,11 @@ it.live.each([
   "provider-unsupported-outage",
   "provider-unavailable-outage",
   "provider-mode-outage",
+  "native-unchanged-outage",
+  "native-changed-outage",
+  "native-closed-outage",
+  "native-changed-direct",
+  "native-changed-ack-loss",
 ] as const)("retains Resume admission and review authority: %s", (scenario) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -53,7 +58,15 @@ it.live.each([
       const skillCase = scenario.startsWith("skill-");
       const skillChanged = scenario === "skill-changed-outage";
       const providerCase = scenario.startsWith("provider-");
-      const admitted = !changed && !canceled && !expired && !skillChanged && !providerCase;
+      const sessionChanged =
+        scenario.startsWith("native-changed") || scenario === "native-closed-outage";
+      const admitted =
+        !changed &&
+        !canceled &&
+        !expired &&
+        !skillChanged &&
+        !providerCase &&
+        (!sessionChanged || lostAck);
       let providerValid = true;
       const test = yield* makeCoreWorkflowFixture;
       const fs = yield* FileSystem.FileSystem;
@@ -64,6 +77,7 @@ it.live.each([
       let sends = 0;
       let sendUnavailable = outage;
       const sendBlocked = yield* Deferred.make<void>();
+      const sendAdmitted = yield* Deferred.make<void>();
       const host = Host.of({
         ...test.core,
         lifecycle: () => Stream.never,
@@ -123,6 +137,7 @@ it.live.each([
                     }),
                 ),
               );
+            yield* Deferred.succeed(sendAdmitted, undefined);
             if (lostAck) {
               yield* Deferred.succeed(sendBlocked, undefined);
               return yield* new PluginError({
@@ -324,6 +339,43 @@ it.live.each([
         head = yield* test.core.resolveRef(test.scope.projectId, "HEAD");
         expect(head).not.toBe(frozen);
       });
+      const replaceSession = Effect.gen(function* () {
+        const records = yield* test.threads.getProjectThreadRecords({ ...test.scope, threadId }, [
+          "providerThreads",
+        ]);
+        const provider = records.providerThreads.find((item) => item.id === providerThreadId)!;
+        const occurredAt = DateTime.nowUnsafe();
+        yield* test.sink.write({
+          events: [
+            {
+              id: EventId.make("replace-native-session"),
+              type: "provider-thread.updated",
+              threadId,
+              occurredAt,
+              payload: {
+                ...provider,
+                status: scenario === "native-closed-outage" ? "closed" : provider.status,
+                nativeThreadRef: {
+                  driver,
+                  nativeId:
+                    scenario === "native-closed-outage"
+                      ? "native-retained"
+                      : "different-native-session",
+                  strength: "strong",
+                },
+                updatedAt: occurredAt,
+              },
+            },
+          ],
+        });
+        expect((yield* test.core.inspect({ ...test.scope, threadId })).nativeSession?.id).toBe(
+          scenario === "native-closed-outage" ? "native-retained" : "different-native-session",
+        );
+        expect(
+          (yield* test.core.inspect({ ...test.scope, threadId })).nativeSession?.canResume,
+        ).toBe(scenario !== "native-closed-outage");
+      });
+      if (sessionChanged && !outage && !lostAck) yield* replaceSession;
       if (changed && !outage) yield* advanceHead;
       const interrupted = yield* get(started.id);
       yield* runtime.invoke("resume", {
@@ -368,9 +420,12 @@ it.live.each([
         }
         if (changed) yield* advanceHead;
         if (skillChanged) yield* fs.writeFileString(skillPath, "# Skill\nDifferent work");
+        if (sessionChanged) yield* replaceSession;
         providerValid = false;
         sendUnavailable = false;
         if (!live) runtime = yield* test.boot(host);
+        const acquisition = yield* get(started.id);
+        if (!live && acquisition.state === "running") yield* Deferred.await(sendAdmitted);
         yield* runtime.invoke("reconcile", test.scope);
       }
       const observed = yield* get(started.id);

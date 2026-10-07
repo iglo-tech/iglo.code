@@ -22,11 +22,15 @@ it.live.each([
   "changed-explicit-binding",
   "unchanged-after-outage",
   "changed-after-outage",
+  "unchanged-decision-source",
+  "changed-decision-source",
+  "changed-decision-binding",
 ] as const)("retains review authority through a deterministic check: %s", (scenario) =>
   Effect.scoped(
     Effect.gen(function* () {
       const outage = scenario.endsWith("after-outage");
-      const changed = scenario !== "unchanged" && scenario !== "unchanged-after-outage";
+      const changed = !scenario.startsWith("unchanged");
+      const decision = scenario.includes("decision");
       const test = yield* makeCoreWorkflowFixture;
       const frozen = yield* test.core.resolveRef(test.scope.projectId, "HEAD");
       let head = frozen;
@@ -53,8 +57,10 @@ it.live.each([
         execute: (input) =>
           Effect.gen(function* () {
             const result = yield* test.core.execute(input);
-            yield* Deferred.succeed(checkRan, undefined);
-            yield* Deferred.await(releaseCheck);
+            if (input.args.includes("HEAD")) {
+              yield* Deferred.succeed(checkRan, undefined);
+              yield* Deferred.await(releaseCheck);
+            }
             return result;
           }),
       });
@@ -63,7 +69,20 @@ it.live.each([
         runtime.invoke("get", { ...test.scope, runId }).pipe(Effect.flatMap(decodeRun));
       const definition = yield* decodeDefinition({
         ...parallel,
+        entry: decision ? "baseline" : parallel.entry,
         nodes: [
+          ...(decision
+            ? [
+                {
+                  id: "baseline",
+                  title: "Baseline",
+                  kind: "check",
+                  command: "git",
+                  args: ["status", "--porcelain"],
+                  next: { to: parallel.entry },
+                },
+              ]
+            : []),
           ...parallel.nodes.map((node) =>
             node.kind === "parallel"
               ? {
@@ -88,8 +107,20 @@ it.live.each([
             kind: "check",
             command: "git",
             args: ["rev-parse", "HEAD"],
-            next: { to: "change" },
+            next: { to: decision ? "baseline-decision" : "change" },
           },
+          ...(decision
+            ? [
+                {
+                  id: "baseline-decision",
+                  title: "Route using baseline",
+                  kind: "decision",
+                  source: "baseline",
+                  rules: [],
+                  otherwise: { to: "change" },
+                },
+              ]
+            : []),
           {
             id: "change",
             title: "Apply reviewed work",
@@ -97,7 +128,7 @@ it.live.each([
             modelSelection: { instanceId: "codex", model: "fixture" },
             runtimeMode: "approval-required",
             instruction: "Apply the change authorized by the review",
-            ...(scenario === "changed-explicit-binding"
+            ...(scenario.endsWith("binding")
               ? {
                   bindings: [
                     {
@@ -129,11 +160,27 @@ it.live.each([
         })
         .pipe(Effect.flatMap(decodeRun));
       yield* runtime.invoke("reconcile", test.scope);
+      const forkApi = yield* runtime.registry.api("plugins.workflows.subscribe");
+      const forkUpdates = forkApi.invoke(test.scope);
+      if (!Stream.isStream(forkUpdates)) return yield* Effect.die("Expected subscription");
+      yield* forkUpdates.pipe(
+        Stream.mapEffect(() => get(started.id)),
+        Stream.filter(
+          (run) =>
+            run.attempts.filter(
+              (attempt) => attempt.branchId !== null && attempt.phase === "running",
+            ).length === 3,
+        ),
+        Stream.take(1),
+        Stream.runDrain,
+      );
       const forked = yield* get(started.id);
       const tool = (yield* runtime.registry.tools).find(
         (item) => item.tool.id === "plugin_workflows_report",
       )!.tool;
-      for (const [index, attempt] of forked.attempts.entries()) {
+      for (const [index, attempt] of forked.attempts
+        .filter((attempt) => attempt.branchId !== null)
+        .entries()) {
         yield* tool.invoke(
           {
             version: 1,

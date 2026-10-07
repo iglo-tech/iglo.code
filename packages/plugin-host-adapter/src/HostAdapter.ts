@@ -241,8 +241,52 @@ const make = Effect.gen(function* () {
       failedFollowUp && failedFollowUp.ordinal > (progress.resultRun?.ordinal ?? 0)
         ? failedFollowUp
         : progress.resultRun;
+    const outstandingWork = [
+      ...(preparationId === undefined ? [] : [{ id: preparationId, status: "running" }]),
+      ...(progress.state !== "result_available" &&
+      runs.some((run) => !monitorRuns.has(run.id) && !abandoned.has(run.id))
+        ? [{ id: `${target.threadId}:core-work`, status: progress.state }]
+        : []),
+      ...records.nodes
+        .filter(
+          (node) =>
+            (node.runId === null || !abandoned.has(node.runId)) &&
+            ["pending", "running", "waiting"].includes(node.status),
+        )
+        .map((node) => ({ id: node.id, status: node.status })),
+      ...background.map((task) => ({ id: task.taskId, status: "running" })),
+    ];
+    const completedAt = [
+      ...runs
+        .filter((run) => !monitorRuns.has(run.id) && !abandoned.has(run.id))
+        .map((run) => run.completedAt),
+      ...records.nodes
+        .filter(
+          (node) =>
+            node.runId === null || (!monitorRuns.has(node.runId) && !abandoned.has(node.runId)),
+        )
+        .map((node) => node.completedAt),
+      ...records.turnItems
+        .filter(
+          (item) =>
+            item.runId === null || (!monitorRuns.has(item.runId) && !abandoned.has(item.runId)),
+        )
+        .map((item) => item.completedAt),
+      ...records.subagents
+        .filter((task) => task.runId === null || !abandoned.has(task.runId))
+        .map((task) => task.completedAt),
+      ...records.checkpoints
+        .filter((checkpoint) => checkpoint.runId === null || !abandoned.has(checkpoint.runId))
+        .map((checkpoint) => checkpoint.capturedAt),
+    ]
+      .filter((time) => time !== null)
+      .map(DateTime.toEpochMillis);
     return {
       ...target,
+      settledAt:
+        outstandingWork.length === 0 && resultRun?.completedAt != null && completedAt.length > 0
+          ? Math.max(...completedAt)
+          : null,
       resultRunId: resultRun?.id ?? null,
       title: records.thread.title,
       workspacePath: records.thread.worktreePath ?? workspace.workspaceRoot,
@@ -260,21 +304,7 @@ const make = Effect.gen(function* () {
             }
           : null;
       })(),
-      outstandingWork: [
-        ...(preparationId === undefined ? [] : [{ id: preparationId, status: "running" }]),
-        ...(progress.state !== "result_available" &&
-        runs.some((run) => !monitorRuns.has(run.id) && !abandoned.has(run.id))
-          ? [{ id: `${target.threadId}:core-work`, status: progress.state }]
-          : []),
-        ...records.nodes
-          .filter(
-            (node) =>
-              (node.runId === null || !abandoned.has(node.runId)) &&
-              ["pending", "running", "waiting"].includes(node.status),
-          )
-          .map((node) => ({ id: node.id, status: node.status })),
-        ...background.map((task) => ({ id: task.taskId, status: "running" })),
-      ],
+      outstandingWork,
       requests: records.runtimeRequests.map((request) => ({
         id: request.id,
         status: request.status,

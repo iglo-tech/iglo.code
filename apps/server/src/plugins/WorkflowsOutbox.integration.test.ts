@@ -14,9 +14,12 @@ it.live.each([255, 256])("outbox backlog of %s failures permits later healthy wo
   Effect.scoped(
     Effect.gen(function* () {
       const test = yield* makeCoreWorkflowFixture;
+      // The fixture repository stays unchanged while seeding the backlog.
+      const workspace = yield* test.core.workspace(test.scope.projectId);
       let healthyCalls = 0;
       const host = Host.of({
         ...test.core,
+        workspace: () => Effect.succeed(workspace),
         launch: (input) =>
           Effect.suspend(() => {
             if (input.title === "Unavailable")

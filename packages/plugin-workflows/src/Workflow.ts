@@ -52,6 +52,7 @@ import {
   terminalAttempt,
   agentFor,
   reportValues,
+  reviewFromFlow,
   joinValues,
   launchInstruction,
   commandId,
@@ -435,6 +436,15 @@ const make = Effect.gen(function* () {
     )
       return yield* error(operation, "Reporting-tool capability is unavailable.", "unsupported");
   });
+  const verifyResumeSession = Effect.fnUntraced(function* (run: Run, attempt: Attempt) {
+    const native = yield* host.inspect(target(run, attempt));
+    if (!native.nativeSession?.canResume || native.nativeSession.id !== attempt.nativeSessionId)
+      return yield* error(
+        "resume",
+        "The retained native session changed or cannot resume.",
+        "unsupported",
+      );
+  });
   const verifySkill = Effect.fnUntraced(function* (
     run: Run,
     attempt: Attempt,
@@ -787,6 +797,24 @@ const make = Effect.gen(function* () {
             ["pending", "waiting"].includes(request.status),
           );
           const request = pendingRequests.length > 0;
+          const pending =
+            active ||
+            state.outstandingWork.length > 0 ||
+            state.checkpoints.some((checkpoint) =>
+              ["pending", "capturing", "running"].includes(checkpoint.status),
+            );
+          // The persisted result and report end the execution clock before delayed recovery.
+          const until =
+            !pending && !request && attempt.report && state.settledAt != null
+              ? Math.min(
+                  now,
+                  Math.max(
+                    attempt.lastActiveAt,
+                    state.settledAt,
+                    attempt.report.receipt.acceptedAt,
+                  ),
+                )
+              : now;
           const agent = agentFor(run, attempt)!;
           const accountingFrom = Math.max(
             attempt.lastActiveAt,
@@ -797,11 +825,11 @@ const make = Effect.gen(function* () {
             state.requests.some((request) => {
               const end =
                 request.resolvedAt ??
-                (["pending", "waiting"].includes(request.status) ? now : request.createdAt);
+                (["pending", "waiting"].includes(request.status) ? until : request.createdAt);
               return end > accountingFrom && end - request.createdAt >= agent.humanTimeoutMs!;
             });
           attempt.nativeSessionId = state.nativeSession?.id ?? null;
-          if (attempt.deadline !== null && now >= attempt.deadline) {
+          if (attempt.deadline !== null && until >= attempt.deadline) {
             attempt.phase = "unresolved";
             attempt.reason = "The review branch deadline expired.";
           } else if (humanExpired) {
@@ -839,14 +867,16 @@ const make = Effect.gen(function* () {
             ) {
               attempt.remainingMs = Math.max(
                 0,
-                attempt.remainingMs - executionElapsed(state.requests, accountingFrom, now),
+                attempt.remainingMs - executionElapsed(state.requests, accountingFrom, until),
               );
               attempt.waitStartedAt = null;
-              attempt.lastActiveAt = now;
+              attempt.lastActiveAt = until;
               attempt.phase = attempt.report ? "reported" : "running";
               yield* persist(run);
             }
-            if (now - attempt.lastActiveAt >= attempt.remainingMs) {
+            if (
+              executionElapsed(state.requests, attempt.lastActiveAt, until) >= attempt.remainingMs
+            ) {
               attempt.phase = "unresolved";
               attempt.reason = "The execution timeout expired.";
             } else if (
@@ -1080,9 +1110,13 @@ const make = Effect.gen(function* () {
             node.otherwise,
             source?.kind === "join" ? joinValues(run, source.fork) : reportValues(attempt),
           );
+          const flowReview = reviewFromFlow(run);
           transition(run, node.id, selected.route, now, {
             ...selected,
-            sourceIds: review ? [review.id] : [attempt?.report?.receipt.id ?? attempt!.id],
+            sourceIds: [
+              ...(review ? [review.id] : [attempt?.report?.receipt.id ?? attempt!.id]),
+              ...(flowReview ? [flowReview.id] : []),
+            ],
           });
           yield* persist(run);
         }),
@@ -1402,23 +1436,18 @@ const make = Effect.gen(function* () {
       if (attempt.phase !== "resuming" || item.id !== `${attempt.id}:resume:${attempt.resumeCount}`)
         return;
       if (!(yield* verifyReviewFreshness(observed, attempt))) return;
-      const native = yield* host.inspect(target(observed, attempt));
+      const committed = yield* host.receipt(commandId(attempt, "resume", attempt.resumeCount));
       const agent = agentFor(observed, attempt)!;
-      const validation = yield* catalog.validate(
-        { environmentId: observed.environmentId, projectId: observed.projectId },
-        observed.definition,
-      );
-      if (
-        !validation.runnable ||
-        !native.nativeSession?.canResume ||
-        native.nativeSession.id !== attempt.nativeSessionId
-      )
-        return yield* error(
-          "resume",
-          "The retained session or required capabilities changed.",
-          "unsupported",
+      if (committed?.status !== "accepted") {
+        const validation = yield* catalog.validate(
+          { environmentId: observed.environmentId, projectId: observed.projectId },
+          observed.definition,
         );
-      yield* verifySkill(observed, attempt, "resume");
+        if (!validation.runnable)
+          return yield* error("resume", "Required capabilities changed.", "unsupported");
+        yield* verifyResumeSession(observed, attempt);
+        yield* verifySkill(observed, attempt, "resume");
+      }
       yield* followUp(observed.id, attempt.id, "resume", launchInstruction(agent, attempt));
       return;
     }
@@ -1660,6 +1689,9 @@ const make = Effect.gen(function* () {
             if (committed?.status !== "accepted") {
               const validation = yield* verifyProvider(run, attempt, operation).pipe(
                 Effect.andThen(verifySkill(run, attempt, operation)),
+                Effect.andThen(
+                  operation === "resume" ? verifyResumeSession(run, attempt) : Effect.void,
+                ),
                 Effect.result,
               );
               if (validation._tag === "Failure")

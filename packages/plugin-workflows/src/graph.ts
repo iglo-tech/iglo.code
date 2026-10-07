@@ -167,6 +167,19 @@ export function admit(run: State, id: string, now: number) {
   }
   if (node.kind === "agent" || node.kind === "check") reserveAttempt(run, node, now);
 }
+/** Checks and decisions carry review authority; an admitted agent consumes it. */
+export const reviewFromFlow = (run: Run) =>
+  run.reviews.findLast(
+    (review) =>
+      run.trace.at(-1)?.sourceIds.includes(review.id) ||
+      run.attempts.some(
+        (source) =>
+          source.reviewId === review.id &&
+          run.definition.nodes.some((node) => node.id === source.nodeId && node.kind === "check") &&
+          (source.id === run.trace.at(-1)?.attemptId ||
+            run.trace.at(-1)?.sourceIds.includes(source.id)),
+      ),
+  );
 export function reserveAttempt(
   run: State,
   node: Extract<Node, { kind: "agent" | "check" | "parallel" }>,
@@ -216,26 +229,18 @@ export function reserveAttempt(
     branchId: branch?.id ?? null,
     reviewId: branch
       ? null
-      : (run.reviews.findLast(
-          (review) =>
-            run.trace.at(-1)?.sourceIds.includes(review.id) ||
-            run.attempts.some(
-              (source) =>
-                source.reviewId === review.id &&
-                (source.id === run.trace.at(-1)?.attemptId ||
-                  run.trace.at(-1)?.sourceIds.includes(source.id) ||
-                  (source.report &&
-                    run.trace.at(-1)?.sourceIds.includes(source.report.receipt.id))),
-            ) ||
-            agent?.bindings?.some(
-              (binding) =>
-                latestAttempt(run, binding.node)?.reviewId === review.id ||
-                run.definition.nodes.some(
-                  (node) =>
-                    node.id === binding.node && node.kind === "join" && node.fork === review.fork,
-                ),
-            ),
-        )?.id ?? null),
+      : (reviewFromFlow(run)?.id ??
+        run.reviews.findLast((review) =>
+          agent?.bindings?.some(
+            (binding) =>
+              latestAttempt(run, binding.node)?.reviewId === review.id ||
+              run.definition.nodes.some(
+                (node) =>
+                  node.id === binding.node && node.kind === "join" && node.fork === review.fork,
+              ),
+          ),
+        )?.id ??
+        null),
     generation,
     threadId: agent ? ThreadId.make(`workflow:${attemptId}`) : null,
     phase: bindingReason ? "unresolved" : "launching",

@@ -154,6 +154,8 @@ export const PluginThreadState = Schema.Struct({
   ),
   runs: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
   resultRunId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Latest persisted completion among the native work represented by a settled result. */
+  settledAt: Schema.optional(Schema.NullOr(Schema.Number)),
   outstandingWork: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
   requests: Schema.Array(
     Schema.Struct({
