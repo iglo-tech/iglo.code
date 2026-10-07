@@ -52,6 +52,7 @@ export class Host extends Context.Service<
       commandId: CommandId,
     ) => Effect.Effect<PluginCommandReceipt | null, PluginError>;
     readonly inspect: (target: PluginTarget) => Effect.Effect<PluginThreadState, PluginError>;
+    /** Preparation-only threads return unavailable until handoff; retry the same command identity. */
     readonly send: (
       input: PluginTarget & {
         readonly commandId: CommandId;
@@ -59,6 +60,7 @@ export class Host extends Context.Service<
         readonly mode: "queue" | "auto";
       },
     ) => Effect.Effect<PluginCommandReceipt, PluginError>;
+    /** Cancellation stops setup; checkouts recovered from earlier attempts retain their files. */
     readonly interrupt: (
       input: PluginTarget & {
         readonly commandId: CommandId;

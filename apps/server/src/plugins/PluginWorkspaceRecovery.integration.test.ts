@@ -1,6 +1,13 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CommandId, ProjectId, ProviderInstanceId, ThreadId, MessageId } from "@t3tools/contracts";
+import {
+  CommandId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  MessageId,
+  type TerminalSummary,
+} from "@t3tools/contracts";
 import { PluginLaunchInput } from "@t3tools/plugin-host-contract/schema";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import * as Context from "effect/Context";
@@ -19,6 +26,7 @@ import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Tracker from "../project/WorktreeSetupTracker.ts";
 import * as Git from "../vcs/GitVcsDriver.ts";
 import * as Startup from "../serverRuntimeStartup.ts";
+import * as Terminals from "../terminal/Manager.ts";
 
 const encodeIdentity = Schema.encodeEffect(
   Schema.fromJsonString(Schema.Tuple([Schema.String, CommandId])),
@@ -35,6 +43,7 @@ const encodeIntent = Schema.encodeEffect(
 const selection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
 const fixture = Effect.gen(function* () {
   let ready = yield* Deferred.make<{ host: Host["Service"]; storage: Storage["Service"] }>();
+  let startupProbe: ((host: Host["Service"]) => Effect.Effect<void>) | undefined;
   const plugin: ServerPlugin = {
     manifest: {
       id: "isolated_probe",
@@ -47,7 +56,9 @@ const fixture = Effect.gen(function* () {
     },
     migrations: [],
     acquire: Effect.gen(function* () {
-      yield* Deferred.succeed(ready, { host: yield* Host, storage: yield* Storage });
+      const host = yield* Host;
+      if (startupProbe !== undefined) yield* startupProbe(host);
+      yield* Deferred.succeed(ready, { host, storage: yield* Storage });
       return { tools: [], api: [], scheduleTargets: [], attention: Stream.empty };
     }),
   };
@@ -100,8 +111,9 @@ const fixture = Effect.gen(function* () {
     runtimeMode: "approval-required" as const,
     workspace: { type: "exact-ref" as const, ref, branch: "probe-branch" },
   };
-  const restart = () =>
+  const restart = (probe?: (host: Host["Service"]) => Effect.Effect<void>) =>
     Effect.gen(function* () {
+      startupProbe = probe;
       yield* Fiber.interrupt(server.fiber);
       ready = yield* Deferred.make<{ host: Host["Service"]; storage: Storage["Service"] }>();
       const restarted = yield* startEnvironment(config, [plugin]);
@@ -365,6 +377,19 @@ it.live.each(["untracked", "tracked", "clean"] as const)(
         } else {
           expect(outcome.value?.phase).toBe("running");
           expect(yield* tracker.cancel(threadId)).toBe(true);
+          const metadata = yield* Deferred.make<ReadonlyArray<TerminalSummary>>();
+          const unsubscribe = yield* Context.get(
+            restarted.server.context,
+            Terminals.TerminalManager,
+          ).subscribeMetadata((event) =>
+            event.type === "snapshot" ? Deferred.succeed(metadata, event.terminals) : Effect.void,
+          );
+          expect(
+            (yield* Deferred.await(metadata)).some(
+              (terminal) => terminal.threadId === threadId && terminal.status === "running",
+            ),
+          ).toBe(false);
+          unsubscribe();
           expect(yield* s.fs.exists(checkout.worktree.path)).toBe(true);
           if (state !== "clean")
             expect(yield* s.fs.readFileString(userFile)).toBe("valuable offline work\n");
@@ -528,4 +553,80 @@ it.live(
       Effect.exit,
       Effect.map((exit) => expect(exit._tag).toBe("Success")),
     ),
+);
+
+it.live("pending setup-only launch blocks cold-restart sends before recovery begins", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const s = yield* fixture;
+      const fifo = `${s.config.baseDir}/cold-send-gate`;
+      yield* s.spawner.exitCode(ChildProcess.make("mkfifo", [fifo]));
+      const script = (command: string) => [
+        {
+          id: "setup",
+          name: "Setup",
+          icon: "configure" as const,
+          command,
+          runOnWorktreeCreate: true,
+          async: false,
+        },
+      ];
+      yield* s.projects.update({
+        projectId: s.projectId,
+        commandId: CommandId.make("failing-setup"),
+        scripts: script("exit 23"),
+      });
+      expect((yield* s.bound.host.launch(s.input).pipe(Effect.result))._tag).toBe("Failure");
+      const snapshot = yield* s.bound.host.reconcile({
+        environmentId: s.bound.host.environmentId,
+        projectId: s.projectId,
+      });
+      const target = snapshot.threads[0]!;
+      const sendInput = {
+        environmentId: target.environmentId,
+        projectId: target.projectId,
+        threadId: target.threadId,
+        commandId: CommandId.make("cold-send"),
+        instruction: "Wait for recovery",
+        mode: "queue" as const,
+      };
+      yield* s.projects.update({
+        projectId: s.projectId,
+        commandId: CommandId.make("repair-setup"),
+        scripts: script(`printf 'COLD_SETUP_WAITING\\n'; cat '${fifo}'`),
+      });
+      const restarted = yield* s.restart((host) =>
+        Effect.gen(function* () {
+          const cold = yield* host.inspect(target).pipe(Effect.orDie);
+          expect(cold.preparationId).toBeUndefined();
+          const denied = yield* host.send(sendInput).pipe(Effect.result);
+          expect(denied._tag).toBe("Failure");
+          if (denied._tag === "Failure")
+            expect(denied.failure).toMatchObject({ code: "unavailable", operation: "send" });
+        }),
+      );
+      const tracker = Context.get(restarted.server.context, Tracker.WorktreeSetupTracker);
+      yield* tracker.stream(target.threadId).pipe(
+        Stream.filter(
+          (state) =>
+            state?.stages.some((stage) => stage.tail.includes("COLD_SETUP_WAITING")) === true,
+        ),
+        Stream.runHead,
+      );
+      yield* s.spawner.exitCode(
+        ChildProcess.make("/bin/sh", ["-c", `printf 'continue\n' > '${fifo}'`]),
+      );
+      expect((yield* restarted.bound.host.launch(s.input)).status).toBe("accepted");
+      const sent = yield* restarted.bound.host.send(sendInput);
+      expect(sent.status).toBe("accepted");
+      expect(yield* restarted.bound.host.send(sendInput)).toEqual(sent);
+      expect(
+        (yield* Context.get(
+          restarted.server.context,
+          Threads.ThreadManagementService,
+        ).getThreadRecords(target.threadId, ["runs"])).runs,
+      ).toHaveLength(1);
+      yield* Fiber.interrupt(restarted.server.fiber);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
 );

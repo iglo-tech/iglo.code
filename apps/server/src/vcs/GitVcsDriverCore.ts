@@ -3285,6 +3285,19 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       options?.resume === true &&
       input.newRefName !== undefined &&
       (yield* branchExists(input.cwd, targetBranch));
+    if (
+      options?.recordedWorktreePath !== undefined &&
+      (!branchExistsBeforeClaim || options.ownerId === undefined)
+    ) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.createWorktree.resume",
+          cwd: input.cwd,
+          args: ["worktree", "list"],
+        }),
+        detail: "The recorded checkout no longer owns its branch.",
+      });
+    }
     if (options?.ownerId !== undefined && input.newRefName !== undefined) {
       const ownerMarker = `t3code-worktree:${Encoding.encodeHex(new TextEncoder().encode(options.ownerId))}`;
       const ownerHash = yield* crypto
@@ -3389,8 +3402,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         (yield* Effect.all([
           fileSystem.realPath(registered),
           fileSystem.realPath(worktreePath),
+          fileSystem.realPath(options.recordedWorktreePath ?? worktreePath),
         ]).pipe(
-          Effect.map(([actual, expected]) => actual === expected),
+          Effect.map(([actual, expected, recorded]) => actual === expected && actual === recorded),
           Effect.mapError(
             (cause) =>
               new GitCommandError({
@@ -3415,8 +3429,69 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         });
       }
       checkoutExists = registered !== undefined;
+      if (options.recordedWorktreePath !== undefined && !checkoutExists) {
+        return yield* new GitCommandError({
+          ...gitCommandContext({
+            operation: "GitVcsDriver.createWorktree.resume",
+            cwd: input.cwd,
+            args: ["worktree", "list"],
+          }),
+          detail: "The recorded checkout is no longer registered with this repository.",
+        });
+      }
       createBranch = false;
       if (checkoutExists) {
+        const [repositoryDir, checkoutDir, checkoutHead, checkoutRef] = yield* Effect.all([
+          runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+          ]),
+          runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, [
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+          ]),
+          runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, ["rev-parse", "HEAD"]),
+          runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, [
+            "rev-parse",
+            "--symbolic-full-name",
+            "HEAD",
+          ]),
+        ]);
+        const sameRepository = yield* Effect.all([
+          fileSystem.realPath(repositoryDir.trim()),
+          fileSystem.realPath(checkoutDir.trim()),
+        ]).pipe(
+          Effect.map(([expected, actual]) => expected === actual),
+          Effect.mapError(
+            (cause) =>
+              new GitCommandError({
+                ...gitCommandContext({
+                  operation: "GitVcsDriver.createWorktree.resume",
+                  cwd: worktreePath,
+                  args: ["rev-parse", "--git-common-dir"],
+                }),
+                detail: "Could not reconcile the checkout repository.",
+                cause,
+              }),
+          ),
+        );
+        if (
+          !sameRepository ||
+          checkoutHead.trim() !== requestedCommit ||
+          checkoutRef.trim() !== `refs/heads/${targetBranch}`
+        ) {
+          return yield* new GitCommandError({
+            ...gitCommandContext({
+              operation: "GitVcsDriver.createWorktree.resume",
+              cwd: worktreePath,
+              args: ["rev-parse", "HEAD"],
+            }),
+            detail:
+              "The recorded checkout no longer matches its repository, branch, or requested revision.",
+          });
+        }
         const unchanged = yield* executeGit(
           "GitVcsDriver.createWorktree.resume",
           worktreePath,
@@ -3429,7 +3504,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           "locked",
         ])).trim();
         if (
-          unchanged.exitCode !== 0 ||
+          (unchanged.exitCode !== 0 &&
+            !(options.recordedWorktreePath !== undefined && unchanged.exitCode === 1)) ||
           (yield* fileSystem.exists(path.resolve(worktreePath, lockPath)).pipe(
             Effect.mapError(
               (cause) =>

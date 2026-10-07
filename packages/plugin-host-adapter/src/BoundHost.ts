@@ -85,6 +85,33 @@ export const make = (pluginId: string) =>
             "This pending interrupt has no recorded run selection and cannot safely be replayed. Inspect the thread and use a new command identity.",
         });
       const input = { ...intent.input, commandId: coreId(intent) };
+      if (intent.kind === "send") {
+        // A committed create receipt can precede setup. Keep that barrier after
+        // restart or tracker expiry, including a lost final launch acknowledgement.
+        const pending = yield* sql<{ intent: string }>`SELECT intent FROM host_commands
+          WHERE result IS NULL AND json_extract(intent, '$.kind') = 'launch'
+          AND json_extract(intent, '$.input.projectId') = ${intent.input.projectId}`;
+        for (const row of pending) {
+          const launch = yield* decodeIntent(row.intent);
+          if (
+            launch.kind !== "launch" ||
+            launch.input.instruction !== undefined ||
+            launch.input.workspace.type !== "exact-ref"
+          )
+            continue;
+          const created = yield* core.receipt(coreId(launch));
+          if (created?.threadId !== intent.input.threadId) continue;
+          const ready = yield* core.receipt(CommandId.make(`${coreId(launch)}:workspace-ready`));
+          if (ready?.status !== "accepted")
+            return yield* new PluginError({
+              pluginId,
+              code: "unavailable",
+              operation: "send",
+              message:
+                "Workspace preparation has not released this thread. Retry the launch, then retry this command with the same identity.",
+            });
+        }
+      }
       const result =
         intent.kind === "launch"
           ? yield* core.launch({ ...intent.input, commandId: input.commandId })

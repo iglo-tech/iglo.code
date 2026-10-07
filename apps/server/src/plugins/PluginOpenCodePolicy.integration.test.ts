@@ -160,6 +160,7 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
           { action: "edit", resource: "*", effect: "ask" },
           { action: "external_directory", resource: "*", effect: "ask" },
           ...mcprules,
+          { action: "t3-code-thread_opencode2-adapter_plugin_*", resource: "*", effect: "ask" },
         ];
         const broad = [{ action: "*", resource: "*", effect: "allow" }, ...mcprules];
         const native = {

@@ -541,7 +541,23 @@ const make = Effect.gen(function* () {
         yield* environment(input.environmentId);
         const existing = yield* receipt(input.commandId);
         if (existing !== null) return existing;
-        yield* inspect(input);
+        const state = yield* inspect(input);
+        const preparation = yield* setup.get(input.threadId);
+        if (
+          preparation !== null &&
+          !preparation.stages.some((stage) => stage.id === "agent" && stage.status === "done") &&
+          !state.runs.some((run) =>
+            ["preparing", "starting", "running", "waiting"].includes(run.status),
+          )
+        ) {
+          return yield* new PluginError({
+            pluginId: "host",
+            code: "unavailable",
+            operation: "send",
+            message:
+              "Workspace preparation has not released this thread. Retry after preparation completes.",
+          });
+        }
         yield* threads
           .sendToThread({
             projectId: input.projectId,

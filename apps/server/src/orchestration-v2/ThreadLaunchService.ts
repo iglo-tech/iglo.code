@@ -331,6 +331,30 @@ const make = Effect.gen(function* () {
         input.workspaceStrategy.type === "existing_worktree"
           ? input.workspaceStrategy.worktreePath
           : null;
+      if (reused !== undefined && runId === null) {
+        if (worktreePath === null || branch === null)
+          return yield* mapError(
+            input,
+            "provision-worktree",
+            threadId,
+          )("The recorded checkout has no workspace or branch identity.");
+        yield* git
+          .createWorktree(
+            {
+              cwd: project.workspaceRoot,
+              refName: reused.baseRef,
+              newRefName: branch,
+              baseRefName: reused.baseRef,
+              path: worktreePath,
+            },
+            {
+              resume: true,
+              recordedWorktreePath: worktreePath,
+              ownerId: `launch:${input.commandId}`,
+            },
+          )
+          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+      }
       if (input.workspaceStrategy.type === "worktree") {
         // Record generated identity before Git I/O, so a process loss cannot invent
         // a second branch while the first checkout is still on disk.
@@ -591,6 +615,12 @@ const make = Effect.gen(function* () {
             cancelled ? "cancelled" : "failed",
             cancelled ? null : failureDetail(Cause.squash(cause)),
           );
+          // This attempt owns its setup terminal even when it recovered a checkout.
+          if (cancelled && !preparationReleased && setupTerminalId) {
+            yield* terminals
+              .close({ threadId, terminalId: setupTerminalId, deleteHistory: true })
+              .pipe(Effect.ignore);
+          }
           // Cancellable setup owns its checkout. After release, async setup can
           // stop without deleting a workspace the launch already acknowledged.
           // Failure retains recorded worktrees and removes unrecorded ones.
@@ -600,10 +630,6 @@ const make = Effect.gen(function* () {
             createdWorktreePath &&
             ((cancelled && !preparationReleased) || !workspaceRecorded)
           ) {
-            if (setupTerminalId)
-              yield* terminals
-                .close({ threadId, terminalId: setupTerminalId, deleteHistory: true })
-                .pipe(Effect.ignore);
             const removedPath = createdWorktreePath;
             // The thread forgets the worktree only once it is gone; a failed
             // removal leaves the directory for the user to clean up rather than
