@@ -33,8 +33,10 @@ export const draft = (run: Run): State => ({
 });
 export const terminalAttempt = (attempt: Attempt) =>
   ["completed", "failed", "unresolved", "interrupted", "canceled", "stale"].includes(attempt.phase);
-export const latestAttempt = (run: Run, nodeId: string) =>
-  run.attempts.findLast((attempt) => attempt.nodeId === nodeId && attempt.branchId === null);
+export const latestAttempt = <A extends Run["attempts"][number]>(
+  run: { readonly attempts: ReadonlyArray<A> },
+  nodeId: string,
+) => run.attempts.findLast((attempt) => attempt.nodeId === nodeId && attempt.branchId === null);
 export function agentFor(run: Run, attempt: Attempt): Agent | undefined {
   const node = run.definition.nodes.find((node) => node.id === attempt.nodeId);
   return node?.kind === "agent"
@@ -117,7 +119,8 @@ export function allowedActions(run: Run): State["allowedActions"] {
     ];
   }
   if (run.state === "unresolved") {
-    const attempt = run.attempts.findLast((attempt) => attempt.nodeId === run.currentNode);
+    // Review recovery admits a fresh fork; consumed branches cannot continue individually.
+    const attempt = latestAttempt(run, run.currentNode);
     return [
       "cancel",
       ...(!run.automationStopped &&

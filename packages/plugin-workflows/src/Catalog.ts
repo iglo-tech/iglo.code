@@ -8,7 +8,13 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Yaml from "yaml";
-import { Definition, type CatalogEntry, type SaveInput, type ScopeInput } from "./contracts.ts";
+import {
+  Definition,
+  limits,
+  type CatalogEntry,
+  type SaveInput,
+  type ScopeInput,
+} from "./contracts.ts";
 import { agents, definitionProblems } from "./definition.ts";
 import { error, protect } from "./encoding.ts";
 import { examples } from "./examples.ts";
@@ -17,6 +23,7 @@ import * as Display from "./display.ts";
 const isPluginError = Schema.is(PluginError);
 export const location = ".t3code/workflows";
 const decode = Schema.decodeUnknownEffect(Definition);
+const sizeReason = `Workflow YAML exceeds ${limits.definitionBytes / 1024} KiB.`;
 export class Catalog extends Context.Service<
   Catalog,
   {
@@ -64,6 +71,8 @@ const make = Effect.gen(function* () {
       ),
     );
     const reasons = definitionProblems(definition);
+    if (new TextEncoder().encode(Yaml.stringify(definition)).byteLength > limits.definitionBytes)
+      reasons.push(sizeReason);
     const discovered = yield* host.providers().pipe(Effect.result);
     const providers = discovered._tag === "Success" ? discovered.success : [];
     if (discovered._tag === "Failure")
@@ -99,8 +108,7 @@ const make = Effect.gen(function* () {
   });
   const read = Effect.fnUntraced(function* (filename: string, projectId: ProjectId) {
     const stat = yield* fs.stat(filename);
-    if (Number(stat.size) > 524_288)
-      return yield* error("catalog", "Workflow YAML exceeds 512 KiB.");
+    if (Number(stat.size) > limits.definitionBytes) return yield* error("catalog", sizeReason);
     const contents = yield* fs.readFileString(filename);
     const parsed = yield* Effect.try({
       try: () => Yaml.parse(contents, { maxAliasCount: 32 }),
@@ -216,7 +224,7 @@ const make = Effect.gen(function* () {
           prefix: ".workflow-",
           suffix: ".yaml",
         });
-        yield* fs.writeFileString(temporary, Yaml.stringify(input.definition));
+        yield* fs.writeFileString(temporary, Yaml.stringify(entry.definition));
         yield* fs
           .rename(temporary, filename)
           .pipe(Effect.ensuring(fs.remove(temporary).pipe(Effect.ignore)));

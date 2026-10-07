@@ -24,6 +24,7 @@ export const limits = {
   fields: 32,
   predicateDepth: 8,
   predicateTerms: 128,
+  definitionBytes: 524_288,
   reportBytes: 65_536,
   summary: 4_000,
   evidence: 20,

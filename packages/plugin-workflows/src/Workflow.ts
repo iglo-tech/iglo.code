@@ -439,6 +439,23 @@ const make = Effect.gen(function* () {
         "The retained native session changed or cannot resume.",
         "unsupported",
       );
+    const intended = attempt.launch?.workspace;
+    if (!native.workspacePath || intended?.type !== "existing")
+      return yield* error("resume", "The retained workspace is unavailable.", "unsupported");
+    const [actualPath, intendedPath] = yield* Effect.all([
+      fs.realPath(native.workspacePath),
+      fs.realPath(intended.path),
+    ]).pipe(
+      Effect.mapError((cause) =>
+        error("resume", "The retained workspace cannot be verified.", "unsupported", cause),
+      ),
+    );
+    if (actualPath !== intendedPath)
+      return yield* error(
+        "resume",
+        "The retained workspace changed from the attempt's selected workspace.",
+        "unsupported",
+      );
   });
   const verifySkill = Effect.fnUntraced(function* (
     run: Run,
@@ -717,7 +734,7 @@ const make = Effect.gen(function* () {
   const resume = (input: typeof CommandInput.Type) =>
     mutate("resume", input, (run, now) =>
       Effect.gen(function* () {
-        const attempt = run.attempts.findLast((attempt) => attempt.nodeId === run.currentNode);
+        const attempt = latestAttempt(run, run.currentNode);
         if (!run.allowedActions.includes("resume") || !attempt?.resumable || attempt.report)
           return yield* error(
             "resume",

@@ -283,7 +283,10 @@ const make = Effect.gen(function* () {
         )
         .map((item) => item.completedAt),
       ...records.subagents
-        .filter((task) => task.runId === null || !inactiveRuns.has(task.runId))
+        .filter(
+          (task) =>
+            task.runId === null || (!monitorRuns.has(task.runId) && !inactiveRuns.has(task.runId)),
+        )
         .map((task) => task.completedAt),
       ...records.checkpoints
         .filter(
