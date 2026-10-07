@@ -96,6 +96,15 @@ export const fixture = Effect.gen(function* () {
       }),
     verifyPullRequestHead: () => Effect.succeed({ head, branch: "feature" }),
     receipt: (id) => Effect.succeed(receipts.get(id) ?? null),
+    retryPreparation: () =>
+      Effect.fail(
+        new PluginError({
+          pluginId: "host",
+          code: "unavailable",
+          operation: "retry-preparation",
+          message: "The workflow fixture does not model preparation retries.",
+        }),
+      ),
     launch: (input) =>
       Effect.gen(function* () {
         const previous = receipts.get(input.commandId);
