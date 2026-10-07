@@ -8,9 +8,38 @@ import * as NodeReadline from "node:readline";
 import * as NodeURL from "node:url";
 import { expect, test } from "@effect/vitest";
 import * as Schema from "effect/Schema";
-import { ServerNotification } from "effect-codex-app-server/schema";
+import { ServerNotification, v1 } from "effect-codex-app-server/schema";
 
 const decodeNotification = Schema.decodeUnknownSync(ServerNotification);
+const decodeInitialize = Schema.decodeUnknownSync(v1.InitializeResponse);
+
+test("a background Codex probe initializes without fixture control or CODEX_HOME", async () => {
+  const cwd = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fake-codex-probe-"));
+  const env = { ...process.env };
+  delete env.T3_FAKE_CONTROL;
+  delete env.CODEX_HOME;
+  try {
+    const child = NodeChildProcess.spawnSync(
+      process.env.BUN_EXECUTABLE ?? "bun",
+      [NodeURL.fileURLToPath(new URL("fake-codex.mjs", import.meta.url))],
+      {
+        cwd,
+        env,
+        input: `${JSON.stringify({ id: 1, method: "initialize", params: {} })}\n`,
+        encoding: "utf8",
+        timeout: 5000,
+      },
+    );
+    expect(child.error).toBeUndefined();
+    expect(child.status, child.stderr).toBe(0);
+    const response = JSON.parse(child.stdout);
+    expect(response.id).toBe(1);
+    const initialized = decodeInitialize(response.result);
+    expect(initialized.codexHome).toBe(await NodeFSP.realpath(cwd));
+  } finally {
+    await NodeFSP.rm(cwd, { recursive: true, force: true });
+  }
+});
 
 test("the controlled provider returns a deterministic title through codex exec", async () => {
   const control = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fake-title-"));
