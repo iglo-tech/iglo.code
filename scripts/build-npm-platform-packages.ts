@@ -36,12 +36,8 @@ import {
   cliArchiveFileName,
   type CliArchivePlatformKey,
 } from "@t3tools/shared/cliRelease";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
-import { isCommandAvailable } from "@t3tools/shared/shell";
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
-
-import { windowsSystemTar } from "./build-cli-archive.ts";
 
 export const NPM_PLATFORM_PACKAGE_SCOPE = "@t3code";
 export const NPM_LAUNCHER_PACKAGE_NAME = "t3";
@@ -90,7 +86,7 @@ export function npmPlatformPackageName(platformKey: CliArchivePlatformKey): stri
 
 /**
  * package.json for one platform package; `os`/`cpu` let npm skip the other
- * five. The archive's runtime `node_modules` (native addons and their
+ * two. The archive's runtime `node_modules` (native addons and their
  * loaders) ships inside the tarball, and npm only keeps a nested tree it can
  * account for: anything not declared is extraneous and pruned on the next
  * `npm install` in that project, which then breaks the executable. Declaring
@@ -112,7 +108,7 @@ export function npmPlatformPackageManifest(
     repository: serverPackageJson.repository,
     os: [os],
     cpu: [cpu],
-    files: ["t3", "t3.exe", "client", "resource-monitor", "node_modules"],
+    files: ["t3", "runtime", "client", "resource-monitor", "node_modules"],
     preferUnplugged: true,
     dependencies: Object.fromEntries(bundleDependencies.map((name) => [name, bundled[name]])),
     bundleDependencies,
@@ -163,12 +159,12 @@ export function npmPlatformPackageReadme(platformKey: CliArchivePlatformKey): st
     `npx ${NPM_LAUNCHER_PACKAGE_NAME}@latest`,
     "```",
     "",
-    "Source and documentation: https://github.com/pingdotgg/t3code",
+    "Source and documentation: https://github.com/iglo-tech/iglo.code",
     "",
   ].join("\n");
 }
 
-/** package.json for the `t3` launcher. No engines: bin/t3.js is trivial CJS. */
+/** package.json for the shell launcher, retaining the established bin path. */
 export function npmLauncherPackageManifest(
   version: string,
   platformKeys: ReadonlyArray<CliArchivePlatformKey>,
@@ -187,44 +183,34 @@ export function npmLauncherPackageManifest(
   };
 }
 
-/**
- * The launcher every `npx t3` runs. Plain CommonJS with no dependencies so it
- * loads on any Node that npm itself runs on; the real work happens in the
- * single-executable it execs.
- */
-export const NPM_LAUNCHER_SCRIPT = `#!/usr/bin/env node
-"use strict";
-const { spawnSync } = require("node:child_process");
-const { constants } = require("node:os");
-const { dirname, join } = require("node:path");
-
-const SUPPORTED = [${CLI_ARCHIVE_PLATFORM_KEYS.map((key) => `"${key}"`).join(", ")}];
-const key = process.platform + "-" + process.arch;
-
-let packageDir;
-try {
-  packageDir = dirname(require.resolve("${NPM_PLATFORM_PACKAGE_SCOPE}/t3-" + key + "/package.json"));
-} catch {
-  process.stderr.write(
-    [
-      "t3: no T3 Code CLI build is available for this platform (" + key + ").",
-      "Supported platforms: " + SUPPORTED.join(", ") + ".",
-      "If yours is listed, reinstall t3 so npm fetches its optional dependency.",
-      "The desktop app and release archives are at https://github.com/pingdotgg/t3code/releases",
-      "",
-    ].join("\\n"),
-  );
-  process.exit(1);
-}
-
-const executable = join(packageDir, process.platform === "win32" ? "t3.exe" : "t3");
-const result = spawnSync(executable, process.argv.slice(2), { stdio: "inherit" });
-if (result.error) {
-  process.stderr.write("t3: failed to start " + executable + ": " + result.error.message + "\\n");
-  process.exit(1);
-}
-// A child killed by a signal has no status; report it the way a shell would.
-process.exit(result.status ?? 128 + (constants.signals[result.signal] || 1));
+/** The npm command execs the archive binary without an application interpreter. */
+export const NPM_LAUNCHER_SCRIPT = `#!/bin/sh
+set -eu
+entry="$0"
+while [ -L "$entry" ]; do
+  directory="$(CDPATH= cd -- "$(dirname -- "$entry")" && pwd)"
+  target="$(readlink "$entry")"
+  case "$target" in
+    /*) entry="$target" ;;
+    *) entry="$directory/$target" ;;
+  esac
+done
+package_dir="$(CDPATH= cd -- "$(dirname -- "$entry")/.." && pwd)"
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) key=darwin-arm64 ;;
+  Linux-x86_64 | Linux-amd64) key=linux-x64 ;;
+  Linux-aarch64 | Linux-arm64) key=linux-arm64 ;;
+  *) key="$(uname -s)-$(uname -m)" ;;
+esac
+for executable in "$package_dir/node_modules/${NPM_PLATFORM_PACKAGE_SCOPE}/t3-$key/t3" "$package_dir/../${NPM_PLATFORM_PACKAGE_SCOPE}/t3-$key/t3"; do
+  if [ -x "$executable" ]; then exec "$executable" "$@"; fi
+done
+printf '%s\n' \
+  "t3: no iglo.code CLI build is available for this platform ($key)." \
+  "Supported platforms: ${CLI_ARCHIVE_PLATFORM_KEYS.join(", ")}." \
+  "If yours is listed, reinstall the fork package so npm fetches its optional dependency." \
+  "Release archives are at https://github.com/iglo-tech/iglo.code/releases" >&2
+exit 1
 `;
 
 const runCommand = Effect.fn("runCommand")(function* (
@@ -245,31 +231,11 @@ const runCommand = Effect.fn("runCommand")(function* (
   }
 });
 
-/**
- * Extracts an archive and returns its single top-level directory. `.tar.gz`
- * goes through tar everywhere; `.zip` through the bsdtar Windows ships or,
- * elsewhere, `unzip`, since GNU tar cannot read zip.
- */
+/** Extracts a release tarball and returns its single top-level directory. */
 const extractArchive = Effect.fn("extractArchive")(function* (archive: string, into: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const platform = yield* HostProcessPlatform;
-  if (!archive.endsWith(".zip")) {
-    yield* runCommand(ChildProcess.make("tar", ["-xf", archive, "-C", into]), "tar -xf");
-  } else if (platform === "win32") {
-    yield* runCommand(
-      ChildProcess.make(windowsSystemTar(), ["-xf", archive, "-C", into]),
-      "tar.exe -xf (zip)",
-    );
-  } else {
-    if (!(yield* isCommandAvailable("unzip"))) {
-      return yield* new NpmPackagesToolMissingError({
-        tool: "unzip",
-        purpose: `extract ${path.basename(archive)} (GNU tar cannot read zip)`,
-      });
-    }
-    yield* runCommand(ChildProcess.make("unzip", ["-q", archive, "-d", into]), "unzip");
-  }
+  yield* runCommand(ChildProcess.make("tar", ["-xf", archive, "-C", into]), "tar -xf");
   const entries = yield* fs.readDirectory(into);
   const [root] = entries;
   if (root === undefined || entries.length !== 1) {
@@ -280,11 +246,6 @@ const extractArchive = Effect.fn("extractArchive")(function* (archive: string, i
   }
   return path.join(into, root);
 });
-
-/** Tar to build npm tarballs with; see build-cli-archive.ts for why Windows names bsdtar by path. */
-const hostTar = Effect.map(HostProcessPlatform, (platform) =>
-  platform === "win32" ? windowsSystemTar() : "tar",
-);
 
 /**
  * Writes `stageDir/package` as a gzipped npm tarball and then moves the tree
@@ -298,7 +259,7 @@ const packAndPlace = Effect.fn("packAndPlace")(function* (input: {
   const fs = yield* FileSystem.FileSystem;
   yield* fs.remove(input.tarball, { force: true });
   yield* runCommand(
-    ChildProcess.make(yield* hostTar, ["-czf", input.tarball, "-C", input.stageDir, "package"]),
+    ChildProcess.make("tar", ["-czf", input.tarball, "-C", input.stageDir, "package"]),
     `tar (${input.tarball})`,
   );
   yield* fs.remove(input.packageDir, { recursive: true, force: true });

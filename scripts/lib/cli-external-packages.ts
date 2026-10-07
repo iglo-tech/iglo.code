@@ -7,7 +7,7 @@
  * - scripts/build-cli-archive.ts selects runtime dependency roots for the CLI archive.
  *
  * A runtime package that is external but absent from the archive fails as soon
- * as Node resolves it from the emitted bundle. Keeping both consumers on one
+ * as Bun resolves it from the emitted bundle. Keeping both consumers on one
  * list prevents packaging from drifting away from the bundle boundary.
  *
  * Entries are matched as prefixes (`id.startsWith(prefix)`), so they also cover
@@ -15,7 +15,7 @@
  * `node-gyp-build-optional-packages`, `@yuuang/` covers every `ffi-rs-*` binding.
  */
 /**
- * External because Node actually loads them from disk at runtime.
+ * External because the runtime loads them from disk at runtime.
  *
  * Native addons (.node), the JS wrappers that dlopen them by real path, and —
  * critically — the ordinary JS packages those wrappers require. An external

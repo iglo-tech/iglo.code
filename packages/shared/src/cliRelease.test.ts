@@ -12,28 +12,28 @@ import {
 } from "./cliRelease.ts";
 
 describe("cliRelease", () => {
-  it("names archives by version and platform, zip only on Windows", () => {
+  it("names supported archives by version and platform", () => {
     expect(cliArchiveFileName("1.2.3-preview.20260911.4", "linux-x64")).toBe(
       "t3-1.2.3-preview.20260911.4-linux-x64.tar.gz",
     );
-    expect(cliArchiveFileName("1.2.3", "win32-x64")).toBe("t3-1.2.3-win32-x64.zip");
+    expect(cliArchiveFileName("1.2.3", "darwin-arm64")).toBe("t3-1.2.3-darwin-arm64.tar.gz");
   });
 
   it("only maps platforms and architectures that have a release archive", () => {
     expect(cliArchivePlatformKey("darwin", "arm64")).toBe("darwin-arm64");
     expect(cliArchivePlatformKey("linux", "x64")).toBe("linux-x64");
-    expect(cliArchivePlatformKey("win32", "x64")).toBe("win32-x64");
-    // Node single-executables are unsupported on x64 macOS.
+    expect(cliArchivePlatformKey("win32", "x64")).toBeUndefined();
+    // This fork publishes only Apple Silicon macOS archives.
     expect(cliArchivePlatformKey("darwin", "x64")).toBeUndefined();
     expect(cliArchivePlatformKey("linux", "arm64")).toBe("linux-arm64");
-    expect(cliArchivePlatformKey("win32", "arm64")).toBe("win32-arm64");
+    expect(cliArchivePlatformKey("win32", "arm64")).toBeUndefined();
     expect(cliArchivePlatformKey("freebsd", "x64")).toBeUndefined();
     expect(cliArchivePlatformKey("linux", "ia32")).toBeUndefined();
   });
 
   it("resolves download URLs under the tagged release, honoring a mirror", () => {
     expect(cliReleaseDownloadBaseUrl("1.2.3")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/download/v1.2.3",
+      "https://github.com/iglo-tech/iglo.code/releases/download/v1.2.3",
     );
     expect(cliReleaseDownloadBaseUrl("1.2.3", "https://mirror.example/t3/")).toBe(
       "https://mirror.example/t3/v1.2.3",
@@ -87,7 +87,7 @@ describe("cliRelease", () => {
 
   it("pages through the release index at the largest page GitHub allows", () => {
     expect(cliReleaseIndexPageUrl(1)).toBe(
-      "https://api.github.com/repos/pingdotgg/t3code/releases?per_page=100&page=1",
+      "https://api.github.com/repos/iglo-tech/iglo.code/releases?per_page=100&page=1",
     );
     expect(cliReleaseIndexPageUrl(3)).toContain("page=3");
   });

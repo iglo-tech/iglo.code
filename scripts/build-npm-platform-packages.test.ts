@@ -96,11 +96,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         allowMissing: false,
       }).pipe(Effect.flip);
       assert.instanceOf(error, NpmPackagesArchivesMissingError);
-      assert.deepStrictEqual((error as NpmPackagesArchivesMissingError).missing, [
-        "linux-arm64",
-        "win32-arm64",
-        "win32-x64",
-      ]);
+      assert.deepStrictEqual((error as NpmPackagesArchivesMissingError).missing, ["linux-arm64"]);
     }),
   );
 
@@ -133,7 +129,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       assert.deepStrictEqual(linuxManifest.cpu, ["x64"]);
       assert.deepStrictEqual(linuxManifest.files, [
         "t3",
-        "t3.exe",
+        "runtime",
         "client",
         "resource-monitor",
         "node_modules",
@@ -201,13 +197,22 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         listing.stdout,
       );
 
-      // NODE_PATH stands in for node_modules: require.resolve finds the
-      // platform package there exactly as it would after `npm install`.
+      // The command must run after npm installation without Node or Bun on PATH.
+      const toolBin = path.join(fixture.root, "system-tools");
+      yield* fs.makeDirectory(toolBin);
+      for (const tool of ["dirname", "uname", "readlink"]) {
+        yield* fs.symlink(`/usr/bin/${tool}`, path.join(toolBin, tool));
+      }
       const hostPlatform = yield* HostProcessPlatform;
       const hostArch = yield* HostProcessArchitecture;
-      const env = { ...process.env, NODE_PATH: fixture.outputDir } as Record<string, string>;
+      const env = { ...process.env, PATH: toolBin, NODE_PATH: fixture.outputDir } as Record<
+        string,
+        string
+      >;
       if (KEYS.some((key) => key === `${hostPlatform}-${hostArch}`)) {
-        const passthrough = yield* run(process.execPath, ["bin/t3.js", "serve", "--port", "1234"], {
+        const globalBin = path.join(fixture.root, "global-t3");
+        yield* fs.symlink(path.join(launcherDir, "bin/t3.js"), globalBin);
+        const passthrough = yield* run(globalBin, ["serve", "--port", "1234"], {
           cwd: launcherDir,
           env,
         });
@@ -248,14 +253,18 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         assert.equal(legacy.exitCode, 7);
       }
 
-      const unsupported = yield* run(process.execPath, ["bin/t3.js", "--version"], {
-        cwd: launcherDir,
-        env: { ...env, NODE_PATH: path.join(fixture.root, "nowhere") },
+      const missingLauncher = path.join(fixture.root, "missing/bin/t3.js");
+      yield* fs.makeDirectory(path.dirname(missingLauncher), { recursive: true });
+      yield* fs.copyFile(path.join(launcherDir, "bin/t3.js"), missingLauncher);
+      yield* fs.chmod(missingLauncher, 0o755);
+      const unsupported = yield* run(missingLauncher, ["--version"], {
+        cwd: fixture.root,
+        env,
       });
       assert.equal(unsupported.exitCode, 1);
       assert.include(unsupported.stderr, "linux-x64");
-      assert.include(unsupported.stderr, "win32-arm64");
-      assert.include(unsupported.stderr, "https://github.com/pingdotgg/t3code/releases");
+      assert.notInclude(unsupported.stderr, "win32-arm64");
+      assert.include(unsupported.stderr, "https://github.com/iglo-tech/iglo.code/releases");
     }),
   );
 });
