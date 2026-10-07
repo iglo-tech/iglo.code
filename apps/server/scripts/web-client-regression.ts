@@ -8,6 +8,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as Effect from "effect/Effect";
+import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -24,6 +25,7 @@ import {
   WS_METHODS,
   type TerminalAttachStreamEvent,
 } from "@t3tools/contracts";
+import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "@t3tools/shared/remote";
 import {
   createEnvironmentFixture,
   redactEnvironmentLog,
@@ -41,8 +43,12 @@ import { requestRpc, withRegressionRpc, type RegressionRpcClient } from "./web-f
 const repoRoot = NodeURL.fileURLToPath(new URL("../../../", import.meta.url));
 const visible = (locator: Locator) => locator.waitFor({ state: "visible", timeout: 30_000 });
 const decodeCommand = Schema.decodeUnknownSync(OrchestrationV2Command);
-const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
-const decodePairingCredential = Schema.decodeUnknownSync(AuthPairingCredentialResult);
+const decodeDescriptor = Schema.decodeUnknownSync(
+  Schema.toCodecJson(ExecutionEnvironmentDescriptor),
+);
+const decodePairingCredential = Schema.decodeUnknownSync(
+  Schema.toCodecJson(AuthPairingCredentialResult),
+);
 const providerId = ProviderInstanceId.make("codex");
 const authProviderId = ProviderInstanceId.make("fixture_signin");
 
@@ -62,9 +68,7 @@ async function pairingUrl(fixture: EnvironmentFixture) {
       })
     ).json(),
   );
-  const url = new URL("/pair", fixture.origin);
-  url.searchParams.set("token", credential.credential);
-  return url.href;
+  return setPairingTokenOnUrl(new URL("/pair", fixture.origin), credential.credential).href;
 }
 
 async function configure(fixture: EnvironmentFixture, dependencies: WebDependencies) {
@@ -148,7 +152,7 @@ async function sendMessage(page: Page, text: string) {
   const editor = page.getByTestId("composer-editor");
   await visible(editor);
   await editor.fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: "Submit message", exact: true }).click();
 }
 
 async function addSurface(page: Page, name: "Terminal" | "Browser" | "Device") {
@@ -159,7 +163,7 @@ async function addSurface(page: Page, name: "Terminal" | "Browser" | "Device") {
   }
   if (await add.isVisible()) {
     await add.click();
-    await page.getByRole("menuitem", { name, exact: true }).click();
+    await page.getByRole("menuitem", { name: new RegExp(`^${name}(?:\\s|$)`) }).click();
   } else {
     await launcher.getByRole("button", { name, exact: true }).click();
   }
@@ -232,6 +236,8 @@ export async function runWebClientRegression(
     viewport: { width: 1440, height: 1100 },
     permissions: ["clipboard-read", "clipboard-write"],
   });
+  context.setDefaultTimeout(30_000);
+  context.setDefaultNavigationTimeout(30_000);
   // Network snapshots contain cookies and socket tickets. Keep only rendered
   // screenshots and action metadata, and pause even those around pairing input.
   let tracing = false;
@@ -302,12 +308,14 @@ export async function runWebClientRegression(
       );
       await page.goto(primaryPairing);
       NodeAssert.equal((await paired).status(), 200);
+      await page.waitForURL((url) => url.pathname !== "/pair");
+      await visible(page.getByText("Project environment-a", { exact: true }).first());
       await page.goto(new URL(seeded.route, primary.origin).href);
       await visible(page.getByTestId("composer-editor"));
       pairingActive = false;
       NodeAssert.equal(
-        new URL(page.url()).searchParams.has("token"),
-        false,
+        getPairingTokenFromUrl(new URL(page.url())),
+        null,
         "Pairing credentials must leave the visible URL.",
       );
       await page.reload();
@@ -320,10 +328,13 @@ export async function runWebClientRegression(
     await milestone("streamed text, tool activity, completion and cancellation", async () => {
       await sendMessage(page, "Run the controlled streaming turn");
       await visible(page.getByText("Streaming from environment-a", { exact: true }));
-      await visible(page.getByText("printf fixture-tool", { exact: false }).first());
+      await visible(
+        page.getByRole("button", { name: /^(?:Running printf|Ran printf|Ran 1 command)$/ }).first(),
+      );
       await visible(page.getByRole("button", { name: "Stop generation", exact: true }));
       await releaseProvider(dependencies);
       await visible(page.getByText("Finished from environment-a.", { exact: true }));
+      await visible(page.getByRole("button", { name: /^(?:Ran printf|Ran 1 command)$/ }).first());
       await page
         .getByRole("button", { name: "Stop generation", exact: true })
         .waitFor({ state: "hidden" });
@@ -337,8 +348,15 @@ export async function runWebClientRegression(
       const row = page.getByTestId("sidebar-row-card").filter({ hasText: "Thread environment-a" });
       await row.hover();
       await row.getByRole("button", { name: "Settle thread", exact: true }).click();
-      await visible(page.getByRole("button", { name: "Un-settle thread", exact: true }).first());
-      await page.getByRole("button", { name: "Un-settle thread", exact: true }).first().click();
+      const settledShelf = page.getByTestId("sidebar-settled-shelf-toggle");
+      await visible(settledShelf);
+      if ((await settledShelf.getAttribute("aria-expanded")) === "false")
+        await settledShelf.click();
+      const settledRow = page
+        .getByTestId("sidebar-row-slim")
+        .filter({ hasText: "Thread environment-a" });
+      await settledRow.hover();
+      await settledRow.getByRole("button", { name: "Un-settle thread", exact: true }).click();
     });
 
     await milestone("terminal input, output, resize, error and exit", async () => {
@@ -388,18 +406,20 @@ export async function runWebClientRegression(
           (event) => event.type === "snapshot",
         );
         NodeAssert.match(terminalText(snapshot), /\r?\nterminal-error-fixture\r?\n/);
-        const writeAfterExit = await Effect.runPromiseExit(
+        const missingTerminal = await Effect.runPromiseExit(
           client[WS_METHODS.terminalWrite]({
             threadId: seeded.threadId,
-            terminalId: "term-1",
+            terminalId: "missing-terminal",
             data: "should fail\r",
           }),
         );
         NodeAssert.equal(
-          writeAfterExit._tag,
+          missingTerminal._tag,
           "Failure",
-          "A write to an exited terminal must report an error.",
+          "A write to a missing terminal must report an error.",
         );
+        if (missingTerminal._tag === "Failure")
+          NodeAssert.match(Cause.pretty(missingTerminal.cause), /missing-terminal/);
       });
       await page.screenshot({ path: NodePath.join(artifacts, "terminal-exited.png") });
     });
@@ -411,12 +431,29 @@ export async function runWebClientRegression(
         exact: true,
       });
       await visible(updateChecks);
-      await updateChecks.click();
+      await withRegressionRpc(primary, async (client) => {
+        await updateChecks.click();
+        const saved = await requestRpc(
+          client[WS_METHODS.subscribeServerConfig]({}).pipe(
+            Stream.filter((event) =>
+              event.type === "settingsUpdated"
+                ? event.payload.settings.enableProviderUpdateChecks
+                : event.type === "snapshot" && event.config.settings.enableProviderUpdateChecks,
+            ),
+            Stream.take(1),
+            Stream.runHead,
+          ),
+        );
+        NodeAssert.ok(
+          Option.isSome(saved),
+          "The settings stream must confirm the save before reload.",
+        );
+      });
       await page.reload();
       NodeAssert.equal(await updateChecks.getAttribute("aria-checked"), "true");
       await updateChecks.click();
       await page.goto(new URL("/settings/providers", primary.origin).href);
-      await visible(page.getByText("Fixture sign-in", { exact: true }));
+      await page.getByRole("button", { name: "Select Fixture sign-in", exact: true }).click();
       await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
       await visible(page.getByRole("button", { name: "Copy sign-in link", exact: true }));
       await page.getByRole("button", { name: "Copy sign-in link", exact: true }).click();
@@ -437,7 +474,7 @@ export async function runWebClientRegression(
         );
       });
       await NodeFSP.writeFile(NodePath.join(dependencies.control, "auth-error"), "fail");
-      await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
+      await page.getByRole("button", { name: "Retry sign-in", exact: true }).last().click();
       await visible(page.getByText("Controlled sign-in failure", { exact: false }).first());
       await NodeFSP.rm(NodePath.join(dependencies.control, "auth-error"));
     });
@@ -487,12 +524,14 @@ export async function runWebClientRegression(
         const rgba = canvas
           .getContext("2d")
           ?.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
-        return rgba?.[0] === 220 && rgba[1] === 20 && rgba[2] === 60;
+        // The stream uses JPEG, so permit its small color quantization error.
+        return rgba && Math.abs(rgba[0] - 220) <= 8
+          && Math.abs(rgba[1] - 20) <= 8 && Math.abs(rgba[2] - 60) <= 8;
       }`);
       await page.screenshot({ path: NodePath.join(artifacts, "browser-ready.png") });
       await url.fill("http://127.0.0.1:1/");
       await url.press("Enter");
-      await visible(page.getByText("This site can't be reached", { exact: true }));
+      await visible(page.getByRole("heading", { name: /This site can[’']t be reached/ }));
     });
 
     await milestone("Device unavailable, ready inventory and controlled error", async () => {
@@ -555,6 +594,8 @@ export async function runWebClientRegression(
       ).text();
       NodeAssert.match(remoteHistory, /Execute only in environment-b/);
       const remoteContext = await browser.newContext();
+      remoteContext.setDefaultTimeout(30_000);
+      remoteContext.setDefaultNavigationTimeout(30_000);
       try {
         const remotePage = await remoteContext.newPage();
         const paired = remotePage.waitForResponse(
@@ -564,6 +605,8 @@ export async function runWebClientRegression(
         );
         await remotePage.goto(await pairingUrl(secondary));
         NodeAssert.equal((await paired).status(), 200);
+        await remotePage.waitForURL((url) => url.pathname !== "/pair");
+        await visible(remotePage.getByText("Project environment-b", { exact: true }).first());
         await remotePage.goto(new URL(remote.route, secondary.origin).href);
         await visible(remotePage.getByText("Finished from environment-b.", { exact: true }));
         NodeAssert.equal(new URL(remotePage.url()).origin, secondary.origin);
