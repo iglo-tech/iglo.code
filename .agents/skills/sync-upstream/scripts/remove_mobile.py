@@ -133,7 +133,11 @@ def prune(root):
             lambda match: "" if re.search(r"no-mobile-uniwind|no-hermes-unsupported", match[0]) else match[0],
             text, flags=re.M | re.S,
         )
-        return re.sub(r'^      "apps/mobile/[^\n]+\n', "", text, flags=re.M)
+        text = re.sub(r'^[ \t]+"apps/mobile/[^\n]+\n', "", text, flags=re.M)
+        return text.replace("apps/{web,mobile,desktop}/src/**", "apps/{web,desktop}/src/**").replace(
+            "session metadata, device streams, and an Expo update adapter.",
+            "session metadata and device streams.",
+        )
 
     edit("vite.config.ts", vite)
     edit("oxlint-plugin-t3code/index.ts", lambda text: re.sub(

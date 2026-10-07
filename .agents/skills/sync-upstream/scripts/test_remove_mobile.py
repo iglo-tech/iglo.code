@@ -166,6 +166,39 @@ class MobileRemovalTest(unittest.TestCase):
         self.assertEqual(sentinel.read_text(), "keep\n")
         self.assertFalse((self.root / "apps/mobile").is_symlink())
 
+    def test_prunes_nested_mobile_paths_and_preserves_shared_rpc_lint_rules(self):
+        self.write("vite.config.ts", """
+            export default {
+              lint: {
+                overrides: [
+                  {
+                    files: ["packages/client-runtime/src/state/**", "apps/{web,mobile,desktop}/src/**"],
+                    rules: { "t3code/no-rpc-permission-bypass": ["error", { allowRawClientAccess: false }] },
+                  },
+                  {
+                    // These clients are session metadata, device streams, and an Expo update adapter.
+                    files: [
+                      "apps/web/src/components/settings/ConnectionsSettings.tsx",
+                      "apps/mobile/src/features/updates/app-updates.ts",
+                      "apps/web/src/components/device/DevicePhoneViewport.tsx",
+                    ],
+                    rules: { "t3code/no-rpc-permission-bypass": ["error", { allowRawClientAccess: true }] },
+                  },
+                ],
+              },
+            };
+        """)
+        prune(self.root)
+        vite = (self.root / "vite.config.ts").read_text()
+        self.assertNotIn("apps/mobile", vite)
+        self.assertIn('"apps/{web,desktop}/src/**"', vite)
+        self.assertNotIn("Expo update adapter", vite)
+        self.assertIn("ConnectionsSettings.tsx", vite)
+        self.assertIn("DevicePhoneViewport.tsx", vite)
+        self.assertIn("allowRawClientAccess: false", vite)
+        self.assertIn("allowRawClientAccess: true", vite)
+        self.assertEqual(prune(self.root), [])
+
     def test_license_cleanup_keeps_web_device_notices_and_is_format_independent(self):
         self.write("third-party-licenses.config.json", json.dumps({
             "customNotices": [
