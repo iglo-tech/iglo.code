@@ -155,6 +155,8 @@ export interface CreateWorktreeOptions {
   readonly recordedWorktreePath?: string;
   /** Stable provisioning identity; branch creation records it for recovery and cleanup ownership. */
   readonly ownerId?: string;
+  /** Adopt a pre-claim checkout only after validating its recorded identity. */
+  readonly allowLegacyClaim?: boolean;
   readonly progress?: CreateWorktreeProgress;
   /**
    * The project-over-environment `worktreeSubmodules` setting. Null (or

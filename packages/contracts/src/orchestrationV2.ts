@@ -530,6 +530,8 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
     baseRef: TrimmedNonEmptyString,
     branch: Schema.optional(TrimmedNonEmptyString),
     startFromOrigin: Schema.optional(Schema.Boolean),
+    /** New preparations require a durable claim; older recorded checkouts may be adopted. */
+    requiresOwnership: Schema.optional(Schema.Literal(true)),
   }),
 ]);
 export type OrchestrationV2ThreadLaunchWorkspaceStrategy =
@@ -2898,7 +2900,7 @@ export const OrchestrationV2Command = Schema.Union([
     runId: RunId,
     failure: OrchestrationV2ProviderFailure,
   }),
-  /** Puts a run whose workspace preparation failed back into preparation. */
+  /** Retries failed or interrupted preparation that has not handed off its workspace. */
   Schema.Struct({
     type: Schema.Literal("prepared-run.retry"),
     commandId: CommandId,

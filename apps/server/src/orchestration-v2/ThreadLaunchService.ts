@@ -63,6 +63,7 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
+      readonly requiresOwnership?: true | undefined;
     };
 
 export interface ThreadLaunchInitialMessage {
@@ -110,7 +111,7 @@ type PreparationInput = Pick<
    * recorded. Its setup is tracked like a new one, but the thread already
    * records the workspace, and a branch rename may still be running.
    */
-  readonly reusedWorktree?: { readonly baseRef: string };
+  readonly reusedWorktree?: { readonly baseRef: string; readonly allowLegacyClaim?: boolean };
   readonly resumeWorktree?: boolean;
 };
 
@@ -359,6 +360,7 @@ const make = Effect.gen(function* () {
               resume: true,
               recordedWorktreePath: worktreePath,
               ownerId: runId === null ? `launch:${input.commandId}` : `run:${runId}`,
+              ...(reused.allowLegacyClaim === true ? { allowLegacyClaim: true } : {}),
             },
           )
           .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
@@ -934,7 +936,13 @@ const make = Effect.gen(function* () {
               ...(input.initialMessage.context ? { context: input.initialMessage.context } : {}),
               ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
               modelSelection: input.modelSelection,
-              dispatchMode: { type: "defer_start", workspaceStrategy },
+              dispatchMode: {
+                type: "defer_start",
+                workspaceStrategy:
+                  workspaceStrategy.type === "worktree"
+                    ? { ...workspaceStrategy, requiresOwnership: true }
+                    : workspaceStrategy,
+              },
               createdBy: input.createdBy,
               creationSource: input.creationSource,
             })
@@ -1085,7 +1093,10 @@ const make = Effect.gen(function* () {
               worktreePath: projection.thread.worktreePath,
               branch: projection.thread.branch,
             },
-            reusedWorktree: { baseRef: workspacePreparation.baseRef },
+            reusedWorktree: {
+              baseRef: workspacePreparation.baseRef,
+              allowLegacyClaim: workspacePreparation.requiresOwnership !== true,
+            },
           }
         : null;
     return schedulePreparation(

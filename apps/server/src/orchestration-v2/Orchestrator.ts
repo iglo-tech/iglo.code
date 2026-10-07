@@ -7762,7 +7762,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         candidate.input === WORKSPACE_PREPARATION_INPUT,
     );
     if (
-      run?.status !== (command.type === "prepared-run.retry" ? "failed" : "preparing") ||
+      run === undefined ||
+      (command.type === "prepared-run.retry"
+        ? run.status !== "failed" && run.status !== "interrupted"
+        : run.status !== "preparing") ||
       attempt === undefined ||
       rootNode === undefined ||
       providerThread === undefined ||
@@ -7998,7 +8001,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
 
   /**
-   * Returns a run whose workspace preparation failed to preparing. The failure
+   * Returns a run whose workspace preparation failed or was interrupted to preparing. The failure
    * item turns cancelled so clients stop offering the retry; ThreadLaunchService
    * runs the recorded preparation again once this commits.
    */
@@ -8022,14 +8025,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         state === null ||
         state.run.workspacePreparation === undefined ||
-        failureItem === undefined ||
+        (state.run.status === "failed"
+          ? failureItem === undefined
+          : state.rootNode.checkpointScopeId !== null) ||
         projection.thread.archivedAt !== null ||
         projection.thread.deletedAt !== null
       ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Run ${command.runId} has no failed workspace preparation to retry.`,
+          cause: `Run ${command.runId} has no unreleased failed or interrupted workspace preparation to retry.`,
         });
       }
       if (projection.runs.some((run) => run.id !== state.run.id && isBlockingRun(run))) {
@@ -8048,11 +8053,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         providerInstanceId: state.run.providerInstanceId,
         occurredAt: now,
       };
-      yield* emitEvent({
-        ...scope,
-        type: "turn-item.updated",
-        payload: { ...failureItem, status: "cancelled", updatedAt: now },
-      });
+      if (failureItem !== undefined) {
+        yield* emitEvent({
+          ...scope,
+          type: "turn-item.updated",
+          payload: { ...failureItem, status: "cancelled", updatedAt: now },
+        });
+      }
       yield* emitEvent({
         ...scope,
         type: "turn-item.updated",

@@ -48,7 +48,7 @@ export class Host extends Context.Service<
       PluginError
     >;
     readonly launch: (input: PluginLaunchInput) => Effect.Effect<PluginCommandReceipt, PluginError>;
-    /** Retry a failed preparation run; use a new identity for each attempt and reuse it after a lost acknowledgement. */
+    /** Retry failed or interrupted unreleased preparation; use a new identity per attempt and reuse it after a lost acknowledgement. */
     readonly retryPreparation: (
       input: PluginTarget & { readonly commandId: CommandId; readonly runId: string },
     ) => Effect.Effect<PluginCommandReceipt, PluginError>;
@@ -56,7 +56,7 @@ export class Host extends Context.Service<
       commandId: CommandId,
     ) => Effect.Effect<PluginCommandReceipt | null, PluginError>;
     readonly inspect: (target: PluginTarget) => Effect.Effect<PluginThreadState, PluginError>;
-    /** Unreleased preparation returns unavailable; retry a failed run with retryPreparation, or a preparation-only launch with launch. */
+    /** Unreleased preparation returns unavailable; retry its run with retryPreparation, or a preparation-only launch with launch. */
     readonly send: (
       input: PluginTarget & {
         readonly commandId: CommandId;

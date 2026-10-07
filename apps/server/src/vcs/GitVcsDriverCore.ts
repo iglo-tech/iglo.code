@@ -3371,6 +3371,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     let createBranch = input.newRefName !== undefined;
     let checkoutExists = false;
     let ownedBaseCommit: string | undefined;
+    let pendingLegacyClaim: { ownerKey: string; baseKey: string; marker: string } | undefined;
     if (options?.recordedWorktreePath !== undefined && options.ownerId !== undefined) {
       // Git may have finished an owned branch rename before thread metadata committed.
       // The registered checkout chooses the candidate; ownership and revision are
@@ -3453,7 +3454,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           "--format=%H %gs",
           `refs/heads/${targetBranch}`,
         ]);
+        const legacy =
+          options.allowLegacyClaim === true &&
+          options.recordedWorktreePath !== undefined &&
+          configured.exitCode === 1 &&
+          !history.includes("branch: Created from refs/t3/worktree-owners/") &&
+          !history.includes(" t3code-worktree:");
         if (
+          !legacy &&
           configured.stdout.trim() !== ownerMarker &&
           (configured.exitCode !== 1 ||
             !history
@@ -3474,12 +3482,19 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           });
         }
         // Upgrade older claims while their reflog proof is still available.
-        yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
-          "config",
-          "--local",
-          ownerConfigKey,
-          ownerMarker,
-        ]);
+        if (legacy)
+          pendingLegacyClaim = {
+            ownerKey: ownerConfigKey,
+            baseKey: baseConfigKey,
+            marker: ownerMarker,
+          };
+        else
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "config",
+            "--local",
+            ownerConfigKey,
+            ownerMarker,
+          ]);
         const recordedBase = yield* readConfigValue(input.cwd, baseConfigKey);
         ownedBaseCommit =
           recordedBase ??
@@ -3488,10 +3503,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             .find(
               (entry) =>
                 entry.endsWith(` ${ownerMarker}`) ||
-                entry.endsWith(` branch: Created from ${ownerRef}`),
+                entry.endsWith(` branch: Created from ${ownerRef}`) ||
+                (legacy && entry.includes(" branch: Created from ")),
             )
             ?.split(" ")[0];
-        if (ownedBaseCommit !== undefined) {
+        if (ownedBaseCommit !== undefined && !legacy) {
           yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
             "config",
             "--local",
@@ -3716,6 +3732,26 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           });
         }
       }
+    }
+    if (pendingLegacyClaim !== undefined && checkoutExists) {
+      // A legacy claim is written only after repository, branch, commit, path,
+      // and checkout checks pass. Foreign or replaced worktrees remain untouched.
+      yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+        "config",
+        "--local",
+        pendingLegacyClaim.ownerKey,
+        pendingLegacyClaim.marker,
+      ]);
+      yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+        "config",
+        "--local",
+        pendingLegacyClaim.baseKey,
+        ownedBaseCommit ??
+          (yield* runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, [
+            "rev-parse",
+            "HEAD",
+          ])).trim(),
+      ]);
     }
     const args = createBranch
       ? ["worktree", "add", "-b", input.newRefName!, worktreePath, input.refName]
