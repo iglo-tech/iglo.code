@@ -40,9 +40,12 @@ it.effect("the local ACP dependency requires sign-in and relays a cancellable br
     const url = yield* Deferred.make<string>();
     yield* runtime.handleElicitation((request) => {
       expect(request.mode).toBe("url");
-      if (!("url" in request)) return Effect.die("Expected browser URL elicitation");
+      if (!("url" in request) || typeof request.url !== "string")
+        return Effect.die("Expected browser URL elicitation");
       return Deferred.succeed(url, request.url).pipe(Effect.andThen(Effect.never));
     });
+    if (runtime.authenticate === undefined)
+      return yield* Effect.die("Expected explicit ACP authentication");
     const signIn = yield* runtime.authenticate("browser").pipe(Effect.forkScoped);
     expect(yield* Deferred.await(url)).toBe(
       "https://auth.fixture.invalid/authorize?fixture=web-regression",
@@ -58,6 +61,8 @@ it.effect("the local ACP dependency reports a controlled sign-in failure", () =>
     const control = yield* fs.makeTempDirectoryScoped({ prefix: "t3-fake-acp-error-" });
     yield* fs.writeFileString(path.join(control, "auth-error"), "fail");
     const runtime = yield* makeRuntime(control);
+    if (runtime.authenticate === undefined)
+      return yield* Effect.die("Expected explicit ACP authentication");
     const signIn = yield* runtime.authenticate("browser").pipe(Effect.result);
     expect(signIn._tag).toBe("Failure");
     if (signIn._tag === "Failure")

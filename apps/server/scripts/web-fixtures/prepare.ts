@@ -37,7 +37,6 @@ export async function prepareWebDependencies(
   const provider = NodePath.join(bin, "codex");
   await NodeFSP.writeFile(
     provider,
-    authProvider,
     `#!/bin/sh\nexec ${shellQuote(paths.interpreter)} ${shellQuote(NodePath.join(here, "fake-codex.mjs"))} "$@"\n`,
     { mode: 0o755 },
   );
@@ -125,6 +124,7 @@ export async function prepareWebDependencies(
       T3_WEB_FIXTURE_BIN: bin,
     },
     provider,
+    authProvider,
     control,
     owner,
     bin,
