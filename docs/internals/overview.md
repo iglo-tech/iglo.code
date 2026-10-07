@@ -1,9 +1,7 @@
 # Architecture
 
-T3 Code keeps execution in the environment that owns the workspace. Web and desktop
-clients control it over authenticated RPC. A remote client must never substitute its own filesystem,
-provider credentials, or machine state for the environment's. The desktop app bundles a server,
-but its renderer follows the same boundary.
+T3 Code keeps execution in the environment that owns the workspace. Web clients control it over authenticated RPC. A remote client must never substitute its own filesystem,
+provider credentials, or machine state for the environment's.
 
 ## Ownership boundaries
 
@@ -20,7 +18,7 @@ method on it. See [environment auth](./environment-auth.md).
 
 ### Pull request linking compatibility
 
-Web, desktop, and environments upgrade independently. Negotiate linking through the
+Web clients and environments upgrade independently. Negotiate linking through the
 environment descriptor, never through a client version or an assumed coordinated release:
 
 | Environment capability                | Client behavior                                                                                                   |
@@ -44,7 +42,7 @@ See [provider constraints](./providers.md).
 ## Settings ownership
 
 Client preferences stay in the current client; environment defaults and project overrides stay
-on their owning server. The web and desktop settings target is URL state, resolved against current
+on their owning server. The web settings target is URL state, resolved against current
 connections and project membership. An unavailable target must not fall back to another environment.
 **All environments** is an explicit bulk edit of connected, loaded servers, not a durable global
 default or a promise to synchronize offline or future environments. Project-group targets similarly
@@ -103,24 +101,6 @@ queue and its current item have finished. An empty queue alone does not prove th
 V2 tests also drain the effect worker or await a specific persisted event or receipt. Test signals
 are separate from the durable command receipts that make dispatch idempotent. Production behavior
 must use persisted state and events, not test instrumentation or assumptions about elapsed time.
-
-The Electron shell acquires `DesktopPreReadyPlatform.layer` synchronously before asynchronous
-services. On Linux this sets the desktop-entry identity and global-shortcut portal flags before
-Chromium initializes its portal connection. Setting the identity later in `DesktopAppIdentity`
-is too late: Chromium caches the first registration, including failures. The identity must match
-the installed entry managed by `DesktopLinuxUrlHandler`. Pre-ready setup also refreshes that entry's
-`Exec` path before portal registration: AppImage updates can remove the previous executable, which
-makes the old entry invalid even though its filename is correct. The later URL handler avoids
-rewriting an identical entry while the portal may be reading it. On Wayland, Electron's synchronous
-shortcut-registration result only confirms submission; it does not confirm desktop consent or
-an active binding.
-
-Native modules never load in the Electron main process on the startup path, and the two the
-snapshot feature keeps are isolated: `@crowecawcaw/xa11y` runs only in forked Node-mode children
-(`SnapShotAccessibilityWorker`, `RegionSnapShotWorker`) and a worker thread, and `ffi-rs` loads
-lazily inside `WindowsForeground.ts` for a handful of Win32 calls. macOS window lookup shells out
-to `osascript` instead of a native addon. A crash or stall in any of these must not take the app
-down, so new native capability goes in a child with a deadline, not an `import` in main.
 
 See the [glossary](./glossary.md) for shared terms and the
 [development runbook](../operations/development.md) for setup and checks.

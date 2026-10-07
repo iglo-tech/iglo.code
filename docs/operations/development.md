@@ -45,7 +45,7 @@ fork. This setting is shared by linked worktrees; repeat it for a fresh clone.
 
 ## Choosing a dev process
 
-Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron client.
+Use `vp run dev` for server and web.
 `dev:server` and `dev:web` start those processes separately.
 
 Flags go directly after the task name, for example `vp run dev --home-dir /tmp/t3code-dev`.
@@ -119,8 +119,7 @@ days. Reload an old tab if its URL now serves a replacement environment.
 
 The token and startup pairing URLs are reusable administrative secrets. Never put them in a
 commit, pull request, or public output. Every server still seeds its own auth database record at
-startup and keeps its own SQLite data, signing key, and revocation state. Desktop and non-dev
-servers ignore the value. See [environment authentication](../internals/environment-auth.md#reusable-dev-credential)
+startup and keeps its own SQLite data, signing key, and revocation state. Non-dev servers ignore the value. See [environment authentication](../internals/environment-auth.md#reusable-dev-credential)
 for the security model.
 
 ## Checks
@@ -141,7 +140,7 @@ Windows investigation while that suite is not a required gate.
 ### Unused code
 
 `vp run knip:check` checks unused files and dependencies across the repo, then
-unused runtime exports in `apps/server`, `apps/desktop`, `apps/web`, and every internal package under
+unused runtime exports in `apps/server`, `apps/web`, and every internal package under
 `packages/`. CI enforces both checks.
 Exported types and Effect schemas are allowed without consumers. The schema preprocessor
 recognizes schema types, including aliases and schema classes; functions that create or decode
@@ -155,74 +154,3 @@ The full export audit still has findings and is not a repo-wide CI gate. Extend 
 export check's workspace selectors as more workspaces become clean. Review callers before
 deleting code; production mode can also report development scripts and test fixtures.
 Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](../../knip.jsonc).
-
-## Desktop artifacts
-
-Local artifact builds are unsigned by default and write to `release/`:
-
-```sh
-vp run dist:desktop:dmg
-vp run dist:desktop:linux
-vp run dist:desktop:win
-```
-
-DMGs default to the host architecture. Use `--arch` to choose another target and `--keep-stage`
-to retain packaging files for inspection. Run `vp run dist:desktop:artifact --help` for other
-options.
-
-### Linux AppImage prerequisites
-
-Build on Linux because the browser-secret helper links against the host's libsecret. Install
-Rust, C/C++ build tools, libsecret development headers, pkg-config, and ImageMagick.
-
-Ubuntu and Debian:
-
-```sh
-sudo apt-get update
-sudo apt-get install cargo rustc build-essential libsecret-1-dev pkg-config imagemagick
-```
-
-Fedora:
-
-```sh
-sudo dnf install rust cargo gcc gcc-c++ make libsecret-devel pkgconf-pkg-config ImageMagick
-```
-
-Arch Linux:
-
-```sh
-sudo pacman -S rust base-devel libsecret pkgconf imagemagick
-```
-
-The C toolchain, pkg-config, and libsecret headers are also needed for Linux desktop development.
-
-### macOS DMG prerequisites
-
-Install the Xcode Command Line Tools with `xcode-select --install` and install Rust.
-For a cross-architecture or universal build, add the requested Rust targets:
-
-```sh
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-```
-
-### Windows installer prerequisites
-
-Install Rust, Python 3, and Visual Studio Build Tools with **Desktop development with C++**.
-Include the Windows SDK and the MSVC build tools and Spectre-mitigated libraries for the target
-architecture. Add its Rust target:
-
-```powershell
-rustup target add x86_64-pc-windows-msvc
-# For an ARM64 installer:
-rustup target add aarch64-pc-windows-msvc
-```
-
-NSIS is downloaded by electron-builder. WSL support additionally needs the Linux CLI archive
-passed as `--wsl-runtime`; see the
-[release runbook](./release.md#windows-payload-topology-and-update-validation).
-
-### Signing and passkeys
-
-Add `--signed` after configuring the platform credentials in the
-[release runbook](./release.md). macOS passkeys need a signed, provisioned app; follow the
-[Connect setup](./connect-setup.md#desktop-passkeys) for local signing and renderer HMR.
