@@ -398,6 +398,9 @@ export const make = (pluginId: string) =>
         initializingLaunches,
         ([commandId, intent]) =>
           Effect.gen(function* () {
+            // Failed setup may have no live preparation; rejection still retires its intent.
+            yield* sql`INSERT OR IGNORE INTO host_cancelled_launches (id)
+              SELECT id FROM host_commands WHERE id = ${intent.input.commandId} AND result IS NULL`;
             const created = yield* core.receipt(commandId);
             if (created === null) return;
             const target = {
