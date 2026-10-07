@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - Standalone Bun child probes the launcher's real filesystem and IPC boundary outside Effect.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
@@ -25,6 +26,7 @@ if (!["lifecycle", "commit", "rollback"].includes(scenario))
 async function emit(event: string) {
   const state = await readServiceState(statePath);
   const row = db.prepare("SELECT value FROM history").get();
+  // @effect-diagnostics-next-line globalConsole:off - The parent parses these raw stdout records as service lifecycle milestones.
   console.log(
     `service-runtime:${JSON.stringify({
       event,
@@ -51,6 +53,7 @@ process.once("SIGTERM", async () => {
   process.exit(0);
 });
 // The fixture represents a long-running server, stopped only by the launcher.
+// @effect-diagnostics-next-line globalTimers:off - Native keepalive holds this standalone child open until launcher shutdown.
 setInterval(() => undefined, 60_000);
 process.on("message", async (value: unknown) => {
   const message = decodeServiceLauncherParentMessage(value);
