@@ -346,7 +346,7 @@ const make = Effect.gen(function* () {
             "provision-worktree",
             threadId,
           )("The recorded checkout has no workspace or branch identity.");
-        yield* git
+        const validated = yield* git
           .createWorktree(
             {
               cwd: project.workspaceRoot,
@@ -362,6 +362,18 @@ const make = Effect.gen(function* () {
             },
           )
           .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+        if (validated.worktree.refName !== branch) {
+          branch = validated.worktree.refName;
+          yield* threads
+            .dispatch({
+              type: "thread.metadata.update",
+              commandId: CommandId.make(`${input.commandId}:workspace-reconciled:${preparationId}`),
+              threadId,
+              branch,
+              worktreePath,
+            })
+            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+        }
       }
       if (input.workspaceStrategy.type === "worktree") {
         // Record generated identity before Git I/O, so a process loss cannot invent

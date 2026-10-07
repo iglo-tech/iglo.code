@@ -267,15 +267,22 @@ const make = Effect.gen(function* () {
             ...instance.api.map((api) => api.rpc._tag),
             ...instance.scheduleTargets.map((target) => target.id),
           ];
-          const expected = [
-            ...manifest.server.tools,
-            ...manifest.server.api,
-            ...manifest.server.scheduleTargets,
-          ];
+          const matches = (declared: ReadonlyArray<string>, acquired: ReadonlyArray<string>) =>
+            declared.length === acquired.length && declared.every((id) => acquired.includes(id));
           if (
             new Set(actual).size !== actual.length ||
-            actual.length !== expected.length ||
-            expected.some((id) => !actual.includes(id))
+            !matches(
+              manifest.server.tools,
+              instance.tools.map((tool) => tool.id),
+            ) ||
+            !matches(
+              manifest.server.api,
+              instance.api.map((api) => api.rpc._tag),
+            ) ||
+            !matches(
+              manifest.server.scheduleTargets,
+              instance.scheduleTargets.map((target) => target.id),
+            )
           )
             return yield* new PluginError({
               pluginId: manifest.id,

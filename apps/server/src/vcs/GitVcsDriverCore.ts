@@ -3348,7 +3348,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input, options) {
-    const targetBranch = input.newRefName ?? input.refName;
+    let targetBranch = input.newRefName ?? input.refName;
     const sanitizedBranch = targetBranch.replace(/\//g, "-");
     const repoName = path.basename(input.cwd);
     let worktreePath = input.path;
@@ -3370,6 +3370,39 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
     let createBranch = input.newRefName !== undefined;
     let checkoutExists = false;
+    let ownedBaseCommit: string | undefined;
+    if (options?.recordedWorktreePath !== undefined && options.ownerId !== undefined) {
+      // Git may have finished an owned branch rename before thread metadata committed.
+      // The registered checkout chooses the candidate; ownership and revision are
+      // still validated below before it can be reused.
+      const recordedPath = yield* fileSystem.realPath(options.recordedWorktreePath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: "GitVcsDriver.createWorktree.resume",
+              command: "git worktree list",
+              cwd: input.cwd,
+              detail: "Could not reconcile the recorded checkout path.",
+              cause,
+            }),
+        ),
+      );
+      const registered = parseWorktreeBranchPaths(
+        yield* runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
+          "worktree",
+          "list",
+          "--porcelain",
+          "-z",
+        ]),
+      );
+      for (const [branch, checkout] of registered) {
+        const actual = yield* fileSystem.realPath(checkout).pipe(Effect.orElseSucceed(() => null));
+        if (actual === recordedPath) {
+          targetBranch = branch;
+          break;
+        }
+      }
+    }
     const branchExistsBeforeClaim =
       options?.resume === true &&
       input.newRefName !== undefined &&
@@ -3406,6 +3439,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         );
       const ownerRef = `refs/t3/worktree-owners/${ownerHash}`;
       const ownerConfigKey = `branch.${targetBranch}.t3codeOwner`;
+      const baseConfigKey = `branch.${targetBranch}.t3codeBaseCommit`;
       if (options.resume && branchExistsBeforeClaim) {
         const configured = yield* executeGit(
           "GitVcsDriver.createWorktree.ownership",
@@ -3416,7 +3450,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         const history = yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
           "reflog",
           "show",
-          "--format=%gs",
+          "--format=%H %gs",
           `refs/heads/${targetBranch}`,
         ]);
         if (
@@ -3425,7 +3459,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             !history
               .split("\n")
               .some(
-                (entry) => entry === ownerMarker || entry === `branch: Created from ${ownerRef}`,
+                (entry) =>
+                  entry.endsWith(` ${ownerMarker}`) ||
+                  entry.endsWith(` branch: Created from ${ownerRef}`),
               ))
         ) {
           return yield* new GitCommandError({
@@ -3444,6 +3480,25 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ownerConfigKey,
           ownerMarker,
         ]);
+        const recordedBase = yield* readConfigValue(input.cwd, baseConfigKey);
+        ownedBaseCommit =
+          recordedBase ??
+          history
+            .split("\n")
+            .find(
+              (entry) =>
+                entry.endsWith(` ${ownerMarker}`) ||
+                entry.endsWith(` branch: Created from ${ownerRef}`),
+            )
+            ?.split(" ")[0];
+        if (ownedBaseCommit !== undefined) {
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "config",
+            "--local",
+            baseConfigKey,
+            ownedBaseCommit,
+          ]);
+        }
       } else {
         const commit = (yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
           "rev-parse",
@@ -3480,6 +3535,20 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             ownerConfigKey,
             ownerMarker,
           ]);
+          // A symbolic source can advance during provisioning. Pin the commit
+          // Git actually used to create the owned branch.
+          const initialCommit = (yield* runGitStdout(
+            "GitVcsDriver.createWorktree.ownership",
+            input.cwd,
+            ["rev-parse", "--verify", `refs/heads/${targetBranch}^{commit}`],
+          )).trim();
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "config",
+            "--local",
+            baseConfigKey,
+            initialCommit,
+          ]);
+          ownedBaseCommit = initialCommit;
         }).pipe(
           Effect.ensuring(
             runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
@@ -3502,7 +3571,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const requestedCommit = (yield* runGitStdout(
         "GitVcsDriver.createWorktree.resume",
         input.cwd,
-        ["rev-parse", "--verify", `${input.refName}^{commit}`],
+        ["rev-parse", "--verify", `${ownedBaseCommit ?? input.refName}^{commit}`],
       )).trim();
       const registered = parseWorktreeBranchPaths(
         yield* runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
@@ -3764,7 +3833,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const baseBranch = parsedBaseRef?.branchName ?? input.baseRefName;
       yield* runGit("GitVcsDriver.createWorktree.configureBaseRef", input.cwd, [
         "config",
-        `branch.${input.newRefName}.gh-merge-base`,
+        `branch.${targetBranch}.gh-merge-base`,
         baseBranch,
       ]);
     }

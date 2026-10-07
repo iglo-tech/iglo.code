@@ -78,6 +78,19 @@ it.live("distinct public command ids cannot alias a launch internal message rece
         instruction: "Original instruction",
       });
       const target = { environmentId: host.environmentId, projectId, threadId: launched.threadId };
+      yield* Context.get(server.context, Threads.ThreadManagementService)
+        .streamStoredEventsFrom({
+          threadId: launched.threadId,
+          afterSequence: 0,
+          eventType: "checkpoint-scope.created",
+        })
+        .pipe(
+          Stream.filter(
+            ({ event }) =>
+              event.type === "checkpoint-scope.created" && event.payload.kind === "root_run",
+          ),
+          Stream.runHead,
+        );
       yield* host.send({
         ...target,
         commandId: CommandId.make("launch:initial-message"),

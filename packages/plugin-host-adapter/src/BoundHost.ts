@@ -14,6 +14,7 @@ import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as LaunchCancellation from "./LaunchCancellation.ts";
 import * as CommandAccess from "./PluginCommandAccess.ts";
 import { RuntimeMode, ProviderInteractionMode } from "@t3tools/contracts";
+import * as Threads from "../../../apps/server/src/orchestration-v2/ThreadManagementService.ts";
 import {
   DispatchModeLimit,
   intersectDispatchModes,
@@ -83,6 +84,7 @@ const isPluginError = Schema.is(PluginError);
 export const make = (pluginId: string) =>
   Effect.gen(function* () {
     const core = yield* Host;
+    const threads = yield* Effect.serviceOption(Threads.ThreadManagementService);
     const { sql } = yield* Storage;
     const lock = yield* KeyedLock.make<CommandId>();
     let initializing = true;
@@ -404,17 +406,27 @@ export const make = (pluginId: string) =>
               threadId: created.threadId,
             };
             const state = yield* core.inspect(target);
-            if (state.preparationId === undefined) return;
+            const records =
+              intent.input.instruction === undefined || Option.isNone(threads)
+                ? undefined
+                : yield* threads.value.getProjectThreadRecords(target, ["runs"]);
+            const initialRun = records?.runs.find(
+              (run) => run.userMessageId === `${commandId}:message`,
+            );
+            if (initialRun === undefined && state.preparationId === undefined) return;
+            yield* sql`INSERT OR IGNORE INTO host_cancelled_launches (id) VALUES (${intent.input.commandId})`;
             yield* core.interrupt({
               ...target,
               commandId: CommandId.make(
-                `${commandId}:initialization-rejected:${state.preparationId}`,
+                `${commandId}:initialization-rejected:${initialRun?.id ?? state.preparationId}`,
               ),
-              preparationId: state.preparationId,
+              ...(initialRun === undefined
+                ? { preparationId: state.preparationId! }
+                : { runId: initialRun.id }),
             });
           }).pipe(
             Effect.catchCause((cause) =>
-              Effect.logWarning("Could not cancel rejected plugin preparation", {
+              Effect.logWarning("Could not cancel rejected plugin launch", {
                 pluginId,
                 commandId,
                 cause,
