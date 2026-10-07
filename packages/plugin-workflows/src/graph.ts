@@ -116,7 +116,8 @@ export function allowedActions(run: Run): State["allowedActions"] {
       ...(permitted(node.changes) ? ["request-changes" as const] : []),
     ];
   }
-  if (run.state === "unresolved")
+  if (run.state === "unresolved") {
+    const attempt = run.attempts.findLast((attempt) => attempt.nodeId === run.currentNode);
     return [
       "cancel",
       ...(!run.automationStopped &&
@@ -124,13 +125,11 @@ export function allowedActions(run: Run): State["allowedActions"] {
       recoveryNode(run)
         ? ["retry" as const]
         : []),
-      ...(!run.automationStopped &&
-      run.attempts.some(
-        (attempt) => attempt.nodeId === run.currentNode && attempt.resumable && !attempt.report,
-      )
+      ...(!run.automationStopped && attempt?.resumable && !attempt.report
         ? ["resume" as const]
         : []),
     ];
+  }
   return ["cancel"];
 }
 export function unresolved(run: State, reason: string) {

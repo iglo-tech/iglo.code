@@ -717,10 +717,8 @@ const make = Effect.gen(function* () {
   const resume = (input: typeof CommandInput.Type) =>
     mutate("resume", input, (run, now) =>
       Effect.gen(function* () {
-        const attempt = run.attempts.findLast(
-          (attempt) => attempt.nodeId === run.currentNode && attempt.resumable && !attempt.report,
-        );
-        if (!run.allowedActions.includes("resume") || !attempt)
+        const attempt = run.attempts.findLast((attempt) => attempt.nodeId === run.currentNode);
+        if (!run.allowedActions.includes("resume") || !attempt?.resumable || attempt.report)
           return yield* error(
             "resume",
             "No retained native session can safely resume this attempt.",

@@ -286,7 +286,11 @@ const make = Effect.gen(function* () {
         .filter((task) => task.runId === null || !inactiveRuns.has(task.runId))
         .map((task) => task.completedAt),
       ...records.checkpoints
-        .filter((checkpoint) => checkpoint.runId === null || !inactiveRuns.has(checkpoint.runId))
+        .filter(
+          (checkpoint) =>
+            checkpoint.runId === null ||
+            (!monitorRuns.has(checkpoint.runId) && !inactiveRuns.has(checkpoint.runId)),
+        )
         .map((checkpoint) => checkpoint.capturedAt),
     ]
       .filter((time) => time !== null)
