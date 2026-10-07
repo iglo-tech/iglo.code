@@ -45,7 +45,6 @@ describe("shouldBundleCliDependency", () => {
 
   it("leaves native addons and their dlopen wrappers external", () => {
     for (const id of [
-      "node-pty",
       "ffi-rs",
       "@yuuang/ffi-rs-win32-x64-msvc",
       "@ff-labs/fff-node",
@@ -66,7 +65,7 @@ describe("shouldBundleCliDependency", () => {
 });
 
 describe("selectCliRuntimeExternalDependencies", () => {
-  it("keeps only runtime-external dependency roots for the Windows sidecar", () => {
+  it("keeps only runtime-external dependency roots for the archive", () => {
     assert.deepStrictEqual(
       selectCliRuntimeExternalDependencies({
         "@ff-labs/fff-node": "2.0.0",
@@ -75,7 +74,6 @@ describe("selectCliRuntimeExternalDependencies", () => {
       }),
       {
         "@ff-labs/fff-node": "2.0.0",
-        "node-pty": "4.0.0",
       },
     );
   });
@@ -83,7 +81,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
   it("selects every external root declared by the server", () => {
     assert.deepStrictEqual(
       Object.keys(selectCliRuntimeExternalDependencies(serverPackageJson.dependencies)).sort(),
-      ["@cursor/sdk", "@ff-labs/fff-node", "@napi-rs/keyring", "node-pty", "playwright-core"],
+      ["@cursor/sdk", "@ff-labs/fff-node", "@napi-rs/keyring", "playwright-core"],
     );
   });
 });
@@ -159,10 +157,14 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
         const found = [...installed.keys()].filter(isRuntimeExternal);
 
         // Without this the closure check below can pass vacuously: if nothing is
-        // read, nothing is checked. node-pty is the one native root every
-        // platform ships, and node-addon-api is its transitive runtime
-        // dependency, so require them by name.
-        for (const required of ["node-pty", "node-addon-api"]) {
+        // read, nothing is checked. Require the disk-backed roots shipped
+        // on every supported target.
+        for (const required of [
+          "@cursor/sdk",
+          "@ff-labs/fff-node",
+          "@napi-rs/keyring",
+          "playwright-core",
+        ]) {
           assert.ok(
             found.includes(required),
             `expected ${required} in the pnpm store; the closure check is only meaningful if it can read these (found ${found.length})`,
@@ -273,7 +275,9 @@ var x = 1;
   });
 
   it("reports no regions when the marker format is absent", () => {
-    const result = findInlinedExternalPackages("var x = 1; // node_modules/node-pty/lib.js");
+    const result = findInlinedExternalPackages(
+      "var x = 1; // node_modules/@napi-rs/keyring/lib.js",
+    );
     assert.strictEqual(result.regionCount, 0);
     assert.deepStrictEqual(result.inlined, []);
   });
@@ -289,7 +293,7 @@ describe("findEsmImportsOfExternalPackages", () => {
       'import { FileFinder } from "@ff-labs/fff-node";',
       'import * as fs from "fs";',
       'import { createRequire } from "node:module";',
-      'const pty = () => import("node-pty");',
+      'const keyring = () => import("@napi-rs/keyring");',
       'const data = () => import("@ff-labs/fff-bin-linux-x64-gnu", { with: { type: "json" } });',
       'const lazy = () => import(/* @vite-ignore */ "ffi-rs");',
       'const local = () => import("./chunk-abc.mjs");',
@@ -298,8 +302,8 @@ describe("findEsmImportsOfExternalPackages", () => {
     assert.deepStrictEqual(findEsmImportsOfExternalPackages(source), [
       "@ff-labs/fff-bin-linux-x64-gnu",
       "@ff-labs/fff-node",
+      "@napi-rs/keyring",
       "ffi-rs",
-      "node-pty",
     ]);
   });
 

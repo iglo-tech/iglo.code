@@ -32,26 +32,26 @@ describe("CLI archive stage", () => {
     const patches = createStagePatchedDependencies(
       {
         "@ff-labs/fff-node@0.9.4": "patches/fff.patch",
-        "node-pty@1.2.0": "patches/pty.patch",
+        "playwright-core@1.60.0": "patches/playwright.patch",
         "effect@4.0.1": "patches/effect.patch",
       },
-      { "@ff-labs/fff-node": "0.9.4", "node-pty": "1.2.0" },
+      { "@ff-labs/fff-node": "0.9.4", "playwright-core": "1.60.0" },
     );
     expect(
       createStageWorkspaceConfig({
         platform: "mac",
         arch: "arm64",
         patchedDependencies: patches,
-        allowBuilds: { "node-pty": true },
+        allowBuilds: { "@ff-labs/fff-node": false },
         overrides: { "node-abi": "4.33.0" },
       }),
     ).toEqual({
       supportedArchitectures: { os: ["darwin"], cpu: ["arm64"] },
       patchedDependencies: {
         "@ff-labs/fff-node@0.9.4": "patches/fff.patch",
-        "node-pty@1.2.0": "patches/pty.patch",
+        "playwright-core@1.60.0": "patches/playwright.patch",
       },
-      allowBuilds: { "node-pty": true },
+      allowBuilds: { "@ff-labs/fff-node": false },
       overrides: { "node-abi": "4.33.0" },
     });
   });

@@ -573,8 +573,7 @@ jobs:
       rust_target: x86_64-unknown-linux-gnu
       resource_key: linux-x64
 
-  # node-pty has no Linux prebuild and compiles from source, so the arm64 app
-  # and archive are built on arm64 hardware rather than cross-built.
+  # Build and exercise native libraries on their target hardware.
   cli_linux_arm64:
     name: CLI Linux arm64
     needs: [preflight, relay_public_config, build_bundle]

@@ -58,14 +58,14 @@ const makeFakeArchives = Effect.fn("test.makeFakeArchives")(function* () {
     for (const dir of [
       "client",
       "resource-monitor",
-      "node_modules/node-pty",
+      "node_modules/playwright-core",
       "node_modules/@ff-labs/fff-node",
     ]) {
       yield* fs.makeDirectory(path.join(contentDir, dir), { recursive: true });
     }
     yield* fs.writeFileString(
-      path.join(contentDir, "node_modules/node-pty/package.json"),
-      '{ "name": "node-pty", "version": "1.1.0" }\n',
+      path.join(contentDir, "node_modules/playwright-core/package.json"),
+      '{ "name": "playwright-core", "version": "1.60.0" }\n',
     );
     yield* fs.writeFileString(
       path.join(contentDir, "node_modules/@ff-labs/fff-node/package.json"),
@@ -144,9 +144,12 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       // on the next install in the same project and the executable breaks.
       assert.deepStrictEqual(linuxManifest.dependencies, {
         "@ff-labs/fff-node": "0.9.4",
-        "node-pty": "1.1.0",
+        "playwright-core": "1.60.0",
       });
-      assert.deepStrictEqual(linuxManifest.bundleDependencies, ["@ff-labs/fff-node", "node-pty"]);
+      assert.deepStrictEqual(linuxManifest.bundleDependencies, [
+        "@ff-labs/fff-node",
+        "playwright-core",
+      ]);
       // Archive contents sit at the package root, not under the archive stem.
       assert.isTrue(yield* fs.exists(path.join(linuxDir, "client/index.html")));
       // A root README, or npm would display a bundled dependency's.
@@ -154,7 +157,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         yield* fs.readFileString(path.join(linuxDir, "README.md")),
         "# @iglo-tech/iglo-code-linux-x64",
       );
-      assert.isTrue(yield* fs.exists(path.join(linuxDir, "node_modules/node-pty")));
+      assert.isTrue(yield* fs.exists(path.join(linuxDir, "node_modules/playwright-core")));
       assert.equal(Number((yield* fs.stat(path.join(linuxDir, "t3"))).mode) & 0o111, 0o111);
 
       const darwinManifest = yield* decodeManifest(
@@ -194,7 +197,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       );
       assert.equal(listing.exitCode, 0, listing.stderr);
       const lines = listing.stdout.split("\n");
-      assert.isTrue(lines.some((line) => line.endsWith(" package/node_modules/node-pty/")));
+      assert.isTrue(lines.some((line) => line.endsWith(" package/node_modules/playwright-core/")));
       assert.isTrue(lines.some((line) => line.endsWith(" package/package.json")));
       assert.isTrue(
         lines.some((line) => /^-rwxr-xr-x .* package\/t3$/.test(line)),
