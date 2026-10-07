@@ -80,9 +80,15 @@ export interface ProviderInstance {
   readonly accentColor?: string | undefined;
   readonly enabled: boolean;
   readonly snapshot: ServerProviderShape;
+  /** Discover without publishing; the registry validates ownership before committing. */
   readonly snapshotForCwd?: (
     cwd: string,
   ) => Effect.Effect<ProviderWorkspaceSnapshot, ProviderDriverError>;
+  /** Commit accepted skills against current native metadata, without discovery I/O. */
+  readonly commitWorkspaceSnapshot?: (
+    cwd: string,
+    snapshot: ProviderWorkspaceSnapshot,
+  ) => Effect.Effect<ProviderWorkspaceSnapshot>;
   readonly refreshModels?: () => Effect.Effect<void, ProviderDriverError>;
   /** Invalidate T3-owned discovery caches before an explicit provider refresh. */
   readonly invalidateCaches?: Effect.Effect<void>;
