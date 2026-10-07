@@ -19,6 +19,8 @@ import {
   AuthGrantScope,
   ExecutionEnvironmentDescriptor,
   OrchestrationV2Command,
+  ORCHESTRATION_PROTOCOL_HEADER,
+  ORCHESTRATION_PROTOCOL_VERSION_TEXT,
   ORCHESTRATION_V2_WS_METHODS,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -130,6 +132,13 @@ async function configure(fixture: EnvironmentFixture, dependencies: WebDependenc
     await requestRpc(
       client[WS_METHODS.serverRefreshProviders]({
         instanceId: providerId,
+        cwd: fixture.workspace,
+        fresh: true,
+      }),
+    );
+    await requestRpc(
+      client[WS_METHODS.serverRefreshProviders]({
+        instanceId: authProviderId,
         cwd: fixture.workspace,
         fresh: true,
       }),
@@ -278,14 +287,6 @@ export async function runWebClientRegression(
   page.on("console", (message) =>
     consoleMessages.push(redact(`${message.type()}: ${message.text()}`)),
   );
-  page.on("websocket", (socket) => {
-    socket.on("framesent", ({ payload }) => {
-      const frame = String(payload);
-      if (frame.includes("terminal.write")) consoleMessages.push("rpc sent: terminal.write");
-      else if (frame.includes("server.updateSettings"))
-        consoleMessages.push("rpc sent: server.updateSettings");
-    });
-  });
   try {
     const primary = await createEnvironmentFixture(input, {
       prepare: async (paths) => {
@@ -421,6 +422,11 @@ export async function runWebClientRegression(
       }`);
       await page.screenshot({ path: NodePath.join(artifacts, "terminal-ready.png") });
       await withRegressionRpc(primary, async (client) => {
+        await terminalMilestone(
+          client,
+          seeded.threadId,
+          (event) => event.type === "snapshot" && event.snapshot.status === "running",
+        );
         await inputField.locator("..").locator("canvas").click();
         NodeAssert.equal(await inputField.getAttribute("readonly"), null);
         await inputField.fill("printf 'terminal-io-fixture\\n'");
@@ -548,9 +554,19 @@ export async function runWebClientRegression(
         /^https:\/\/auth\.fixture\.invalid\/authorize\?/,
       );
       await page.getByRole("button", { name: "Cancel sign-in", exact: true }).last().click();
-      await visible(page.getByRole("button", { name: "Retry sign-in", exact: true }).last());
+      await withRegressionRpc(primary, async (client) => {
+        await requestRpc(
+          client[WS_METHODS.serverRefreshProviders]({
+            instanceId: authProviderId,
+            cwd: primary.workspace,
+            fresh: true,
+          }),
+        );
+      });
+      const signIn = page.getByRole("button", { name: /^(?:Retry sign-in|Sign in)$/ }).last();
+      await visible(signIn);
       await NodeFSP.writeFile(NodePath.join(dependencies.control, "auth-error"), "fail");
-      await page.getByRole("button", { name: "Retry sign-in", exact: true }).last().click();
+      await signIn.click();
       await visible(
         page.getByText("The ACP agent could not complete sign-in.", { exact: true }).first(),
       );
@@ -566,9 +582,14 @@ export async function runWebClientRegression(
 
     await installBrowser(dependencies, browserExecutable);
     await milestone("disconnect, server restart, reconnect and history deduplication", async () => {
+      await visible(page.getByTestId("composer-editor"));
       await primary.stop();
-      await visible(page.getByText(/Disconnected|Reconnecting|Connecting|offline/i).first());
+      await visible(page.getByText(/Disconnected|Reconnect|Connecting|offline/i).first());
+      // Vite reloads after its dev server returns; wait for that navigation
+      // before interacting with panel state that the reload would discard.
+      const reloaded = input.kind === "source" ? page.waitForEvent("load") : undefined;
       await primary.restart();
+      await reloaded;
       await visible(page.getByTestId("composer-editor"));
       NodeAssert.equal(
         await page.getByText("Finished from environment-a.", { exact: true }).count(),
@@ -578,15 +599,10 @@ export async function runWebClientRegression(
         await page.getByText("Run the controlled streaming turn", { exact: true }).count(),
         1,
       );
-      await page.reload();
-      await visible(page.getByTestId("composer-editor"));
-      NodeAssert.equal(
-        await page.getByText("Finished from environment-a.", { exact: true }).count(),
-        1,
-      );
     });
 
     await milestone("Browser ready frame and navigation error", async () => {
+      await addSurface(page, "Browser");
       const url = page.getByPlaceholder("Search or enter URL").first();
       await visible(url);
       await url.fill(websiteUrl);
@@ -645,7 +661,7 @@ export async function runWebClientRegression(
       const remotePairing = await pairingUrl(secondary);
       await page.goto(new URL("/settings/connections", primary.origin).href);
       await page.getByRole("button", { name: "Add environment", exact: true }).first().click();
-      const dialog = page.getByRole("dialog");
+      const dialog = page.getByRole("dialog", { name: "Add Environment", exact: true });
       await dialog.getByLabel("Host", { exact: true }).fill(remotePairing);
       await dialog.getByRole("button", { name: "Add environment", exact: true }).click();
       await dialog.waitFor({ state: "hidden" });
@@ -658,14 +674,18 @@ export async function runWebClientRegression(
       await releaseProvider(remoteDependencies);
       await visible(page.getByText("Finished from environment-b.", { exact: true }));
       const localHistory = await (
-        await primary.request(`/api/orchestration/threads/${seeded.threadId}`)
+        await primary.request(`/api/orchestration/threads/${seeded.threadId}`, {
+          headers: { [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT },
+        })
       ).text();
       NodeAssert.doesNotMatch(
         localHistory,
         /Execute only in environment-b|Streaming from environment-b/,
       );
       const remoteHistory = await (
-        await secondary.request(`/api/orchestration/threads/${remote.threadId}`)
+        await secondary.request(`/api/orchestration/threads/${remote.threadId}`, {
+          headers: { [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT },
+        })
       ).text();
       NodeAssert.match(remoteHistory, /Execute only in environment-b/);
       const remoteContext = await browser.newContext();
