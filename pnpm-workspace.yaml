@@ -1,5 +1,6 @@
 packages:
   - apps/*
+  - "!apps/desktop"
   - "!apps/mobile"
   - infra/*
   - oxlint-plugin-t3code
@@ -13,8 +14,6 @@ allowBuilds:
   browser-tabs-lock: false
   bufferutil: false
   core-js: false
-  electron: true
-  electron-winstaller: false
   esbuild: true
   msgpackr-extract: true
   msw: false
@@ -27,7 +26,6 @@ catalog:
   "@clerk/backend": 3.18.1
   "@clerk/clerk-js": 6.32.1
   "@clerk/electron": 0.0.44
-  "@clerk/electron-passkeys": 0.0.3
   "@clerk/react": 6.16.1
   "@clerk/shared": 4.33.0
   "@effect/atom-react": 4.0.1
@@ -79,7 +77,6 @@ minimumReleaseAgeExclude:
   - alchemy@2.0.0-beta.80
   - effect@4.0.1
   - "@legendapp/list@3.3.5"
-  - electron@44.4.2
   - "@anthropic-ai/claude-agent-sdk@0.3.276"
   - "@alchemy.run/cloudflare-runtime@2.0.0-beta.80"
   - "@alchemy.run/floci@2.0.0-beta.80"
@@ -104,9 +101,6 @@ minimumReleaseAgeExclude:
 overrides:
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.
   "@exodus/bytes>@noble/hashes": "1.8.0"
-  # The dbus-next patch drops usocket from the package, but pnpm resolves from the
-  # registry manifest, so the edge has to be cut here as well.
-  "dbus-next>usocket": "-"
   # The SDK always receives the user's Claude executable, so its bundled binaries are unused.
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-arm64": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-x64": "-"
@@ -135,7 +129,6 @@ overrides:
   "@clerk/clerk-js>@solana/wallet-standard": "-"
   "@clerk/clerk-js>@wallet-standard/core": "-"
   "@clerk/electron": "catalog:"
-  "@clerk/electron-passkeys": "catalog:"
   "@clerk/react": "catalog:"
   "@clerk/shared": "catalog:"
   "@effect/atom-react": "catalog:"
@@ -161,7 +154,6 @@ overrides:
   # until OpenCode moves to stable Effect.
   "@opencode/protocol>effect": "catalog:"
   "@opencode/schema>effect": "catalog:"
-  node-abi: 4.33.0
   lightningcss: "catalog:"
   tailwindcss: "catalog:"
   # Ranges from @effect/platform-node, jsdom, unifont, Expo and libsql otherwise
@@ -190,7 +182,6 @@ patchedDependencies:
   # Exports the dependency-light subpaths mobile and the web diff parser import, and keeps
   # measured wrapped-row heights above an edit (fileEditorVirtualization.test.ts).
   "@pierre/diffs@1.5.2": patches/@pierre%2Fdiffs@1.5.2.patch
-  dbus-next@0.10.2: patches/dbus-next@0.10.2.patch
   effect@4.0.1: patches/effect@4.0.1.patch
   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch
 peerDependencyRules:

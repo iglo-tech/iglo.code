@@ -94,14 +94,13 @@ function resolveDevProxyTarget(
 ): string | undefined {
   // Browser dev is single-origin: the backend port is proxied through this
   // server so the app works from any origin (localhost, tailnet, LAN, phone).
-  // T3CODE_PORT is set by scripts/dev-runner.ts for every non-desktop mode.
+  // T3CODE_PORT is set by scripts/dev-runner.ts for every dev mode.
   const port = Number(backendPort?.trim());
   if (Number.isInteger(port) && port > 0) {
     return `http://localhost:${port}/`;
   }
 
-  // dev:desktop still points the renderer straight at the backend, so fall
-  // back to deriving the target from the explicit websocket URL.
+  // Fall back to deriving the target from the explicit websocket URL.
   if (!wsUrl) {
     return undefined;
   }
@@ -167,7 +166,6 @@ export default defineConfig(() => {
         packageManifests: [
           { bundle: "web", path: new URL("./package.json", import.meta.url) },
           { bundle: "server", path: new URL("../server/package.json", import.meta.url) },
-          { bundle: "desktop", path: new URL("../desktop/package.json", import.meta.url) },
         ],
       }),
       // Route components load as split chunks so settings, pull-request, and
@@ -260,7 +258,7 @@ export default defineConfig(() => {
           }
         : {}),
       // Electron's BrowserWindow needs the HMR socket pinned to an explicit
-      // host to connect reliably; dev:desktop is the only mode that sets HOST.
+      // host to connect reliably; the dev runner clears inherited HOST values.
       // Everywhere else, leaving this unset lets the client derive it from the
       // page origin, which is what makes HMR work over Tailscale/LAN instead of
       // failing an attempt against the wrong machine's localhost first.
