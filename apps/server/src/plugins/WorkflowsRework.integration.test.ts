@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import { EventId, MessageId, ProviderInstanceId, RunId } from "@t3tools/contracts";
 import { Definition, Run } from "@t3tools/plugin-workflows/contracts";
