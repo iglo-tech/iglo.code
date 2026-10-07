@@ -9,8 +9,15 @@ import { Host, Storage } from "@t3tools/plugin-host-contract/server";
 import * as Effect from "effect/Effect";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
+import * as Option from "effect/Option";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as LaunchCancellation from "./LaunchCancellation.ts";
+import * as CommandAccess from "./PluginCommandAccess.ts";
+import { RuntimeMode, ProviderInteractionMode } from "@t3tools/contracts";
+import {
+  DispatchModeLimit,
+  intersectDispatchModes,
+} from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 
 const Send = PluginTarget.mapFields((fields) => ({
   ...fields,
@@ -26,17 +33,23 @@ const Interrupt = PluginTarget.mapFields((fields) => ({
 }));
 const LaunchRequest = Schema.Struct({ kind: Schema.Literal("launch"), input: PluginLaunchInput });
 const SendRequest = Schema.Struct({ kind: Schema.Literal("send"), input: Send });
+const IntentMetadata = {
+  coreCommandId: Schema.optional(CommandId),
+  dispatchLimits: Schema.optional(
+    Schema.Struct({ runtimeMode: RuntimeMode, interactionMode: ProviderInteractionMode }),
+  ),
+};
 const Request = Schema.Union([
   LaunchRequest,
   SendRequest,
   Schema.Struct({ kind: Schema.Literal("interrupt"), input: Interrupt }),
 ]);
 const Intent = Schema.Union([
-  LaunchRequest.mapFields((fields) => ({ ...fields, coreCommandId: Schema.optional(CommandId) })),
-  SendRequest.mapFields((fields) => ({ ...fields, coreCommandId: Schema.optional(CommandId) })),
+  LaunchRequest.mapFields((fields) => ({ ...fields, ...IntentMetadata })),
+  SendRequest.mapFields((fields) => ({ ...fields, ...IntentMetadata })),
   Schema.Struct({
     kind: Schema.Literal("interrupt"),
-    coreCommandId: Schema.optional(CommandId),
+    ...IntentMetadata,
     input: Interrupt.mapFields((fields) => ({
       ...fields,
       runId: Schema.optional(Schema.NullOr(Schema.String)),
@@ -159,6 +172,25 @@ export const make = (pluginId: string) =>
             operation: requested.kind,
             message: "The requested environment is not this server.",
           });
+        const access = yield* Effect.serviceOption(CommandAccess.PluginCommandAccess);
+        const limits = Option.isNone(access)
+          ? undefined
+          : yield* access.value.authorize(
+              requested.kind === "launch"
+                ? { runtimeMode: requested.input.runtimeMode }
+                : { threadId: requested.input.threadId },
+            );
+        const runIntent = (intent: typeof Intent.Type) =>
+          dispatch(intent).pipe(
+            Effect.provideService(
+              DispatchModeLimit,
+              intent.dispatchLimits === undefined
+                ? limits
+                : limits === undefined
+                  ? intent.dispatchLimits
+                  : intersectDispatchModes(intent.dispatchLimits, limits),
+            ),
+          );
         const request = yield* encodeRequest(requested);
         const [existing] = yield* sql<{
           request: string;
@@ -182,7 +214,7 @@ export const make = (pluginId: string) =>
             // A new explicit request resumes the same intent; startup never does.
             yield* sql`DELETE FROM host_cancelled_launches WHERE id = ${requested.input.commandId}`;
           }
-          return yield* dispatch(yield* decodeIntent(existing.intent));
+          return yield* runIntent(yield* decodeIntent(existing.intent));
         }
         let intent: typeof Intent.Type =
           requested.kind === "launch" && requested.input.workspace.type === "exact-ref"
@@ -251,6 +283,7 @@ export const make = (pluginId: string) =>
         // A tuple separates public IDs from child-step suffixes and legacy plugin:id prefixes.
         intent = {
           ...intent,
+          ...(limits === undefined ? {} : { dispatchLimits: limits }),
           coreCommandId: CommandId.make(
             `plugin:${yield* encodeCoreIdentity([pluginId, requested.input.commandId])}`,
           ),
@@ -264,7 +297,7 @@ export const make = (pluginId: string) =>
               yield* sql`INSERT OR IGNORE INTO host_cancelled_launches (id) VALUES (${id})`;
           }),
         );
-        return yield* dispatch(intent);
+        return yield* runIntent(intent);
       },
       (effect, requested, _recovering = false) => lock.withLock(requested.input.commandId, effect),
       Effect.mapError((cause) =>

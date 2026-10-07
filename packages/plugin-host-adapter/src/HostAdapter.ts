@@ -34,6 +34,7 @@ import * as PullRequests from "../../../apps/server/src/pullRequest/PullRequestS
 import { deriveProviderInstanceConfigMap } from "../../../apps/server/src/provider/ProviderInstanceRegistryHydration.ts";
 import { providerToolCapability } from "./providerPolicy.ts";
 import * as LaunchCancellation from "./LaunchCancellation.ts";
+import { DispatchModeLimit } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 
 const fail = (operation: string, message: string, cause?: unknown) =>
@@ -439,6 +440,7 @@ const make = Effect.gen(function* () {
             ? yield* resolveWorkspaceRef(workspace.workspaceRoot, input.workspace.ref)
             : null;
         const cancellation = yield* Effect.serviceOption(LaunchCancellation.LaunchCancellation);
+        const limit = yield* DispatchModeLimit;
         const launched = yield* launch
           .launch({
             commandId: input.commandId,
@@ -446,7 +448,7 @@ const make = Effect.gen(function* () {
             title: input.title,
             modelSelection: input.modelSelection,
             runtimeMode: input.runtimeMode,
-            interactionMode: "default",
+            interactionMode: limit?.interactionMode ?? "default",
             workspaceStrategy:
               input.workspace.type === "current"
                 ? { type: "root" }
@@ -550,19 +552,33 @@ const make = Effect.gen(function* () {
         if (existing !== null) return existing;
         const state = yield* inspect(input);
         const preparation = yield* setup.get(input.threadId);
+        const durable = yield* threads
+          .getThreadRecords(input.threadId, ["runs", "checkpointScopes"])
+          .pipe(
+            Effect.mapError((cause) =>
+              fail("send", "Could not reconcile workspace preparation.", cause),
+            ),
+          );
+        // A released prepared run commits its checkpoint scope with the release.
+        // Failed preparation has no such scope, even after the live tracker expires.
+        const releasedRuns = new Set(durable.checkpointScopes.map((scope) => scope.runId));
+        const unreleased = durable.runs.findLast(
+          (run) => run.workspacePreparation !== undefined && !releasedRuns.has(run.id),
+        );
         if (
-          preparation !== null &&
-          !preparation.stages.some((stage) => stage.id === "agent" && stage.status === "done") &&
-          !state.runs.some((run) =>
-            ["preparing", "starting", "running", "waiting"].includes(run.status),
-          )
+          (unreleased !== undefined && unreleased.status !== "preparing") ||
+          (preparation !== null &&
+            !preparation.stages.some((stage) => stage.id === "agent" && stage.status === "done") &&
+            !state.runs.some((run) =>
+              ["preparing", "starting", "running", "waiting"].includes(run.status),
+            ))
         ) {
           return yield* new PluginError({
             pluginId: "host",
             code: "unavailable",
             operation: "send",
             message:
-              "Workspace preparation has not released this thread. Retry after preparation completes.",
+              "Workspace preparation has not released this thread. Retry workspace preparation before sending more instructions.",
           });
         }
         yield* threads

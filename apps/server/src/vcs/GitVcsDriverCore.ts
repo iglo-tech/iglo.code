@@ -3405,7 +3405,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ),
         );
       const ownerRef = `refs/t3/worktree-owners/${ownerHash}`;
+      const ownerConfigKey = `branch.${targetBranch}.t3codeOwner`;
       if (options.resume && branchExistsBeforeClaim) {
+        const configured = yield* executeGit(
+          "GitVcsDriver.createWorktree.ownership",
+          input.cwd,
+          ["config", "--local", "--get", ownerConfigKey],
+          { allowNonZeroExit: true },
+        );
         const history = yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
           "reflog",
           "show",
@@ -3413,9 +3420,13 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           `refs/heads/${targetBranch}`,
         ]);
         if (
-          !history
-            .split("\n")
-            .some((entry) => entry === ownerMarker || entry === `branch: Created from ${ownerRef}`)
+          configured.stdout.trim() !== ownerMarker &&
+          (configured.exitCode !== 1 ||
+            !history
+              .split("\n")
+              .some(
+                (entry) => entry === ownerMarker || entry === `branch: Created from ${ownerRef}`,
+              ))
         ) {
           return yield* new GitCommandError({
             ...gitCommandContext({
@@ -3426,6 +3437,13 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             detail: "The existing branch belongs to a different provisioning intent.",
           });
         }
+        // Upgrade older claims while their reflog proof is still available.
+        yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+          "config",
+          "--local",
+          ownerConfigKey,
+          ownerMarker,
+        ]);
       } else {
         const commit = (yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
           "rev-parse",
@@ -3453,6 +3471,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             ...(symbolicRef.startsWith("refs/") ? [] : ["--no-track"]),
             targetBranch,
             ownerRef,
+          ]);
+          // Branch configuration survives reflog expiry and Git removes it when
+          // deleting the branch, so a later branch with the same name has no claim.
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "config",
+            "--local",
+            ownerConfigKey,
+            ownerMarker,
           ]);
         }).pipe(
           Effect.ensuring(
