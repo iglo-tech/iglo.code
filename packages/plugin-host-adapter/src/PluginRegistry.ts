@@ -196,14 +196,18 @@ const make = Effect.gen(function* () {
       yield* catalogSql`INSERT INTO manifests (id, data) VALUES (${manifest.id}, ${encodedManifest}) ON CONFLICT(id) DO UPDATE SET data = excluded.data`;
       const scope = yield* Scope.make("sequential");
       yield* Scope.addFinalizer(lifetime, Scope.close(scope, Exit.void));
+      let rejectInitialization = Effect.void;
+      let completeInitialization = Effect.void;
       // The plugin scope must override the parent scope captured in servicesContext.
       const acquired = yield* Effect.exit(
         Effect.gen(function* () {
           const directory = path.join(options.directory, manifest.id);
           yield* fs.makeDirectory(directory, { recursive: true });
+          // Native preparations retain cancellation callbacks after rejection;
+          // their journal must remain usable until the environment stops.
           const context = yield* Layer.build(
             NodeSqlite.layer({ filename: path.join(directory, "state.sqlite") }),
-          );
+          ).pipe(Scope.provide(lifetime));
           const sql = Context.get(context, SqlClient.SqlClient);
           const storage = Storage.of({ directory, sql });
           yield* sql`PRAGMA busy_timeout = 5000`;
@@ -251,6 +255,8 @@ const make = Effect.gen(function* () {
           const bound = yield* BoundHost.make(manifest.id).pipe(
             Effect.provideService(Storage, storage),
           );
+          rejectInitialization = bound.rejectInitialization;
+          completeInitialization = bound.completeInitialization;
           instance = yield* plugin.acquire.pipe(
             Effect.provideService(Host, bound.service),
             Effect.provideService(Storage, storage),
@@ -333,6 +339,9 @@ const make = Effect.gen(function* () {
         descriptor.reason = isPluginError(failure)
           ? failure.message
           : "Plugin initialization or migration failed. Its data has been retained.";
+        // Stop initialization-owned setup while its cancellation journal is usable.
+        // Storage also outlives rejected services if a cancellation needs retrying.
+        yield* rejectInitialization;
         yield* Scope.close(scope, Exit.void);
         yield* Effect.logWarning("Optional plugin unavailable", {
           pluginId: manifest.id,
@@ -340,6 +349,7 @@ const make = Effect.gen(function* () {
         });
         continue;
       }
+      yield* completeInitialization;
       registered.set(manifest.id, acquired.value);
       descriptor.status = "available";
     }

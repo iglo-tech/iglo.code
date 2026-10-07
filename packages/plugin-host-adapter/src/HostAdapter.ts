@@ -147,6 +147,16 @@ const make = Effect.gen(function* () {
       );
     return result;
   });
+  const hasNewerPreparation = (threadId: PluginTarget["threadId"], runId: string, cursor: number) =>
+    sql`
+      SELECT sequence FROM orchestration_events
+      WHERE aggregate_kind = 'thread' AND stream_id = ${threadId}
+        AND sequence > ${cursor} AND application_event_version = 2
+        AND event_type = 'run.updated'
+        AND json_extract(payload_json, '$.id') = ${runId}
+        AND json_extract(payload_json, '$.status') = 'preparing'
+      LIMIT 1
+    `.pipe(Effect.map((rows) => rows.length > 0));
   const inspect = Effect.fn("PluginHost.inspect")(function* (
     target: PluginTarget,
   ): Effect.fn.Return<PluginThreadState, PluginError> {
@@ -455,6 +465,27 @@ const make = Effect.gen(function* () {
           // Live launches continue through preparation replay below.
           if (shell === null || shell.deletedAt !== null || shell.archivedAt !== null)
             return existing;
+          if (input.instruction !== undefined) {
+            const records = yield* threads
+              .getThreadRecords(existing.threadId, ["runs"])
+              .pipe(
+                Effect.mapError((cause) =>
+                  fail("launch", "Could not reconcile launch preparation.", cause),
+                ),
+              );
+            const original = records.runs.find(
+              (run) => run.userMessageId === `${input.commandId}:message`,
+            );
+            if (
+              original !== undefined &&
+              (yield* hasNewerPreparation(existing.threadId, original.id, existing.cursor).pipe(
+                Effect.mapError((cause) =>
+                  fail("launch", "Could not reconcile launch preparation.", cause),
+                ),
+              ))
+            )
+              return existing;
+          }
         }
         const workspace = yield* project(input.projectId);
         const ref =
@@ -680,20 +711,16 @@ const make = Effect.gen(function* () {
         if (existing !== null) {
           // An old acknowledgement cannot schedule a newer preparation attempt.
           // Its own transition remains replayable after restart until superseded.
-          const superseding = yield* sql`
-            SELECT sequence FROM orchestration_events
-            WHERE aggregate_kind = 'thread' AND stream_id = ${input.threadId}
-              AND sequence > ${existing.cursor} AND application_event_version = 2
-              AND event_type = 'run.updated'
-              AND json_extract(payload_json, '$.id') = ${input.runId}
-              AND json_extract(payload_json, '$.status') = 'preparing'
-            LIMIT 1
-          `.pipe(
+          const superseding = yield* hasNewerPreparation(
+            input.threadId,
+            input.runId,
+            existing.cursor,
+          ).pipe(
             Effect.mapError((cause) =>
               fail("retry-preparation", "Could not reconcile the preparation attempt.", cause),
             ),
           );
-          if (superseding.length > 0) return existing;
+          if (superseding) return existing;
         }
         yield* launch
           .retryPreparation({

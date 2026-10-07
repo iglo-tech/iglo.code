@@ -85,6 +85,8 @@ export const make = (pluginId: string) =>
     const core = yield* Host;
     const { sql } = yield* Storage;
     const lock = yield* KeyedLock.make<CommandId>();
+    let initializing = true;
+    const initializingLaunches = new Map<CommandId, typeof LaunchRequest.Type>();
     const error = (operation: string, message: string, cause?: unknown) =>
       new PluginError({
         pluginId,
@@ -108,6 +110,8 @@ export const make = (pluginId: string) =>
             "This pending interrupt has no recorded run selection and cannot safely be replayed. Inspect the thread and use a new command identity.",
         });
       const input = { ...intent.input, commandId: coreId(intent) };
+      if (initializing && intent.kind === "launch")
+        initializingLaunches.set(input.commandId, intent);
       if (intent.kind === "send") {
         // A committed create receipt can precede setup. Keep that barrier after
         // restart or tracker expiry, including a lost final launch acknowledgement.
@@ -383,5 +387,42 @@ export const make = (pluginId: string) =>
     }).pipe(
       Effect.mapError((cause) => error("recover", "Could not recover plugin host intents.", cause)),
     );
-    return { service, recover };
+    const completeInitialization = Effect.sync(() => {
+      initializing = false;
+      initializingLaunches.clear();
+    });
+    const rejectInitialization = Effect.suspend(() =>
+      Effect.forEach(
+        initializingLaunches,
+        ([commandId, intent]) =>
+          Effect.gen(function* () {
+            const created = yield* core.receipt(commandId);
+            if (created === null) return;
+            const target = {
+              environmentId: intent.input.environmentId,
+              projectId: intent.input.projectId,
+              threadId: created.threadId,
+            };
+            const state = yield* core.inspect(target);
+            if (state.preparationId === undefined) return;
+            yield* core.interrupt({
+              ...target,
+              commandId: CommandId.make(
+                `${commandId}:initialization-rejected:${state.preparationId}`,
+              ),
+              preparationId: state.preparationId,
+            });
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Could not cancel rejected plugin preparation", {
+                pluginId,
+                commandId,
+                cause,
+              }),
+            ),
+          ),
+        { discard: true },
+      ),
+    ).pipe(Effect.ensuring(completeInitialization));
+    return { service, recover, rejectInitialization, completeInitialization };
   });

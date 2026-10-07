@@ -13,6 +13,7 @@ import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 import { startEnvironment } from "./PluginHost.testkit.ts";
@@ -30,6 +31,17 @@ const setup = (plugins: ReadonlyArray<ServerPlugin> = []) =>
       noBrowser: true,
       traceTimingEnabled: false,
     };
+    const fs = yield* FileSystem.FileSystem;
+    const binary = config.baseDir + "/codex-fixture";
+    yield* fs.writeFileString(
+      binary,
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "codex-cli 0.156.1\\n"; else exit 1; fi\n',
+    );
+    yield* fs.chmod(binary, 0o755);
+    yield* fs.writeFileString(
+      config.settingsPath,
+      JSON.stringify({ providers: { codex: { binaryPath: binary } } }),
+    );
     const server = yield* startEnvironment(config, plugins);
     const host = Context.get(server.context, Host);
     const projects = Context.get(server.context, Projects.ProjectService);
@@ -115,6 +127,15 @@ for (const recovery of ["retry", "restart"] as const)
             commandId: input.commandId,
           };
           if (operation !== "launch") yield* preparedThread(s, target.threadId);
+          if (operation === "send") {
+            const run = (yield* s.threads.getThreadRecords(target.threadId, ["runs"])).runs[0]!;
+            yield* s.threads.dispatch({
+              type: "prepared-run.release",
+              commandId: CommandId.make("release-send-fixture"),
+              threadId: target.threadId,
+              runId: run.id,
+            });
+          }
           const execute = (host: Host["Service"]) =>
             operation === "launch"
               ? host.launch(input)

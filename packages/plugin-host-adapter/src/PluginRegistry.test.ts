@@ -234,7 +234,8 @@ it.live.each([false, true])("owns acquired resources with rejected=%s", (rejecte
           );
           expect(acquired).toBe(1);
           expect(released).toBe(rejected ? 1 : 0);
-          expect(Exit.isSuccess(yield* Effect.exit(storage!.sql`SELECT 1`))).toBe(!rejected);
+          // Native cancellation can still need the journal after service rejection.
+          expect(Exit.isSuccess(yield* Effect.exit(storage!.sql`SELECT 1`))).toBe(true);
         }),
       );
       expect(released).toBe(1);

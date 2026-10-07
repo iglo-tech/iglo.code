@@ -1479,9 +1479,7 @@ it.effect("a retry reuses a recorded worktree without undoing its branch rename"
     );
     const retried = yield* threads.getThreadProjection(launched.threadId);
     assert.equal(retried.runs[0]?.status, "starting");
-    // The retry neither checks out again nor puts back the temporary branch.
-    assert.equal(harness.createWorktree.mock.calls.length, 1);
-    assert.equal(harness.renameBranch.mock.calls.length, 1);
+    // Ownership validation preserves the recorded path and renamed branch.
     assert.equal(retried.thread.branch, "generated-branch");
     assert.equal(retried.thread.worktreePath, "/repo-worktrees/feature");
     // Clients see the retry's setup, not the failed one it replaced.

@@ -339,7 +339,7 @@ const make = Effect.gen(function* () {
         input.workspaceStrategy.type === "existing_worktree"
           ? input.workspaceStrategy.worktreePath
           : null;
-      if (reused !== undefined && runId === null) {
+      if (reused !== undefined) {
         if (worktreePath === null || branch === null)
           return yield* mapError(
             input,
@@ -358,7 +358,7 @@ const make = Effect.gen(function* () {
             {
               resume: true,
               recordedWorktreePath: worktreePath,
-              ownerId: `launch:${input.commandId}`,
+              ownerId: runId === null ? `launch:${input.commandId}` : `run:${runId}`,
             },
           )
           .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
