@@ -4,10 +4,9 @@
  * Two consumers derive from this list, and they must never disagree:
  *
  * - apps/server/vite.config.ts decides what stays external to the bundle.
- * - scripts/build-desktop-artifact.ts selects the runtime dependency roots for
- *   the Windows server sidecar.
+ * - scripts/build-cli-archive.ts selects runtime dependency roots for the CLI archive.
  *
- * A runtime package that is external but absent from the sidecar fails as soon
+ * A runtime package that is external but absent from the archive fails as soon
  * as Node resolves it from the emitted bundle. Keeping both consumers on one
  * list prevents packaging from drifting away from the bundle boundary.
  *
@@ -91,7 +90,7 @@ export function shouldBundleCliDependency(id: string): boolean {
   return !isExternalCliDependency(id);
 }
 
-/** Select direct dependency roots whose runtime closure belongs in the sidecar. */
+/** Select direct dependency roots whose runtime closure belongs in the archive. */
 export function selectCliRuntimeExternalDependencies(
   dependencies: Readonly<Record<string, string>>,
 ): Record<string, string> {

@@ -52,6 +52,19 @@ to override its environment defaults. Worktree directories keep their original n
 If generation fails, or a custom name is invalid or already taken, the temporary
 branch name remains.
 
+## Recurring automations
+
+An automation bound to a thread keeps one outstanding automatic check. If that
+check is queued or still working, later scheduled slots share it instead of
+adding copies. Its original prompt stays intact; edits apply to the next check.
+**Run now** adds an explicit request, even when another check is outstanding.
+
+The last delivery can be **queued** or **dispatched**. These describe sending the
+prompt to the thread, not completion by the agent. Usage limits and paused queues
+keep prompts queued until the thread can run under your recovery settings.
+Existing queued copies remain available to review or remove; pausing or deleting
+an automation stops future occurrences without removing those messages.
+
 ## Scheduled tasks on mobile
 
 Open **Settings → Scheduled tasks** to create recurring tasks or manage existing

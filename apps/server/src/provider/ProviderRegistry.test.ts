@@ -3,12 +3,14 @@ import * as CodexInstallation from "./CodexInstallation.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert, expect } from "@effect/vitest";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -20,6 +22,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import {
   EnvironmentId,
+  AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
   DEFAULT_SERVER_SETTINGS,
@@ -39,6 +42,8 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
+import { makeAntigravityProvider } from "./AntigravityProvider.ts";
+import { makeProviderInstanceRegistry } from "./ProviderInstanceRegistry.ts";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as AntigravityInstallation from "./AntigravityInstallation.ts";
 import * as ModelManifest from "./ModelManifest.ts";
@@ -56,11 +61,16 @@ import {
   writeProviderStatusCache,
 } from "./providerStatusCache.ts";
 import { COMPACT_SLASH_COMMAND } from "./providerSnapshot.ts";
-import type { ProviderInstance, ProviderWorkspaceSnapshot } from "./ProviderDriver.ts";
+import type {
+  ProviderDriver,
+  ProviderInstance,
+  ProviderWorkspaceSnapshot,
+} from "./ProviderDriver.ts";
 import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "./ProviderRegistry.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "./providerMaintenance.ts";
 const decodeServerSettings = Schema.decodeSync(ServerSettings);
+const decodeAntigravitySettings = Schema.decodeSync(AntigravitySettings);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const encodedDefaultServerSettings = encodeServerSettings(DEFAULT_SERVER_SETTINGS);
 
@@ -1587,7 +1597,7 @@ it.layer(
       }),
     );
 
-    it.effect("deduplicates cwd probes and clears snapshots when an instance rebuilds", () =>
+    it.effect("revalidates cwd catalogs across refresh and rebuild", () =>
       Effect.gen(function* () {
         const driver = ProviderDriverKind.make("codex");
         const instanceId = ProviderInstanceId.make("codex");
@@ -1625,6 +1635,10 @@ it.layer(
         });
         const cacheInvalidations = yield* Ref.make(0);
         const scanGate = yield* Ref.make<{
+          readonly started: Deferred.Deferred<void>;
+          readonly release: Deferred.Deferred<void>;
+        } | null>(null);
+        const lookupGate = yield* Ref.make<{
           readonly started: Deferred.Deferred<void>;
           readonly release: Deferred.Deferred<void>;
         } | null>(null);
@@ -1688,15 +1702,20 @@ it.layer(
         );
         const registryChanges = yield* PubSub.unbounded<void>();
         const instancesRef = yield* Ref.make<ReadonlyArray<ProviderInstance>>([firstInstance]);
-        const layerInstanceRegistry = Layer.succeed(
+        const instanceRegistryLayer = Layer.succeed(
           ProviderInstanceRegistry.ProviderInstanceRegistry,
           {
             getInstance: (requestedId) =>
-              Ref.get(instancesRef).pipe(
-                Effect.map((instances) =>
-                  instances.find((instance) => instance.instanceId === requestedId),
-                ),
-              ),
+              Effect.gen(function* () {
+                const gate = yield* Ref.getAndSet(lookupGate, null);
+                if (gate) {
+                  yield* Deferred.succeed(gate.started, undefined);
+                  yield* Deferred.await(gate.release);
+                }
+                return (yield* Ref.get(instancesRef)).find(
+                  (instance) => instance.instanceId === requestedId,
+                );
+              }),
             listInstances: Ref.get(instancesRef),
             listUnavailable: Effect.succeed([]),
             streamChanges: Stream.fromPubSub(registryChanges),
@@ -1707,7 +1726,7 @@ it.layer(
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const runtimeServices = yield* Layer.build(
           ProviderRegistry.layer.pipe(
-            Layer.provideMerge(layerInstanceRegistry),
+            Layer.provideMerge(instanceRegistryLayer),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
                 prefix: "t3-provider-registry-workspace-snapshot-",
@@ -1766,23 +1785,28 @@ it.layer(
             (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.slashCommandsPending,
             undefined,
           );
-          yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
-          assert.strictEqual(yield* Ref.get(snapshotCalls), 3);
           const newSkills = [
-            ...scopedProvider.skills,
+            { ...scopedProvider.skills[0], description: "Updated project skill" },
             { name: "added", path: "/workspace/added/SKILL.md", enabled: true },
+            { name: "personal", path: "/global/personal/SKILL.md", enabled: true },
           ];
           yield* Ref.set(scopedResult, { ...scopedProvider, skills: newSkills });
+          yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+          assert.deepStrictEqual(
+            (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+            newSkills,
+          );
+          yield* Ref.set(scopedResult, scopedProvider);
           yield* registry.refreshWorkspaceSnapshot({
             instanceId,
             cwd: "/workspace",
             fresh: true,
           });
-          assert.strictEqual(yield* Ref.get(snapshotCalls), 4);
+          assert.strictEqual(yield* Ref.get(snapshotCalls), 5);
           assert.strictEqual(yield* Ref.get(cacheInvalidations), 1);
           assert.deepStrictEqual(
             (yield* registry.getProviders)[0]?.workspaceSnapshots?.map((s) => s.skills),
-            [newSkills],
+            [scopedProvider.skills],
           );
 
           // A slow fresh scan that read older files must not overwrite a
@@ -1812,6 +1836,155 @@ it.layer(
             [latestSkills],
           );
 
+          // Supersession must also win after the old probe finishes but
+          // before it publishes, while the newer probe is still running.
+          const clock = yield* Clock.Clock;
+          const publicationStarted = yield* Deferred.make<void>();
+          const releasePublication = yield* Deferred.make<void>();
+          yield* Ref.set(scopedResult, scopedProvider);
+          const supersededScan = yield* registry
+            .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+            .pipe(
+              Effect.provideService(Clock.Clock, {
+                ...clock,
+                currentTimeMillis: Deferred.succeed(publicationStarted, undefined).pipe(
+                  Effect.andThen(Deferred.await(releasePublication)),
+                  Effect.andThen(clock.currentTimeMillis),
+                ),
+              }),
+              Effect.forkChild,
+            );
+          yield* Deferred.await(publicationStarted);
+          const forcedStarted = yield* Deferred.make<void>();
+          const releaseForced = yield* Deferred.make<void>();
+          yield* Ref.set(scanGate, { started: forcedStarted, release: releaseForced });
+          yield* Ref.set(scopedResult, { ...scopedProvider, skills: latestSkills });
+          const forcedScan = yield* registry
+            .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace", fresh: true })
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(forcedStarted);
+          yield* Deferred.succeed(releasePublication, undefined);
+          yield* Fiber.join(supersededScan);
+          yield* Deferred.succeed(releaseForced, undefined);
+          yield* Fiber.join(forcedScan);
+          assert.deepStrictEqual(
+            (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+            latestSkills,
+          );
+
+          // A prior scan can publish during the next scan's instance lookup.
+          // The next scan must compare against the catalog at its claim.
+          const priorPublication = yield* Deferred.make<void>();
+          const releasePrior = yield* Deferred.make<void>();
+          yield* Ref.set(scopedResult, scopedProvider);
+          const priorScan = yield* registry
+            .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+            .pipe(
+              Effect.provideService(Clock.Clock, {
+                ...clock,
+                currentTimeMillis: Deferred.succeed(priorPublication, undefined).pipe(
+                  Effect.andThen(Deferred.await(releasePrior)),
+                  Effect.andThen(clock.currentTimeMillis),
+                ),
+              }),
+              Effect.forkChild,
+            );
+          yield* Deferred.await(priorPublication);
+          const lookupStarted = yield* Deferred.make<void>();
+          const releaseLookup = yield* Deferred.make<void>();
+          yield* Ref.set(lookupGate, { started: lookupStarted, release: releaseLookup });
+          yield* Ref.set(scopedResult, { ...scopedProvider, skills: latestSkills });
+          const nextScan = yield* registry
+            .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace", fresh: true })
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(lookupStarted);
+          yield* Deferred.succeed(releasePrior, undefined);
+          yield* Fiber.join(priorScan);
+          yield* Deferred.succeed(releaseLookup, undefined);
+          yield* Fiber.join(nextScan);
+          assert.deepStrictEqual(
+            (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+            latestSkills,
+          );
+
+          // A workspace whose first scan found only personal skills must
+          // discover its first project skill on an ordinary later request.
+          yield* Ref.set(scopedResult, machineProvider);
+          yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/other-workspace" });
+          yield* Ref.set(scopedResult, { ...scopedProvider, skills: newSkills });
+          const otherWorkspace = yield* registry.refreshWorkspaceSnapshot({
+            instanceId,
+            cwd: "/other-workspace",
+          });
+          assert.deepStrictEqual(
+            otherWorkspace[0]?.workspaceSnapshots?.find(
+              (snapshot) => snapshot.cwd === "/other-workspace",
+            )?.skills,
+            newSkills,
+          );
+          assert.deepStrictEqual(
+            otherWorkspace[0]?.workspaceSnapshots?.find((snapshot) => snapshot.cwd === "/workspace")
+              ?.skills,
+            latestSkills,
+          );
+          yield* Ref.set(scopedResult, machineProvider);
+          const removed = yield* registry.refreshWorkspaceSnapshot({
+            instanceId,
+            cwd: "/other-workspace",
+          });
+          assert.deepStrictEqual(
+            removed[0]?.workspaceSnapshots?.find((snapshot) => snapshot.cwd === "/other-workspace")
+              ?.skills,
+            machineProvider.skills,
+          );
+
+          yield* registry.refreshInstance(instanceId);
+          assert.deepStrictEqual((yield* registry.getProviders)[0]?.workspaceSnapshots, []);
+          yield* Ref.set(scopedResult, { ...scopedProvider, skills: latestSkills });
+          yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+          assert.deepStrictEqual(
+            (yield* registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+            latestSkills,
+          );
+
+          // Settings refresh invalidates even an initial scan still in
+          // flight, and its finalizer cannot release a newer scan's claim.
+          const invalidatedStarted = yield* Deferred.make<void>();
+          const releaseInvalidated = yield* Deferred.make<void>();
+          yield* registry.refreshInstance(instanceId);
+          yield* Ref.set(scopedResult, machineProvider);
+          yield* Ref.set(scanGate, {
+            started: invalidatedStarted,
+            release: releaseInvalidated,
+          });
+          const invalidatedScan = yield* registry
+            .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(invalidatedStarted);
+          yield* registry.refreshInstance(instanceId);
+          yield* Ref.set(scopedResult, { ...scopedProvider, skills: latestSkills });
+          yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+          yield* Deferred.succeed(releaseInvalidated, undefined);
+          yield* Fiber.join(invalidatedScan);
+          const retained = yield* registry.getProviders;
+          assert.deepStrictEqual(retained[0]?.workspaceSnapshots?.[0]?.skills, latestSkills);
+          yield* Ref.set(returnPendingSnapshot, true);
+          const failed = yield* registry.refreshWorkspaceSnapshot({
+            instanceId,
+            cwd: "/workspace",
+          });
+          assert.deepStrictEqual(failed[0]?.workspaceSnapshots?.[0]?.skills, latestSkills);
+          yield* Ref.set(returnPendingSnapshot, false);
+          yield* Ref.set(scopedResult, scopedProvider);
+          const recovered = yield* registry.refreshWorkspaceSnapshot({
+            instanceId,
+            cwd: "/workspace",
+          });
+          assert.deepStrictEqual(
+            recovered[0]?.workspaceSnapshots?.[0]?.skills,
+            scopedProvider.skills,
+          );
+
           yield* Ref.set(instancesRef, [rebuiltInstance]);
           yield* PubSub.publish(registryChanges, undefined);
           let rebuilt = yield* registry.getProviders;
@@ -1827,6 +2000,538 @@ it.layer(
           assert.strictEqual(rebuilt[0]?.workspaceSnapshots, undefined);
         }).pipe(Effect.provide(runtimeServices));
       }),
+    );
+
+    const makeNativeWorkspaceHarness = Effect.fn("makeNativeWorkspaceHarness")(function* (
+      authenticated = true,
+    ) {
+      const instanceId = ProviderInstanceId.make("antigravity");
+      const driver = ProviderDriverKind.make("antigravity");
+      const initializeResult = { protocolVersion: 1, agentCapabilities: {}, authMethods: [] };
+      const native = yield* makeAntigravityProvider(decodeAntigravitySettings({ enabled: true }), {
+        stampIdentity: (draft) => Effect.succeed({ ...draft, instanceId, driver }),
+        probe: Effect.succeed(initializeResult),
+        supportsTextGeneration: Effect.succeed(false),
+      }).pipe(
+        Effect.provide(
+          Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+            shouldRunScopeWork: () => Effect.succeed(false),
+          }),
+        ),
+      );
+      const startSession = (version: string, scoped = true) =>
+        native.onSessionStarted(
+          {
+            sessionId: "fixture-session",
+            modelConfigId: undefined,
+            initializeResult: { ...initializeResult, agentInfo: { name: "fixture", version } },
+            sessionSetupResult: { sessionId: "fixture-session" },
+          },
+          scoped ? "/workspace" : undefined,
+        );
+      yield* native.snapshot.refresh;
+      if (authenticated) yield* startSession("baseline");
+      const baselineSkills = [
+        { name: "baseline", path: "/workspace/baseline/SKILL.md", enabled: true },
+      ];
+      const latestSkills = [{ name: "latest", path: "/workspace/latest/SKILL.md", enabled: true }];
+      const skillsRef = yield* Ref.make<ServerProvider["skills"]>(baselineSkills);
+      const calls = yield* Ref.make(0);
+      const commitMilestone = yield* Ref.make<Deferred.Deferred<void> | null>(null);
+      const scanGate = yield* Ref.make<{
+        readonly started: Deferred.Deferred<void>;
+        readonly release: Deferred.Deferred<void>;
+        readonly afterRead?: boolean;
+      } | null>(null);
+      const instance: ProviderInstance = {
+        instanceId,
+        driverKind: driver,
+        enabled: true,
+        displayName: undefined,
+        continuationIdentity: { driverKind: driver, continuationKey: "antigravity:fixture" },
+        snapshot: native.snapshot,
+        commitWorkspaceSnapshot: (cwd, snapshot) =>
+          native
+            .commitWorkspaceSnapshot(cwd, snapshot)
+            .pipe(
+              Effect.tap(() =>
+                Ref.get(commitMilestone).pipe(
+                  Effect.flatMap((milestone) =>
+                    milestone ? Deferred.succeed(milestone, undefined) : Effect.void,
+                  ),
+                ),
+              ),
+            ),
+        invalidateCaches: native.invalidateCaches,
+        snapshotForCwd: (cwd) =>
+          Effect.gen(function* () {
+            yield* Ref.update(calls, (count) => count + 1);
+            const skills = yield* Ref.get(skillsRef);
+            const gate = yield* Ref.getAndSet(scanGate, null);
+            if (gate && !gate.afterRead) {
+              yield* Deferred.succeed(gate.started, undefined);
+              yield* Deferred.await(gate.release);
+            }
+            const snapshot = yield* native.snapshotForCwd(cwd, skills);
+            if (gate?.afterRead) {
+              yield* Deferred.succeed(gate.started, undefined);
+              yield* Deferred.await(gate.release);
+            }
+            return snapshot;
+          }),
+        orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+        textGeneration: {} as ProviderInstance["textGeneration"],
+      };
+      const changes = yield* PubSub.unbounded<void>();
+      const instances = yield* Ref.make<ReadonlyArray<ProviderInstance>>([instance]);
+      const persistenceStarted = yield* Deferred.make<void>();
+      const releasePersistence = yield* Deferred.make<void>();
+      const fileSystem = yield* FileSystem.FileSystem;
+      const blockedFileSystem: FileSystem.FileSystem = {
+        ...fileSystem,
+        writeFileString: (filePath, contents, options) =>
+          filePath.includes("new-provider.json")
+            ? Deferred.succeed(persistenceStarted, undefined).pipe(
+                Effect.andThen(Deferred.await(releasePersistence)),
+                Effect.andThen(fileSystem.writeFileString(filePath, contents, options)),
+              )
+            : fileSystem.writeFileString(filePath, contents, options),
+      };
+      const services = yield* Layer.build(
+        ProviderRegistry.layer.pipe(
+          Layer.provide(
+            Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+              getInstance: (instanceId) =>
+                Ref.get(instances).pipe(
+                  Effect.map((rows) => rows.find((row) => row.instanceId === instanceId)),
+                ),
+              listInstances: Ref.get(instances),
+              listUnavailable: Effect.succeed([]),
+              streamChanges: Stream.fromPubSub(changes),
+              subscribeChanges: PubSub.subscribe(changes),
+            }),
+          ),
+          Layer.provide(
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3-native-workspace-race-" }),
+          ),
+          Layer.provide(Layer.succeed(FileSystem.FileSystem, blockedFileSystem)),
+          Layer.provide(NodeServices.layer),
+        ),
+      );
+      const registry = yield* Effect.service(ProviderRegistry.ProviderRegistry).pipe(
+        Effect.provide(services),
+      );
+      const publishCommands = Effect.fn("publishFixtureCommands")(function* (
+        name: string,
+        scoped = true,
+      ) {
+        const publication = yield* registry.streamChanges.pipe(
+          Stream.filter(
+            (providers) =>
+              providers.find((provider) => provider.instanceId === instanceId)?.slashCommands[0]
+                ?.name === name,
+          ),
+          Stream.runHead,
+          Effect.forkChild,
+        );
+        yield* Effect.yieldNow;
+        yield* native.onAvailableCommands(
+          [{ name, description: "Fixture milestone" }],
+          scoped ? "/workspace" : undefined,
+        );
+        yield* Fiber.join(publication);
+      });
+      yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+      if (authenticated) yield* publishCommands("baseline-command");
+      return {
+        native,
+        registry,
+        startSession,
+        publishCommands,
+        skillsRef,
+        scanGate,
+        calls,
+        commitMilestone,
+        blockAddition: Effect.gen(function* () {
+          const newId = ProviderInstanceId.make("new-provider");
+          const snapshot = {
+            ...(yield* native.snapshot.getSnapshot),
+            instanceId: newId,
+            workspaceSnapshots: [],
+          };
+          yield* Ref.set(instances, [
+            instance,
+            {
+              ...instance,
+              instanceId: newId,
+              snapshot: {
+                ...instance.snapshot,
+                getSnapshot: Effect.succeed(snapshot),
+                streamChanges: Stream.empty,
+              },
+            },
+          ]);
+          yield* PubSub.publish(changes, undefined);
+          yield* Deferred.await(persistenceStarted);
+        }),
+        releaseAddition: Deferred.succeed(releasePersistence, undefined),
+        instanceId,
+        baselineSkills,
+        latestSkills,
+      };
+    });
+
+    it.effect("keeps superseded Antigravity discovery out of native stream updates", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const h = yield* makeNativeWorkspaceHarness();
+          const started = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          yield* Ref.set(h.scanGate, { started, release });
+          const oldScan = yield* h.registry
+            .refreshWorkspaceSnapshot({ instanceId: h.instanceId, cwd: "/workspace" })
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(started);
+          yield* Ref.set(h.skillsRef, h.latestSkills);
+          const forcedResult = yield* h.registry.refreshWorkspaceSnapshot({
+            instanceId: h.instanceId,
+            cwd: "/workspace",
+            fresh: true,
+          });
+          assert.deepStrictEqual(forcedResult[0]?.workspaceSnapshots?.[0]?.skills, h.latestSkills);
+          yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(oldScan);
+          yield* h.publishCommands("after-scan");
+          assert.deepStrictEqual(
+            (yield* h.registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+            h.latestSkills,
+          );
+          assert.deepStrictEqual(
+            (yield* h.native.snapshot.getSnapshot).workspaceSnapshots?.[0]?.skills,
+            h.latestSkills,
+          );
+        }),
+      ),
+    );
+
+    it.effect.each([false, true])(
+      "keeps refreshed Antigravity skills through session updates (fresh=%s)",
+      (fresh) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const h = yield* makeNativeWorkspaceHarness();
+            const started = yield* Deferred.make<void>();
+            const release = yield* Deferred.make<void>();
+            yield* Ref.set(h.skillsRef, h.latestSkills);
+            yield* Ref.set(h.scanGate, { started, release, afterRead: true });
+            const scan = yield* h.registry
+              .refreshWorkspaceSnapshot({ instanceId: h.instanceId, cwd: "/workspace", fresh })
+              .pipe(Effect.forkChild);
+            yield* Deferred.await(started);
+            yield* TestClock.adjust("1 second");
+            yield* h.startSession("session-update");
+            yield* h.publishCommands("during-session");
+            yield* Deferred.succeed(release, undefined);
+            const result = yield* Fiber.join(scan);
+            assert.strictEqual(result[0]?.version, "session-update");
+            assert.deepStrictEqual(result[0]?.workspaceSnapshots?.[0]?.skills, h.latestSkills);
+            assert.strictEqual(
+              result[0]?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
+              "during-session",
+            );
+            yield* h.publishCommands("after-session");
+            assert.deepStrictEqual(
+              (yield* h.registry.getProviders)[0]?.workspaceSnapshots?.[0]?.skills,
+              h.latestSkills,
+            );
+            assert.deepStrictEqual(
+              (yield* h.native.snapshot.getSnapshot).workspaceSnapshots?.[0]?.skills,
+              h.latestSkills,
+            );
+          }),
+        ),
+    );
+
+    it.effect.each([false, true])(
+      "invalidates native workspace catalogs in Settings (all=%s)",
+      (all) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const h = yield* makeNativeWorkspaceHarness();
+            const before = yield* Ref.get(h.calls);
+            yield* Ref.set(h.skillsRef, h.latestSkills);
+            const result = yield* all
+              ? h.registry.refresh()
+              : h.registry.refreshInstance(h.instanceId);
+            assert.strictEqual(yield* Ref.get(h.calls), before);
+            assert.deepStrictEqual(result[0]?.workspaceSnapshots, []);
+            yield* h.startSession("after-settings");
+            yield* h.publishCommands("after-settings");
+            assert.deepStrictEqual((yield* h.registry.getProviders)[0]?.workspaceSnapshots, []);
+            const recovered = yield* h.registry.refreshWorkspaceSnapshot({
+              instanceId: h.instanceId,
+              cwd: "/workspace",
+            });
+            assert.deepStrictEqual(recovered[0]?.workspaceSnapshots?.[0]?.skills, h.latestSkills);
+            assert.strictEqual(
+              recovered[0]?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
+              "after-settings",
+            );
+          }),
+        ),
+    );
+
+    it.effect.each([
+      { fresh: false, overlap: false },
+      { fresh: true, overlap: false },
+      { fresh: false, overlap: true },
+      { fresh: true, overlap: true },
+    ])(
+      "preserves native commands when discovery waits for another provider (%j)",
+      ({ fresh, overlap }) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const h = yield* makeNativeWorkspaceHarness();
+            if (overlap) yield* h.blockAddition;
+            yield* Ref.set(h.skillsRef, h.latestSkills);
+            const committed = yield* Deferred.make<void>();
+            yield* Ref.set(h.commitMilestone, committed);
+            const scan = yield* h.registry
+              .refreshWorkspaceSnapshot({ instanceId: h.instanceId, cwd: "/workspace", fresh })
+              .pipe(Effect.forkChild);
+            yield* Deferred.await(committed);
+            if (!overlap) yield* Fiber.join(scan);
+            yield* h.publishCommands("new-command", false);
+            const before = (yield* h.registry.getProviders).find(
+              (provider) => provider.instanceId === h.instanceId,
+            );
+            assert.strictEqual(
+              before?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
+              "new-command",
+            );
+            if (overlap) yield* h.releaseAddition;
+            yield* Fiber.join(scan);
+            const provider = (yield* h.registry.getProviders).find(
+              (provider) => provider.instanceId === h.instanceId,
+            );
+            assert.deepStrictEqual(provider?.workspaceSnapshots?.[0]?.skills, h.latestSkills);
+            assert.strictEqual(
+              provider?.workspaceSnapshots?.[0]?.slashCommands[0]?.name,
+              "new-command",
+            );
+            assert.strictEqual(
+              (yield* h.native.snapshot.getSnapshot).workspaceSnapshots?.[0]?.slashCommands[0]
+                ?.name,
+              "new-command",
+            );
+          }),
+        ),
+    );
+
+    it.effect.each([
+      { fresh: false, authenticated: true },
+      { fresh: true, authenticated: true },
+      { fresh: false, authenticated: false },
+    ])(
+      "propagates global native commands through skill rediscovery (%j)",
+      ({ fresh, authenticated }) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const h = yield* makeNativeWorkspaceHarness(authenticated);
+            const before = (yield* h.registry.getProviders)[0]?.workspaceSnapshots?.[0];
+            yield* TestClock.adjust("1 second");
+            if (!authenticated) yield* h.startSession("signed-in", false);
+            yield* h.publishCommands("new-command", false);
+            const after = (yield* h.registry.getProviders)[0]?.workspaceSnapshots?.[0];
+            assert.deepStrictEqual(after?.skills, h.baselineSkills);
+            assert.strictEqual(after?.checkedAt, before?.checkedAt);
+            assert.deepStrictEqual(
+              after?.slashCommands.map((command) => command.name),
+              ["new-command"],
+            );
+            const reopened = yield* h.registry.refreshWorkspaceSnapshot({
+              instanceId: h.instanceId,
+              cwd: "/workspace",
+              fresh,
+            });
+            assert.deepStrictEqual(
+              reopened[0]?.workspaceSnapshots?.[0]?.slashCommands.map((command) => command.name),
+              ["new-command"],
+            );
+            assert.deepStrictEqual(reopened[0]?.workspaceSnapshots?.[0]?.skills, h.baselineSkills);
+          }),
+        ),
+    );
+
+    it.effect.each([false, true])(
+      "keeps native discovery with its live instance during commit (rebuild=%s)",
+      (rebuild) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const instanceId = ProviderInstanceId.make("native-rebuild");
+            const driver = ProviderDriverKind.make("antigravity");
+            const commitStarted = yield* Deferred.make<void>();
+            const releaseCommit = yield* Deferred.make<void>();
+            const oldClosed = yield* Deferred.make<void>();
+            let scanFiberId: number | undefined;
+            let paused = false;
+            const publishCommands = new Map<string, (name: string) => Effect.Effect<void>>();
+            const initializeResult = {
+              protocolVersion: 1,
+              agentCapabilities: {},
+              authMethods: [],
+            };
+            const fixtureDriver: ProviderDriver<
+              { revision: string },
+              BackgroundPolicy.BackgroundPolicy | ServerSettingsModule.ServerSettingsService
+            > = {
+              driverKind: driver,
+              metadata: { displayName: "Native rebuild fixture" },
+              configSchema: Schema.Struct({ revision: Schema.String }),
+              defaultConfig: () => ({ revision: "original" }),
+              create: (input) =>
+                Effect.gen(function* () {
+                  const revision = input.config.revision;
+                  if (revision === "original") {
+                    yield* Scope.addFinalizer(
+                      yield* Scope.Scope,
+                      Deferred.succeed(oldClosed, undefined),
+                    );
+                  }
+                  const native = yield* makeAntigravityProvider(
+                    decodeAntigravitySettings({ enabled: true }),
+                    {
+                      stampIdentity: (draft) =>
+                        Effect.withFiber((fiber) =>
+                          Effect.gen(function* () {
+                            if (
+                              revision === "original" &&
+                              fiber.id === scanFiberId &&
+                              !paused &&
+                              draft.workspaceSnapshots?.some(
+                                (workspace) => workspace.skills[0]?.name === "original-config",
+                              )
+                            ) {
+                              paused = true;
+                              yield* Deferred.succeed(commitStarted, undefined);
+                              yield* Deferred.await(releaseCommit);
+                            }
+                            return { ...draft, instanceId, driver };
+                          }),
+                        ),
+                      probe: Effect.succeed({
+                        ...initializeResult,
+                        agentInfo: { name: "fixture", version: revision },
+                      }),
+                      supportsTextGeneration: Effect.succeed(false),
+                    },
+                  );
+                  yield* native.snapshot.refresh;
+                  publishCommands.set(revision, (name) =>
+                    native.onAvailableCommands([{ name, description: "Native milestone" }]),
+                  );
+                  return {
+                    instanceId,
+                    driverKind: driver,
+                    enabled: true,
+                    displayName: undefined,
+                    continuationIdentity: { driverKind: driver, continuationKey: revision },
+                    snapshot: native.snapshot,
+                    commitWorkspaceSnapshot: native.commitWorkspaceSnapshot,
+                    invalidateCaches: native.invalidateCaches,
+                    snapshotForCwd: (cwd) =>
+                      native.snapshotForCwd(cwd, [
+                        {
+                          name: `${revision}-config`,
+                          path: `/workspace/${revision}/SKILL.md`,
+                          enabled: true,
+                        },
+                      ]),
+                    orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+                    textGeneration: {} as ProviderInstance["textGeneration"],
+                  } satisfies ProviderInstance;
+                }).pipe(Effect.orDie),
+            };
+            const instances = yield* makeProviderInstanceRegistry({
+              drivers: [fixtureDriver],
+              configMap: { [instanceId]: { driver, config: { revision: "original" } } },
+            }).pipe(
+              Effect.provide(
+                Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+                  shouldRunScopeWork: () => Effect.succeed(false),
+                }),
+              ),
+            );
+            const services = yield* Layer.build(
+              ProviderRegistry.layer.pipe(
+                Layer.provide(
+                  Layer.succeed(
+                    ProviderInstanceRegistry.ProviderInstanceRegistry,
+                    instances.registry,
+                  ),
+                ),
+                Layer.provide(
+                  ServerConfig.layerTest(process.cwd(), { prefix: "t3-native-rebuild-" }),
+                ),
+                Layer.provide(NodeServices.layer),
+              ),
+            );
+            const registry = yield* Effect.service(ProviderRegistry.ProviderRegistry).pipe(
+              Effect.provide(services),
+            );
+            const scan = yield* Effect.withFiber((fiber) => {
+              scanFiberId = fiber.id;
+              return registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
+            }).pipe(Effect.forkChild);
+            yield* Deferred.await(commitStarted);
+            if (rebuild) {
+              const replacement = yield* registry.streamChanges.pipe(
+                Stream.filter((providers) => providers[0]?.version === "replacement"),
+                Stream.runHead,
+                Effect.forkChild,
+              );
+              yield* Effect.yieldNow;
+              yield* instances.mutator.reconcile({
+                [instanceId]: { driver, config: { revision: "replacement" } },
+              });
+              yield* Deferred.await(oldClosed);
+              yield* Fiber.join(replacement);
+              const nativeUpdate = yield* registry.streamChanges.pipe(
+                Stream.filter(
+                  (providers) => providers[0]?.slashCommands[0]?.name === "replacement-ready",
+                ),
+                Stream.runHead,
+                Effect.forkChild,
+              );
+              yield* Effect.yieldNow;
+              const publish = publishCommands.get("replacement");
+              if (!publish) return yield* Effect.die("Replacement native fixture missing");
+              yield* publish("replacement-ready");
+              yield* Fiber.join(nativeUpdate);
+              assert.deepStrictEqual((yield* registry.getProviders)[0]?.workspaceSnapshots, []);
+            }
+            yield* Deferred.succeed(releaseCommit, undefined);
+            yield* Fiber.join(scan);
+            const provider = (yield* registry.getProviders)[0];
+            assert.strictEqual(provider?.version, rebuild ? "replacement" : "original");
+            assert.deepStrictEqual(
+              provider?.workspaceSnapshots?.flatMap((workspace) =>
+                workspace.skills.map((skill) => skill.name),
+              ),
+              rebuild ? [] : ["original-config"],
+            );
+            if (rebuild) {
+              const recovered = yield* registry.refreshWorkspaceSnapshot({
+                instanceId,
+                cwd: "/workspace",
+              });
+              assert.deepStrictEqual(
+                recovered[0]?.workspaceSnapshots?.[0]?.skills.map((skill) => skill.name),
+                ["replacement-config"],
+              );
+            }
+          }),
+        ),
     );
 
     it.effect("refreshes OpenCode catalogs and preserves other providers", () =>

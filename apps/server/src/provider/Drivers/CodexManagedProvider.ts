@@ -285,8 +285,17 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
               snapshot.getSnapshot.pipe(Effect.map((draft) => ({ ...draft, skills }))),
             ),
             Effect.scoped,
+            Effect.timeout("20 seconds"),
             Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-            Effect.catch(() => snapshot.getSnapshot),
+            Effect.mapError(
+              (cause) =>
+                new ProviderDriverError({
+                  driver: DRIVER,
+                  instanceId,
+                  detail: `Failed to probe Codex skills for '${cwd}'`,
+                  cause,
+                }),
+            ),
           )
         : snapshot.getSnapshot,
   } satisfies ProviderInstance;

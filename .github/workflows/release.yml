@@ -37,8 +37,6 @@ concurrency:
   queue: max
 
 permissions:
-  # The Windows desktop jobs read this run's artifact list to wait for the
-  # Linux CLI archive they embed (see release-desktop.yml).
   actions: read
   contents: read
   id-token: none
@@ -162,14 +160,6 @@ jobs:
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
             echo "make_latest=false" >> "$GITHUB_OUTPUT"
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-preview}" == "preview" ]]; then
-            # Manual-only test train: exercises the whole release flow for a
-            # commit end users must never receive. Never scheduled.
-            # Same versioning as nightly under its own prerelease identifier.
-            # A preview release is reachable only by asking for it: npm gets it
-            # under the `preview` dist-tag, which nothing resolves by default,
-            # its desktop builds carry no update feed, and no updater manifest
-            # is attached to the release, so neither stable nor nightly
-            # installs can ever be offered one.
             nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
 
             node scripts/resolve-nightly-release.ts \
@@ -253,9 +243,6 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
       - name: Check
         run: vp check
 
@@ -287,15 +274,12 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
       - uses: ./.github/actions/setup-apt-mirrors
 
-      - name: Install browser secret helper build libraries
+      - name: Install C toolchain for process-tree fixtures
         run: |
           sudo sed -i 's|http://|https://|g' /etc/apt/blacksmith-ubuntu-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
-          sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config build-essential
+          sudo apt-get update && sudo apt-get install -y build-essential
 
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
@@ -327,9 +311,6 @@ jobs:
           cache: true
           run-install: true
 
-      # No Electron setup here: `t3` (apps/server) has no Electron dependency
-      # and none of its tests touch the runtime. Only the non-server `test`
-      # job, which covers @t3tools/desktop, needs the download.
       - name: Install Chromium for server browser integration tests
         run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
 
@@ -446,10 +427,6 @@ jobs:
           echo "clerk_cli_oauth_client_id=$CLERK_CLI_OAUTH_CLIENT_ID" >> "$GITHUB_OUTPUT"
           echo "relay_url=https://$relay_domain" >> "$GITHUB_OUTPUT"
 
-  # The platform-independent JS (server bundle, web client, Electron main) is
-  # built exactly once here and handed to every platform job as `js-bundle`.
-  # The relay/Clerk values are baked into the bundle, so they belong to this
-  # job rather than to the packaging jobs.
   build_bundle:
     name: Build JS bundle
     # Same gating as relay_public_config: only the release commit is needed, so
@@ -492,7 +469,7 @@ jobs:
       - name: Install bundle dependencies
         env:
           pnpm_config_cache_dir: ${{ runner.temp }}/pnpm-metadata
-        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/scripts...
 
       - name: Download relay client tracing config
         uses: actions/download-artifact@v8
@@ -513,46 +490,28 @@ jobs:
 
       - uses: ./.github/actions/setup-apt-mirrors
 
-      # @t3tools/desktop#build compiles the Linux browser secret helper on a
-      # Linux host before packing, and that needs libsecret headers.
-      - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-
-      # Runs t3#build (which depends on @t3tools/web#build) and
-      # @t3tools/desktop#build, so apps/server/dist holds the server bundle
-      # plus the web client and apps/desktop/dist-electron the Electron main.
       - name: Build JS bundle
-        run: vp run build:desktop
+        run: vp run --filter t3 build
 
-      # Two paths under apps/ so the artifact root is apps/; consumers download
-      # into `apps` to restore both at their original locations.
+      # The artifact contains the dist directory's contents; consumers restore it there.
       - name: Upload JS bundle
         uses: actions/upload-artifact@v7
         with:
           name: js-bundle
           path: |
             apps/server/dist
-            apps/desktop/dist-electron
           if-no-files-found: error
           retention-days: 1
 
-  # One job per platform and architecture (see release-desktop.yml), each on
-  # hardware of its own architecture, and each gated only on the JS bundle.
-  # The Windows jobs also embed the same-arch Linux CLI archive as the WSL
-  # runtime; they wait for that artifact partway through instead of for the
-  # whole Linux job. Every job builds the desktop app; all but macOS x64 also
-  # build the CLI archive for their platform, so a target either ships fully or
-  # not at all.
-  desktop_mac_arm64:
-    name: Desktop macOS arm64
+  cli_mac_arm64:
+    name: CLI macOS arm64
     needs: [preflight, relay_public_config, build_bundle]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
-    uses: ./.github/workflows/release-desktop.yml
+    uses: ./.github/workflows/release-cli.yml
     secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ needs.preflight.outputs.ref }}
-      release_channel: ${{ needs.preflight.outputs.release_channel }}
       clerk_publishable_key: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
@@ -560,48 +519,19 @@ jobs:
       label: macOS arm64
       runner: blacksmith-12vcpu-macos-26
       platform: mac
-      target: dmg
       arch: arm64
       rust_target: aarch64-apple-darwin
       resource_key: darwin-arm64
-      cli_archive: true
 
-  desktop_mac_x64:
-    name: Desktop macOS x64
+  cli_linux_x64:
+    name: CLI Linux x64
     needs: [preflight, relay_public_config, build_bundle]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
-    uses: ./.github/workflows/release-desktop.yml
+    uses: ./.github/workflows/release-cli.yml
     secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ needs.preflight.outputs.ref }}
-      release_channel: ${{ needs.preflight.outputs.release_channel }}
-      clerk_publishable_key: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
-      clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
-      clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
-      relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
-      label: macOS x64
-      runner: blacksmith-12vcpu-macos-26
-      platform: mac
-      target: dmg
-      arch: x64
-      rust_target: x86_64-apple-darwin
-      resource_key: darwin-x64
-      # No CLI archive: Node single-executables are unsupported on x64 macOS
-      # (the SEA docs list macOS as arm64 only) and the built binary segfaults
-      # on start. The x64 desktop app is Electron and unaffected.
-      cli_archive: false
-
-  desktop_linux_x64:
-    name: Desktop Linux x64
-    needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
-    uses: ./.github/workflows/release-desktop.yml
-    secrets: inherit
-    with:
-      version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ needs.preflight.outputs.ref }}
-      release_channel: ${{ needs.preflight.outputs.release_channel }}
       clerk_publishable_key: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
@@ -609,24 +539,21 @@ jobs:
       label: Linux x64
       runner: blacksmith-32vcpu-ubuntu-2404
       platform: linux
-      target: AppImage
       arch: x64
       rust_target: x86_64-unknown-linux-gnu
       resource_key: linux-x64
-      cli_archive: true
 
   # node-pty has no Linux prebuild and compiles from source, so the arm64 app
   # and archive are built on arm64 hardware rather than cross-built.
-  desktop_linux_arm64:
-    name: Desktop Linux arm64
+  cli_linux_arm64:
+    name: CLI Linux arm64
     needs: [preflight, relay_public_config, build_bundle]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
-    uses: ./.github/workflows/release-desktop.yml
+    uses: ./.github/workflows/release-cli.yml
     secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ needs.preflight.outputs.ref }}
-      release_channel: ${{ needs.preflight.outputs.release_channel }}
       clerk_publishable_key: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
@@ -634,25 +561,22 @@ jobs:
       label: Linux arm64
       runner: blacksmith-16vcpu-ubuntu-2404-arm
       platform: linux
-      target: AppImage
       arch: arm64
       rust_target: aarch64-unknown-linux-gnu
       resource_key: linux-arm64
-      cli_archive: true
 
   # The Windows jobs start with the other platforms. Their checkout, install,
   # and toolchain setup take longer than the same-arch Linux job needs to
   # upload its CLI archive, so the wait inside is usually instant.
-  desktop_win_x64:
-    name: Desktop Windows x64
+  cli_win_x64:
+    name: CLI Windows x64
     needs: [preflight, relay_public_config, build_bundle]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
-    uses: ./.github/workflows/release-desktop.yml
+    uses: ./.github/workflows/release-cli.yml
     secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ needs.preflight.outputs.ref }}
-      release_channel: ${{ needs.preflight.outputs.release_channel }}
       clerk_publishable_key: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
@@ -660,22 +584,19 @@ jobs:
       label: Windows x64
       runner: blacksmith-32vcpu-windows-2025
       platform: win
-      target: nsis
       arch: x64
       rust_target: x86_64-pc-windows-msvc
       resource_key: win32-x64
-      cli_archive: true
 
-  desktop_win_arm64:
-    name: Desktop Windows arm64
+  cli_win_arm64:
+    name: CLI Windows arm64
     needs: [preflight, relay_public_config, build_bundle]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
-    uses: ./.github/workflows/release-desktop.yml
+    uses: ./.github/workflows/release-cli.yml
     secrets: inherit
     with:
       version: ${{ needs.preflight.outputs.version }}
       ref: ${{ needs.preflight.outputs.ref }}
-      release_channel: ${{ needs.preflight.outputs.release_channel }}
       clerk_publishable_key: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
       clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
@@ -683,11 +604,9 @@ jobs:
       label: Windows arm64
       runner: windows-11-arm
       platform: win
-      target: nsis
       arch: arm64
       rust_target: aarch64-pc-windows-msvc
       resource_key: win32-arm64
-      cli_archive: true
 
   # npm gets the same bytes as the GitHub Release: the launcher plus one
   # package per CLI archive. Preview publishes too, under the `preview`
@@ -701,13 +620,13 @@ jobs:
         quality,
         test,
         test_server,
-        desktop_mac_arm64,
-        desktop_linux_x64,
-        desktop_linux_arm64,
-        desktop_win_x64,
-        desktop_win_arm64,
+        cli_mac_arm64,
+        cli_linux_x64,
+        cli_linux_arm64,
+        cli_win_x64,
+        cli_win_arm64,
       ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_server.result == 'success' && needs.cli_mac_arm64.result == 'success' && needs.cli_linux_x64.result == 'success' && needs.cli_linux_arm64.result == 'success' && needs.cli_win_x64.result == 'success' && needs.cli_win_arm64.result == 'success' }}
     runs-on: ubuntu-24.04 # blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
@@ -761,15 +680,14 @@ jobs:
     needs:
       [
         preflight,
-        desktop_mac_arm64,
-        desktop_mac_x64,
-        desktop_linux_x64,
-        desktop_linux_arm64,
-        desktop_win_x64,
-        desktop_win_arm64,
+        cli_mac_arm64,
+        cli_linux_x64,
+        cli_linux_arm64,
+        cli_win_x64,
+        cli_win_arm64,
         publish_cli,
       ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' && needs.publish_cli.result == 'success' }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.cli_mac_arm64.result == 'success' && needs.cli_linux_x64.result == 'success' && needs.cli_linux_arm64.result == 'success' && needs.cli_win_x64.result == 'success' && needs.cli_win_arm64.result == 'success' && needs.publish_cli.result == 'success' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
@@ -792,13 +710,6 @@ jobs:
           run-install: |
             args:
               - --filter=@t3tools/scripts...
-
-      - name: Download all desktop artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: desktop-*
-          merge-multiple: true
-          path: release-assets
 
       - name: Download all CLI archives
         uses: actions/download-artifact@v8
@@ -823,70 +734,13 @@ jobs:
           sha256sum "${archives[@]}" > SHA256SUMS
           cat SHA256SUMS
 
-      # The desktop build omits the publish config for preview versions, so
-      # electron-builder emits no updater manifests for them. Refuse to publish
-      # if one shows up anyway: a `latest*.yml` or `nightly*.yml` on a preview
-      # release is what would let a stable or nightly install update onto it.
-      - name: Refuse updater metadata on preview releases
-        if: needs.preflight.outputs.release_channel == 'preview'
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob extglob
-          # builder-debug.yml is electron-builder's config dump, not a feed.
-          updater_files=(release-assets/!(builder-debug).yml release-assets/*.blockmap)
-          if [[ ${#updater_files[@]} -ne 0 ]]; then
-            printf 'Preview releases must not carry updater metadata, found: %s\n' "${updater_files[*]}" >&2
-            exit 1
-          fi
-
-      # electron-updater reads one manifest per platform and channel and picks
-      # the file entry whose name carries the running arch, so the per-arch
-      # manifests the build jobs wrote are merged back into that one file.
-      - name: Merge macOS updater manifests
-        if: needs.preflight.outputs.release_channel != 'preview'
-        run: |
-          shopt -s nullglob
-          for x64_manifest in release-assets/*-mac-x64.yml; do
-            arm64_manifest="${x64_manifest%-x64.yml}.yml"
-            if [[ -f "$arm64_manifest" ]]; then
-              node scripts/merge-update-manifests.ts --platform mac "$arm64_manifest" "$x64_manifest"
-              rm -f "$x64_manifest"
-            fi
-          done
-
-      - name: Merge Windows updater manifests
-        if: needs.preflight.outputs.release_channel != 'preview'
-        run: |
-          shopt -s nullglob
-          for x64_manifest in release-assets/*-win-x64.yml; do
-            arm64_manifest="${x64_manifest%-x64.yml}-arm64.yml"
-            merged_manifest="${x64_manifest%-win-x64.yml}.yml"
-            if [[ -f "$arm64_manifest" ]]; then
-              node scripts/merge-update-manifests.ts --platform win "$x64_manifest" "$arm64_manifest" "$merged_manifest"
-              rm -f "$x64_manifest" "$arm64_manifest"
-            else
-              mv "$x64_manifest" "$merged_manifest"
-            fi
-          done
-
-      # Updater manifests and blockmaps are what electron-updater consumes.
-      # They are only listed for channels an updater is meant to follow.
       - id: release_files
         name: Resolve release asset list
         shell: bash
         run: |
           {
             echo 'files<<EOF'
-            echo 'release-assets/*.dmg'
             echo 'release-assets/*.zip'
-            echo 'release-assets/*.AppImage'
-            echo 'release-assets/*.deb'
-            echo 'release-assets/*.exe'
-            if [[ "${{ needs.preflight.outputs.release_channel }}" != "preview" ]]; then
-              echo 'release-assets/*.blockmap'
-              echo 'release-assets/*.yml'
-            fi
             echo 'release-assets/*.tar.gz'
             echo 'release-assets/SHA256SUMS'
             echo 'EOF'
@@ -941,22 +795,6 @@ jobs:
           fail_on_unmatched_files: true
           token: ${{ github.token }}
 
-  publish_aur:
-    name: Publish AUR package
-    needs: [preflight, release]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
-    uses: ./.github/workflows/publish-aur.yml
-    with:
-      release_tag: ${{ needs.preflight.outputs.tag }}
-    secrets:
-      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-
-  # Vercel builds the hosted web app while the desktop jobs run. `--skip-domain`
-  # keeps the custom domains (the channel and router domains) on the previous
-  # deployment until deploy_web aliases them, after the GitHub Release. It does
-  # still move the project's own *.vercel.app production hostname at build time.
-  # That hostname sits behind Vercel SSO and is not a user channel, so the
-  # npm-before-client order in docs/operations/release.md holds for users.
   build_web:
     name: Build hosted web app
     needs: [preflight, relay_public_config]
@@ -1294,7 +1132,7 @@ jobs:
 
       - name: Format package.json files
         if: steps.update_versions.outputs.changed == 'true'
-        run: vp fmt apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json
+        run: vp fmt apps/server/package.json apps/web/package.json packages/contracts/package.json
 
       - name: Refresh lockfile
         if: steps.update_versions.outputs.changed == 'true'
@@ -1306,7 +1144,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
         run: |
-          if git diff --quiet -- apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json pnpm-lock.yaml; then
+          if git diff --quiet -- apps/server/package.json apps/web/package.json packages/contracts/package.json pnpm-lock.yaml; then
             echo "No version changes to commit."
             exit 0
           fi
@@ -1314,7 +1152,7 @@ jobs:
           git config user.name "${{ steps.app_bot.outputs.name }}"
           git config user.email "${{ steps.app_bot.outputs.email }}"
 
-          git add apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json pnpm-lock.yaml
+          git add apps/server/package.json apps/web/package.json packages/contracts/package.json pnpm-lock.yaml
           git commit -m "chore(release): prepare $RELEASE_TAG"
           git push origin HEAD:main
 

@@ -147,7 +147,7 @@ node --run dev
 ```
 
 ```bash
-node --run dev:desktop
+node --run dev
 ```
 
 ### Option 2: Run With A Local LGTM Stack
@@ -203,7 +203,7 @@ node --run dev
 Monorepo desktop dev:
 
 ```bash
-node --run dev:desktop
+node --run dev
 ```
 
 Packaged desktop app:
@@ -361,7 +361,7 @@ Recommended flow in Grafana:
 
 Good first searches:
 
-- service name `t3code-server` or `t3code-desktop`, plus a resource attribute such as
+- service name `t3code-server`, plus a resource attribute such as
   `deployment.environment.name`
 - span names like `sendTurn` or a Git operation such as `GitVcsDriver.statusDetails.status`
 - Git spans whose `git.operation` attribute identifies the operation
@@ -564,14 +564,6 @@ It provides:
 - optional OTLP log exporter
 - Effect trace-level and timing refs
 
-The desktop main process is a second producer, assembled in
-`apps/desktop/src/app/DesktopObservability.ts`. It reads the same `T3CODE_OTLP_*` names and the same
-Settings entries as the backend it supervises, and covers work the backend cannot see: app startup,
-window and menu handling, backend supervision, and updates. It reports as service
-`t3code-desktop`, so a collector shows it alongside the backend rather than mixed into it. It
-exports traces and logs only; the main process records no metrics, so the metrics endpoint applies
-to the backend alone.
-
 ### Env Vars
 
 Local trace file:
@@ -593,7 +585,7 @@ OTLP export:
   `OTEL_EXPORTER_OTLP_HEADERS`: comma-separated `key=value` pairs with percent-encoded values.
 - `T3CODE_OTLP_PROTOCOL`: `http/json` (default) or `http/protobuf`
 
-The server and the desktop app also read the standard
+The server also reads the standard
 `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_ENDPOINT` and generic `OTEL_EXPORTER_OTLP_ENDPOINT` (with
 `/v1/traces`, `/v1/metrics`, or `/v1/logs` appended), for a collector expecting those instead. A
 non-blank `T3CODE_OTLP_*_URL` wins over either, and a per-signal endpoint wins over the generic one
@@ -606,8 +598,7 @@ an `http` or `https` URL, a protocol other than `http/protobuf` or `http/json` s
 headers that are not `key=value` pairs with percent-encoded values turn that signal's export off
 with a startup warning, rather than sending it to the Settings endpoint.
 
-Service names are fixed: `t3code-server` for the backend and `t3code-desktop` for the desktop main
-process, both in `service.namespace` `t3code`. `OTEL_SERVICE_NAME` and a `service.name` or
+The service name is fixed: `t3code-server` for the backend, in `service.namespace` `t3code`. `OTEL_SERVICE_NAME` and a `service.name` or
 `service.namespace` in `OTEL_RESOURCE_ATTRIBUTES` are ignored. Tell installations apart with other
 resource attributes, such as `OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=development`.
 
@@ -616,8 +607,7 @@ on stdout only.
 
 ### The Kill Switch
 
-`T3CODE_OTEL_SDK_DISABLED` and `OTEL_SDK_DISABLED` turn off every OTLP export in both the server and
-the desktop main process, overriding any endpoint from the environment or Settings. Local trace
+`T3CODE_OTEL_SDK_DISABLED` and `OTEL_SDK_DISABLED` turn off every OTLP export in the server, overriding any endpoint from the environment or Settings. Local trace
 files and stdout logs are unaffected.
 
 `T3CODE_OTEL_SDK_DISABLED` wins when set, so `T3CODE_OTEL_SDK_DISABLED=false` re-enables export on a
@@ -654,12 +644,12 @@ Current high-value span and metric boundaries include:
 ## Heap Snapshots
 
 To see what a long-running server holds in memory, send it `SIGUSR2`. The server writes a V8 heap
-snapshot to its logs dir and logs the path. This works for desktop, `npx t3`, and service installs
+snapshot to its logs dir and logs the path. This works for `npx t3` and service installs
 on macOS and Linux. Windows has no `SIGUSR2`.
 
 Send the signal to the server pid in `server-runtime.json`, which sits in the server's state dir
 next to the `logs` dir. For a dev server or a `--home-dir` launch, use that server's state dir from
-[Traces](#traces). Do not send it to the desktop app or the service launcher: a process without the
+[Traces](#traces). Do not send it to the service launcher: a process without the
 handler exits on `SIGUSR2`. After a crash the file can keep a stale pid that now belongs to a
 different process, so check the pid first.
 

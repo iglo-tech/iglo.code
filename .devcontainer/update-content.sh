@@ -12,8 +12,4 @@ for dir in "$HOME/.cache" "$HOME/.cache/pnpm" node_modules; do
 done
 
 CI=true vp i
-# Repairs electron's path.txt and exec bits after install, same as CI.
-vp run --filter @t3tools/desktop ensure:electron
-# Pre-warms Vite's dep optimizer (cache is keyed on the absolute path, which
-# is stable inside the container).
 node apps/web/scripts/warm-dep-cache.ts

@@ -1,7 +1,7 @@
 # Install T3 Code
 
 T3 Code runs coding agents on your computer and lets you control them from its
-desktop, web, or mobile app. Set up the machine where the agents will work first.
+web app. Set up the machine where the agents will work first.
 
 ## Requirements
 
@@ -46,81 +46,22 @@ Node.js for `npx`).
 
 ### Intel Macs
 
-There is no `t3` executable for Intel Macs (the desktop app is available). To
+There is no `t3` executable for Intel Macs. To
 run a server there, build it from source with Node.js 24 and `vp`
 ([Install vp](https://github.com/pingdotgg/t3code#install-vp)):
 
 ```bash
-git clone https://github.com/pingdotgg/t3code
-cd t3code && vp i && vp run build:desktop
+git clone https://github.com/iglo-tech/iglo.code.git
+cd iglo.code && vp i && vp run --filter t3 build
 node apps/server/dist/bin.mjs
 ```
 
 `t3 update` and the background service do not apply to a server run this way;
 update it with `git pull` and a rebuild.
 
-## Desktop app
-
-Download a release from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
-or use a package manager:
-
-| Platform           | Install                            |
-| ------------------ | ---------------------------------- |
-| Windows            | `winget install T3Tools.T3Code`    |
-| macOS              | `brew install --cask t3-code`      |
-| Debian, Ubuntu     | `sudo apt install ./T3-Code-*.deb` |
-| Arch Linux         | `yay -S t3code-bin`                |
-| Arch Linux nightly | `yay -S t3code-nightly-bin`        |
-
-The `.deb` updates itself like the other desktop builds. It asks for your
-password to install each update. If your desktop has no password prompt, the
-update fails. Download the new `.deb` and install it the same way.
-
-### Windows Subsystem for Linux
-
-Choose a WSL distro in **Settings → Connections** to run agents and projects
-there. Install the provider CLIs inside that distro. T3 Code installs its own
-server runtime there automatically; the first launch after an app update can
-take longer.
-
-### Open a project from a terminal
-
-With the desktop app already running on the same machine:
-
-```bash
-t3 app
-```
-
-This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `t3 app ../my-project`, to open another directory. It requires
-the desktop app, so a standalone server or an SSH session is not enough. If the
-command cannot reach the app, start or update the desktop app and try again.
-
-## Mobile app
-
-Install T3 Code from the
-[App Store](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824) or
-[Google Play](https://play.google.com/store/apps/details?id=com.t3tools.t3code).
-The phone connects to a server on another machine. Follow
-[remote access](./remote-access.md) to link it through T3 Connect or a pairing URL.
-
-Nightly builds need the beta app. The store apps cannot connect to them. A Nightly build also
-shows these links as QR codes in **Settings → General → Mobile app**.
-
-- **iPhone and iPad:** join the [TestFlight beta](https://testflight.apple.com/join/XgaxaRtd).
-- **Android:** join the [beta group](https://groups.google.com/g/t3-code-v2-beta). With the same
-  Google account, open the [Google Play testing page](https://play.google.com/apps/testing/com.t3tools.t3code)
-  and become a tester.
-
-If the app crashes during launch, open Settings → Diagnostics on the next launch
-that succeeds. It lists startup crashes from the last 7 days with the error and
-component stack that store crash reports leave out. Copy the report and paste it
-into a GitHub issue. Error messages can quote values from the app, so read it over
-before sharing.
-
 ## Providers
 
-Open **Settings → Providers** in the web or desktop app, select the environment,
+Open **Settings → Providers** in the web app, select the environment,
 and enable the provider you want. Installation, login, and configuration belong
 to that environment's machine, even when you connect from a phone or another
 computer.

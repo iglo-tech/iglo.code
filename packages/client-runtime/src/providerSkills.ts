@@ -114,9 +114,12 @@ function resolveProviderWorkspaceSnapshot(
 export function hasCompleteProviderWorkspaceSnapshot(
   provider: ServerProvider | null | undefined,
   cwd: string | null | undefined,
+  previousCheckedAt?: string,
 ): boolean {
   const snapshot = provider && resolveProviderWorkspaceSnapshot(provider, cwd);
-  return Boolean(snapshot && !snapshot.slashCommandsPending);
+  return Boolean(
+    snapshot && !snapshot.slashCommandsPending && snapshot.checkedAt !== previousCheckedAt,
+  );
 }
 
 export function resolveProviderSkillsForCwd(

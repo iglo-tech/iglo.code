@@ -29,6 +29,7 @@ import type {
   ProviderTurnId,
   RunAttemptId,
   MessageId,
+  ScheduledTaskId,
 } from "@t3tools/contracts";
 import {
   OrchestrationV2AppThreadJson as OrchestrationV2AppThreadJsonSchema,
@@ -283,6 +284,8 @@ export interface ProjectionRecordFilter {
   readonly messageRunIds?: ReadonlyArray<RunId>;
   readonly turnItemRunIds?: ReadonlyArray<RunId | null>;
   readonly runIds?: ReadonlyArray<RunId>;
+  readonly runStatuses?: ReadonlyArray<OrchestrationV2Run["status"]>;
+  readonly runScheduledTaskId?: ScheduledTaskId;
   readonly turnItemTypes?: ReadonlyArray<OrchestrationV2TurnItem["type"]>;
   readonly turnItemStatuses?: ReadonlyArray<OrchestrationV2TurnItem["status"]>;
 }
@@ -2881,6 +2884,17 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             FROM orchestration_v2_projection_runs
             WHERE thread_id = ${threadId}
               ${filter?.runIds === undefined ? sql`` : sql`AND run_id IN (SELECT value FROM json_each(${encodeIdList(filter.runIds)}))`}
+              ${filter?.runStatuses === undefined ? sql`` : sql`AND status IN (SELECT value FROM json_each(${encodeIdList(filter.runStatuses)}))`}
+              ${
+                filter?.runScheduledTaskId === undefined
+                  ? sql``
+                  : sql`AND EXISTS (
+                SELECT 1 FROM orchestration_v2_projection_messages AS message
+                WHERE message.thread_id = orchestration_v2_projection_runs.thread_id
+                  AND message.run_id = orchestration_v2_projection_runs.run_id
+                  AND json_extract(message.payload_json, '$.scheduledTaskId') = ${filter.runScheduledTaskId}
+              )`
+              }
             ORDER BY ordinal ASC
           `
               : sql<PayloadRow>`
@@ -5981,10 +5995,17 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 (filter?.messageIds === undefined || filter.messageIds.includes(row.id)) &&
                 (filter?.messageRoles === undefined || filter.messageRoles.includes(row.role)),
             ),
-            runs:
-              filter?.runIds === undefined
-                ? projection.runs
-                : projection.runs.filter((row) => filter.runIds!.includes(row.id)),
+            runs: projection.runs.filter(
+              (row) =>
+                (filter?.runIds === undefined || filter.runIds.includes(row.id)) &&
+                (filter?.runStatuses === undefined || filter.runStatuses.includes(row.status)) &&
+                (filter?.runScheduledTaskId === undefined ||
+                  projection.messages.some(
+                    (message) =>
+                      message.runId === row.id &&
+                      message.scheduledTaskId === filter.runScheduledTaskId,
+                  )),
+            ),
             turnItems: projection.turnItems.filter(
               (row) =>
                 (filter?.turnItemRunIds === undefined ||
