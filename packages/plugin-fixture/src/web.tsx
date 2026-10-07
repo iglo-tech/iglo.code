@@ -1,6 +1,6 @@
 import type { PluginWebContext, WebPlugin } from "@t3tools/plugin-host-contract/web";
 import { useEffect, useState } from "react";
-import { manifest, type FixtureClient, type Report } from "./contracts.ts";
+import { manifest, type FixtureClient, type FixturePermissions, type Report } from "./contracts.ts";
 
 function ReportsPage(props: PluginWebContext & { readonly client: FixtureClient }) {
   return (
@@ -18,6 +18,11 @@ function ReportsView({
   const [reports, setReports] = useState<ReadonlyArray<Report> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<FixturePermissions>({
+    resolve: false,
+    schedule: false,
+  });
+  useEffect(() => client.subscribePermissions(setPermissions), [client]);
   useEffect(() => {
     return client.subscribe(
       { ...(projectId === null ? {} : { projectId }), ...(threadId === null ? {} : { threadId }) },
@@ -83,7 +88,7 @@ function ReportsView({
                 {report.resolved ? null : (
                   <Button
                     size="sm"
-                    disabled={pending !== null}
+                    disabled={pending !== null || !permissions.resolve}
                     onClick={() => perform(report.id, () => client.resolve(report.id))}
                   >
                     {pending === report.id ? "Saving…" : "Resolve"}
@@ -92,7 +97,7 @@ function ReportsView({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={pending !== null}
+                  disabled={pending !== null || !permissions.schedule}
                   onClick={() => perform(report.id, () => client.schedule(report.id, 3_600_000))}
                 >
                   Remind hourly

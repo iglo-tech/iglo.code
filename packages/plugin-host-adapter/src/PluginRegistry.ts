@@ -195,7 +195,6 @@ const make = Effect.gen(function* () {
       const encodedManifest = yield* encodeManifest(manifest);
       yield* catalogSql`INSERT INTO manifests (id, data) VALUES (${manifest.id}, ${encodedManifest}) ON CONFLICT(id) DO UPDATE SET data = excluded.data`;
       const scope = yield* Scope.make("sequential");
-      yield* Scope.addFinalizer(lifetime, Scope.close(scope, Exit.void));
       let rejectInitialization = Effect.void;
       let completeInitialization = Effect.void;
       // The plugin scope must override the parent scope captured in servicesContext.
@@ -208,6 +207,8 @@ const make = Effect.gen(function* () {
           const context = yield* Layer.build(
             NodeSqlite.layer({ filename: path.join(directory, "state.sqlite") }),
           ).pipe(Scope.provide(lifetime));
+          // Plugin finalizers may persist state; they must run before storage closes.
+          yield* Scope.addFinalizer(lifetime, Scope.close(scope, Exit.void));
           const sql = Context.get(context, SqlClient.SqlClient);
           const storage = Storage.of({ directory, sql });
           yield* sql`PRAGMA busy_timeout = 5000`;

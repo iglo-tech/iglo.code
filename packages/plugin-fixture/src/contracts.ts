@@ -107,7 +107,14 @@ export const apiScopes = {
   "plugins.fixture.schedule": AuthOrchestrationOperateScope,
 };
 
+export interface FixturePermissions {
+  readonly resolve: boolean;
+  readonly schedule: boolean;
+}
 export interface FixtureClient {
+  readonly subscribePermissions: (
+    onPermissions: (permissions: FixturePermissions) => void,
+  ) => () => void;
   readonly list: (input: Omit<ListInput, "environmentId">) => Promise<ReadonlyArray<Report>>;
   readonly resolve: (id: string) => Promise<Report>;
   readonly schedule: (id: string, everyMs: number) => Promise<void>;

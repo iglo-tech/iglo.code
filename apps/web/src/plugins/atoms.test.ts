@@ -134,3 +134,43 @@ it.effect(
     ),
   { timeout: 5000 },
 );
+
+// Production follows each transport session, so a received snapshot does not end the stream.
+it.effect(
+  "publishes a received catalog while its connection stream remains open",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const environmentId = EnvironmentId.make("live-catalog");
+        const catalog: PluginCatalog = {
+          environmentId,
+          hostVersion: 1,
+          providerTools: [],
+          plugins: [{ environmentId, manifest, status: "available", reason: null }],
+        };
+        const ready = yield* Deferred.make<void>();
+        const atoms = createPluginAtoms(Atom.runtime(Layer.empty), {
+          connected: () => Atom.make(true),
+          supported: () => Atom.make(true),
+          catalog: () => Stream.concat(Stream.succeed(catalog), Stream.never),
+          attention: () => Stream.empty,
+        });
+        const registry = AtomRegistry.make();
+        yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
+        const releaseAvailable = registry.mount(atoms.availableCatalog(environmentId));
+        yield* Effect.addFinalizer(() => Effect.sync(releaseAvailable));
+        const release = registry.subscribe(
+          atoms.catalog(environmentId),
+          (value) => {
+            if (value._tag === "Success" && value.value !== null)
+              Deferred.doneUnsafe(ready, Effect.void);
+          },
+          { immediate: true },
+        );
+        yield* Effect.addFinalizer(() => Effect.sync(release));
+        yield* Deferred.await(ready);
+        expect(registry.get(atoms.availableCatalog(environmentId))).toEqual(catalog);
+      }),
+    ),
+  { timeout: 5000 },
+);

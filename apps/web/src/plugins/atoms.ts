@@ -8,7 +8,9 @@ export function createPluginAtoms<R, E, RpcError>(
   options: {
     readonly connected: (environmentId: EnvironmentId) => Atom.Atom<boolean>;
     readonly supported: (environmentId: EnvironmentId) => Atom.Atom<boolean>;
-    readonly catalog: (environmentId: EnvironmentId) => Stream.Stream<PluginCatalog, RpcError, R>;
+    readonly catalog: (
+      environmentId: EnvironmentId,
+    ) => Stream.Stream<PluginCatalog | null, RpcError, R>;
     readonly attention: (
       environmentId: EnvironmentId,
     ) => Stream.Stream<PluginAttention, RpcError, R>;
@@ -20,9 +22,14 @@ export function createPluginAtoms<R, E, RpcError>(
     runtime
       .atom((get) =>
         enabled(get, environmentId)
-          ? options
-              .catalog(environmentId)
-              .pipe(Stream.filter((item) => item.environmentId === environmentId))
+          ? Stream.concat(
+              Stream.succeed(null),
+              options
+                .catalog(environmentId)
+                .pipe(
+                  Stream.filter((item) => item === null || item.environmentId === environmentId),
+                ),
+            )
           : Stream.succeed<PluginCatalog | null>(null),
       )
       .pipe(Atom.setIdleTTL(0)),
@@ -31,8 +38,9 @@ export function createPluginAtoms<R, E, RpcError>(
     Atom.make((get) => {
       if (!enabled(get, environmentId)) return null;
       const result = get(catalog(environmentId));
-      // During refresh, the cached catalog belongs to the previous connection.
-      return AsyncResult.isSuccess(result) && !result.waiting ? result.value : null;
+      // A followed stream stays waiting after each emission. Its explicit null snapshot
+      // clears old capabilities until the current connection returns its catalog.
+      return AsyncResult.isSuccess(result) ? result.value : null;
     }),
   );
   const attention = Atom.family((environmentId: EnvironmentId) =>

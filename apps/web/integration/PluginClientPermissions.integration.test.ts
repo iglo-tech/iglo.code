@@ -7,7 +7,6 @@ import {
   type EnvironmentId,
   type ServerConfig,
 } from "@t3tools/contracts";
-import { plugin as fixture } from "@t3tools/plugin-fixture/server";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import {
   PrimaryConnectionTarget,
@@ -17,10 +16,7 @@ import {
   type NetworkStatus,
   EnvironmentSupervisor as Supervisor,
 } from "@t3tools/client-runtime/connection";
-import {
-  EnvironmentRpcRequestObserver,
-  EnvironmentRpcSubscriptionObserver,
-} from "@t3tools/client-runtime/rpc";
+import { EnvironmentRpcRequestObserver } from "@t3tools/client-runtime/rpc";
 import * as Auth from "../../server/src/auth/EnvironmentAuth.ts";
 import type { RpcSession } from "@t3tools/client-runtime/rpc";
 import * as Context from "effect/Context";
@@ -29,6 +25,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import type { FixturePermissions } from "@t3tools/plugin-fixture/contracts";
+import * as Queue from "effect/Queue";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { vi } from "vite-plus/test";
 
@@ -76,7 +74,10 @@ vi.mock("../src/connection/runtime", async () => {
                 Effect.sync(() => {
                   if (binding.context === null || binding.environmentId !== environmentId)
                     throw new Error("Unexpected client environment");
-                  return Stream.provideContext(stream, binding.context);
+                  return Stream.concat(
+                    Stream.provideContext(stream, binding.context),
+                    Stream.never,
+                  );
                 }),
               ),
           });
@@ -100,38 +101,16 @@ import { availableCatalogAtom, createFixtureClient } from "../src/plugins/runtim
 import { appAtomRegistry } from "../src/rpc/atomRegistry";
 
 it.live(
-  "does not invoke commands or subscriptions absent from a compatible plugin descriptor",
+  "guards Reports mutations and refreshes their availability after re-pairing",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const absent = new Set([
-          "plugins.fixture.resolve",
-          "plugins.fixture.schedule",
-          "plugins.fixture.subscribe",
-        ]);
-        const older = {
-          ...fixture,
-          manifest: {
-            ...fixture.manifest,
-            version: "0.9.0",
-            server: {
-              ...fixture.manifest.server,
-              api: fixture.manifest.server.api.filter((id) => !absent.has(id)),
-            },
-          },
-          acquire: fixture.acquire.pipe(
-            Effect.map((services) => ({
-              ...services,
-              api: services.api.filter((api) => !absent.has(api.rpc._tag)),
-            })),
-          ),
-        };
         const config = {
-          ...(yield* makeReplayServerConfig("plugin-client-downgrade")),
+          ...(yield* makeReplayServerConfig("reports-permissions")),
           noBrowser: true,
           traceTimingEnabled: false,
         };
-        const server = yield* startEnvironment(config, [older]);
+        const server = yield* startEnvironment(config);
         const environmentId = Context.get(server.context, Host).environmentId;
         const rpc = yield* makeClient(server.context, [
           AuthOrchestrationReadScope,
@@ -139,8 +118,25 @@ it.live(
         ]);
         const snapshot = yield* rpc[WS_METHODS.subscribeServerConfig]({}).pipe(Stream.runHead);
         if (Option.isNone(snapshot) || snapshot.value.type !== "snapshot")
-          return yield* Effect.die("Expected a server config snapshot");
+          return yield* Effect.die("Expected config");
         const initialConfig = snapshot.value.config;
+        const target = new PrimaryConnectionTarget({
+          environmentId,
+          label: "Test",
+          httpBaseUrl: origin(server.context),
+          wsBaseUrl: origin(server.context).replace("http", "ws"),
+        });
+        const auth = Context.get(server.context, Auth.EnvironmentAuth);
+        const prepare = (token: string): PreparedConnection => ({
+          environmentId,
+          label: "Test",
+          httpBaseUrl: origin(server.context),
+          socketUrl: target.wsBaseUrl,
+          httpAuthorization: { _tag: "Bearer", token },
+          target,
+        });
+        const readOnly = yield* auth.issueSession({ scopes: [AuthOrchestrationReadScope] });
+        const prepared = yield* SubscriptionRef.make(Option.some(prepare(readOnly.token)));
         const session: RpcSession = {
           client: rpc,
           initialConfig: Effect.succeed(initialConfig),
@@ -149,37 +145,15 @@ it.live(
           probe: Effect.void,
           closed: Effect.never,
         };
-        const invoked: string[] = [];
-        const authSession = yield* Context.get(server.context, Auth.EnvironmentAuth).issueSession({
-          scopes: [AuthOrchestrationReadScope, AuthOrchestrationOperateScope],
-        });
         const context = yield* Layer.build(
           Layer.mock(Supervisor.EnvironmentSupervisor)({
-            target: new PrimaryConnectionTarget({
-              environmentId,
-              label: "Test environment",
-              httpBaseUrl: origin(server.context),
-              wsBaseUrl: origin(server.context).replace("http", "ws"),
-            }),
+            target,
             session: yield* SubscriptionRef.make(Option.some(session)),
             state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
-            prepared: yield* SubscriptionRef.make(
-              Option.some<PreparedConnection>({
-                environmentId,
-                label: "Test environment",
-                httpBaseUrl: origin(server.context),
-                socketUrl: origin(server.context).replace("http", "ws"),
-                httpAuthorization: { _tag: "Bearer", token: authSession.token },
-                target: new PrimaryConnectionTarget({
-                  environmentId,
-                  label: "Test environment",
-                  httpBaseUrl: origin(server.context),
-                  wsBaseUrl: origin(server.context).replace("http", "ws"),
-                }),
-              }),
-            ),
+            prepared,
           }),
         );
+        const invoked: string[] = [];
         binding.environmentId = environmentId;
         binding.config = initialConfig;
         binding.context = context.pipe(
@@ -190,24 +164,20 @@ it.live(
                 return Effect.void;
               }),
           }),
-          Context.add(EnvironmentRpcSubscriptionObserver, {
-            observe: ({ method }) =>
-              Effect.sync(() => {
-                invoked.push(method);
-                return Effect.void;
-              }),
-          }),
         );
         const client = createFixtureClient(environmentId);
-        expect(yield* Effect.promise(() => client.list({}))).toEqual([]);
-        for (const command of [
-          () => client.resolve("missing"),
-          () => client.schedule("missing", 60000),
-        ])
-          yield* Effect.promise(() =>
-            expect(command()).rejects.toMatchObject({ _tag: "PluginError" }),
+        const changed = yield* Queue.unbounded<FixturePermissions>();
+        const unsubscribe = client.subscribePermissions((value) => {
+          Queue.offerUnsafe(changed, value);
+        });
+        yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+        const awaitGrant = (allowed: boolean) =>
+          Stream.fromQueue(changed).pipe(
+            Stream.filter((value) => value.resolve === allowed && value.schedule === allowed),
+            Stream.take(1),
+            Stream.runDrain,
           );
-
+        yield* Effect.promise(() => client.list({}));
         const catalogReady = yield* Deferred.make<void>();
         const releaseCatalog = appAtomRegistry.subscribe(
           availableCatalogAtom(environmentId),
@@ -218,18 +188,47 @@ it.live(
         );
         yield* Effect.addFinalizer(() => Effect.sync(releaseCatalog));
         yield* Deferred.await(catalogReady);
-        const ended = yield* Deferred.make<string>();
+        const reportsReady = yield* Deferred.make<void, string>();
         const releaseReports = client.subscribe(
           {},
-          () => {},
-          (error) => {
-            Deferred.doneUnsafe(ended, Effect.succeed(error));
-          },
+          () => Deferred.doneUnsafe(reportsReady, Effect.void),
+          (error) => Deferred.doneUnsafe(reportsReady, Effect.fail(error)),
         );
         yield* Effect.addFinalizer(() => Effect.sync(releaseReports));
-        expect(yield* Deferred.await(ended)).toContain("unavailable");
-        expect(invoked).toContain("plugins.fixture.list");
-        expect(invoked.filter((method) => absent.has(method))).toEqual([]);
+        yield* Deferred.await(reportsReady);
+        for (const command of [
+          () => client.resolve("missing"),
+          () => client.schedule("missing", 60000),
+        ]) {
+          yield* Effect.promise(() =>
+            expect(command()).rejects.toMatchObject({ _tag: "EnvironmentAuthorizationError" }),
+          );
+        }
+        expect(
+          invoked.filter(
+            (method) =>
+              method === "plugins.fixture.resolve" || method === "plugins.fixture.schedule",
+          ),
+        ).toEqual([]);
+        const writable = yield* auth.issueSession({
+          scopes: [AuthOrchestrationReadScope, AuthOrchestrationOperateScope],
+        });
+        yield* SubscriptionRef.set(prepared, Option.some(prepare(writable.token)));
+        yield* awaitGrant(true);
+        // Missing reports return a domain error only after the authorized RPC reaches the server.
+        yield* Effect.promise(() =>
+          expect(client.resolve("missing")).rejects.toMatchObject({ _tag: "PluginError" }),
+        );
+        expect(invoked).toContain("plugins.fixture.resolve");
+        yield* SubscriptionRef.set(prepared, Option.some(prepare(readOnly.token)));
+        yield* awaitGrant(false);
+        const callsBefore = invoked.length;
+        yield* Effect.promise(() =>
+          expect(client.schedule("missing", 60000)).rejects.toMatchObject({
+            _tag: "EnvironmentAuthorizationError",
+          }),
+        );
+        expect(invoked.slice(callsBefore)).not.toContain("plugins.fixture.schedule");
         appAtomRegistry.dispose();
       }),
     ).pipe(Effect.provide(NodeServices.layer)),

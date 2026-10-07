@@ -171,6 +171,10 @@ it.live(
           readyResolve = resolve;
         });
         const client: FixtureClient = {
+          subscribePermissions: (onPermissions) => {
+            onPermissions({ resolve: true, schedule: true });
+            return () => {};
+          },
           list: (input) =>
             send(
               first.rpc["plugins.fixture.list"]({

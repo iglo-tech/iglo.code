@@ -5,9 +5,15 @@ import {
   type FixtureClient,
   type ListInput,
 } from "@t3tools/plugin-fixture/contracts";
-import { getInitialServerConfig, request, subscribe } from "@t3tools/client-runtime/rpc";
+import {
+  getInitialServerConfig,
+  request,
+  requestGuarded,
+  subscribe,
+} from "@t3tools/client-runtime/rpc";
 import {
   createEnvironmentCommand,
+  createEnvironmentRpcCommand,
   followStreamInEnvironment,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
@@ -38,7 +44,10 @@ const models = createPluginAtoms(connectionAtomRuntime, {
   catalog: (environmentId) =>
     followStreamInEnvironment(
       environmentId,
-      Stream.fromEffect(request("plugins.catalog", { environmentId })),
+      Stream.concat(
+        Stream.succeed(null),
+        Stream.fromEffect(request("plugins.catalog", { environmentId })),
+      ),
     ),
   attention: (environmentId) =>
     followStreamInEnvironment(environmentId, subscribe("plugins.attention", { environmentId })),
@@ -73,7 +82,28 @@ const authorize = (environmentId: EnvironmentId, method: string) =>
         code: "unavailable",
         message: "Reports is unavailable in this environment.",
       });
-  });
+  }).pipe(
+    Effect.catchTags({
+      ConnectionBlockedError: (cause) =>
+        Effect.fail(
+          new PluginError({
+            pluginId: "fixture",
+            operation: "client",
+            code: "unavailable",
+            message: cause.message,
+          }),
+        ),
+      ConnectionTransientError: (cause) =>
+        Effect.fail(
+          new PluginError({
+            pluginId: "fixture",
+            operation: "client",
+            code: "unavailable",
+            message: cause.message,
+          }),
+        ),
+    }),
+  );
 const list = createEnvironmentCommand(connectionAtomRuntime, {
   label: "plugins.fixture.list",
   execute: (input: ListInput) =>
@@ -81,21 +111,29 @@ const list = createEnvironmentCommand(connectionAtomRuntime, {
       Effect.andThen(request("plugins.fixture.list", input)),
     ),
 });
-const resolve = createEnvironmentCommand(connectionAtomRuntime, {
+const resolve = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "plugins.fixture.resolve",
+  tag: "plugins.fixture.resolve",
   execute: (input: { environmentId: EnvironmentId; id: string }) =>
     authorize(input.environmentId, "plugins.fixture.resolve").pipe(
-      Effect.andThen(request("plugins.fixture.resolve", input)),
+      Effect.andThen(requestGuarded("plugins.fixture.resolve", input)),
     ),
 });
-const schedule = createEnvironmentCommand(connectionAtomRuntime, {
+const schedule = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "plugins.fixture.schedule",
+  tag: "plugins.fixture.schedule",
   execute: (input: { environmentId: EnvironmentId; id: string; everyMs: number }) =>
     authorize(input.environmentId, "plugins.fixture.schedule").pipe(
-      Effect.andThen(request("plugins.fixture.schedule", input)),
+      Effect.andThen(requestGuarded("plugins.fixture.schedule", input)),
     ),
 });
 const encodeKey = Schema.encodeSync(Schema.fromJsonString(ListInputSchema));
+const permissionsAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make((get) => ({
+    resolve: get(resolve.permissionAtom(environmentId)),
+    schedule: get(schedule.permissionAtom(environmentId)),
+  })),
+);
 const decodeKey = Schema.decodeUnknownSync(Schema.fromJsonString(ListInputSchema));
 const reportsAtom = Atom.family((key: string) => {
   const input = decodeKey(key);
@@ -130,6 +168,8 @@ const reportsAtom = Atom.family((key: string) => {
 
 export function createFixtureClient(environmentId: EnvironmentId): FixtureClient {
   return {
+    subscribePermissions: (onPermissions) =>
+      appAtomRegistry.subscribe(permissionsAtom(environmentId), onPermissions, { immediate: true }),
     list: async (input) => {
       const result = await list.run(appAtomRegistry, {
         environmentId,
