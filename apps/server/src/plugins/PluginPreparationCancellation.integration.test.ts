@@ -205,6 +205,9 @@ it.live.each([
         }>`SELECT result FROM host_commands WHERE id = 'launch'`;
         expect(pending?.result).toBeNull();
         yield* Fiber.interrupt(first.fiber);
+        // Each restarted setup owns a fresh gate, independent of canceled readers.
+        yield* fs.remove(fifo);
+        yield* spawn.exitCode(ChildProcess.make("mkfifo", [fifo]));
         ready = yield* Deferred.make<{ host: Host["Service"]; storage: Storage["Service"] }>();
         const second = yield* startEnvironment(config, [plugin]);
         yield* Context.get(second.context, Startup.ServerRuntimeStartup).awaitCommandReady;
