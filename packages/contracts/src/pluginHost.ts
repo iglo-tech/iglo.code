@@ -146,6 +146,7 @@ export const PluginThreadState = Schema.Struct({
   projectId: ProjectId,
   threadId: ThreadId,
   title: Schema.String,
+  runtimeMode: Schema.optional(RuntimeMode),
   workspacePath: Schema.String,
   branch: Schema.NullOr(Schema.String),
   preparationId: Schema.optional(Schema.String),

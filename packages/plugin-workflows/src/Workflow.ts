@@ -433,6 +433,12 @@ const make = Effect.gen(function* () {
   });
   const verifyResumeSession = Effect.fnUntraced(function* (run: Run, attempt: Attempt) {
     const native = yield* host.inspect(target(run, attempt));
+    if (!native.runtimeMode || native.runtimeMode !== attempt.launch?.runtimeMode)
+      return yield* error(
+        "resume",
+        "The retained thread's runtime mode does not match the attempt's launch.",
+        "unsupported",
+      );
     if (!native.nativeSession?.canResume || native.nativeSession.id !== attempt.nativeSessionId)
       return yield* error(
         "resume",
@@ -1622,8 +1628,11 @@ const make = Effect.gen(function* () {
       return;
     }
     const agent = agentFor(observed, attempt)!;
-    yield* verifyProvider(observed, attempt, "launch");
-    yield* verifySkill(observed, attempt, "launch");
+    const committed = yield* host.receipt(commandId(attempt, "launch"));
+    if (committed?.status !== "accepted") {
+      yield* verifyProvider(observed, attempt, "launch");
+      yield* verifySkill(observed, attempt, "launch");
+    }
     let launch = attempt.launch;
     if (!launch) {
       const review = attempt.branchId
@@ -1675,7 +1684,7 @@ const make = Effect.gen(function* () {
         terminalAttempt(current.attempts.find((item) => item.id === attempt.id)!)
       )
         return null;
-      return yield* host.launch(launchInput);
+      return committed ?? (yield* host.launch(launchInput));
     }).pipe(lock.withPermits(1));
     if (!receipt) return;
     const inspection =

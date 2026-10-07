@@ -311,6 +311,7 @@ const make = Effect.gen(function* () {
           : null,
       resultRunId: resultRun?.id ?? null,
       title: records.thread.title,
+      runtimeMode: records.thread.runtimeMode,
       workspacePath: records.thread.worktreePath ?? workspace.workspaceRoot,
       branch: records.thread.branch,
       ...(preparationId === undefined ? {} : { preparationId }),

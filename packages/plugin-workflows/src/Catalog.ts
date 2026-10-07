@@ -129,7 +129,6 @@ const make = Effect.gen(function* () {
           ? (yield* fs.readDirectory(directory))
               .filter((name) => /^[a-zA-Z][a-zA-Z0-9_-]*\.ya?ml$/.test(name))
               .sort()
-              .slice(0, 100)
           : [];
         const entries: CatalogEntry[] = [];
         for (const definition of examples)
@@ -236,7 +235,11 @@ const make = Effect.gen(function* () {
   return Catalog.of({
     validate: (scope, definition) => validate(scope, definition).pipe(Effect.flatMap(displayEntry)),
     list: (input) =>
-      list(input).pipe(Effect.flatMap((entries) => Display.displayCatalog(host, entries))),
+      list(input).pipe(
+        // Save and execution resolve identities from every source; only transport is bounded.
+        Effect.map((entries) => entries.slice(0, 100 + examples.length)),
+        Effect.flatMap((entries) => Display.displayCatalog(host, entries)),
+      ),
     save: (input) => save(input).pipe(Effect.flatMap(displayEntry)),
     resolve: (input, definitionId) =>
       list(input).pipe(

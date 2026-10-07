@@ -28,7 +28,9 @@ it.live.each([
   "redirected",
   "redirected-replay",
   "unchanged-replay",
-] as const)("Resume respects immutable workflow workspace: %s", (mode) =>
+  "mode-changed",
+  "mode-changed-replay",
+] as const)("Resume respects immutable workflow workspace and runtime mode: %s", (mode) =>
   Effect.scoped(
     Effect.gen(function* () {
       const test = yield* makeCoreWorkflowFixture;
@@ -36,6 +38,8 @@ it.live.each([
       const admitted = yield* Deferred.make<void>();
       const replay = mode.endsWith("replay");
       const redirected = mode.startsWith("redirected");
+      const policyChanged = mode.startsWith("mode-changed");
+      const rejected = redirected || policyChanged;
       let sendUnavailable = replay;
       const destinations: string[] = [];
       const head = yield* test.core.resolveRef(test.scope.projectId, "HEAD");
@@ -212,6 +216,13 @@ it.live.each([
           worktreePath: mode === "alias" ? alias : alternate.path,
           branch: alternate.branch,
         });
+      if (mode === "mode-changed")
+        yield* test.threads.dispatch({
+          type: "thread.runtime-mode.set",
+          threadId: first.threadId!,
+          commandId: CommandId.make("policy-change"),
+          runtimeMode: "full-access",
+        });
       const resumed = yield* runtime
         .invoke("resume", {
           ...test.scope,
@@ -236,9 +247,16 @@ it.live.each([
             worktreePath: alternate.path,
             branch: alternate.branch,
           });
+        if (policyChanged)
+          yield* test.threads.dispatch({
+            type: "thread.runtime-mode.set",
+            threadId: first.threadId!,
+            commandId: CommandId.make("policy-change"),
+            runtimeMode: "full-access",
+          });
         sendUnavailable = false;
         runtime = yield* test.boot(host);
-        if (!redirected) yield* Deferred.await(admitted);
+        if (!rejected) yield* Deferred.await(admitted);
         yield* runtime.invoke("reconcile", test.scope);
       }
       const after = yield* runtime
@@ -254,12 +272,12 @@ it.live.each([
       );
       expect(resumed._tag).toBe("Success");
       expect(after.attempts[0]!.resumeCount).toBe(1);
-      expect(oldNative.runs).toHaveLength(redirected ? 1 : 2);
-      expect(selectedNative.runs).toHaveLength(redirected ? 1 : 2);
-      expect(sends).toEqual(redirected ? [] : [selected.threadId]);
-      if (redirected) {
+      expect(oldNative.runs).toHaveLength(rejected ? 1 : 2);
+      expect(selectedNative.runs).toHaveLength(rejected ? 1 : 2);
+      expect(sends).toEqual(rejected ? [] : [selected.threadId]);
+      if (rejected) {
         expect(after.state).toBe("unresolved");
-        expect(after.reason).toContain("workspace");
+        expect(after.reason).toContain(policyChanged ? "runtime mode" : "workspace");
         expect(after.attempts[0]!.phase).toBe("unresolved");
         const tool = (yield* runtime.registry.tools).find(
           (item) => item.tool.id === "plugin_workflows_report",
@@ -271,7 +289,7 @@ it.live.each([
               threadId: first.threadId!,
               providerInstanceId: instanceId,
               providerSessionId: "fixture",
-              runtimeMode: "approval-required",
+              runtimeMode: policyChanged ? "full-access" : "approval-required",
             })
             .pipe(Effect.result))._tag,
         ).toBe("Failure");
@@ -283,7 +301,14 @@ it.live.each([
           .pipe(Effect.flatMap(decodeRun));
         const native = yield* test.core.inspect({ ...test.scope, threadId: first.threadId! });
         expect(native.nativeSession?.id).toBe("native-first");
-        expect(native.workspacePath).toBe(alternate.path);
+        expect(native.workspacePath).toBe(redirected ? alternate.path : test.config.baseDir);
+        if (policyChanged) {
+          expect((yield* test.threads.getThreadShell(first.threadId!))?.runtimeMode).toBe(
+            "full-access",
+          );
+          expect(retained.attempts[0]!.launch?.runtimeMode).toBe("approval-required");
+          expect(retained.attempts[0]!.report).toBeNull();
+        }
         expect(native.runs).toHaveLength(1);
         expect(retained.workspacePath).toBe(test.config.baseDir);
         expect(retained.attempts[0]!.launch?.workspace).toEqual(

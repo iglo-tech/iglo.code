@@ -116,6 +116,7 @@ export const fixture = Effect.gen(function* () {
           projectId,
           threadId: input.threadId,
           title: input.title,
+          runtimeMode: input.runtimeMode,
           workspacePath: input.workspace.type === "existing" ? input.workspace.path : directory,
           branch: "feature",
           runs: [{ id: `${input.threadId}:run`, status: "running" }],
