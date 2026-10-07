@@ -81,6 +81,17 @@ const makeHandler = (browser: ServerBrowser.ServerBrowser["Service"]) =>
     }
     return yield* Effect.scoped(
       Effect.gen(function* () {
+        const incoming = NodeHttpServerRequest.toIncomingMessage(request);
+        // JPEGs are already compressed. Disabling deflate also keeps all
+        // pending writes in the socket buffer we bound below, not a zlib queue.
+        delete incoming.headers["sec-websocket-extensions"];
+        const transport = incoming.socket;
+        // Bun rejects a pending Node HTTP upgrade after browser startup yields
+        // to child-process I/O. Complete the handshake before attaching.
+        const socket = yield* request.upgrade;
+        // The reader performs the upgrade; writes wait for it.
+        const reader = yield* socket.reader;
+        const writer = yield* socket.writer;
         const attached = yield* browser
           .attachViewer({
             threadId,
@@ -102,15 +113,6 @@ const makeHandler = (browser: ServerBrowser.ServerBrowser["Service"]) =>
               },
             }),
           );
-        const incoming = NodeHttpServerRequest.toIncomingMessage(request);
-        // JPEGs are already compressed. Disabling deflate also keeps all
-        // pending writes in the socket buffer we bound below, not a zlib queue.
-        delete incoming.headers["sec-websocket-extensions"];
-        const transport = incoming.socket;
-        const socket = yield* request.upgrade;
-        // The reader performs the upgrade; writes wait for it.
-        const reader = yield* socket.reader;
-        const writer = yield* socket.writer;
         // A refused upgrade reads as an auth failure to ticket clients, so a
         // missing tab is a close code they stop on.
         const gone = writer.write(new Socket.CloseEvent(TAB_GONE_CODE, "tab closed"));
