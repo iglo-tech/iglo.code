@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Path from "effect/Path";
-import { HttpClient, HttpClientResponse } from "effect/http";
+import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -109,13 +109,48 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
         validate: () => Effect.die("missing archives must never validate"),
       }).pipe(Effect.flip);
       assert.include(error.message, "fork release artifact unavailable");
-      assert.include(
-        error.message,
-        "https://github.com/iglo-tech/iglo.code/releases/download/v1.2.3/SHA256SUMS",
-      );
+      assert.include(error.message, "https://github.com, HTTP 404");
       assert.deepEqual(requests, [
         "https://github.com/iglo-tech/iglo.code/releases/download/v1.2.3/SHA256SUMS",
       ]);
+    }),
+  );
+
+  it.effect("keeps sensitive release URL values only in the underlying download failure", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-private-url-" });
+      const error = yield* ensurePinnedRuntimeInstalled({
+        baseDir,
+        version,
+        fs,
+        path,
+        platform: "linux",
+        arch: "x64",
+        releaseBaseUrl:
+          "https://release-user:release-password@releases.example:8443/private/path?signature=private-query#private-fragment",
+        httpClient: HttpClient.make((request) =>
+          Effect.succeed(HttpClientResponse.fromWeb(request, new Response(null, { status: 404 }))),
+        ),
+        runner: extractingRunner(fs, path),
+        validate: () => Effect.die("missing archives must never validate"),
+      }).pipe(Effect.flip);
+
+      assert.instanceOf(error, PinnedRuntimeInstallError);
+      assert.equal(
+        error.step,
+        "downloading the t3 release checksums (fork release artifact unavailable at https://releases.example:8443, HTTP 404)",
+      );
+      assert.equal(
+        error.message,
+        "Pinned runtime install failed while downloading the t3 release checksums (fork release artifact unavailable at https://releases.example:8443, HTTP 404).",
+      );
+      assert.instanceOf(error.cause, HttpClientError.HttpClientError);
+      assert.equal(
+        error.cause.request.url,
+        "https://release-user:release-password@releases.example:8443/private/path?signature=private-query#private-fragment/v1.2.3/SHA256SUMS",
+      );
     }),
   );
 

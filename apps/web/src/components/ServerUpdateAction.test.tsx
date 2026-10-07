@@ -165,7 +165,7 @@ describe("ServerUpdateAction", () => {
   it.each([
     [
       { kind: "npm-global", prefix: "/opt/node" },
-      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.45' sh",
+      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.45' T3CODE_INSTALL_BIN_DIR='/opt/node/bin' sh",
       "Update command copied",
       "then restart t3",
     ],
