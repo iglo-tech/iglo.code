@@ -29,6 +29,13 @@ additions. Keep `.git`, dependencies, generated output, credentials, and T3 stat
 outside the copy. A snapshot is an alternative import method, not permission to
 overwrite unrelated local work.
 
+Keep pull requests pointed at the fork. Verify `origin` is `iglo-tech/iglo.code`,
+then run `gh repo set-default origin` and check `gh repo set-default --view`.
+GitHub CLI otherwise prefers the `upstream` remote, while the app can submit a
+branch name pushed only to `origin`, causing `head invalid`. This setting lives in
+local Git configuration and must be reapplied in fresh clones; snapshot imports
+must preserve it with `.git`. Continue fetching `upstream` explicitly for updates.
+
 ## Reapply the fork scope
 
 From the repository root, run:

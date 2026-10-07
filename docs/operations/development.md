@@ -31,6 +31,18 @@ a new browser.
 
 Prefer a container? See [Dev container](../internals/devcontainer.md) for VS Code and Codespaces setup.
 
+For pull requests in this fork, set GitHub CLI's default repository after adding an
+`upstream` remote:
+
+```sh
+gh repo set-default origin
+gh repo set-default --view
+```
+
+The default should be `iglo-tech/iglo.code`. Otherwise GitHub CLI prefers upstream,
+and the app's PR action can fail with `head invalid` for a branch pushed only to the
+fork. This setting is shared by linked worktrees; repeat it for a fresh clone.
+
 ## Choosing a dev process
 
 Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron client.
