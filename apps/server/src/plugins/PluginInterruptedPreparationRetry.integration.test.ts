@@ -16,6 +16,7 @@ import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Startup from "../serverRuntimeStartup.ts";
 import * as Tracker from "../project/WorktreeSetupTracker.ts";
+import * as Recovery from "../orchestration-v2/ProviderRuntimeRecoveryService.ts";
 it.live.each([
   { scenario: "cancelled", workspace: "current", restartBeforeRetry: false },
   { scenario: "cancelled", workspace: "current", restartBeforeRetry: true },
@@ -25,6 +26,10 @@ it.live.each([
   { scenario: "cancelled", workspace: "exact-ref", restartBeforeRetry: true },
   { scenario: "failed", workspace: "exact-ref", restartBeforeRetry: false },
   { scenario: "released", workspace: "exact-ref", restartBeforeRetry: false },
+  { scenario: "shutdown", workspace: "current", restartBeforeRetry: true },
+  { scenario: "process-loss", workspace: "current", restartBeforeRetry: true },
+  { scenario: "shutdown", workspace: "exact-ref", restartBeforeRetry: true },
+  { scenario: "process-loss", workspace: "exact-ref", restartBeforeRetry: true },
 ] as const)(
   "instructed preparation recovery: $scenario $workspace",
   ({ scenario, workspace, restartBeforeRetry }) =>
@@ -129,7 +134,12 @@ it.live.each([
         const before = yield* host.inspect(target);
         if (scenario === "cancelled")
           yield* host.interrupt({ ...target, commandId: CommandId.make("stop") });
-        else {
+        else if (scenario === "process-loss") {
+          yield* Context.get(server.context, Recovery.ProviderRuntimeRecoveryService).reconcile(
+            "startup",
+          );
+          yield* tracker.cancel(target.threadId);
+        } else if (scenario !== "shutdown") {
           yield* spawner.exitCode(ChildProcess.make("/bin/sh", ["-c", `printf x > '${fifo}'`]));
           yield* tracker.stream(target.threadId).pipe(
             Stream.filter((s) => s?.phase === (scenario === "failed" ? "failed" : "done")),

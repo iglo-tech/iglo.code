@@ -69,16 +69,29 @@ function EnvironmentPluginNavigation({ environmentId }: { environmentId: Environ
         const plugin = contributions.find((item) => item.manifest.id === summary.pluginId);
         return plugin === undefined
           ? []
-          : summary.items.map((item) => (
-              <Button
-                key={`${summary.pluginId}:${item.id}`}
-                variant="ghost"
-                size="sm"
-                onClick={() => plugin.context.navigate(item.link)}
-              >
-                <span className="min-w-0 truncate">{item.summary}</span>
-              </Button>
-            ));
+          : [
+              ...(summary.error === undefined
+                ? []
+                : [
+                    <p
+                      key={`${summary.pluginId}:error`}
+                      role="status"
+                      className="px-2 text-xs text-destructive"
+                    >
+                      {plugin.manifest.displayName}: {summary.error.message}
+                    </p>,
+                  ]),
+              ...summary.items.map((item) => (
+                <Button
+                  key={`${summary.pluginId}:${item.id}`}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => plugin.context.navigate(item.link)}
+                >
+                  <span className="min-w-0 truncate">{item.summary}</span>
+                </Button>
+              )),
+            ];
       })}
     </div>
   );

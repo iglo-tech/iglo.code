@@ -28,6 +28,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Scope from "effect/Scope";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -439,19 +440,47 @@ const make = Effect.gen(function* () {
             Effect.sync(() =>
               Stream.mergeAll(
                 [...registered].map(([pluginId, service]) =>
-                  service.attention.pipe(
-                    Stream.map((items) => ({ environmentId, pluginId, items })),
-                    Stream.mapEffect((item) => decodeAttention(item)),
-                    Stream.catchCause((cause) =>
-                      Cause.hasInterruptsOnly(cause)
-                        ? Stream.fromEffect(Effect.interrupt)
-                        : Stream.fromEffect(
-                            Effect.logWarning("Plugin attention stream unavailable", {
-                              pluginId,
-                              cause,
-                            }).pipe(Effect.as({ environmentId, pluginId, items: [] })),
-                          ),
-                    ),
+                  Stream.unwrap(
+                    Effect.sync(() => {
+                      let lastItems: PluginAttention["items"] = [];
+                      return service.attention.pipe(
+                        Stream.map((items) => ({ environmentId, pluginId, items })),
+                        Stream.mapEffect((item) => decodeAttention(item)),
+                        Stream.tap((item) =>
+                          Effect.sync(() => {
+                            lastItems = item.items;
+                          }),
+                        ),
+                        Stream.catchCause((cause) =>
+                          Cause.hasInterruptsOnly(cause)
+                            ? Stream.fromEffect(Effect.interrupt)
+                            : Stream.unwrap(
+                                Effect.gen(function* () {
+                                  const error = new PluginError({
+                                    pluginId,
+                                    code: "unavailable",
+                                    operation: "attention",
+                                    message: "Attention is unavailable. Retrying automatically.",
+                                  });
+                                  yield* Effect.logWarning("Plugin attention stream unavailable", {
+                                    pluginId,
+                                    cause,
+                                  });
+                                  return Stream.concat(
+                                    Stream.succeed({
+                                      environmentId,
+                                      pluginId,
+                                      items: lastItems,
+                                      error,
+                                    }),
+                                    Stream.fail(error),
+                                  );
+                                }),
+                              ),
+                        ),
+                        Stream.retry(Schedule.spaced("5 seconds")),
+                      );
+                    }),
                   ),
                 ),
                 { concurrency: "unbounded" },

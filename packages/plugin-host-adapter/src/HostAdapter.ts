@@ -20,7 +20,6 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
-import * as Schema from "effect/Schema";
 
 import * as Environment from "../../../apps/server/src/environment/ServerEnvironment.ts";
 import * as Projects from "../../../apps/server/src/project/ProjectService.ts";
@@ -51,7 +50,6 @@ const fail = (operation: string, message: string, cause?: unknown) =>
     message,
     ...(cause === undefined ? {} : { cause }),
   });
-const encodeRunIds = Schema.encodeEffect(Schema.fromJsonString(Schema.Array(Schema.String)));
 const normalizedEvent = (
   event: OrchestrationV2DomainEvent,
 ): Extract<PluginLifecycleItem, { kind: "event" }>["event"] | null => {
@@ -602,76 +600,29 @@ const make = Effect.gen(function* () {
         yield* environment(input.environmentId);
         const existing = yield* receipt(input.commandId);
         if (existing !== null) return existing;
-        const state = yield* inspect(input);
         const preparation = yield* setup.get(input.threadId);
-        const durable = yield* threads
-          .getThreadRecords(input.threadId, ["runs"])
-          .pipe(
-            Effect.mapError((cause) =>
-              fail("send", "Could not reconcile workspace preparation.", cause),
-            ),
+        const trackedBeforeRelease =
+          preparation !== null &&
+          !preparation.stages.some((stage) => stage.id === "agent" && stage.status === "done") &&
+          !(yield* threads
+            .getThreadRecords(input.threadId, ["runs"])
+            .pipe(
+              Effect.mapError((cause) =>
+                fail("send", "Could not inspect workspace preparation.", cause),
+              ),
+            )).runs.some((run) =>
+            ["preparing", "starting", "running", "waiting"].includes(run.status),
           );
-        // Release commits a root scope event. Its projection is reused by later
-        // turns, so only the immutable event proves this run was released.
-        const preparationIds = durable.runs
-          .filter((run) => run.workspacePreparation !== undefined && run.status !== "preparing")
-          .map((run) => run.id);
-        const encodedPreparationIds = yield* encodeRunIds(preparationIds).pipe(
-          Effect.mapError((cause) =>
-            fail("send", "Could not encode preparation identities.", cause),
-          ),
-        );
-        const releases =
-          preparationIds.length === 0
-            ? []
-            : yield* sql<{ run_id: string }>`
-          SELECT DISTINCT json_extract(payload_json, '$.runId') AS run_id
-          FROM orchestration_events
-          WHERE aggregate_kind = 'thread' AND stream_id = ${input.threadId}
-            AND application_event_version = 2 AND event_type = 'checkpoint-scope.created'
-            AND json_extract(payload_json, '$.kind') = 'root_run'
-            AND json_extract(payload_json, '$.runId') IN
-              (SELECT value FROM json_each(${encodedPreparationIds}))
-        `.pipe(
-                Effect.mapError((cause) =>
-                  fail("send", "Could not reconcile workspace release.", cause),
-                ),
-              );
-        const releasedRuns = new Set(releases.map((release) => release.run_id));
-        const unreleased = durable.runs.findLast(
-          (run) => run.workspacePreparation !== undefined && !releasedRuns.has(run.id),
-        );
-        // Plugin launch creation and its readiness receipt live in core state.
-        // A preparation-only launch has no run and its owner may be unavailable.
-        const pendingLaunches = yield* sql`
-          SELECT launch.command_id FROM orchestration_command_receipts launch
-          WHERE launch.aggregate_kind = 'thread' AND launch.aggregate_id = ${input.threadId}
-            AND launch.command_type = 'thread.create' AND launch.status = 'accepted'
-            AND launch.command_id LIKE 'plugin:%'
-            AND NOT EXISTS (
-              SELECT 1 FROM orchestration_command_receipts ready
-              WHERE ready.command_id = launch.command_id || ':workspace-ready'
-                AND ready.aggregate_kind = 'thread' AND ready.aggregate_id = launch.aggregate_id
-                AND ready.command_type = 'thread.metadata.update' AND ready.status = 'accepted'
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM orchestration_command_receipts instructed
-              WHERE instructed.command_id = launch.command_id || ':initial-message'
-                AND instructed.aggregate_kind = 'thread' AND instructed.aggregate_id = launch.aggregate_id
-                AND instructed.command_type = 'message.dispatch' AND instructed.status = 'accepted'
-            )
-        `.pipe(
-          Effect.mapError((cause) => fail("send", "Could not reconcile launch readiness.", cause)),
-        );
         if (
-          pendingLaunches.length > 0 ||
-          unreleased !== undefined ||
-          (preparation !== null &&
-            !preparation.stages.some((stage) => stage.id === "agent" && stage.status === "done") &&
-            !state.runs.some((run) =>
-              ["preparing", "starting", "running", "waiting"].includes(run.status),
+          trackedBeforeRelease ||
+          (yield* receipts
+            .hasPendingWorkspacePreparation(input.threadId, input.commandId, true)
+            .pipe(
+              Effect.mapError((cause) =>
+                fail("send", "Could not reconcile workspace preparation.", cause),
+              ),
             ))
-        ) {
+        )
           return yield* new PluginError({
             pluginId: "host",
             code: "unavailable",
@@ -679,7 +630,6 @@ const make = Effect.gen(function* () {
             message:
               "Workspace preparation has not released this thread. Retry workspace preparation before sending more instructions.",
           });
-        }
         yield* threads
           .sendToThread({
             projectId: input.projectId,

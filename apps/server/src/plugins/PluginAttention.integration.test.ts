@@ -13,6 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { startEnvironment, makeClient } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 
@@ -36,7 +37,7 @@ const item = (pluginId: string, id: string): PluginAttentionItem => ({
   reason: "Controlled notification",
   link: { pageId: pluginId + ".page" },
 });
-it.live.each(["healthy", "typed failure", "invalid items"] as const)(
+it.effect.each(["healthy", "typed failure", "invalid items"] as const)(
   "keeps authenticated attention updates with %s",
   (scenario) =>
     Effect.scoped(
@@ -45,7 +46,7 @@ it.live.each(["healthy", "typed failure", "invalid items"] as const)(
         const healthyFirst = yield* Deferred.make<void>();
         const healthySecond = yield* Deferred.make<void>();
         const badFirst = yield* Deferred.make<void>();
-        const badCleared = yield* Deferred.make<void>();
+        const badUnavailable = yield* Deferred.make<void>();
         const healthyItems = yield* Queue.unbounded<ReadonlyArray<PluginAttentionItem>>();
         const healthyStopped = yield* Deferred.make<void>();
         const good = plugin(
@@ -54,25 +55,33 @@ it.live.each(["healthy", "typed failure", "invalid items"] as const)(
             Stream.ensuring(Deferred.succeed(healthyStopped, undefined)),
           ),
         );
+        let repaired = false;
+        const badRecovered = yield* Deferred.make<void>();
         const bad = plugin(
           "bad",
-          Stream.concat(
-            Stream.succeed([item("bad", "stale")]),
-            Stream.fromEffect(
-              Deferred.await(failGate).pipe(
-                Effect.andThen(
-                  scenario === "typed failure"
-                    ? Effect.fail(
-                        new PluginError({
-                          pluginId: "bad",
-                          code: "storage",
-                          operation: "attention",
-                          message: "Controlled source failure",
-                        }),
-                      )
-                    : Effect.succeed([{ ...item("bad", "invalid"), summary: " " }]),
-                ),
-              ),
+          Stream.unwrap(
+            Effect.sync(() =>
+              repaired
+                ? Stream.concat(Stream.succeed([item("bad", "recovered")]), Stream.never)
+                : Stream.concat(
+                    Stream.succeed([item("bad", "stale")]),
+                    Stream.fromEffect(
+                      Deferred.await(failGate).pipe(
+                        Effect.andThen(
+                          scenario === "typed failure"
+                            ? Effect.fail(
+                                new PluginError({
+                                  pluginId: "bad",
+                                  code: "storage",
+                                  operation: "attention",
+                                  message: "Controlled source failure",
+                                }),
+                              )
+                            : Effect.succeed([{ ...item("bad", "invalid"), summary: " " }]),
+                        ),
+                      ),
+                    ),
+                  ),
             ),
           ),
         );
@@ -100,7 +109,9 @@ it.live.each(["healthy", "typed failure", "invalid items"] as const)(
                 if (event.items[0]?.id === "after")
                   yield* Deferred.succeed(healthySecond, undefined);
               } else {
-                if (event.items.length === 0) yield* Deferred.succeed(badCleared, undefined);
+                if (event.error !== undefined) yield* Deferred.succeed(badUnavailable, undefined);
+                else if (event.items[0]?.id === "recovered")
+                  yield* Deferred.succeed(badRecovered, undefined);
                 else yield* Deferred.succeed(badFirst, undefined);
               }
             }),
@@ -114,11 +125,14 @@ it.live.each(["healthy", "typed failure", "invalid items"] as const)(
           yield* Deferred.await(badFirst);
           yield* Deferred.succeed(failGate, undefined);
           const result = yield* Effect.raceFirst(
-            Deferred.await(badCleared).pipe(Effect.as("cleared")),
+            Deferred.await(badUnavailable).pipe(Effect.as("unavailable")),
             Fiber.join(subscriber).pipe(Effect.as("terminated")),
           );
-          expect(result).toBe("cleared");
-          expect(seen.findLast((e) => e.pluginId === "bad")?.items).toEqual([]);
+          expect(result).toBe("unavailable");
+          expect(seen.findLast((e) => e.pluginId === "bad")).toMatchObject({
+            items: [item("bad", "stale")],
+            error: { code: "unavailable", operation: "attention" },
+          });
         }
         expect(yield* Deferred.isDone(healthyStopped)).toBe(false);
         yield* Queue.offer(healthyItems, [item("good", "after")]);
@@ -126,6 +140,15 @@ it.live.each(["healthy", "typed failure", "invalid items"] as const)(
         expect(
           seen.filter((e) => e.pluginId === "good").flatMap((e) => e.items.map((i) => i.id)),
         ).toEqual(["before", "after"]);
+        if (scenario !== "healthy") {
+          repaired = true;
+          yield* TestClock.adjust("5 seconds");
+          yield* Deferred.await(badRecovered);
+          expect(seen.findLast((e) => e.pluginId === "bad")).toMatchObject({
+            items: [item("bad", "recovered")],
+          });
+          expect(seen.findLast((e) => e.pluginId === "bad")?.error).toBeUndefined();
+        }
         yield* Fiber.interrupt(subscriber);
         yield* Deferred.await(healthyStopped);
         const resumed = yield* client["plugins.attention"]({

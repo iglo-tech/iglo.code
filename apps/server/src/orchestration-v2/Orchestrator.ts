@@ -190,6 +190,15 @@ export class OrchestratorSubagentThreadReadOnlyError extends Schema.TaggedError<
   }
 }
 
+export class OrchestratorWorkspacePreparationPendingError extends Schema.TaggedError<OrchestratorWorkspacePreparationPendingError>()(
+  "OrchestratorWorkspacePreparationPendingError",
+  { commandId: CommandId, threadId: ThreadId },
+) {
+  override get message(): string {
+    return "Workspace preparation has not released this thread. Retry workspace preparation before sending more instructions.";
+  }
+}
+
 /** The command's thread runs above the modes its sender may touch (see `DispatchModeLimit`). */
 export class OrchestratorThreadAboveModeLimitError extends Schema.TaggedError<OrchestratorThreadAboveModeLimitError>()(
   "OrchestratorThreadAboveModeLimitError",
@@ -247,6 +256,7 @@ export function canReplayCommandReceipt(
 }
 
 export const OrchestratorV2Error = Schema.Union([
+  OrchestratorWorkspacePreparationPendingError,
   OrchestratorDispatchError,
   OrchestratorCommandRejectedError,
   OrchestratorProjectionError,
@@ -4441,6 +4451,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
   ) =>
     Effect.gen(function* () {
+      // Held initial instructions create preparation; ordinary sends require its
+      // durable release. Check under the command lock, without retiring a retryable ID.
+      if (
+        command.dispatchMode.type !== "defer_start" &&
+        (yield* commandReceipts
+          .hasPendingWorkspacePreparation(command.threadId, command.commandId)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestratorDispatchError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  cause,
+                }),
+            ),
+          ))
+      )
+        return yield* new OrchestratorWorkspacePreparationPendingError({
+          commandId: command.commandId,
+          threadId: command.threadId,
+        });
+
       let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
       if (command.manualContinuationOfRunId !== undefined) {
         const source = projection.runs.find((run) => run.id === command.manualContinuationOfRunId);
@@ -7764,7 +7796,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (
       run === undefined ||
       (command.type === "prepared-run.retry"
-        ? run.status !== "failed" && run.status !== "interrupted"
+        ? run.status !== "failed" && run.status !== "interrupted" && run.status !== "cancelled"
         : run.status !== "preparing") ||
       attempt === undefined ||
       rootNode === undefined ||
@@ -8034,7 +8066,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Run ${command.runId} has no unreleased failed or interrupted workspace preparation to retry.`,
+          cause: `Run ${command.runId} has no unreleased failed, interrupted or cancelled workspace preparation to retry.`,
         });
       }
       if (projection.runs.some((run) => run.id !== state.run.id && isBlockingRun(run))) {
@@ -10498,7 +10530,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         Effect.gen(function* () {
           // Refused like the check above: nothing recorded, so the same command
           // can go through once the thread's user lowers it again.
-          if (cause._tag === "OrchestratorThreadAboveModeLimitError") return yield* cause;
+          if (
+            cause._tag === "OrchestratorThreadAboveModeLimitError" ||
+            cause._tag === "OrchestratorWorkspacePreparationPendingError"
+          )
+            return yield* cause;
           const rejectedAt = yield* DateTime.now;
           const receipt = yield* eventSink
             .commitRejectedCommand({

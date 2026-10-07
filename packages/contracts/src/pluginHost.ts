@@ -137,6 +137,7 @@ export const PluginAttention = Schema.Struct({
   environmentId: EnvironmentId,
   pluginId: PluginId,
   items: Schema.Array(PluginAttentionItem).check(Schema.isMaxLength(100)),
+  error: Schema.optional(PluginError),
 });
 export type PluginAttention = typeof PluginAttention.Type;
 
