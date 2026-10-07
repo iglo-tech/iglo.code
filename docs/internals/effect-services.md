@@ -83,7 +83,7 @@ export const layer = Layer.effect(Foo, make);
   imports it. Knip fails CI on an unused export. Don't write `make = Effect.succeed(...)` to force
   `Layer.effect`; use the constructor that fits, like `Layer.succeed` or `Layer.sync`.
 - **Names.** A module named for its implementation uses plain `make` and `layer`
-  ([`NodePtyAdapter.ts`](../../apps/server/src/terminal/NodePtyAdapter.ts)). A port module that also
+  ([`BunPtyAdapter.ts`](../../apps/server/src/terminal/BunPtyAdapter.ts)). A port module that also
   holds implementations names them, like `makeCloudflaredRelayClient` and `layerCloudflared`.
 - **Moves.** Moving a service deletes the old files and updates every consumer, including
   orchestration, MCP, tests, and integration harnesses. No re-export shims.

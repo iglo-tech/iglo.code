@@ -122,15 +122,10 @@ export function supportsServerUpdateThreadContinuation(
 /** The command to hand users whose server cannot update itself. */
 export function manualServerUpdateCommand(
   targetVersion: string,
-  installation?: ServerInstallation,
+  _installation?: ServerInstallation,
 ): string {
-  if (installation?.kind === "npm-global") {
-    const prefix = `'${installation.prefix.replaceAll("'", "'\\''")}'`;
-    return `npm install --global --prefix ${prefix} t3@${targetVersion}`;
-  }
-  const runner =
-    installation?.kind === "pnpm-dlx" ? "pnpm dlx" : installation?.kind === "bunx" ? "bunx" : "npx";
-  return `${runner} t3@${targetVersion}`;
+  const version = `'${targetVersion.replaceAll("'", "'\\''")}'`;
+  return `curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION=${version} sh`;
 }
 
 export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {

@@ -12,4 +12,4 @@ for dir in "$HOME/.cache" "$HOME/.cache/pnpm" node_modules; do
 done
 
 CI=true vp i
-node apps/web/scripts/warm-dep-cache.ts
+bun apps/web/scripts/warm-dep-cache.ts

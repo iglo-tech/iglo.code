@@ -262,7 +262,7 @@ const DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES = Duration.minutes(5);
 // the user out of the backend.
 const DESKTOP_BOOTSTRAP_TTL_HOURS = Duration.hours(24);
 // A dev server's startup token is read off a log by whoever (or whatever) is
-// driving the session, often minutes later — after a `node --watch` restart, a
+// driving the session, often minutes later — after a `bun --watch` restart, a
 // detour into another task, or a hand-off to the person actually doing the
 // testing. Five minutes turns that into a restart-the-server loop for no
 // security benefit: the token only unlocks a local dev backend, and its holder

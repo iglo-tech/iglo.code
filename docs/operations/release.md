@@ -14,7 +14,7 @@ This document covers the unified release workflow for stable and nightly web and
   - push tag matching `v*.*.*` for a stable release of an explicit commit
   - scheduled nightly check every 30 minutes
   - manual `workflow_dispatch` with `channel=nightly`
-  - manual `workflow_dispatch` with `channel=preview`, the maintainers' test train. It exercises the whole release flow (build, sign, notarize, smoke, publish) for a commit that end users must never receive, which is how an unmerged branch or a risky change gets a real release run before it lands. It builds the triggering commit with nightly's versioning under the `preview` prerelease identifier (`0.0.41-preview.<date>.<run>`) and publishes a GitHub prerelease plus the npm packages under the `preview` dist-tag. Preview is not on the schedule, no default npm dist-tag points at it, it is selected only by an explicit preview channel. The only ways onto it are downloading the release by hand, `npx t3@preview`, `T3CODE_CHANNEL=preview` for the install scripts, or `t3 update --channel preview` from a terminal; each prints a warning, and the CLI asks for confirmation when the running build is not itself a preview. The release itself is named as a maintainer test build and its body is a warning rather than generated notes: a changelog of unmerged branch history is not a changelog, and nightly and stable notes are unaffected because each series resolves its previous tag within its own channel. The hosted web app and Discord announcements are skipped. Keep it; it costs nothing when idle.
+  - manual `workflow_dispatch` with `channel=preview`, the maintainers' test train. It exercises the whole release flow (build, sign, notarize, smoke, publish) for a commit that end users must never receive, which is how an unmerged branch or a risky change gets a real release run before it lands. It builds the triggering commit with nightly's versioning under the `preview` prerelease identifier (`0.0.41-preview.<date>.<run>`) and publishes a GitHub prerelease plus the npm packages under the `preview` dist-tag. Preview is not on the schedule, no default npm dist-tag points at it, it is selected only by an explicit preview channel. The only ways onto it are downloading the release by hand, `bunx @iglo-tech/iglo-code@preview`, `T3CODE_CHANNEL=preview` for the install scripts, or `t3 update --channel preview` from a terminal; each prints a warning, and the CLI asks for confirmation when the running build is not itself a preview. The release itself is named as a maintainer test build and its body is a warning rather than generated notes: a changelog of unmerged branch history is not a changelog, and nightly and stable notes are unaffected because each series resolves its previous tag within its own channel. The hosted web app and Discord announcements are skipped. Keep it; it costs nothing when idle.
 - A manual stable release builds the commit of the latest published nightly, not `main` HEAD.
   Nightly is the release candidate: verify the nightly, then promote it. Merges to `main` keep
   landing while you verify and never leak into the stable build.
@@ -26,22 +26,23 @@ This document covers the unified release workflow for stable and nightly web and
 - Runs lint, typecheck, and tests alongside artifact builds. Publishing waits for every check.
 - Reads the shared production T3 Connect relay URL and Clerk client configuration before packaging clients.
 - Builds the platform-independent JS (server bundle and web client) once in the `build_bundle` job and hands it to every platform job as the `js-bundle` artifact; the platform jobs only package it, so no runner rebuilds it.
-- Builds five CLI archives in parallel through `release-cli.yml`, each on hardware of its own architecture: macOS arm64, Linux x64 and arm64, and Windows x64 and arm64.
+- Builds three CLI archives in parallel through `release-cli.yml`, each on hardware of its own architecture: macOS arm64 and Linux x64 and arm64.
 - Publishes one GitHub Release with all produced files.
   - Stable tags with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
   - Only plain stable `X.Y.Z` releases are marked as the repository's latest release.
   - Nightly runs are always GitHub prereleases and never marked latest.
   - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
-- Builds a self-contained CLI archive per platform (`t3-<version>-<platform>-<arch>.tar.gz`, `.zip` on Windows) in a dedicated platform job and attaches them to the GitHub Release with a `SHA256SUMS` file, on every channel, for five targets: macOS arm64, Linux x64 and arm64, Windows x64 and arm64. Every archive is built, signed, and smoke-tested on hardware of its own architecture. There is no macOS x64 archive: Node single-executables are unsupported on x64 macOS (the SEA docs list macOS as arm64 only) and the binary segfaults on start.
-  - The archive holds the server as a Node single-executable (`scripts/build-cli-archive.ts`), so unpacking it needs neither Node, npm, nor a compiler. It is the only form in which T3 Code manages a runtime: the boot service, `t3 update`, and the install scripts all download and verify this archive against `SHA256SUMS`. The npm packages exist for people who run `npx t3` or `npm install -g t3` themselves and carry the same archive contents; nothing in the product installs from npm. The `curl | sh` installers are `scripts/install.sh` and `scripts/install.ps1`; the marketing site copies them into its `public/` at build time (`apps/marketing/scripts/stage-install-scripts.mjs`) and serves them at `t3.codes/install.sh` and `/install.ps1`.
-  - The executable is built with a Node that supports `--build-sea` (`VP_NODE_VERSION=26.8.2`, kept in step with `SEA_NODE_VERSION` in `apps/server/vite.config.ts`), while the repo stays on `engines.node`.
-  - macOS archives are signed with the Developer ID certificate and notarized when the Apple secrets are present (ad hoc otherwise, which still runs from `curl`/`tar` installs). Windows executables use Azure Trusted Signing. Every native addon in the macOS archive is signed too, since the hardened runtime refuses unsigned libraries.
-  - Each archive is extracted and executed on its build runner (`scripts/smoke-cli-archive.ts`) before it is uploaded.
-- Publishes the CLI to npm with OIDC trusted publishing from the same workflow file, as the same bytes the GitHub Release carries: `scripts/build-npm-platform-packages.ts` unpacks the five CLI archives into `@t3code/t3-<platform>-<arch>` packages (each with `os`/`cpu` set so npm installs only the matching one) and generates the `t3` launcher, whose `bin/t3.js` lists them as `optionalDependencies` and execs the installed executable. `npx t3` therefore needs Node only to run the launcher, never to run the server. `node apps/server/scripts/cli.ts publish` publishes the platform packages first and the launcher last, after a `--dry-run` pass over all of them so an auth or scope error fails before anything is live.
+- Builds self-contained CLI archives for macOS arm64, Linux x64, and Linux arm64, and attaches them to the fork's GitHub Release with `SHA256SUMS`. Intel macOS and Windows are excluded from release selection.
+  - [build-cli-archive.ts](../../scripts/build-cli-archive.ts) packages the Bun-compiled server, web client, disk-backed native/SDK dependencies, and a pinned interpreter at `runtime/bun`. The interpreter runs arbitrary helper scripts; the compiled CLI handles application subcommands. Installed execution needs no system Node, npm, or Bun.
+  - [vite.config.ts](../../apps/server/vite.config.ts) bundles one coherent Effect module graph before Bun compiles it. Development checks, compilation, and the interpreter archive use `.bun-version` (1.4.0). Vite+ and pnpm remain contributor tooling.
+  - macOS executables and native addons are signed with the Developer ID certificate and notarized when Apple secrets are present, or signed ad hoc otherwise.
+  - Installation, pinned service releases, and updates use `iglo-tech/iglo.code`. Explicit release-origin overrides remain supported; missing fork artifacts fail without selecting an upstream release.
+  - [smoke-cli-archive.ts](../../scripts/smoke-cli-archive.ts) extracts outside the repository, removes system runtimes from PATH, then checks authenticated HTTP, pairing cookies, CORS, WebSocket upgrade, and state across restart. The [Bun compatibility workflow](../../.github/workflows/bun-runtime.yml) also runs the source launch and real web-client suite on each supported target.
+- Publishes the CLI to npm with OIDC trusted publishing from the same workflow file, as the same bytes the GitHub Release carries: `scripts/build-npm-platform-packages.ts` unpacks the three CLI archives into `@iglo-tech/iglo-code-<platform>-<arch>` packages (each with `os`/`cpu` set so npm installs only the matching one) and generates the `@iglo-tech/iglo-code` launcher package, which lists them as `optionalDependencies` and execs the installed executable. The generated `bin/t3.js` is a POSIX shell launcher, so launching an installed package needs no JavaScript interpreter. `bun apps/server/scripts/cli.ts publish` publishes the platform packages first and the launcher last, after a `--dry-run` pass over all of them so an auth or scope error fails before anything is live.
   - stable releases publish npm dist-tag `latest`
   - nightly releases publish npm dist-tag `nightly`
   - preview releases publish npm dist-tag `preview`, which nothing resolves unless asked for by name
-  - one-time setup: the `@t3code` npm scope (org) must exist, and `t3` and each `@t3code/t3-<platform>-<arch>` package needs a trusted publisher registered for this workflow file (see below).
+  - one-time setup: the `@iglo-tech` npm scope (org) must exist, and `@iglo-tech/iglo-code` and each `@iglo-tech/iglo-code-<platform>-<arch>` package needs a trusted publisher registered for this workflow file (see below).
 - Builds the hosted web app on Vercel while the CLI jobs run, and makes it live only after a release is published:
   - stable releases are aliased to the `latest` hosted app channel
   - nightly releases are aliased to the `nightly` hosted app channel
@@ -326,13 +327,13 @@ One-time Vercel dashboard setup:
   - release name includes the short commit SHA
   - `make_latest` is always `false`
 - Uses the next stable patch version as the nightly base. For example, `0.0.17` produces nightlies on `0.0.18-nightly.*`.
-- Publishes the CLI npm packages (`t3` and `@t3code/t3-<platform>-<arch>`) to the `nightly` npm dist-tag using the same nightly version.
+- Publishes the CLI npm packages (`@iglo-tech/iglo-code` and `@iglo-tech/iglo-code-<platform>-<arch>`) to the `nightly` npm dist-tag using the same nightly version.
 - Does not commit version bumps back to `main`.
 
 ## Server self-update release invariant
 
 Connected servers update to the client's exact version, not to an npm dist-tag. Every released
-hosted client version must therefore have a matching `t3@<version>` package available on
+hosted client version must therefore have a matching `@iglo-tech/iglo-code@<version>` package available on
 npm before users can receive that client.
 
 The workflow enforces this ordering:
@@ -348,30 +349,29 @@ The workflow enforces this ordering:
 Preserve these dependencies when changing the release graph. Publishing a client first would leave
 the **Update server** action targeting a package version that does not exist yet.
 
-For a release smoke test, confirm `npm view t3@<version> version` returns the expected version, then
+For a release smoke test, confirm `npm view @iglo-tech/iglo-code@<version> version` returns the expected version, then
 connect the new client to a server on the previous version and verify that the update action
 reconnects to the matching server. When the release adds database migrations, verify that the
 remote update applies them and reconnects. A failed trial must restore the database snapshot and
 restart the previous server. If the installed launcher does not support the target protocol,
-verify that the update stops before restart and run `npx t3@<version> service update` once on the
+verify that the update stops before restart and run `bunx @iglo-tech/iglo-code@<version> service update` once on the
 server machine. Also test the manual update guidance when those environments are available.
 
 ## 0) npm OIDC trusted publishing setup (CLI)
 
-The workflow runs `node scripts/build-npm-platform-packages.ts` on the downloaded CLI archives, then
-`node apps/server/scripts/cli.ts publish --packages-dir npm-packages`, which runs `npm publish` on
-each `@t3code/t3-<platform>-<arch>.tgz` and finally on `t3.tgz`, the launcher. The script publishes
+The workflow runs `bun scripts/build-npm-platform-packages.ts` on the downloaded CLI archives, then
+`bun apps/server/scripts/cli.ts publish --packages-dir npm-packages`, which runs `npm publish` on
+each `@iglo-tech/iglo-code-<platform>-<arch>.tgz` and finally on `iglo-code.tgz`, the launcher. The script publishes
 tarballs it built itself rather than directories: `npm publish <dir>` strips `node_modules/` from the
-tarball no matter what `files` says, and the executable loads its native addons from there. Six
-packages are published per release: `t3`, `@t3code/t3-darwin-arm64`,
-`@t3code/t3-linux-arm64`, `@t3code/t3-linux-x64`, `@t3code/t3-win32-arm64`,
-`@t3code/t3-win32-x64`.
+tarball no matter what `files` says, and the executable loads its native addons from there. Four
+packages are published per release: `@iglo-tech/iglo-code`, `@iglo-tech/iglo-code-darwin-arm64`,
+`@iglo-tech/iglo-code-linux-arm64`, `@iglo-tech/iglo-code-linux-x64`.
 
 Checklist:
 
-1. Confirm the npm org owns package `t3` and the `@t3code` scope exists on npm (create the org if
+1. Confirm the npm org owns package `@iglo-tech/iglo-code` and the `@iglo-tech` scope exists on npm (create the org if
    it does not).
-2. For `t3` and each `@t3code/t3-<platform>-<arch>` package, configure a Trusted Publisher in the
+2. For `@iglo-tech/iglo-code` and each `@iglo-tech/iglo-code-<platform>-<arch>` package, configure a Trusted Publisher in the
    npm package settings (a package that has never been published needs a first publish or a
    placeholder before the setting exists; the `--dry-run` step in `publish_cli` reports which
    names are still rejected):
@@ -381,7 +381,7 @@ Checklist:
    - Environment (if used): match your npm trusted publishing config
 3. Ensure npm account and org policies allow trusted publishing for every package.
 4. Create release tag `vX.Y.Z` and push; workflow will:
-   - build and smoke-test the five CLI archives
+   - build and smoke-test the three CLI archives
    - build the npm packages from those archives
    - publish them with npm dist-tag `latest`
 5. Nightly runs publish with npm dist-tag `nightly`; preview runs with `preview`.
@@ -389,7 +389,7 @@ Checklist:
 ## 1) Release validation and unsigned builds
 
 There is no dry-run tag path. Pushing any accepted non-nightly tag, including
-`v0.0.0-test.1`, classifies the run as the stable channel. It publishes `t3` with npm dist-tag
+`v0.0.0-test.1`, classifies the run as the stable channel. It publishes `@iglo-tech/iglo-code` with npm dist-tag
 `latest`, creates a real GitHub Release, aliases the hosted app to `latest.app.t3.codes` and
 `app.t3.codes`, and can commit a version bump to `main` in the finalize job. Do not push a test tag
 to validate the workflow.
@@ -415,31 +415,7 @@ For notarization, create an App Store Connect API key and configure
 `APPLE_API_ISSUER`. The workflow writes the key to a temporary file, signs the
 executable and native addons, and notarizes the CLI archive.
 
-## 3) Azure Trusted Signing setup (Windows)
-
-Required secrets used by the workflow:
-
-- `AZURE_TENANT_ID`
-- `AZURE_CLIENT_ID`
-- `AZURE_CLIENT_SECRET`
-- `AZURE_TRUSTED_SIGNING_ENDPOINT`
-- `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`
-- `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`
-
-Checklist:
-
-1. Create Azure Trusted Signing account and certificate profile.
-2. Record ATS values:
-   - Endpoint
-   - Account name
-   - Certificate profile name
-3. Create/choose an Entra app registration (service principal).
-4. Grant service principal permissions required by Trusted Signing.
-5. Create a client secret for the service principal.
-6. Add Azure secrets listed above in GitHub Actions secrets.
-7. Re-run a tag release and confirm the Windows CLI executable is signed.
-
-## 4) Ongoing release checklist
+## 3) Ongoing release checklist
 
 1. Pick the latest nightly and verify it: run the smoke test above against its artifacts and
    check the nightly channel for regressions.
@@ -455,12 +431,10 @@ Checklist:
    - release job uploads expected files
 5. Smoke test downloaded artifacts.
 
-## 5) Troubleshooting
+## 4) Troubleshooting
 
 - macOS build unsigned when expected signed:
   - Check the certificate and App Store Connect secrets are populated and non-empty.
-- Windows build unsigned when expected signed:
-  - Check all Azure ATS and auth secrets are populated and non-empty.
 - Build fails with signing error:
   - Retry with secrets removed to confirm unsigned path still works.
   - Re-check certificate/profile names and tenant/client credentials.

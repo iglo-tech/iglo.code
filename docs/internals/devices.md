@@ -9,11 +9,12 @@ Device panel work over Tailscale and T3 Connect, including when an SSH host runs
 
 [expo-device-hub](../../apps/server/src/device/LocalDeviceHost.ts) streams and
 [agent-device](../../apps/server/src/device/AgentDeviceShim.ts) drives. Each is
-npm-installed at a pinned version into the T3 home after its matching Device
+Bun-installed at a pinned version into the T3 home after its matching Device
 panel consent step. Manual setup installs and starts only expo-device-hub;
 agent-device remains absent and stopped until agent access is granted. Both run
-with the server's Node; `npx` would make the first `device_open` after a reboot
-depend on the registry. The hub is a supervised child rather than an imported
+with the environment's Bun interpreter, including the interpreter shipped in a
+compiled archive. Installations are staged and versioned so first use after a
+reboot does not depend on the registry. The hub is a supervised child rather than an imported
 middleware because serve-sim loads private CoreSimulator frameworks through a
 native addon, and a crash there must not take the server down.
 
