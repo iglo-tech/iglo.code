@@ -39,6 +39,7 @@ import {
   type Attempt,
 } from "./contracts.ts";
 import * as Catalog from "./Catalog.ts";
+import * as Display from "./display.ts";
 import { error, protect, canonical, digest } from "./encoding.ts";
 import { agents, dataProblems } from "./definition.ts";
 import {
@@ -98,8 +99,8 @@ const decodeRun = Schema.decodeUnknownEffect(Schema.fromJsonString(Run));
 const encodeRun = Schema.encodeEffect(Schema.fromJsonString(Run));
 const decodeReport = Schema.decodeUnknownEffect(ReportInput);
 const encodeReceipt = Schema.encodeEffect(Schema.fromJsonString(ReportReceipt));
-const decodeSummary = Schema.decodeUnknownEffect(Schema.fromJsonString(RunSummary));
-const encodeSummary = Schema.encodeEffect(Schema.fromJsonString(RunSummary));
+const decodeDisplay = Schema.decodeUnknownEffect(Run);
+const decodeSummary = Schema.decodeUnknownEffect(RunSummary);
 const decodeStart = Schema.decodeUnknownEffect(StartInput);
 const activeRun = (state: PluginThreadState) =>
   state.runs.findLast((run) =>
@@ -246,12 +247,8 @@ const make = Effect.gen(function* () {
         reviews: run.reviews.length,
       },
     };
-    const redacted = yield* host.redact({
-      text: yield* encodeRun(page),
-      format: "json",
-      threadIds: run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : [])),
-    });
-    return yield* decodeRun(redacted).pipe(
+    const redacted = yield* Display.displayRun(host, page);
+    return yield* decodeDisplay(redacted).pipe(
       Effect.mapError((cause) =>
         error("display", "The redacted run could not be displayed.", "service", cause),
       ),
@@ -296,13 +293,7 @@ const make = Effect.gen(function* () {
       })),
       reviews: run.reviews.slice(-1),
     };
-    return yield* decodeSummary(
-      yield* host.redact({
-        text: yield* encodeSummary(summary),
-        format: "json",
-        threadIds: run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : [])),
-      }),
-    );
+    return yield* decodeSummary(yield* Display.displaySummary(host, run, summary));
   });
   const list = (input: typeof RunListInput.Type) =>
     protect(
@@ -784,7 +775,7 @@ const make = Effect.gen(function* () {
       if (
         run.state !== "running" ||
         terminalAttempt(attempt) ||
-        ["launching", "resuming"].includes(attempt.phase)
+        ["launching", "resuming", "reminding"].includes(attempt.phase)
       )
         return;
       for (const id of admissionIds(attempt)) yield* host.receipt(id);
@@ -894,20 +885,29 @@ const make = Effect.gen(function* () {
                 (run) => state.resultRunId === undefined || run.id === state.resultRunId,
               );
               if (!execution) return;
+              // Native follow-ups belong to this generation until an explicit Resume
+              // retains a new execution identity. They cannot erase an earlier Stop.
+              const generation = state.runs.slice(
+                Math.max(
+                  0,
+                  state.runs.findIndex((run) => run.id === attempt.executionRunId),
+                ),
+              );
               if (
-                execution.interruptRequested ||
+                generation.some((run) => run.interruptRequested) ||
                 ["interrupted", "cancelled", "rolled_back"].includes(execution.status)
               ) {
                 attempt.phase = "interrupted";
+                attempt.remainingMs = Math.max(
+                  0,
+                  attempt.remainingMs -
+                    executionElapsed(state.requests, attempt.lastActiveAt, until),
+                );
                 attempt.resumable =
                   state.nativeSession?.canResume === true &&
                   !attempt.report &&
-                  attempt.remainingMs > now - attempt.lastActiveAt &&
+                  attempt.remainingMs > 0 &&
                   (attempt.deadline === null || attempt.deadline > now);
-                attempt.remainingMs = Math.max(
-                  0,
-                  attempt.remainingMs - (now - attempt.lastActiveAt),
-                );
                 attempt.reason = "Native execution was explicitly interrupted.";
               } else if (
                 execution.status === "failed" ||
@@ -966,18 +966,31 @@ const make = Effect.gen(function* () {
   );
   const expireAdmission = Effect.fnUntraced(function* (run: Run, attempt: Attempt) {
     const now = yield* Clock.currentTimeMillis;
-    if (now < (attempt.deadline ?? attempt.lastActiveAt + attempt.remainingMs)) return true;
+    if (now < Math.min(attempt.deadline ?? Infinity, attempt.lastActiveAt + attempt.remainingMs))
+      return true;
+    if (
+      attempt.phase === "reminding" &&
+      (yield* host.receipt(commandId(attempt, "reminder")))?.status === "accepted"
+    )
+      return true;
     yield* transaction(
       "launch-timeout",
       Effect.gen(function* () {
         const current = yield* load(run.id);
         const owned = current.attempts.find((item) => item.id === attempt.id)!;
-        if (current.state !== "running" || !["launching", "resuming"].includes(owned.phase)) return;
+        if (
+          current.state !== "running" ||
+          !["launching", "resuming", "reminding"].includes(owned.phase)
+        )
+          return;
         const resuming = owned.phase === "resuming";
+        const reminding = owned.phase === "reminding";
         owned.phase = "unresolved";
         owned.reason = resuming
           ? "The execution resume deadline expired."
-          : "The execution launch deadline expired.";
+          : reminding
+            ? "The execution reminder deadline expired."
+            : "The execution launch deadline expired.";
         if (owned.branchId) yield* enqueue(current, `${current.id}:join:${owned.id}`, "node");
         else unresolved(current, owned.reason);
         yield* persist(current);
@@ -1010,7 +1023,8 @@ const make = Effect.gen(function* () {
             stderr:
               "Execution ended without retaining the check result. Explicit retry is required.",
           });
-        if (["launching", "resuming"].includes(attempt.phase)) yield* expireAdmission(run, attempt);
+        if (["launching", "resuming", "reminding"].includes(attempt.phase))
+          yield* expireAdmission(run, attempt);
         if (
           attempt.threadId &&
           !terminalAttempt(attempt) &&
@@ -1431,7 +1445,10 @@ const make = Effect.gen(function* () {
     }
     const attempt = observed.attempts.find((attempt) => attempt.id === item.attempt_id)!;
     if (terminalAttempt(attempt)) return;
-    if (["launch", "resume"].includes(item.kind) && !(yield* expireAdmission(observed, attempt)))
+    if (
+      ["launch", "resume", "reminder"].includes(item.kind) &&
+      !(yield* expireAdmission(observed, attempt))
+    )
       return;
     if (item.kind === "reminder") {
       if (attempt.reminderSent || attempt.report) return;
@@ -1684,7 +1701,7 @@ const make = Effect.gen(function* () {
               attempt.phase = "resuming";
             }
           }
-          if (["launching", "resuming"].includes(attempt.phase))
+          if (["launching", "resuming", "reminding"].includes(attempt.phase))
             yield* expireAdmission(run, attempt);
           // Plugin acquisition precedes host recovery; revoke stale authority before its replay.
           if (["launching", "resuming"].includes(attempt.phase) && attempt.reviewId)

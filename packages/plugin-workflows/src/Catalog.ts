@@ -58,7 +58,10 @@ const make = Effect.gen(function* () {
       ),
     );
     const reasons = definitionProblems(definition);
-    const providers = yield* host.providers();
+    const discovered = yield* host.providers().pipe(Effect.result);
+    const providers = discovered._tag === "Success" ? discovered.success : [];
+    if (discovered._tag === "Failure")
+      reasons.push(`Provider discovery is unavailable: ${discovered.failure.message}`);
     for (const agent of agents(definition)) {
       const provider = providers.find(
         (provider) => provider.instanceId === agent.modelSelection.instanceId,
@@ -71,12 +74,16 @@ const make = Effect.gen(function* () {
         reasons.push(
           `Provider ${agent.modelSelection.instanceId} cannot report in ${agent.runtimeMode}: ${provider?.reason ?? "unavailable"}.`,
         );
-      if (agent.skill) {
-        const skills = yield* host.skills({
-          projectId,
-          providerInstanceId: agent.modelSelection.instanceId,
-        });
-        if (!skills.some((skill) => skill.name === agent.skill && skill.enabled))
+      if (agent.skill && provider) {
+        const skills = yield* host
+          .skills({
+            projectId,
+            providerInstanceId: agent.modelSelection.instanceId,
+          })
+          .pipe(Effect.result);
+        if (skills._tag === "Failure")
+          reasons.push(`Skill discovery is unavailable: ${skills.failure.message}`);
+        else if (!skills.success.some((skill) => skill.name === agent.skill && skill.enabled))
           reasons.push(
             `Skill ${agent.skill} is unavailable for ${agent.modelSelection.instanceId}.`,
           );
