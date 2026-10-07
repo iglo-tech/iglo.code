@@ -165,10 +165,20 @@ const buildExeCmd = Command.make(
         return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
       }
       const executablePath = path.join(serverDir, "dist-exe", `t3-${target}`);
+      // Bun disables package.json loading in executables by default, including
+      // the exports and dependency resolution needed by disk-backed packages.
       yield* runCommand(
         ChildProcess.make(
           process.execPath,
-          ["build", "--compile", `--target=bun-${target}`, "--outfile", executablePath, bundlePath],
+          [
+            "build",
+            "--compile",
+            "--compile-autoload-package-json",
+            `--target=bun-${target}`,
+            "--outfile",
+            executablePath,
+            bundlePath,
+          ],
           {
             cwd: serverDir,
             stdout: config.verbose ? "inherit" : "ignore",
