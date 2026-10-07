@@ -44,7 +44,7 @@ import {
   exceededDispatchModeLimit,
 } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
-import { latestUnheldRun } from "@t3tools/shared/orchestrationV2ThreadError";
+import { latestUnheldRun, runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { delegatedTaskProgress } from "../../../apps/server/src/orchestration-v2/SubagentProjection.ts";
 import * as ProcessRunner from "../../../apps/server/src/processRunner.ts";
 import * as McpSessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
@@ -200,7 +200,9 @@ const make = Effect.gen(function* () {
             }),
         ),
       );
-    const runs = records.runs.toSorted((left, right) => left.ordinal - right.ordinal);
+    const runs = records.runs.toSorted((left, right) =>
+      runRanAfter(left, right) ? 1 : runRanAfter(right, left) ? -1 : 0,
+    );
     const inactiveRuns = new Set(
       runs
         .filter(
@@ -308,6 +310,7 @@ const make = Effect.gen(function* () {
       runs: runs.map((run) => ({
         id: run.id,
         status: run.status,
+        startedAt: run.startedAt === null ? null : DateTime.toEpochMillis(run.startedAt),
         queueHeld: run.queueHeld,
         resultRelevant: !monitorRuns.has(run.id),
         ...(run.userMessageId.length > ":message".length && run.userMessageId.endsWith(":message")

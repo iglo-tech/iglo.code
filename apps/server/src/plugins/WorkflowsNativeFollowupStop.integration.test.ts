@@ -42,6 +42,10 @@ const modes = [
   "resume-checkpoint-prior-error",
   "resume-checkpoint-prior-ready",
   "resume-checkpoint-current-error",
+  "resume-checkpoint-released-error",
+  "resume-checkpoint-released-ready",
+  "resume-checkpoint-released-failed-followup",
+  "resume-checkpoint-released-natural-followup",
 ] as const;
 it.live.each(modes)(
   "retains workflow generation outcomes across native follow-ups and explicit Resume: %s",
@@ -51,6 +55,7 @@ it.live.each(modes)(
         const test = yield* makeCoreWorkflowFixture;
         const resuming = mode.startsWith("resume-") || mode === "workflow-resume";
         const earlyReport = mode.endsWith("-report");
+        const released = mode.startsWith("resume-checkpoint-released");
         const checkpointRecovery = mode.startsWith("resume-checkpoint-");
         let inspectUnavailable = false;
         let staleInspection: PluginThreadState | null = null;
@@ -144,7 +149,7 @@ it.live.each(modes)(
                 userMessageId: MessageId.make("message"),
                 rootNodeId: root,
                 activeAttemptId: attemptId,
-                status: "completed",
+                status: released ? "running" : "completed",
                 requestedAt: now,
                 startedAt: now,
                 completedAt: now,
@@ -273,7 +278,7 @@ it.live.each(modes)(
         const target = { ...test.scope, threadId };
         const before = yield* test.core.inspect(target);
         expect(before.outstandingWork.length).toBeGreaterThan(0);
-        expect(before.runs.map((run) => run.status)).toEqual(["completed"]);
+        expect(before.runs.map((run) => run.status)).toEqual([released ? "running" : "completed"]);
         const db = new NodeSqlite.DatabaseSync(test.databasePath);
         try {
           db.prepare(
@@ -310,6 +315,37 @@ it.live.each(modes)(
             .pipe(Effect.flatMap(decodeRun))).state,
         ).toBe("running");
         if (!resuming) yield* runtime.close;
+        if (released) {
+          yield* test.threads.dispatch({
+            type: "message.dispatch",
+            threadId,
+            commandId: CommandId.make("queued-before-stop"),
+            messageId: MessageId.make("queued-before-stop"),
+            text: "Held follow-up",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "user",
+            creationSource: "web",
+          });
+          const queued = yield* test.threads.getProjectThreadRecords(target, ["runs"]);
+          expect(queued.runs.find((item) => item.ordinal === 2)?.status).toBe("queued");
+          yield* test.sink.write({
+            events: [
+              {
+                id: EventId.make("root-settled-before-stop"),
+                type: "run.updated",
+                threadId,
+                runId,
+                occurredAt: now,
+                payload: {
+                  ...queued.runs.find((item) => item.id === runId)!,
+                  status: "completed",
+                  completedAt: now,
+                },
+              },
+            ],
+          });
+        }
         if (mode === "stop-followup" || resuming) {
           yield* test.threads.dispatch({
             type: "thread.stop",
@@ -452,10 +488,22 @@ it.live.each(modes)(
           "nodes",
           "turnItems",
         ]);
-        const next = follow.runs.find((item) => item.ordinal === 2)!;
+        const next = follow.runs.find((item) => item.ordinal === (released ? 3 : 2))!;
         expect(next).toBeDefined();
         const endedAt = DateTime.nowUnsafe();
         const status = mode === "failed-monitor" ? ("failed" as const) : ("completed" as const);
+        // Retain native child work across queue release so this generation cannot
+        // legitimately settle in the gap before the held submission starts.
+        const releaseBarrier = {
+          ...follow.nodes.find((item) => item.id === next.rootNodeId)!,
+          id: NodeId.make("queue-release-barrier"),
+          parentNodeId: next.rootNodeId,
+          kind: "tool_call" as const,
+          countsForRun: false,
+          status: "running" as const,
+          startedAt: endedAt,
+          completedAt: null,
+        };
         yield* test.sink.write({
           events: [
             {
@@ -491,8 +539,89 @@ it.live.each(modes)(
                   updatedAt: endedAt,
                 },
               })),
+            ...(released
+              ? [
+                  {
+                    id: EventId.make("retain-queue-release-child"),
+                    type: "node.updated" as const,
+                    threadId,
+                    runId: next.id,
+                    occurredAt: endedAt,
+                    payload: releaseBarrier,
+                  },
+                ]
+              : []),
           ],
         });
+        let checkpointOwner = next;
+        if (released) {
+          expect(
+            (yield* runtime
+              .invoke("get", { ...test.scope, runId: started.id })
+              .pipe(Effect.flatMap(decodeRun))).state,
+          ).toBe("running");
+          yield* test.threads.dispatch({
+            type: "queue.resume",
+            threadId,
+            commandId: CommandId.make("release-held"),
+          });
+          const queued = yield* test.threads.getProjectThreadRecords(target, [
+            "runs",
+            "nodes",
+            "turnItems",
+          ]);
+          checkpointOwner = queued.runs.find((item) => item.ordinal === 2)!;
+          expect(checkpointOwner.queueHeld).toBe(false);
+          const later = DateTime.makeUnsafe(DateTime.toEpochMillis(endedAt) + 1);
+          yield* test.sink.write({
+            events: [
+              {
+                id: EventId.make("released-run-complete"),
+                type: "run.updated",
+                threadId,
+                runId: checkpointOwner.id,
+                occurredAt: later,
+                payload: {
+                  ...checkpointOwner,
+                  status:
+                    mode === "resume-checkpoint-released-failed-followup" ? "failed" : "completed",
+                  startedAt: endedAt,
+                  completedAt: later,
+                },
+              },
+              ...queued.nodes
+                .filter((item) => item.runId === checkpointOwner.id)
+                .map((item) => ({
+                  id: EventId.make(`released-node:${item.id}`),
+                  type: "node.updated" as const,
+                  threadId,
+                  runId: checkpointOwner.id,
+                  occurredAt: later,
+                  payload: {
+                    ...item,
+                    status: "completed" as const,
+                    startedAt: endedAt,
+                    completedAt: later,
+                  },
+                })),
+              ...queued.turnItems
+                .filter((item) => item.runId === checkpointOwner.id)
+                .map((item) => ({
+                  id: EventId.make(`released-item:${item.id}`),
+                  type: "turn-item.updated" as const,
+                  threadId,
+                  runId: checkpointOwner.id,
+                  occurredAt: later,
+                  payload: {
+                    ...item,
+                    status: "completed" as const,
+                    completedAt: later,
+                    updatedAt: later,
+                  },
+                })),
+            ],
+          });
+        }
         if (checkpointRecovery)
           yield* test.sink.write({
             events: [
@@ -500,25 +629,112 @@ it.live.each(modes)(
                 id: EventId.make("resumed-checkpoint"),
                 type: "checkpoint.captured",
                 threadId,
-                runId: next.id,
+                runId: checkpointOwner.id,
                 occurredAt: endedAt,
                 payload: {
                   id: CheckpointId.make("resumed-checkpoint"),
                   threadId,
                   scopeId: CheckpointScopeId.make("resumed-scope"),
-                  runId: next.id,
-                  nodeId: next.rootNodeId!,
+                  runId: checkpointOwner.id,
+                  nodeId: checkpointOwner.rootNodeId!,
                   parentCheckpointId: null,
                   ordinalWithinScope: 1,
                   appRunOrdinal: 2,
                   ref: CheckpointRef.make("refs/t3/resumed-checkpoint"),
-                  status: mode === "resume-checkpoint-current-error" ? "error" : "ready",
+                  status:
+                    mode === "resume-checkpoint-current-error" ||
+                    mode === "resume-checkpoint-released-error"
+                      ? "error"
+                      : "ready",
                   files: [],
                   capturedAt: endedAt,
                 },
               },
             ],
           });
+        let latestResultId = checkpointOwner.id;
+        if (
+          mode === "resume-checkpoint-released-failed-followup" ||
+          mode === "resume-checkpoint-released-natural-followup"
+        ) {
+          yield* test.threads.dispatch({
+            type: "message.dispatch",
+            threadId,
+            commandId: CommandId.make("ordinary-after-failure"),
+            messageId: MessageId.make("ordinary-after-failure"),
+            text: "Native followup",
+            attachments: [],
+            dispatchMode: { type: "defer_start" },
+            createdBy: "user",
+            creationSource: "web",
+          });
+          const continued = yield* test.threads.getProjectThreadRecords(target, [
+            "runs",
+            "nodes",
+            "turnItems",
+          ]);
+          const last = continued.runs.find((item) => item.ordinal === 4)!;
+          expect(last).toBeDefined();
+          latestResultId = last.id;
+          const later = DateTime.makeUnsafe(DateTime.toEpochMillis(endedAt) + 2);
+          yield* test.sink.write({
+            events: [
+              {
+                id: EventId.make("ordinary-run-complete"),
+                type: "run.updated",
+                threadId,
+                runId: last.id,
+                occurredAt: later,
+                payload: { ...last, status: "completed", startedAt: later, completedAt: later },
+              },
+              ...continued.nodes
+                .filter((item) => item.runId === last.id)
+                .map((item) => ({
+                  id: EventId.make(`ordinary-node:${item.id}`),
+                  type: "node.updated" as const,
+                  threadId,
+                  runId: last.id,
+                  occurredAt: later,
+                  payload: { ...item, status: "completed" as const, completedAt: later },
+                })),
+              ...continued.turnItems
+                .filter((item) => item.runId === last.id)
+                .map((item) => ({
+                  id: EventId.make(`ordinary-item:${item.id}`),
+                  type: "turn-item.updated" as const,
+                  threadId,
+                  runId: last.id,
+                  occurredAt: later,
+                  payload: {
+                    ...item,
+                    status: "completed" as const,
+                    completedAt: later,
+                    updatedAt: later,
+                  },
+                })),
+            ],
+          });
+        }
+        if (released) {
+          expect(
+            (yield* runtime
+              .invoke("get", { ...test.scope, runId: started.id })
+              .pipe(Effect.flatMap(decodeRun))).state,
+          ).toBe("running");
+          const settledAt = DateTime.makeUnsafe(DateTime.toEpochMillis(endedAt) + 3);
+          yield* test.sink.write({
+            events: [
+              {
+                id: EventId.make("settle-queue-release-child"),
+                type: "node.updated",
+                threadId,
+                runId: next.id,
+                occurredAt: settledAt,
+                payload: { ...releaseBarrier, status: "completed", completedAt: settledAt },
+              },
+            ],
+          });
+        }
         if (!resuming) runtime = yield* test.boot(host);
         yield* runtime.invoke("reconcile", test.scope);
         yield* runtime.invoke("reconcile", test.scope);
@@ -537,6 +753,8 @@ it.live.each(modes)(
           "failed-followup",
           "interrupted-followup",
           "resume-checkpoint-current-error",
+          "resume-checkpoint-released-error",
+          "resume-checkpoint-released-failed-followup",
         ].includes(mode);
         const expected = unsuccessful ? "unresolved" : "awaiting-review";
         if (mode === "stop-followup")
@@ -554,11 +772,35 @@ it.live.each(modes)(
         expect(retained.state).toBe(expected);
         expect(current.attempts[0]!.resumeCount).toBe(resuming ? 1 : 0);
         expect(admittedSends).toBe(resuming ? 1 : 0);
-        expect(native.runs).toHaveLength(2);
+        expect(native.runs).toHaveLength(
+          mode.endsWith("-followup") && released ? 4 : released ? 3 : 2,
+        );
+        if (released) expect(native.resultRunId).toBe(latestResultId);
         if (resuming) {
           expect(current.attempts[0]!.report).not.toBeNull();
           expect(current.attempts[0]!.executionRunId).toBe(next.id);
           expect(retained.attempts[0]!.executionRunId).toBe(next.id);
+        }
+        if (released) {
+          const recorded = yield* test.threads.getProjectThreadRecords(target, [
+            "runs",
+            "checkpoints",
+          ]);
+          const queuedResult = recorded.runs.find((item) => item.id === checkpointOwner.id)!;
+          const resumedResult = recorded.runs.find((item) => item.id === next.id)!;
+          expect(queuedResult.ordinal).toBeLessThan(resumedResult.ordinal);
+          expect(DateTime.toEpochMillis(queuedResult.completedAt!)).toBeGreaterThan(
+            DateTime.toEpochMillis(resumedResult.completedAt!),
+          );
+          expect(recorded.checkpoints.find((item) => item.id === "resumed-checkpoint")?.runId).toBe(
+            queuedResult.id,
+          );
+          expect(
+            recorded.checkpoints.find((item) => item.id === "resumed-checkpoint")?.status,
+          ).toBe(mode.endsWith("-error") ? "error" : "ready");
+          expect(queuedResult.status).toBe(
+            mode === "resume-checkpoint-released-failed-followup" ? "failed" : "completed",
+          );
         }
         if (unsuccessful) expect(current.allowedActions).not.toContain("approve");
       }),

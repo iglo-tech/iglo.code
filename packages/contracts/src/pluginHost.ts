@@ -152,10 +152,12 @@ export const PluginThreadState = Schema.Struct({
   nativeSession: Schema.optional(
     Schema.NullOr(Schema.Struct({ id: Schema.String, canResume: Schema.Boolean })),
   ),
+  /** Native execution order; held submissions can execute after newer runs. */
   runs: Schema.Array(
     Schema.Struct({
       id: Schema.String,
       status: Schema.String,
+      startedAt: Schema.optional(Schema.NullOr(Schema.Number)),
       queueHeld: Schema.optional(Schema.Boolean),
       interruptRequested: Schema.optional(Schema.Boolean),
       /** Monitor-only executions do not determine an owned operation's result. */

@@ -983,17 +983,44 @@ const make = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     if (now < Math.min(attempt.deadline ?? Infinity, attempt.lastActiveAt + attempt.remainingMs))
       return true;
-    if (
-      ["reminding", "resuming"].includes(attempt.phase) &&
-      (yield* host.receipt(
-        commandId(
-          attempt,
-          attempt.phase === "resuming" ? "resume" : "reminder",
-          attempt.phase === "resuming" ? attempt.resumeCount : undefined,
-        ),
-      ))?.status === "accepted"
-    )
-      return true;
+    const operation =
+      attempt.phase === "launching"
+        ? "launch"
+        : attempt.phase === "resuming"
+          ? "resume"
+          : "reminder";
+    const id = commandId(
+      attempt,
+      operation,
+      operation === "resume" ? attempt.resumeCount : undefined,
+    );
+    if ((yield* host.receipt(id))?.status === "accepted") {
+      if (operation !== "launch") return true;
+      const state = yield* host.inspect(target(run, attempt));
+      const execution =
+        state.runs.find((run) => run.admissionCommandId === id) ??
+        (state.runs.every((run) => run.admissionCommandId === undefined)
+          ? state.runs.find((run) => run.resultRelevant !== false)
+          : undefined);
+      // A create receipt can precede preparation. Only started execution can use
+      // persisted settlement accounting instead of the uncommitted launch deadline.
+      if (
+        execution &&
+        (execution.startedAt != null ||
+          (execution.startedAt === undefined &&
+            [
+              "starting",
+              "running",
+              "waiting",
+              "completed",
+              "failed",
+              "interrupted",
+              "cancelled",
+              "rolled_back",
+            ].includes(execution.status)))
+      )
+        return true;
+    }
     yield* transaction(
       "launch-timeout",
       Effect.gen(function* () {
