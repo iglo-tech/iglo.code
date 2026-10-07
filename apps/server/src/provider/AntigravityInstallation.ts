@@ -410,6 +410,7 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
       yield* resolveBunExecutable("Antigravity", environment).pipe(
         Effect.provideService(FileSystem.FileSystem, fs),
         Effect.provideService(Path.Path, path),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.provideService(HostProcessPlatform, platform),
         Effect.mapError((cause) =>
           installationError("verify", bunRuntimeUnavailableMessage("Antigravity"), cause),
