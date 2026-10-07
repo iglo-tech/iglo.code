@@ -20,6 +20,7 @@ it.live.each(["sensitive-environment", "github-token", "bitbucket-control"] as c
       Effect.gen(function* () {
         const test = yield* makeCoreWorkflowFixture;
         const settings = Context.get(test.context, Settings.ServerSettingsService);
+        const fixtureInstance = ProviderInstanceId.make("redaction_fixture");
         // Fabricated fixture data; no real accounts, user state or credentials are consulted.
         const marker = 'private"fixture\nsensitive-marker';
         if (scenario === "sensitive-environment") {
@@ -27,7 +28,7 @@ it.live.each(["sensitive-environment", "github-token", "bitbucket-control"] as c
           yield* settings.updateSettings({
             providerInstances: {
               ...previous.providerInstances,
-              redaction_fixture: {
+              [fixtureInstance]: {
                 driver: ProviderDriverKind.make("codex"),
                 enabled: false,
                 config: {},
@@ -36,7 +37,7 @@ it.live.each(["sensitive-environment", "github-token", "bitbucket-control"] as c
             },
           });
           const client = Settings.redactServerSettingsForClient(yield* settings.getSettings);
-          expect(client.providerInstances.redaction_fixture?.environment?.[0]?.value).toBe("");
+          expect(client.providerInstances[fixtureInstance]?.environment?.[0]?.value).toBe("");
         } else if (scenario === "github-token") {
           yield* settings.updateSettings({ github: { tokens: { "fixture.invalid": marker } } });
           expect(
