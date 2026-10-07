@@ -19,6 +19,7 @@ import * as Schema from "effect/Schema";
 import { sweepStalePendingAttachments } from "./attachmentStore.ts";
 import { DEFAULT_SIGNAL_EXPORT, type SignalExport } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
+import { HostProcessExecutablePath, HostProcessIsExecutable } from "@t3tools/shared/hostProcess";
 
 export const DEFAULT_PORT = 3773;
 
@@ -252,15 +253,18 @@ export const layerTest = (cwd: string, baseDirOrPrefix: string | { readonly pref
   Layer.effect(ServerConfig, makeTest(cwd, baseDirOrPrefix));
 
 export const resolveStaticDir = Effect.fn(function* () {
-  const { join, resolve } = yield* Path.Path;
+  const { dirname, join, resolve } = yield* Path.Path;
   const { exists } = yield* FileSystem.FileSystem;
-  const bundledClient = resolve(join(import.meta.dirname, "client"));
+  const isExecutable = yield* HostProcessIsExecutable;
+  const moduleDir = isExecutable ? dirname(yield* HostProcessExecutablePath) : import.meta.dirname;
+  const bundledClient = resolve(join(moduleDir, "client"));
   const bundledStat = yield* exists(join(bundledClient, "index.html")).pipe(
     Effect.orElseSucceed(() => false),
   );
   if (bundledStat) {
     return bundledClient;
   }
+  if (isExecutable) return undefined;
 
   const monorepoClient = resolve(join(import.meta.dirname, "../../web/dist"));
   const monorepoStat = yield* exists(join(monorepoClient, "index.html")).pipe(

@@ -29,7 +29,6 @@ export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   "@cursor/sdk",
   // Playwright reads package.json and browsers.json beside its runtime modules.
   "playwright-core",
-  "node-pty",
   "ffi-rs",
   "@yuuang/",
   "@ff-labs/",
@@ -77,8 +76,8 @@ export function isRuntimeExternalCliDependency(id: string): boolean {
  * `alwaysBundle`. `alwaysBundle` only forces packages IN — returning false from
  * it means "no opinion", and the default then applies: a declared dependency
  * stays external, but a transitive one gets bundled. That is how a native
- * loader such as node-gyp-build ended up inlined while node-pty (a declared
- * dependency) stayed external.
+ * loader such as node-gyp-build ended up inlined while a declared native
+ * dependency stayed external.
  */
 export function isExternalCliDependency(id: string): boolean {
   return isRuntimeExternalCliDependency(id);

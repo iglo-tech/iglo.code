@@ -13,6 +13,22 @@ const write = Effect.gen(function* () {
   yield* sql`PRAGMA journal_mode = WAL`;
   yield* sql`PRAGMA busy_timeout = 0`;
   yield* sql`CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT UNIQUE, large INTEGER)`;
+  const flags = yield* sql<{ enabled: number; disabled: number }>`
+    SELECT ${true} AS enabled, ${false} AS disabled
+  `;
+  NodeAssert.equal(flags[0]?.enabled, 1);
+  NodeAssert.equal(flags[0]?.disabled, 0);
+  NodeAssert.equal(
+    (yield* sql<{ disabled: number }>`SELECT ${false} AS disabled`.unprepared)[0]?.disabled,
+    0,
+  );
+  NodeAssert.equal((yield* sql<{ enabled: number }>`SELECT ${true} AS enabled`.raw)[0]?.enabled, 1);
+  NodeAssert.deepEqual(yield* sql`SELECT ${true}, ${false}`.values, [[1, 0]]);
+  NodeAssert.deepEqual(yield* sql`SELECT ${false}`.valuesUnprepared, [[0]]);
+  yield* sql`CREATE TABLE flags(enabled INTEGER)`;
+  yield* sql`INSERT INTO flags VALUES (${true})`;
+  yield* sql`INSERT INTO flags VALUES (${false})`.values;
+  NodeAssert.deepEqual(yield* sql`SELECT enabled FROM flags ORDER BY enabled`.values, [[0], [1]]);
   yield* sql`INSERT INTO entries VALUES (1, ${"kept"}, ${value})`;
   const duplicate = yield* sql`INSERT INTO entries VALUES (2, ${"kept"}, 0)`.pipe(Effect.flip);
   NodeAssert.equal(duplicate.reason._tag, "UniqueViolation");

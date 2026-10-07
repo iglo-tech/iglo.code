@@ -25,6 +25,7 @@ import {
   ServerCliDevelopmentIconSourceMissingError,
   ServerCliDevelopmentIconTargetMissingError,
   ServerCliExecutableImportError,
+  ServerCliExecutableBuildConfigurationError,
 } from "./cliErrors.ts";
 import { publishPlatformsThenLauncher } from "./publishOrder.ts";
 
@@ -137,14 +138,14 @@ const buildExeCmd = Command.make(
       const hostArch = yield* HostProcessArchitecture;
       const target = Option.getOrElse(config.target, () => `${hostPlatform}-${hostArch}`);
       if (!CLI_ARCHIVE_PLATFORM_KEYS.some((supported) => supported === target)) {
-        return yield* Effect.fail(
-          new Error(
-            `Unsupported CLI target "${target}". Supported targets: ${CLI_ARCHIVE_PLATFORM_KEYS.join(", ")}.`,
-          ),
-        );
+        return yield* new ServerCliExecutableBuildConfigurationError({
+          message: `Unsupported CLI target "${target}". Supported targets: ${CLI_ARCHIVE_PLATFORM_KEYS.join(", ")}.`,
+        });
       }
       if (process.versions.bun !== BUN_VERSION) {
-        return yield* Effect.fail(new Error(`Build the CLI with Bun ${BUN_VERSION}.`));
+        return yield* new ServerCliExecutableBuildConfigurationError({
+          message: `Build the CLI with Bun ${BUN_VERSION}.`,
+        });
       }
       yield* Effect.log("[cli] Building Bun executable...");
       const spawnCommand = yield* resolveSpawnCommand("vp", ["pack"]);
