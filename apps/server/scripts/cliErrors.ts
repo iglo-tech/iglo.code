@@ -58,3 +58,10 @@ export class ServerCliExecutableImportError extends Schema.TaggedError<ServerCli
     return `${this.bundlePath} imports file-backed packages that a single-executable cannot resolve: ${this.specifiers.join(", ")}. Load them through createRequire instead.`;
   }
 }
+
+export class ServerCliExecutableBuildConfigurationError extends Schema.TaggedError<ServerCliExecutableBuildConfigurationError>()(
+  "ServerCliExecutableBuildConfigurationError",
+  {
+    message: Schema.String,
+  },
+) {}
