@@ -2,6 +2,8 @@ import type { PluginTool } from "@t3tools/plugin-host-contract/server";
 import * as Schema from "effect/Schema";
 import { McpSchema } from "effect/ai";
 
+const decodeObjectOutput = Schema.decodeUnknownSync(McpSchema.ToolJson);
+
 /** Use the same wire descriptor for guarded validation and MCP publication. */
 export const make = (tool: PluginTool) => {
   const input = Schema.toJsonSchemaDocument(tool.input);
@@ -15,11 +17,11 @@ export const make = (tool: PluginTool) => {
       ...input.schema,
       ...(Object.keys(input.definitions).length === 0 ? {} : { $defs: input.definitions }),
     },
-    outputSchema: {
+    outputSchema: decodeObjectOutput({
       type: "object",
       ...output.schema,
       ...(Object.keys(output.definitions).length === 0 ? {} : { $defs: output.definitions }),
-    },
+    }),
     annotations: {
       readOnlyHint: tool.permission.readOnly,
       destructiveHint: tool.permission.destructive,
