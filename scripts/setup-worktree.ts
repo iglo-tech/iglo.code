@@ -1,8 +1,8 @@
-// @effect-diagnostics nodeBuiltinImport:off - runs before `vp i`, so only Node built-ins exist.
+// @effect-diagnostics nodeBuiltinImport:off - runs before `vp i`, so only runtime built-ins exist.
 /**
  * Worktree setup, run by the t3.json "Setup Worktree" action as
- * `node scripts/setup-worktree.ts`. Plain Node keeps one command working in
- * every shell T3 Code spawns (zsh, bash, fish, PowerShell): it installs
+ * `bun scripts/setup-worktree.ts`. Bun keeps one command working in
+ * every supported shell T3 Code spawns (zsh, bash, fish): it installs
  * dependencies, links the main checkout's gitignored env files into this
  * worktree, then warms the web dependency cache.
  */

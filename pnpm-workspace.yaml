@@ -17,7 +17,6 @@ allowBuilds:
   esbuild: true
   msgpackr-extract: true
   msw: false
-  node-pty: true
   sharp: true
   utf-8-validate: false
   workerd: false
@@ -183,7 +182,6 @@ patchedDependencies:
   # measured wrapped-row heights above an edit (fileEditorVirtualization.test.ts).
   "@pierre/diffs@1.5.2": patches/@pierre%2Fdiffs@1.5.2.patch
   effect@4.0.1: patches/effect@4.0.1.patch
-  node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch
 peerDependencyRules:
   allowAny:
     - vite

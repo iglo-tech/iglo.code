@@ -180,7 +180,9 @@ async function terminalMilestone(
       Stream.take(1),
       Stream.runHead,
     ),
-  );
+  ).catch((error: unknown) => {
+    throw new Error(`Terminal milestone ${predicate.toString()}: ${String(error)}`);
+  });
   NodeAssert.ok(Option.isSome(result), "The terminal stream must expose the requested milestone.");
   return result.value;
 }
@@ -309,6 +311,7 @@ export async function runWebClientRegression(
       await page.goto(primaryPairing);
       NodeAssert.equal((await paired).status(), 200);
       await page.waitForURL((url) => url.pathname !== "/pair");
+      pairingActive = getPairingTokenFromUrl(new URL(page.url())) !== null;
       await visible(page.getByText("Project environment-a", { exact: true }).first());
       await page.goto(new URL(seeded.route, primary.origin).href);
       await visible(page.getByTestId("composer-editor"));
@@ -329,12 +332,20 @@ export async function runWebClientRegression(
       await sendMessage(page, "Run the controlled streaming turn");
       await visible(page.getByText("Streaming from environment-a", { exact: true }));
       await visible(
-        page.getByRole("button", { name: /^(?:Running printf|Ran printf|Ran 1 command)$/ }).first(),
+        page
+          .getByRole("button", {
+            name: /^(?:printf fixture-tool|Running printf|Ran printf|Ran 1 command)$/,
+          })
+          .first(),
       );
       await visible(page.getByRole("button", { name: "Stop generation", exact: true }));
       await releaseProvider(dependencies);
       await visible(page.getByText("Finished from environment-a.", { exact: true }));
-      await visible(page.getByRole("button", { name: /^(?:Ran printf|Ran 1 command)$/ }).first());
+      await visible(
+        page
+          .getByRole("button", { name: /^(?:printf fixture-tool|Ran printf|Ran 1 command)$/ })
+          .first(),
+      );
       await page
         .getByRole("button", { name: "Stop generation", exact: true })
         .waitFor({ state: "hidden" });
@@ -357,19 +368,46 @@ export async function runWebClientRegression(
         .filter({ hasText: "Thread environment-a" });
       await settledRow.hover();
       await settledRow.getByRole("button", { name: "Un-settle thread", exact: true }).click();
+      await page.goto(new URL(seeded.route, primary.origin).href);
+      await visible(page.getByTestId("composer-editor"));
     });
 
     await milestone("terminal input, output, resize, error and exit", async () => {
+      await page.setViewportSize({ width: 1280, height: 900 });
       await addSurface(page, "Terminal");
       const inputField = page.getByLabel("Terminal input").first();
       await visible(inputField);
+      // The textarea appears before fonts/WASM finish loading. Wait for the
+      // public canvas to paint the shell prompt before sending real keystrokes.
+      await page.waitForFunction(`() => {
+        const input = document.querySelector('textarea[aria-label="Terminal input"]');
+        const canvas = input?.parentElement?.querySelector('canvas');
+        if (!canvas || !canvas.width || !canvas.height) return false;
+        const pixels = canvas.getContext("2d")?.getImageData(
+          0, 0, Math.min(canvas.width, 300), Math.min(canvas.height, 100)
+        ).data;
+        if (!pixels) return false;
+        let ink = 0;
+        for (let i = 4; i < pixels.length; i += 4) {
+          if (Math.abs(pixels[i] - pixels[0]) > 40
+            || Math.abs(pixels[i + 1] - pixels[1]) > 40
+            || Math.abs(pixels[i + 2] - pixels[2]) > 40) ink += 1;
+        }
+        return ink >= 20;
+      }`);
+      await page.screenshot({ path: NodePath.join(artifacts, "terminal-ready.png") });
       await withRegressionRpc(primary, async (client) => {
+        NodeAssert.equal(await inputField.getAttribute("readonly"), null);
         await inputField.pressSequentially("printf 'terminal-io-fixture\\n'");
         await inputField.press("Enter");
+        NodeAssert.equal(
+          await inputField.inputValue(),
+          "",
+          "The rendered terminal must consume keyboard input.",
+        );
         await terminalMilestone(client, seeded.threadId, (event) =>
           /\r?\nterminal-io-fixture\r?\n/.test(terminalText(event)),
         );
-        await page.setViewportSize({ width: 1280, height: 900 });
         await requestRpc(
           client[WS_METHODS.terminalResize]({
             threadId: seeded.threadId,
@@ -431,6 +469,10 @@ export async function runWebClientRegression(
         exact: true,
       });
       await visible(updateChecks);
+      await page.waitForFunction(
+        (element) => element?.getAttribute("aria-checked") === "false",
+        await updateChecks.elementHandle(),
+      );
       await withRegressionRpc(primary, async (client) => {
         await updateChecks.click();
         const saved = await requestRpc(
@@ -620,6 +662,20 @@ export async function runWebClientRegression(
       "The real client must not throw unhandled page errors.",
     );
   } catch (error) {
+    await NodeFSP.writeFile(
+      NodePath.join(artifacts, "page-errors.log"),
+      browserErrors.map(redact).join("\n"),
+    );
+    if (!pairingActive)
+      await NodeFSP.writeFile(
+        NodePath.join(artifacts, "page.txt"),
+        redact(
+          await page
+            .locator("body")
+            .innerText()
+            .catch(() => "Page unavailable"),
+        ),
+      );
     if (!pairingActive)
       await page
         .screenshot({ path: NodePath.join(artifacts, "failure.png") })

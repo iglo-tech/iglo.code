@@ -63,7 +63,7 @@ const tempRoot = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-release-s
 try {
   NodeChildProcess.execFileSync(
     process.execPath,
-    ["--test", NodePath.resolve(repoRoot, ".github/scripts/relay-state-output.test.cjs")],
+    ["test", NodePath.resolve(repoRoot, ".github/scripts/relay-state-output.test.cjs")],
     { stdio: "inherit" },
   );
 

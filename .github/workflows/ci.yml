@@ -35,6 +35,11 @@ jobs:
             exit 1
           fi
 
+      - name: Setup Bun application runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -60,6 +65,11 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Setup Bun application runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -87,6 +97,11 @@ jobs:
       - uses: ./.github/actions/setup-apt-mirrors
 
       # Runs in the background while Vite+ installs; the step before the build waits for it.
+      - name: Setup Bun application runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -122,6 +137,11 @@ jobs:
 
       - uses: ./.github/actions/setup-apt-mirrors
 
+      - name: Setup Bun application runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -149,6 +169,11 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Setup Bun application runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -183,6 +208,11 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - name: Setup Bun application runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -191,7 +221,7 @@ jobs:
           run-install: true
 
       - name: Install Chromium for server browser integration tests
-        run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+        run: bun apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
 
       - name: Test
         env:
@@ -291,6 +321,11 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - name: Setup Bun application runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -301,7 +336,7 @@ jobs:
               - --filter=@t3tools/scripts...
 
       - name: Exercise release-only workflow steps
-        run: node scripts/release-smoke.ts
+        run: bun scripts/release-smoke.ts
 
   # Branch protection requires this job by its name, `Check`. It fails when any
   # other job fails, is cancelled, or is skipped without a reason, so splitting

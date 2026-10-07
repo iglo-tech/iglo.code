@@ -1,7 +1,7 @@
 # Open source license notices
 
 The web build emits `third-party-licenses.json` beside `index.html`. The Settings page loads that
-static file, so the same artifact works in hosted web, the client bundled with `npx t3`, and
+static file, so the same artifact works in hosted web, the client bundled with `t3`, and
 desktop. It does not depend on the connected environment or an RPC.
 
 ## What the build collects

@@ -24,6 +24,13 @@ rm -f "$installer"
 test -x "$VP_BIN_DIR/vp"
 sudo ln -sf "$VP_BIN_DIR/vp" /usr/local/bin/vp
 
+# Install the same application runtime used by source and release checks.
+bun_version=$(cat .bun-version)
+curl -fsSL https://bun.com/install -o "$installer"
+bash "$installer" "bun-v$bun_version"
+rm -f "$installer"
+sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
+
 # First-run terminal notice, rendered by the devcontainers base image.
 sudo mkdir -p /usr/local/etc/vscode-dev-containers
 sudo tee /usr/local/etc/vscode-dev-containers/first-run-notice.txt >/dev/null <<'EOF'

@@ -2,19 +2,16 @@
 
 ## First checkout
 
-The checkout requires Node 24 and Vite+ (`vp`); Bun is optional. Set up a coding agent
+The application runs on Bun 1.4.0 or newer on macOS arm64, Linux x64, and Linux
+arm64. Development and packaging use the version pinned in `.bun-version`.
+The retained Vite+/pnpm contributor toolchain uses Node 24 independently of the
+application runtime. Install Bun and Vite+ (`vp`) before starting the server. Set up a coding agent
 using the [provider guide](../user/install.md#providers).
 
 Install `vp` on macOS or Linux:
 
 ```sh
 curl -fsSL https://vite.plus | bash
-```
-
-On Windows, use PowerShell:
-
-```powershell
-irm https://vite.plus/ps1 | iex
 ```
 
 Clone the fork and start it:
@@ -134,8 +131,10 @@ vp run --filter <package> typecheck
 
 CI owns the full suite; see
 [ci.yml](../../.github/workflows/ci.yml) for its current jobs.
-The [manual Windows lane](../../.github/workflows/windows-tests.yml) is available for focused
-Windows investigation while that suite is not a required gate.
+The [Bun runtime lane](../../.github/workflows/bun-runtime.yml) exercises source
+and extracted archives on each supported target, including their real web clients.
+Run `bun scripts/smoke-cli-archive.ts --source` for the source transport/persistence
+check, or pass `--archive <path> --expect-version <version>` for an archive.
 
 ### Unused code
 
