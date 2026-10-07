@@ -103,8 +103,10 @@ const decodeDisplay = Schema.decodeUnknownEffect(Run);
 const decodeSummary = Schema.decodeUnknownEffect(RunSummary);
 const decodeStart = Schema.decodeUnknownEffect(StartInput);
 const activeRun = (state: PluginThreadState) =>
-  state.runs.findLast((run) =>
-    ["preparing", "queued", "starting", "running", "waiting"].includes(run.status),
+  state.runs.findLast(
+    (run) =>
+      ["preparing", "queued", "starting", "running", "waiting"].includes(run.status) &&
+      !(run.status === "queued" && run.queueHeld === true),
   );
 const target = (run: Run, attempt: Attempt): PluginTarget => ({
   environmentId: run.environmentId,
@@ -625,7 +627,9 @@ const make = Effect.gen(function* () {
         // Revoke undispatched follow-up work atomically with the immutable report receipt.
         yield* host.cancelPending(target(run, attempt));
         attempt.report = { ...input, receipt };
-        attempt.phase = attempt.waitStartedAt === null ? "reported" : "waiting-input";
+        // Receipt-backed Resume must retain its new execution before settlement.
+        if (attempt.phase !== "resuming")
+          attempt.phase = attempt.waitStartedAt === null ? "reported" : "waiting-input";
         yield* sql`INSERT INTO workflow_reports (attempt_id, digest, receipt) VALUES (${attempt.id}, ${payloadDigest}, ${yield* encodeReceipt(receipt)})`;
         yield* persist(run);
         return receipt;
@@ -780,6 +784,20 @@ const make = Effect.gen(function* () {
       for (const id of admissionIds(attempt)) yield* host.receipt(id);
       // Read native work after admission settles, under the same lock as owner decisions.
       const state = yield* host.inspect(target(run, attempt));
+      // Native follow-ups belong to this generation until explicit Resume retains
+      // a new execution. Historical failures and checkpoints stay with their owner.
+      const generation = state.runs.slice(
+        Math.max(
+          0,
+          state.runs.findIndex((run) => run.id === attempt.executionRunId),
+        ),
+      );
+      const generationIds = new Set(
+        generation.filter((run) => run.resultRelevant !== false).map((run) => run.id),
+      );
+      const checkpoints = state.checkpoints.filter(
+        (checkpoint) => checkpoint.runId == null || generationIds.has(checkpoint.runId),
+      );
       const now = yield* Clock.currentTimeMillis;
       const before = mutation;
       yield* sql.withTransaction(
@@ -792,7 +810,7 @@ const make = Effect.gen(function* () {
           const pending =
             active ||
             state.outstandingWork.length > 0 ||
-            state.checkpoints.some((checkpoint) =>
+            checkpoints.some((checkpoint) =>
               ["pending", "capturing", "running"].includes(checkpoint.status),
             );
           // Settled native work ends the execution clock before delayed recovery.
@@ -874,7 +892,7 @@ const make = Effect.gen(function* () {
             } else if (
               active ||
               state.outstandingWork.length > 0 ||
-              state.checkpoints.some((checkpoint) =>
+              checkpoints.some((checkpoint) =>
                 ["pending", "capturing", "running"].includes(checkpoint.status),
               )
             )
@@ -884,14 +902,6 @@ const make = Effect.gen(function* () {
                 (run) => state.resultRunId === undefined || run.id === state.resultRunId,
               );
               if (!execution) return;
-              // Native follow-ups belong to this generation until an explicit Resume
-              // retains a new execution identity. They cannot erase earlier failure.
-              const generation = state.runs.slice(
-                Math.max(
-                  0,
-                  state.runs.findIndex((run) => run.id === attempt.executionRunId),
-                ),
-              );
               if (
                 generation.some(
                   (run) =>
@@ -916,7 +926,7 @@ const make = Effect.gen(function* () {
               } else if (
                 generation.some((run) => run.resultRelevant !== false && run.status === "failed") ||
                 execution.status === "failed" ||
-                state.checkpoints.some((checkpoint) =>
+                checkpoints.some((checkpoint) =>
                   ["failed", "missing", "error", "stale"].includes(checkpoint.status),
                 )
               ) {

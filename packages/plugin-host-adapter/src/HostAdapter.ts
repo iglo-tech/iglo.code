@@ -201,8 +201,13 @@ const make = Effect.gen(function* () {
         ),
       );
     const runs = records.runs.toSorted((left, right) => left.ordinal - right.ordinal);
-    const abandoned = new Set(
-      runs.filter((run) => run.status === "rolled_back").map((run) => run.id),
+    const inactiveRuns = new Set(
+      runs
+        .filter(
+          (run) =>
+            run.status === "rolled_back" || (run.status === "queued" && run.queueHeld === true),
+        )
+        .map((run) => run.id),
     );
     const background = derivePendingBackgroundWork({
       latestRun: latestUnheldRun(runs),
@@ -221,8 +226,9 @@ const make = Effect.gen(function* () {
     // Aggregate readiness uses the same live-work view as the normalized roster.
     const progress = delegatedTaskProgress({
       ...records,
+      runs: runs.filter((run) => !inactiveRuns.has(run.id)),
       subagents: records.subagents.filter(
-        (task) => task.runId === null || !abandoned.has(task.runId),
+        (task) => task.runId === null || !inactiveRuns.has(task.runId),
       ),
       providerThreads: [{ pendingBackgroundTasks: background }],
     });
@@ -246,13 +252,13 @@ const make = Effect.gen(function* () {
     const outstandingWork = [
       ...(preparationId === undefined ? [] : [{ id: preparationId, status: "running" }]),
       ...(progress.state !== "result_available" &&
-      runs.some((run) => !monitorRuns.has(run.id) && !abandoned.has(run.id))
+      runs.some((run) => !monitorRuns.has(run.id) && !inactiveRuns.has(run.id))
         ? [{ id: `${target.threadId}:core-work`, status: progress.state }]
         : []),
       ...records.nodes
         .filter(
           (node) =>
-            (node.runId === null || !abandoned.has(node.runId)) &&
+            (node.runId === null || !inactiveRuns.has(node.runId)) &&
             ["pending", "running", "waiting"].includes(node.status),
         )
         .map((node) => ({ id: node.id, status: node.status })),
@@ -260,25 +266,25 @@ const make = Effect.gen(function* () {
     ];
     const completedAt = [
       ...runs
-        .filter((run) => !monitorRuns.has(run.id) && !abandoned.has(run.id))
+        .filter((run) => !monitorRuns.has(run.id) && !inactiveRuns.has(run.id))
         .map((run) => run.completedAt),
       ...records.nodes
         .filter(
           (node) =>
-            node.runId === null || (!monitorRuns.has(node.runId) && !abandoned.has(node.runId)),
+            node.runId === null || (!monitorRuns.has(node.runId) && !inactiveRuns.has(node.runId)),
         )
         .map((node) => node.completedAt),
       ...records.turnItems
         .filter(
           (item) =>
-            item.runId === null || (!monitorRuns.has(item.runId) && !abandoned.has(item.runId)),
+            item.runId === null || (!monitorRuns.has(item.runId) && !inactiveRuns.has(item.runId)),
         )
         .map((item) => item.completedAt),
       ...records.subagents
-        .filter((task) => task.runId === null || !abandoned.has(task.runId))
+        .filter((task) => task.runId === null || !inactiveRuns.has(task.runId))
         .map((task) => task.completedAt),
       ...records.checkpoints
-        .filter((checkpoint) => checkpoint.runId === null || !abandoned.has(checkpoint.runId))
+        .filter((checkpoint) => checkpoint.runId === null || !inactiveRuns.has(checkpoint.runId))
         .map((checkpoint) => checkpoint.capturedAt),
     ]
       .filter((time) => time !== null)
@@ -302,6 +308,7 @@ const make = Effect.gen(function* () {
       runs: runs.map((run) => ({
         id: run.id,
         status: run.status,
+        queueHeld: run.queueHeld,
         resultRelevant: !monitorRuns.has(run.id),
         ...(run.userMessageId.length > ":message".length && run.userMessageId.endsWith(":message")
           ? { admissionCommandId: CommandId.make(run.userMessageId.slice(0, -":message".length)) }
@@ -331,6 +338,7 @@ const make = Effect.gen(function* () {
         id: checkpoint.id,
         status: checkpoint.status,
         commit: checkpoint.ref,
+        runId: checkpoint.runId,
       })),
     };
   });

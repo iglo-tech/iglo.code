@@ -22,7 +22,12 @@ import { makeCoreWorkflowFixture } from "./WorkflowsCore.testkit.ts";
 
 const decodeRun = Schema.decodeUnknownEffect(Run);
 
-it.live.each(["manual-stop", "natural-completion", "workflow-cancel"] as const)(
+it.live.each([
+  "manual-stop",
+  "manual-stop-with-queue",
+  "natural-completion",
+  "workflow-cancel",
+] as const)(
   "honors explicit native stop after report with outstanding background work: %s",
   (mode) =>
     Effect.scoped(
@@ -197,7 +202,40 @@ it.live.each(["manual-stop", "natural-completion", "workflow-cancel"] as const)(
             .invoke("get", { ...test.scope, runId: started.id })
             .pipe(Effect.flatMap(decodeRun))).state,
         ).toBe("running");
-        if (mode === "manual-stop") {
+        if (mode === "manual-stop-with-queue") {
+          const original = (yield* test.threads.getProjectThreadRecords(target, [
+            "runs",
+          ])).runs.find((run) => run.id === runId)!;
+          yield* test.sink.write({
+            events: [
+              {
+                id: EventId.make("provider-still-running"),
+                type: "run.updated",
+                threadId,
+                runId,
+                occurredAt: now,
+                payload: { ...original, status: "running", completedAt: null },
+              },
+            ],
+          });
+          yield* test.threads.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("queued-native-message"),
+            messageId: MessageId.make("queued-native-message"),
+            threadId,
+            text: "Ordinary queued follow-up",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "user",
+            creationSource: "web",
+          });
+          expect(
+            (yield* test.threads.getProjectThreadRecords(target, ["runs"])).runs.filter(
+              (run) => run.status === "queued",
+            ),
+          ).toHaveLength(1);
+        }
+        if (mode.startsWith("manual-stop")) {
           yield* test.threads.dispatch({
             type: "thread.stop",
             threadId,
@@ -231,6 +269,36 @@ it.live.each(["manual-stop", "natural-completion", "workflow-cancel"] as const)(
             clientRequestId: "cancel",
           });
         }
+        if (mode === "manual-stop-with-queue") {
+          const endedAt = DateTime.nowUnsafe();
+          const stopped = yield* test.threads.getProjectThreadRecords(target, ["runs", "nodes"]);
+          yield* test.sink.write({
+            events: [
+              {
+                id: EventId.make("provider-stop-settled"),
+                type: "run.updated",
+                threadId,
+                runId,
+                occurredAt: endedAt,
+                payload: {
+                  ...stopped.runs.find((run) => run.id === runId)!,
+                  status: "interrupted",
+                  completedAt: endedAt,
+                },
+              },
+              ...stopped.nodes
+                .filter((node) => node.runId === runId)
+                .map((node) => ({
+                  id: EventId.make(`provider-stop-node:${node.id}`),
+                  type: "node.updated" as const,
+                  threadId,
+                  runId,
+                  occurredAt: endedAt,
+                  payload: { ...node, status: "interrupted" as const, completedAt: endedAt },
+                })),
+            ],
+          });
+        }
         yield* runtime.invoke("reconcile", test.scope);
         yield* runtime.invoke("reconcile", test.scope);
         const current = yield* runtime
@@ -241,15 +309,14 @@ it.live.each(["manual-stop", "natural-completion", "workflow-cancel"] as const)(
 
         expect(native.outstandingWork).toEqual([]);
         expect(native.runs.find((run) => run.id === runId)?.interruptRequested === true).toBe(
-          mode === "manual-stop" || mode === "workflow-cancel",
+          mode.startsWith("manual-stop") || mode === "workflow-cancel",
         );
-        const expected =
-          mode === "manual-stop"
-            ? "unresolved"
-            : mode === "workflow-cancel"
-              ? "canceled"
-              : "awaiting-review";
-        if (mode === "manual-stop")
+        const expected = mode.startsWith("manual-stop")
+          ? "unresolved"
+          : mode === "workflow-cancel"
+            ? "canceled"
+            : "awaiting-review";
+        if (mode.startsWith("manual-stop"))
           expect(
             records.turnItems.filter((item) => item.type === "run_interrupt_request").length,
           ).toBeGreaterThan(0);
@@ -260,9 +327,25 @@ it.live.each(["manual-stop", "natural-completion", "workflow-cancel"] as const)(
           .invoke("get", { ...test.scope, runId: started.id })
           .pipe(Effect.flatMap(decodeRun));
 
+        if (mode === "manual-stop-with-queue") {
+          expect(
+            records.runs.filter((run) =>
+              ["preparing", "starting", "running", "waiting"].includes(run.status),
+            ),
+          ).toEqual([]);
+          expect(records.runs.find((run) => run.id === runId)!.status).toBe("interrupted");
+          const queued = records.runs.find((run) => run.status === "queued")!;
+          expect(queued).toBeDefined();
+          expect(queued.queueHeld).toBe(true);
+          expect(
+            (yield* test.threads.getProjectThreadRecords(target, ["runs"])).runs.find(
+              (run) => run.id === queued.id,
+            )?.queueHeld,
+          ).toBe(true);
+        }
         expect(current.state).toBe(expected);
         expect(retained.state).toBe(expected);
-        if (mode === "manual-stop") expect(current.allowedActions).not.toContain("approve");
+        if (mode.startsWith("manual-stop")) expect(current.allowedActions).not.toContain("approve");
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
 );

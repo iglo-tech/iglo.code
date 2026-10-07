@@ -156,6 +156,7 @@ export const PluginThreadState = Schema.Struct({
     Schema.Struct({
       id: Schema.String,
       status: Schema.String,
+      queueHeld: Schema.optional(Schema.Boolean),
       interruptRequested: Schema.optional(Schema.Boolean),
       /** Monitor-only executions do not determine an owned operation's result. */
       resultRelevant: Schema.optional(Schema.Boolean),
@@ -181,6 +182,8 @@ export const PluginThreadState = Schema.Struct({
       id: Schema.String,
       status: Schema.String,
       commit: Schema.NullOr(Schema.String),
+      /** Unknown ownership remains relevant; explicit ownership scopes recovery. */
+      runId: Schema.optional(Schema.NullOr(Schema.String)),
     }),
   ),
 });

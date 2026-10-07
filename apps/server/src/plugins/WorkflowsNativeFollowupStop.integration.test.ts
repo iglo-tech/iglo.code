@@ -9,6 +9,9 @@ import { Host } from "@t3tools/plugin-host-contract/server";
 import { PluginError, type PluginThreadState } from "@t3tools/plugin-host-contract/schema";
 import {
   CommandId,
+  CheckpointId,
+  CheckpointScopeId,
+  CheckpointRef,
   EventId,
   MessageId,
   NodeId,
@@ -34,6 +37,11 @@ const modes = [
   "failed-monitor",
   "resume-inspect-outage",
   "resume-inspect-stale",
+  "resume-inspect-outage-report",
+  "resume-inspect-stale-report",
+  "resume-checkpoint-prior-error",
+  "resume-checkpoint-prior-ready",
+  "resume-checkpoint-current-error",
 ] as const;
 it.live.each(modes)(
   "retains workflow generation outcomes across native follow-ups and explicit Resume: %s",
@@ -41,7 +49,9 @@ it.live.each(modes)(
     Effect.scoped(
       Effect.gen(function* () {
         const test = yield* makeCoreWorkflowFixture;
-        const resuming = mode.startsWith("resume-inspect") || mode === "workflow-resume";
+        const resuming = mode.startsWith("resume-") || mode === "workflow-resume";
+        const earlyReport = mode.endsWith("-report");
+        const checkpointRecovery = mode.startsWith("resume-checkpoint-");
         let inspectUnavailable = false;
         let staleInspection: PluginThreadState | null = null;
         let admittedSends = 0;
@@ -65,7 +75,7 @@ it.live.each(modes)(
             Effect.gen(function* () {
               const old = yield* test.core.receipt(input.commandId);
               if (old) return old;
-              if (mode === "resume-inspect-stale")
+              if (mode.startsWith("resume-inspect-stale"))
                 staleInspection = yield* test.core.inspect(input);
               admittedSends++;
               yield* test.threads
@@ -234,6 +244,32 @@ it.live.each(modes)(
             },
           ],
         });
+        if (checkpointRecovery)
+          yield* test.sink.write({
+            events: [
+              {
+                id: EventId.make("original-checkpoint"),
+                type: "checkpoint.captured",
+                threadId,
+                runId,
+                occurredAt: now,
+                payload: {
+                  id: CheckpointId.make("original-checkpoint"),
+                  threadId,
+                  scopeId: CheckpointScopeId.make("original-scope"),
+                  runId,
+                  nodeId: root,
+                  parentCheckpointId: null,
+                  ordinalWithinScope: 1,
+                  appRunOrdinal: 1,
+                  ref: CheckpointRef.make("refs/t3/original-checkpoint"),
+                  status: mode === "resume-checkpoint-prior-error" ? "error" : "ready",
+                  files: [],
+                  capturedAt: now,
+                },
+              },
+            ],
+          });
         const target = { ...test.scope, threadId };
         const before = yield* test.core.inspect(target);
         expect(before.outstandingWork.length).toBeGreaterThan(0);
@@ -349,10 +385,12 @@ it.live.each(modes)(
               .pipe(Effect.flatMap(decodeRun));
             expect(pending.attempts[0]!.phase).toBe("resuming");
           }
-          yield* runtime.close;
-          inspectUnavailable = false;
-          runtime = yield* test.boot(host);
-          yield* runtime.invoke("reconcile", test.scope);
+          if (!earlyReport) {
+            yield* runtime.close;
+            inspectUnavailable = false;
+            runtime = yield* test.boot(host);
+            yield* runtime.invoke("reconcile", test.scope);
+          }
           const resumedTool = (yield* runtime.registry.tools).find(
             (item) => item.tool.id === "plugin_workflows_report",
           )!.tool;
@@ -373,6 +411,17 @@ it.live.each(modes)(
               runtimeMode: "approval-required",
             },
           );
+          if (earlyReport) {
+            const reported = yield* runtime
+              .invoke("get", { ...test.scope, runId: started.id })
+              .pipe(Effect.flatMap(decodeRun));
+            expect(reported.attempts[0]!.report).not.toBeNull();
+            expect(reported.attempts[0]!.phase).toBe("resuming");
+            yield* runtime.close;
+            inspectUnavailable = false;
+            runtime = yield* test.boot(host);
+            yield* runtime.invoke("reconcile", test.scope);
+          }
         } else {
           // Actual native follow-up admission, outside a workflow Resume command.
           yield* test.threads.dispatch({
@@ -444,6 +493,32 @@ it.live.each(modes)(
               })),
           ],
         });
+        if (checkpointRecovery)
+          yield* test.sink.write({
+            events: [
+              {
+                id: EventId.make("resumed-checkpoint"),
+                type: "checkpoint.captured",
+                threadId,
+                runId: next.id,
+                occurredAt: endedAt,
+                payload: {
+                  id: CheckpointId.make("resumed-checkpoint"),
+                  threadId,
+                  scopeId: CheckpointScopeId.make("resumed-scope"),
+                  runId: next.id,
+                  nodeId: next.rootNodeId!,
+                  parentCheckpointId: null,
+                  ordinalWithinScope: 1,
+                  appRunOrdinal: 2,
+                  ref: CheckpointRef.make("refs/t3/resumed-checkpoint"),
+                  status: mode === "resume-checkpoint-current-error" ? "error" : "ready",
+                  files: [],
+                  capturedAt: endedAt,
+                },
+              },
+            ],
+          });
         if (!resuming) runtime = yield* test.boot(host);
         yield* runtime.invoke("reconcile", test.scope);
         yield* runtime.invoke("reconcile", test.scope);
@@ -457,9 +532,12 @@ it.live.each(modes)(
         expect(native.runs.find((run) => run.id === runId)?.interruptRequested === true).toBe(
           mode === "stop-followup" || resuming,
         );
-        const unsuccessful = ["stop-followup", "failed-followup", "interrupted-followup"].includes(
-          mode,
-        );
+        const unsuccessful = [
+          "stop-followup",
+          "failed-followup",
+          "interrupted-followup",
+          "resume-checkpoint-current-error",
+        ].includes(mode);
         const expected = unsuccessful ? "unresolved" : "awaiting-review";
         if (mode === "stop-followup")
           expect(
@@ -477,6 +555,11 @@ it.live.each(modes)(
         expect(current.attempts[0]!.resumeCount).toBe(resuming ? 1 : 0);
         expect(admittedSends).toBe(resuming ? 1 : 0);
         expect(native.runs).toHaveLength(2);
+        if (resuming) {
+          expect(current.attempts[0]!.report).not.toBeNull();
+          expect(current.attempts[0]!.executionRunId).toBe(next.id);
+          expect(retained.attempts[0]!.executionRunId).toBe(next.id);
+        }
         if (unsuccessful) expect(current.allowedActions).not.toContain("approve");
       }),
     ).pipe(Effect.provide(NodeServices.layer)),

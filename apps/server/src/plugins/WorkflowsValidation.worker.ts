@@ -60,6 +60,7 @@ await Effect.runPromise(
             NodeServices.layer,
             Layer.mock(Host)({
               environmentId,
+              redact: (input) => Effect.succeed(input.text),
               projects: () =>
                 Effect.succeed([
                   { id: projectId, title: "Validation", workspaceRoot: import.meta.dirname },
