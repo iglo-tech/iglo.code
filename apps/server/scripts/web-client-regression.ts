@@ -578,18 +578,25 @@ export async function runWebClientRegression(
       await addSurface(page, "Browser");
       await visible(page.getByRole("button", { name: "Try again", exact: true }).first());
       await page.screenshot({ path: NodePath.join(artifacts, "browser-unavailable.png") });
+      // End this fixture surface before restarting with Chromium available.
+      const closeBrowser = page.getByRole("button", { name: "Close Browser", exact: true });
+      await closeBrowser.click();
+      await closeBrowser.waitFor({ state: "hidden" });
     });
 
     await installBrowser(dependencies, browserExecutable);
     await milestone("disconnect, server restart, reconnect and history deduplication", async () => {
       await visible(page.getByTestId("composer-editor"));
       await primary.stop();
-      await visible(page.getByText(/Disconnected|Reconnect|Connecting|offline/i).first());
+      const unavailable = page.getByText(/\bis (?:offline|reconnecting)$/i).first();
+      await visible(unavailable);
       // Vite reloads after its dev server returns; wait for that navigation
       // before interacting with panel state that the reload would discard.
       const reloaded = input.kind === "source" ? page.waitForEvent("load") : undefined;
       await primary.restart();
       await reloaded;
+      // The composer and cached history stay visible while disconnected.
+      await unavailable.waitFor({ state: "hidden" });
       await visible(page.getByTestId("composer-editor"));
       NodeAssert.equal(
         await page.getByText("Finished from environment-a.", { exact: true }).count(),
