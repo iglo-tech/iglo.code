@@ -1,12 +1,12 @@
 // @effect-diagnostics preferSchemaOverJson:off - JSON string literals embed paths safely into generated JavaScript.
 /**
  * A directory holding an `agent-device` launcher that runs the pinned install
- * with a Node runtime. Prepended to provider subprocess PATHs so the agent
+ * with a Bun runtime. Prepended to provider subprocess PATHs so the agent
  * types `agent-device …` and gets the version the injected instructions were
  * written for, regardless of what is or is not globally installed.
  */
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveNodeExecutable } from "@t3tools/shared/nodeRuntime";
+import { resolveBunExecutable } from "@t3tools/shared/bunRuntime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -21,7 +21,7 @@ export const ensureAgentDeviceShim = Effect.fn("AgentDeviceShim.ensure")(functio
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const platform = yield* HostProcessPlatform;
-  const node = yield* resolveNodeExecutable("Device automation");
+  const bun = yield* resolveBunExecutable("Device automation");
   const shimDir = path.join(input.stateDir, SHIM_DIR);
   yield* fs.makeDirectory(shimDir, { recursive: true });
   const launcherPath = path.join(shimDir, "agent-device-launcher.mjs");
@@ -39,16 +39,16 @@ const env = { ...process.env };
 delete env.AGENT_DEVICE_DAEMON_BASE_URL;
 delete env.AGENT_DEVICE_DAEMON_AUTH_TOKEN;
 delete env.AGENT_DEVICE_CONFIG;
-const child = spawn(${JSON.stringify(node)}, [${JSON.stringify(entryPath)}, ...args], { stdio: "inherit", env });
+const child = spawn(${JSON.stringify(bun)}, [${JSON.stringify(entryPath)}, ...args], { stdio: "inherit", env });
 child.on("error", error => { console.error(error.message); process.exitCode = 1; });
 child.on("exit", code => { process.exitCode = code ?? 1; });
 `,
   );
   if (platform === "win32") {
-    const script = `@echo off\r\n"${node}" "${launcherPath}" %*\r\n`;
+    const script = `@echo off\r\n"${bun}" "${launcherPath}" %*\r\n`;
     yield* fs.writeFileString(path.join(shimDir, "agent-device.cmd"), script);
   } else {
-    const command = [node, launcherPath]
+    const command = [bun, launcherPath]
       .map((value) => "'" + value.replaceAll("'", "'\"'\"'") + "'")
       .join(" ");
     const script = `#!/bin/sh\nexec ${command} "$@"\n`;

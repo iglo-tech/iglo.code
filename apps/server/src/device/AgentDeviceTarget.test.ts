@@ -19,6 +19,7 @@ import {
 } from "./AgentDeviceTarget.ts";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
+const bunPath = process.env.T3_BUN_EXECUTABLE ?? "bun";
 
 describe("host-bound agent commands", () => {
   it.effect("runs two hosts concurrently and only updates the reconnected host", () =>
@@ -86,7 +87,7 @@ if (process.env.AGENT_DEVICE_DAEMON_BASE_URL) process.exit(2);`,
       ]) {
         yield* Effect.promise(() =>
           expect(
-            exec(process.execPath, [path.join(shim, "agent-device-launcher.mjs"), ...args]),
+            exec(bunPath, [path.join(shim, "agent-device-launcher.mjs"), ...args]),
           ).rejects.toThrow("Call device_open first"),
         );
       }

@@ -1,10 +1,11 @@
+import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
 import { deviceToolMaintenanceScript } from "./deviceToolMaintenance.ts";
 import { AGENT_DEVICE_VERSION, DEVICE_HUB_VERSION } from "./DeviceToolchain.ts";
 
 export const quoteRemoteArg = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
 
-/** Resolve common non-interactive SDK and Node locations without sourcing user shell scripts. */
-export const remoteDeviceEnvironment = `export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+/** Resolve common non-interactive SDK and Bun locations without sourcing user shell scripts. */
+export const remoteDeviceEnvironment = `export PATH="$HOME/.bun/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 if [ -z "$ANDROID_HOME" ]; then
   if [ -d "$HOME/Library/Android/sdk" ]; then export ANDROID_HOME="$HOME/Library/Android/sdk";
   elif [ -d "$HOME/Android/Sdk" ]; then export ANDROID_HOME="$HOME/Android/Sdk"; fi
@@ -18,12 +19,17 @@ fi
 if [ -n "$JAVA_HOME" ]; then export PATH="$JAVA_HOME/bin:$PATH"; fi
 `;
 
-/** Node runs this on the host. All paths it returns belong to that host. */
+/** Bun requires an explicit stdin entrypoint; a bare invocation only prints its CLI help. */
+export const remoteDeviceBunCommand =
+  'command -v bun >/dev/null 2>&1 || { echo "Bun is missing from the non-interactive SSH PATH. Install Bun and expose ~/.bun/bin or bun on PATH." >&2; exit 1; }; exec bun -';
+
+/** Bun runs this on the host. All paths it returns belong to that host. */
 export const remoteDeviceScript = (
   owner: string,
   mode: "probe" | "start" | "agent-start" | "stop-agent" | "stop",
 ) =>
   `
+const bunVersion = ${JSON.stringify(BUN_VERSION)};
 const owner = ${JSON.stringify(owner)};
 const mode = ${JSON.stringify(mode)};
 const hubVersion = ${JSON.stringify(DEVICE_HUB_VERSION)};
@@ -120,8 +126,14 @@ async function install(name, version, entry) {
   try {
     if (complete()) return file;
     staging = fs.mkdtempSync(path.join(path.dirname(dir), '.install-'));
-    const result = run('npm', ['install', '--prefix', staging, '--no-fund', '--no-audit', name + '@' + version], { timeout: 600000, maxBuffer: 8 * 1024 * 1024 });
+    fs.writeFileSync(path.join(staging, 'package.json'), JSON.stringify({ private: true, dependencies: { [name]: version }, trustedDependencies: [] }));
+    const result = run(process.execPath, ['--bun', 'install', '--cwd', staging, '--production', '--ignore-scripts'], { timeout: 600000, maxBuffer: 8 * 1024 * 1024 });
     if (result.status !== 0) throw Error('Installing ' + name + ': ' + (result.error?.message || result.stderr?.slice(-2000)));
+    if (name === 'expo-device-hub') {
+      // Preserve the required N-API prebuild step without the package's npm/native-build fallback.
+      const native = run(process.execPath, [path.join(staging, 'node_modules', 'prebuild-install', 'bin.js'), '-r', 'napi'], { cwd: path.join(staging, 'node_modules', 'node-datachannel'), timeout: 600000, maxBuffer: 8 * 1024 * 1024 });
+      if (native.status !== 0) throw Error('Installing native Device streaming support: ' + (native.error?.message || native.stderr?.slice(-2000)));
+    }
     if (!fs.existsSync(path.join(staging, 'node_modules', name, entry))) throw Error('Missing installed entry for ' + name);
     fs.writeFileSync(path.join(staging, '.install-complete'), version);
     fs.rmSync(dir, { recursive: true, force: true });
@@ -133,6 +145,9 @@ async function install(name, version, entry) {
   }
 }
 (async () => {
+  const [requiredMajor, requiredMinor] = bunVersion.split('.').map(Number);
+  const [major, minor] = (process.versions.bun || '').split('.').map(Number);
+  if (!process.versions.bun || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(process.versions.bun) || major < requiredMajor || (major === requiredMajor && minor < requiredMinor)) throw Error('Bun ' + bunVersion + ' or newer is required on the device host. Install the supported version and expose ~/.bun/bin or bun on the non-interactive SSH PATH.');
   const ios = process.platform === 'darwin' && run('xcrun', ['simctl', 'help']).status === 0;
   const android = run('adb', ['version']).status === 0;
   const platforms = [
@@ -140,9 +155,7 @@ async function install(name, version, entry) {
     { platform: 'android', available: android, ...(!android ? { reason: 'Android SDK missing. Set ANDROID_HOME or put adb on the SSH PATH.' } : {}) },
   ];
   if (mode === 'probe') {
-    if (Number(process.versions.node.split('.')[0]) < 22) throw Error('Node 22 or newer is required on the device host.');
-    if (run('npm', ['--version']).status !== 0) throw Error('npm is missing from the non-interactive SSH PATH.');
-    console.log(JSON.stringify({ nodePath: process.execPath, platforms, tools: versions() })); return;
+    console.log(JSON.stringify({ bunPath: process.execPath, platforms, tools: versions() })); return;
   }
   fs.mkdirSync(state, { recursive: true, mode: 0o700 });
   // Serialize starts and stops for this environment/host owner, including agent startup.
@@ -217,7 +230,7 @@ async function install(name, version, entry) {
   const vendor = path.resolve(path.dirname(hubEntry), '../../vendor/serve-sim/dist');
   const optional = file => fs.existsSync(file) ? file : null;
   await pruneTools(path.join(root, 'tools'), [['expo-device-hub', hubVersion], ...(mode === 'agent-start' ? [['agent-device', agentVersion]] : [])], true).catch(() => {});
-  console.log(JSON.stringify({ nodePath: process.execPath, platforms, tools: versions(), hubPort: hub.port, ...agentResult,
+  console.log(JSON.stringify({ bunPath: process.execPath, platforms, tools: versions(), hubPort: hub.port, ...agentResult,
     helpers: { serveSimAxSettings: optional(path.join(vendor, 'simax/serve-sim-ax-settings')), serveSimCli: optional(path.join(vendor, 'serve-sim.js')) } }));
   } finally { releaseHost(); }
 })().catch(error => { console.error(error.message); process.exitCode = 1; });

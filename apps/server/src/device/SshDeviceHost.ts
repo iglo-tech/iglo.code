@@ -23,10 +23,15 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ServerConfig from "../config.ts";
 import * as DeviceHost from "./DeviceHost.ts";
-import { quoteRemoteArg, remoteDeviceEnvironment, remoteDeviceScript } from "./sshDeviceScript.ts";
+import {
+  quoteRemoteArg,
+  remoteDeviceEnvironment,
+  remoteDeviceScript,
+  remoteDeviceBunCommand,
+} from "./sshDeviceScript.ts";
 
 const Probe = Schema.Struct({
-  nodePath: Schema.String,
+  bunPath: Schema.String,
   tools: Schema.optional(DeviceToolVersions),
   platforms: Schema.Array(DevicePlatformAvailability),
 });
@@ -63,9 +68,7 @@ const bootstrap = (
 ) =>
   runSshCommand(targetFor(config), {
     preHostArgs: identityArgs(config),
-    remoteCommandArgs: commandArgs(
-      'command -v node >/dev/null 2>&1 || { echo "Node is missing from the non-interactive SSH PATH" >&2; exit 1; }; exec node',
-    ),
+    remoteCommandArgs: commandArgs(remoteDeviceBunCommand),
     stdin: remoteDeviceScript(owner, mode),
     timeoutMs: mode === "start" || mode === "agent-start" ? 1_300_000 : 45_000,
   }).pipe(
@@ -275,7 +278,7 @@ export const make = Effect.fn("SshDeviceHost.make")(function* (
       Effect.forkIn(scope),
     );
     const next = {
-      nodePath: remote.nodePath,
+      bunPath: remote.bunPath,
       hub: { origin: `http://127.0.0.1:${hubPort}` },
       ...(remote.daemonPort !== undefined &&
       remote.token !== undefined &&
