@@ -1,11 +1,11 @@
 import { withAgentDeviceEnvironment } from "../../mcp/McpProviderSession.ts";
 import { AntigravitySettings, ProviderDriverKind, ProviderSetupError } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
+import { resolveSelfInvocation } from "@t3tools/shared/bunRuntime";
 import {
-  NodeRuntimeUnavailableError,
-  nodeRuntimeUnavailableMessage,
-} from "@t3tools/shared/nodeRuntime";
+  BunRuntimeUnavailableError,
+  bunRuntimeUnavailableMessage,
+} from "@t3tools/shared/bunRuntime";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -66,7 +66,7 @@ import { discoverAntigravitySkills, resolveAntigravityUserHome } from "./Antigra
 
 const DRIVER = ProviderDriverKind.make("antigravity");
 const decodeSettings = Schema.decodeSync(AntigravitySettings);
-const isNodeRuntimeUnavailableError = Schema.is(NodeRuntimeUnavailableError);
+const isBunRuntimeUnavailableError = Schema.is(BunRuntimeUnavailableError);
 
 export type AntigravityDriverEnv =
   | AntigravityInstallation.AntigravityInstallation
@@ -198,11 +198,11 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
           Effect.provideService(Path.Path, path),
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
           Effect.mapError((cause) =>
-            isNodeRuntimeUnavailableError(cause.cause)
+            isBunRuntimeUnavailableError(cause.cause)
               ? new ProviderSetupError({
                   instanceId,
                   operation: "start",
-                  detail: nodeRuntimeUnavailableMessage("Antigravity sign-in"),
+                  detail: bunRuntimeUnavailableMessage("Antigravity sign-in"),
                   cause,
                 })
               : cause,

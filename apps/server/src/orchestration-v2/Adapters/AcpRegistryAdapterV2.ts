@@ -9,7 +9,7 @@ import {
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
-import { resolveSelfInvocation, type SelfInvocation } from "@t3tools/shared/nodeRuntime";
+import { resolveSelfInvocation, type SelfInvocation } from "@t3tools/shared/bunRuntime";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";

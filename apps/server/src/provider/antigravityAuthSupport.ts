@@ -3,7 +3,7 @@ import * as NodeFSP from "node:fs/promises";
 
 import type { AntigravityAuthMethod, ProviderInstanceId } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveNodeExecutable, nodeRuntimeUnavailableMessage } from "@t3tools/shared/nodeRuntime";
+import { resolveBunExecutable, bunRuntimeUnavailableMessage } from "@t3tools/shared/bunRuntime";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
@@ -320,11 +320,11 @@ export const prepareAntigravityProfile = Effect.fn("prepareAntigravityProfile")(
     input.userHome ?? resolveAntigravityUserHome(platform, input.baseEnv ?? process.env);
   const runtimeExecutablePath =
     input.runtimeExecutablePath ??
-    (yield* resolveNodeExecutable("Antigravity sign-in", input.baseEnv).pipe(
+    (yield* resolveBunExecutable("Antigravity sign-in", input.baseEnv).pipe(
       Effect.mapError(
         (cause) =>
           new AcpErrors.AcpTransportError({
-            detail: nodeRuntimeUnavailableMessage("Antigravity sign-in"),
+            detail: bunRuntimeUnavailableMessage("Antigravity sign-in"),
             cause,
           }),
       ),
