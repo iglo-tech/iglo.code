@@ -306,7 +306,7 @@ it.effect.each(["child completion", "scheduled message", "user steering"] as con
                 }),
               );
               const ran = yield* service.runNow({ id: task.id });
-              assert.equal(ran.task.lastRunStatus, "succeeded");
+              assert.equal(ran.task.lastDelivery, "queued");
             }).pipe(
               Effect.provide(
                 ScheduledTaskService.layer.pipe(

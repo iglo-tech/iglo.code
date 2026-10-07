@@ -189,6 +189,9 @@ export const ScheduledTask = Schema.Struct({
   nextRunAt: Schema.NullOr(IsoDateTime),
   lastRunAt: Schema.NullOr(IsoDateTime),
   lastRunStatus: ScheduledTaskRunStatus,
+  // Optional so independently upgraded clients keep decoding delivery outcomes.
+  // Neither admission outcome promises provider completion.
+  lastDelivery: Schema.optional(Schema.Literals(["queued", "dispatched"])),
   lastRunError: Schema.NullOr(Schema.String),
   runCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   webhook: Schema.optional(ScheduledTaskWebhookEndpoint),

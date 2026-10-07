@@ -165,7 +165,9 @@ export function ThreadAutomationsPanel(props: {
               <span
                 className={cn(
                   "absolute -right-1 -top-1 size-1.5 rounded-full",
-                  STATUS_DOT_CLASS[task.lastRunStatus],
+                  task.lastDelivery === "queued"
+                    ? "bg-warning"
+                    : STATUS_DOT_CLASS[task.lastRunStatus],
                 )}
                 aria-hidden
               />
