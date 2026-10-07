@@ -7,7 +7,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
-import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { startEnvironment } from "./PluginHost.testkit.ts";
@@ -159,32 +160,27 @@ it.live.each([false, true])(
         };
         const sent = yield* host.send(sendInput).pipe(Effect.result);
         const after = yield* s.threads.getThreadRecords(threadId, ["runs"]);
-        if (instruction) {
-          expect(sent._tag).toBe("Success");
-          expect(after.runs.map((run) => run.status)).toEqual(["preparing", "queued"]);
-          yield* tracker.cancel(threadId, before?.preparationId);
-        } else {
-          expect(sent._tag).toBe("Failure");
-          if (sent._tag === "Failure")
-            expect(sent.failure).toMatchObject({ code: "unavailable", operation: "send" });
-          expect(after.runs).toHaveLength(0);
-          yield* spawner.exitCode(
-            ChildProcess.make("/bin/sh", ["-c", `printf 'continue\n' > '${gate}'`]),
-          );
-          yield* tracker.stream(threadId).pipe(
-            Stream.filter(
-              (snapshot) =>
-                snapshot?.stages.some(
-                  (stage) => stage.id === "agent" && stage.status === "done",
-                ) === true,
-            ),
-            Stream.runHead,
-          );
-          const receipt = yield* host.send(sendInput);
-          expect(receipt.status).toBe("accepted");
-          expect(yield* host.send(sendInput)).toEqual(receipt);
-          expect((yield* s.threads.getThreadRecords(threadId, ["runs"])).runs).toHaveLength(1);
-        }
+        expect(sent._tag).toBe("Failure");
+        if (sent._tag === "Failure")
+          expect(sent.failure).toMatchObject({ code: "unavailable", operation: "send" });
+        expect(after.runs.map((run) => run.status)).toEqual(instruction ? ["preparing"] : []);
+        yield* spawner.exitCode(
+          ChildProcess.make("/bin/sh", ["-c", `printf 'continue\n' > '${gate}'`]),
+        );
+        yield* tracker.stream(threadId).pipe(
+          Stream.filter(
+            (snapshot) =>
+              snapshot?.stages.some((stage) => stage.id === "agent" && stage.status === "done") ===
+              true,
+          ),
+          Stream.runHead,
+        );
+        const accepted = yield* host.send(sendInput);
+        expect(accepted.status).toBe("accepted");
+        expect(yield* host.send(sendInput)).toEqual(accepted);
+        expect((yield* s.threads.getThreadRecords(threadId, ["runs"])).runs).toHaveLength(
+          instruction ? 2 : 1,
+        );
         yield* Fiber.interrupt(s.server.fiber);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),

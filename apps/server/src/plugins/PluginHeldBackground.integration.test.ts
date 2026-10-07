@@ -248,11 +248,17 @@ it.live.each([
         const preparing = (yield* s.threads.getThreadRecords(threadId, ["runs"])).runs.findLast(
           (r) => r.status === "preparing",
         )!;
-        yield* bound.host.send({
-          ...target,
+        // Seed the native held-queue state independently of the plugin preparation barrier.
+        yield* s.threads.sendToThread({
+          projectId: s.projectId,
+          threadId,
           commandId: CommandId.make("queue-message"),
-          instruction: "Wait in queue",
+          messageId: MessageId.make("queue-message"),
+          text: "Wait in queue",
+          attachments: [],
           mode: "queue",
+          createdBy: "user",
+          creationSource: "web",
         });
         yield* s.threads.dispatch({
           type: "run.interrupt",

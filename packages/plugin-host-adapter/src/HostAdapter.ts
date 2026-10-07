@@ -634,7 +634,7 @@ const make = Effect.gen(function* () {
         );
         if (
           pendingLaunches.length > 0 ||
-          (unreleased !== undefined && unreleased.status !== "preparing") ||
+          unreleased !== undefined ||
           (preparation !== null &&
             !preparation.stages.some((stage) => stage.id === "agent" && stage.status === "done") &&
             !state.runs.some((run) =>
@@ -676,6 +676,25 @@ const make = Effect.gen(function* () {
               fail("retry-preparation", "The thread is unavailable in this project.", cause),
             ),
           );
+        const existing = yield* receipt(input.commandId);
+        if (existing !== null) {
+          // An old acknowledgement cannot schedule a newer preparation attempt.
+          // Its own transition remains replayable after restart until superseded.
+          const superseding = yield* sql`
+            SELECT sequence FROM orchestration_events
+            WHERE aggregate_kind = 'thread' AND stream_id = ${input.threadId}
+              AND sequence > ${existing.cursor} AND application_event_version = 2
+              AND event_type = 'run.updated'
+              AND json_extract(payload_json, '$.id') = ${input.runId}
+              AND json_extract(payload_json, '$.status') = 'preparing'
+            LIMIT 1
+          `.pipe(
+            Effect.mapError((cause) =>
+              fail("retry-preparation", "Could not reconcile the preparation attempt.", cause),
+            ),
+          );
+          if (superseding.length > 0) return existing;
+        }
         yield* launch
           .retryPreparation({
             commandId: input.commandId,

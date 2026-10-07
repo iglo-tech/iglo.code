@@ -836,8 +836,10 @@ export const layer = Layer.effect(
               },
             );
 
+          // Incoming webhooks own their delivery identity; predecessor recovery
+          // runs separately and cannot consume a newly accepted delivery.
           const [pending] =
-            active.dispatchTarget === undefined
+            active.dispatchTarget === undefined || webhook !== undefined
               ? []
               : yield* sql<{
                   id: string;

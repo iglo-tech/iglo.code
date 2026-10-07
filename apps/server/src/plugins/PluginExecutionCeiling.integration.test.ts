@@ -399,8 +399,23 @@ it.live(
           runtimeMode: "approval-required",
         });
         yield* replay.recover;
-        // The same pending command succeeds once the target fits its saved ceiling.
+        expect(
+          (yield* threads.getThreadRecords(futureId, ["messages"])).messages.map(
+            (message) => message.text,
+          ),
+        ).toEqual(["Held preparation"]);
+        const prepared = (yield* threads.getThreadRecords(futureId, ["runs"])).runs.find(
+          (run) => run.status === "preparing",
+        )!;
+        yield* threads.dispatch({
+          type: "prepared-run.release",
+          commandId: CommandId.make("release-target"),
+          threadId: futureId,
+          runId: prepared.id,
+        });
+        // The pending command succeeds after both its ceiling and workspace fit.
         // Another recovery must not enqueue it twice.
+        yield* replay.recover;
         yield* replay.recover;
         expect(
           (yield* threads.getThreadRecords(futureId, ["messages"])).messages.map(
