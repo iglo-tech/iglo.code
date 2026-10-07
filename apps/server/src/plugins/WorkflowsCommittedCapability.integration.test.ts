@@ -52,7 +52,7 @@ it.live.each([
             .providers()
             .pipe(
               Effect.map((ps) =>
-                ps.map((p) => ({ ...p, available: providerAvailable && p.available })),
+                ps.map((p) => ({ ...p, available: providerAvailable && p.available === true })),
               ),
             ),
         launch: (input) =>

@@ -124,8 +124,20 @@ it.live.each([
       const committed = scenario === "committed-dirty-restart";
       let unavailable = !committed;
       let loseAck = committed;
+      let receiptUnavailable = false;
       const host = Host.of({
         ...test.core,
+        receipt: (id) =>
+          receiptUnavailable
+            ? Effect.fail(
+                new PluginError({
+                  pluginId: "host",
+                  operation: "receipt",
+                  code: "service",
+                  message: "Receipt observation unavailable after lost acknowledgement",
+                }),
+              )
+            : test.core.receipt(id),
         verifyPullRequestHead: () => Effect.succeed({ head: frozen, branch: "feature" }),
         launch: (input) =>
           Effect.gen(function* () {
@@ -137,13 +149,15 @@ it.live.each([
                 message: "Transient launch outage",
               });
             const receipt = yield* test.core.launch(input);
-            if (loseAck)
+            if (loseAck) {
+              receiptUnavailable = true;
               return yield* new PluginError({
                 pluginId: "host",
                 code: "service",
                 operation: "launch",
                 message: "Lost core acknowledgement",
               });
+            }
             return receipt;
           }),
       });
@@ -205,6 +219,7 @@ it.live.each([
         yield* runtime.close;
         unavailable = false;
         loseAck = false;
+        receiptUnavailable = false;
         runtime = yield* test.boot(host);
       } else unavailable = false;
       yield* runtime.invoke("reconcile", test.scope);

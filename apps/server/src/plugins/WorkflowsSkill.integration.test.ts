@@ -44,6 +44,17 @@ it.live.each([
       const host = Host.of({
         ...test.core,
         lifecycle: () => Stream.never,
+        receipt: (id) =>
+          unavailable && lostAck && commits > 0
+            ? Effect.fail(
+                new PluginError({
+                  pluginId: "host",
+                  operation: "receipt",
+                  code: "service",
+                  message: "Receipt observation unavailable after lost acknowledgement",
+                }),
+              )
+            : test.core.receipt(id),
         skills: () => Effect.sync(() => [{ name: "authored-skill", path, enabled }]),
         launch: (input) =>
           Effect.gen(function* () {
@@ -84,8 +95,8 @@ it.live.each([
                     }),
                 ),
               );
-            yield* Deferred.succeed(launched, undefined);
             commits++;
+            yield* Deferred.succeed(launched, undefined);
             if (unavailable && lostAck) return yield* acknowledgementLost;
             return receipt;
           }),
