@@ -19,7 +19,7 @@ import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as ServerSettings from "../serverSettings.ts";
 import * as DeviceHost from "./DeviceHost.ts";
-import { NodeRuntimeUnavailableError } from "@t3tools/shared/nodeRuntime";
+import { BunRuntimeUnavailableError } from "@t3tools/shared/bunRuntime";
 
 import * as DeviceService from "./DeviceService.ts";
 
@@ -66,7 +66,7 @@ const fixture = Effect.fn("fixture")(function* (
   onBoot: Effect.Effect<void> = Effect.void,
   bootError?: string,
   failListAfterShutdown = false,
-  runtimeFailure?: NodeRuntimeUnavailableError | DeviceHost.DeviceHostError,
+  runtimeFailure?: BunRuntimeUnavailableError | DeviceHost.DeviceHostError,
   inspectError = false,
   installTool?: Parameters<typeof DeviceService.makeWithHosts>[3],
 ) {
@@ -78,7 +78,7 @@ const fixture = Effect.fn("fixture")(function* (
   let booted = false;
   let shutDown = false;
   const ready: DeviceHost.DeviceHostReady = {
-    nodePath: process.execPath,
+    bunPath: process.execPath,
     hub: { origin: "http://device.test" },
     helpers: { serveSimAxSettings: null, serveSimCli: null },
     run: () => Effect.succeed({ code: 0, stdout: "Pixel_API_35\n", stderr: "" }),
@@ -222,7 +222,7 @@ describe("device setup consent", () => {
     () =>
       Effect.gen(function* () {
         const underlying = new Error("private lookup diagnostics");
-        const runtimeFailure = new NodeRuntimeUnavailableError({
+        const runtimeFailure = new BunRuntimeUnavailableError({
           feature: "Local device support",
           cause: underlying,
         });
@@ -241,14 +241,14 @@ describe("device setup consent", () => {
           const error = yield* readiness.pipe(Effect.flip);
           expect(error).toMatchObject({
             _tag: "DeviceHostUnavailableError",
-            reason: expect.stringContaining("Install Node.js"),
+            reason: expect.stringContaining("Install Bun"),
             cause: runtimeFailure,
           });
           expect(error.message).not.toContain(underlying.message);
         }
         expect((yield* service.state).hostStatuses[LOCAL_DEVICE_HOST_ID]).toMatchObject({
           status: "failed",
-          detail: expect.stringContaining("Install Node.js"),
+          detail: expect.stringContaining("Install Bun"),
         });
         expect(requests).toEqual([]);
       }).pipe(Effect.scoped),
@@ -424,7 +424,7 @@ it.effect.each(["shutdown", "close"] as const)(
       let capture: number | null = null;
       let generation = 0;
       const ready: DeviceHost.DeviceHostReady = {
-        nodePath: process.execPath,
+        bunPath: process.execPath,
         hub: { origin: "http://device.test" },
         helpers: { serveSimAxSettings: null, serveSimCli: null },
         run: () => Effect.succeed({ code: 0, stdout: "", stderr: "" }),
@@ -513,7 +513,7 @@ it.effect.each([
       // The device list is stale until shutdown re-reads it from the hub.
       let listed: "booted" | "off" | "missing" = "booted";
       const ready: DeviceHost.DeviceHostReady = {
-        nodePath: process.execPath,
+        bunPath: process.execPath,
         hub: { origin: "http://device.test" },
         helpers: { serveSimAxSettings: null, serveSimCli: null },
         run: () => Effect.succeed({ code: 0, stdout: "", stderr: "" }),

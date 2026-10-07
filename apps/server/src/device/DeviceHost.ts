@@ -18,7 +18,7 @@ import type {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type { NodeRuntimeUnavailableError } from "@t3tools/shared/nodeRuntime";
+import type { BunRuntimeUnavailableError } from "@t3tools/shared/bunRuntime";
 
 export class DeviceHostError extends Schema.TaggedError<DeviceHostError>()("DeviceHostError", {
   hostId: Schema.String,
@@ -52,7 +52,7 @@ export interface AgentDeviceEndpoint {
 }
 
 export interface DeviceHostReady {
-  readonly nodePath: string;
+  readonly bunPath: string;
   readonly hub: DeviceHubEndpoint;
   /**
    * Runs a host command (`xcrun`, `adb`, or a helper bundled with the hub)
@@ -90,13 +90,13 @@ export class DeviceHost extends Context.Service<
      */
     readonly ensureReady: (
       onPhase: (phase: "installing" | "starting", detail?: string) => Effect.Effect<void>,
-    ) => Effect.Effect<DeviceHostReady, DeviceHostError | NodeRuntimeUnavailableError>;
+    ) => Effect.Effect<DeviceHostReady, DeviceHostError | BunRuntimeUnavailableError>;
     /** Installs and starts agent-device after the user grants agent access. */
     readonly ensureAgentReady: (
       onPhase: (phase: "installing" | "starting", detail?: string) => Effect.Effect<void>,
     ) => Effect.Effect<
       DeviceHostAgentReady,
-      DeviceHostError | DeviceHostTimeoutError | NodeRuntimeUnavailableError
+      DeviceHostError | DeviceHostTimeoutError | BunRuntimeUnavailableError
     >;
     /** Current endpoints when already running, without starting anything. */
     readonly current: Effect.Effect<DeviceHostReady | null>;
