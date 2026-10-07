@@ -173,7 +173,7 @@ const fetchReleaseAsset = Effect.fn("cloud.pinned_runtime.fetch_release_asset")(
         new PinnedRuntimeInstallError({
           step:
             cause.reason._tag === "StatusCodeError" && cause.reason.response.status === 404
-              ? `${step} (fork release artifact unavailable at ${url}, HTTP 404)`
+              ? `${step} (fork release artifact unavailable at ${new URL(url).origin}, HTTP 404)`
               : step,
           cause,
         }),
