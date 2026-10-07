@@ -14,12 +14,13 @@ import { Host } from "@t3tools/plugin-host-contract/server";
 import { plugin as fixture } from "@t3tools/plugin-fixture/server";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as FileSystem from "effect/FileSystem";
 import * as Replay from "effect-codex-app-server/replay";
 import * as Client from "effect-codex-app-server/client";
-import { HttpClient, HttpBody } from "effect/unstable/http";
+import { HttpClient, HttpBody } from "effect/http";
 import { startEnvironment, origin, makeClient } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Projects from "../project/ProjectService.ts";
@@ -32,7 +33,7 @@ import * as Ids from "../orchestration-v2/IdAllocator.ts";
 import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as Ingestor from "../orchestration-v2/ProviderEventIngestor.ts";
 import * as Executor from "../orchestration-v2/ThreadCommandExecutor.ts";
-import { OrchestrationV2EventSinkLayerLive } from "../orchestration-v2/runtimeLayer.ts";
+import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
 import * as Sessions from "../mcp/McpProviderSession.ts";
 import packageJson from "../../package.json" with { type: "json" };
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -89,12 +90,7 @@ it.live("denies mutation before a native Codex turn applies the requested permis
         worktreePath: null,
       });
       const deps = yield* Layer.build(
-        Layer.mergeAll(
-          Ids.layer,
-          Projections.layer,
-          OrchestrationV2EventSinkLayerLive,
-          Executor.layer,
-        ),
+        Layer.mergeAll(Ids.layer, Projections.layer, layerEventSink, Executor.layer),
       ).pipe(Effect.provide(server.context));
       const context = server.context.pipe(Context.merge(deps));
       const ingestor = yield* Layer.build(Ingestor.layer).pipe(Effect.provide(context));
@@ -104,6 +100,7 @@ it.live("denies mutation before a native Codex turn applies the requested permis
       };
       let sentParams: ReturnType<typeof Codex.codexThreadRuntimeParams> | undefined;
       const adapter = Codex.makeCodexAdapterV2({
+        crypto: yield* Crypto.Crypto,
         instanceId,
         settings,
         environment: {},
@@ -216,7 +213,7 @@ it.live("denies mutation before a native Codex turn applies the requested permis
       });
       const managerContext = yield* Layer.build(
         Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
-          Layer.provide(Registry.makeSingleLayer(adapter)),
+          Layer.provide(Registry.layerFromAdapters([adapter])),
         ),
       ).pipe(Effect.provide(context.pipe(Context.merge(ingestor))));
       const manager = Context.get(managerContext, Manager.ProviderSessionManagerV2);

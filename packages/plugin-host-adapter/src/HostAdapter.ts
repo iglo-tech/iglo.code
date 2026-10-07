@@ -26,12 +26,12 @@ import * as Setup from "../../../apps/server/src/project/WorktreeSetupTracker.ts
 import * as Threads from "../../../apps/server/src/orchestration-v2/ThreadManagementService.ts";
 import * as Launch from "../../../apps/server/src/orchestration-v2/ThreadLaunchService.ts";
 import * as Receipts from "../../../apps/server/src/orchestration-v2/CommandReceiptStore.ts";
-import * as Events from "../../../apps/server/src/persistence/Services/OrchestrationEventStore.ts";
-import * as Providers from "../../../apps/server/src/provider/Services/ProviderRegistry.ts";
+import * as Events from "../../../apps/server/src/persistence/OrchestrationEventStore.ts";
+import * as Providers from "../../../apps/server/src/provider/ProviderRegistry.ts";
 import * as Settings from "../../../apps/server/src/serverSettings.ts";
 import * as Git from "../../../apps/server/src/vcs/GitVcsDriver.ts";
 import * as PullRequests from "../../../apps/server/src/pullRequest/PullRequestService.ts";
-import { deriveProviderInstanceConfigMap } from "../../../apps/server/src/provider/Layers/ProviderInstanceRegistryHydration.ts";
+import { deriveProviderInstanceConfigMap } from "../../../apps/server/src/provider/ProviderInstanceRegistryHydration.ts";
 import { providerToolCapability } from "./providerPolicy.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 

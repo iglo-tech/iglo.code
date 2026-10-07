@@ -31,8 +31,8 @@ import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import type * as Rpc from "effect/unstable/rpc/Rpc";
+import * as SqlClient from "effect/sql/SqlClient";
+import type * as Rpc from "effect/rpc/Rpc";
 import type { AuthEnvironmentScope } from "@t3tools/contracts";
 
 import * as PluginSchedules from "./PluginSchedules.ts";

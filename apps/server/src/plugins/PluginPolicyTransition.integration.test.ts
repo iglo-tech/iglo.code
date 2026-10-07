@@ -20,13 +20,14 @@ import { plugin as fixture } from "@t3tools/plugin-fixture/server";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { HttpBody, HttpClient } from "effect/unstable/http";
+import { HttpBody, HttpClient } from "effect/http";
 import { startEnvironment, origin, makeClient } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Projects from "../project/ProjectService.ts";
@@ -38,7 +39,7 @@ import * as Registry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as Ids from "../orchestration-v2/IdAllocator.ts";
 import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as Ingestor from "../orchestration-v2/ProviderEventIngestor.ts";
-import { OrchestrationV2EventSinkLayerLive } from "../orchestration-v2/runtimeLayer.ts";
+import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
 
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const settings = Schema.decodeSync(ClaudeSettings)({});
@@ -103,13 +104,14 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
           worktreePath: null,
         });
         const deps = yield* Layer.build(
-          Layer.mergeAll(Ids.layer, Projections.layer, OrchestrationV2EventSinkLayerLive),
+          Layer.mergeAll(Ids.layer, Projections.layer, layerEventSink),
         ).pipe(Effect.provide(server.context));
         const fs = yield* FileSystem.FileSystem;
         const nativeFrames = yield* Queue.unbounded<SDKMessage>();
         const opened: Claude.ClaudeAgentSdkQueryOpenInput[] = [];
         let closed = 0;
         const adapter = Claude.makeClaudeAdapterV2({
+          crypto: yield* Crypto.Crypto,
           instanceId,
           settings,
           environment: {},
@@ -141,7 +143,7 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
         });
         const mgrContext = yield* Layer.build(
           Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
-            Layer.provide(Registry.makeSingleLayer(adapter)),
+            Layer.provide(Registry.layerFromAdapters([adapter])),
           ),
         ).pipe(
           Effect.provide(

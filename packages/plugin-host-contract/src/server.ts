@@ -10,8 +10,8 @@ import * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import type * as Stream from "effect/Stream";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
-import type * as Rpc from "effect/unstable/rpc/Rpc";
+import type * as SqlClient from "effect/sql/SqlClient";
+import type * as Rpc from "effect/rpc/Rpc";
 
 import type {
   PluginAttentionItem,

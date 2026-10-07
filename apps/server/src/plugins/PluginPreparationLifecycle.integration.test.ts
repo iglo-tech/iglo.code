@@ -5,7 +5,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { Host, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { startEnvironment } from "./PluginHost.testkit.ts";

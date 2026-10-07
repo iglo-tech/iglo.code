@@ -22,13 +22,13 @@ import {
 } from "@t3tools/plugin-host-contract/server";
 import { PluginCommandReceipt, PluginLaunchInput } from "@t3tools/plugin-host-contract/schema";
 import * as Schema from "effect/Schema";
-import * as ChildProcess from "effect/unstable/process/ChildProcess";
-import * as Spawner from "effect/unstable/process/ChildProcessSpawner";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as Spawner from "effect/process/ChildProcessSpawner";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Hex from "effect/encoding/Hex";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -193,7 +193,7 @@ it.live.each([
           "update-ref",
           "--create-reflog",
           "-m",
-          `t3code-worktree:${Encoding.encodeHex(new TextEncoder().encode(`launch:${coreCommandId}`))}`,
+          `t3code-worktree:${Hex.encode(new TextEncoder().encode(`launch:${coreCommandId}`))}`,
           `refs/heads/${input.workspace.branch}`,
           ref,
           "",

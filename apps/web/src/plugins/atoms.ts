@@ -1,6 +1,6 @@
 import type { EnvironmentId, PluginAttention, PluginCatalog } from "@t3tools/contracts";
 import * as Stream from "effect/Stream";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 /** Capability gating also applies to cached values after reconnecting to an older server. */
 export function createPluginAtoms<R, E, RpcError>(
@@ -43,10 +43,13 @@ export function createPluginAtoms<R, E, RpcError>(
           return Stream.succeed<ReadonlyArray<PluginAttention>>([]);
         return options.attention(environmentId).pipe(
           Stream.filter((item) => item.environmentId === environmentId),
-          Stream.scan<ReadonlyArray<PluginAttention>, PluginAttention>([], (items, item) => [
-            ...items.filter((previous) => previous.pluginId !== item.pluginId),
-            item,
-          ]),
+          Stream.scan<ReadonlyArray<PluginAttention>, PluginAttention>(
+            () => [],
+            (items, item) => [
+              ...items.filter((previous) => previous.pluginId !== item.pluginId),
+              item,
+            ],
+          ),
         );
       })
       .pipe(Atom.setIdleTTL(0)),

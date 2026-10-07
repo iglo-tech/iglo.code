@@ -13,7 +13,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
-import { HttpBody, HttpClient } from "effect/unstable/http";
+import { HttpBody, HttpClient } from "effect/http";
 
 import { startEnvironment, origin, makeClient } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -23,7 +23,7 @@ import * as Sessions from "../mcp/McpSessionRegistry.ts";
 import * as ProviderSessions from "../mcp/McpProviderSession.ts";
 import * as Claude from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import type { ProviderAdapterV2RuntimePolicy } from "../orchestration-v2/ProviderAdapter.ts";
-import * as Providers from "../provider/Services/ProviderRegistry.ts";
+import * as Providers from "../provider/ProviderRegistry.ts";
 
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const cases = [
