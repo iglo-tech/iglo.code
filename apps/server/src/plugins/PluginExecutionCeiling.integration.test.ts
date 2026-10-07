@@ -101,7 +101,7 @@ it.live(
                   input: Schema.Struct({
                     id: Schema.String,
                     threadId: ThreadId,
-                    action: Schema.Literals(["send", "interrupt"]),
+                    action: Schema.Literals(["send", "interrupt", "retry-preparation"]),
                   }),
                   output: Schema.Struct({ accepted: Schema.Boolean }),
                   permission: {
@@ -117,6 +117,13 @@ it.live(
                       threadId: ThreadId.make(input.threadId),
                       commandId: CommandId.make(input.id),
                     };
+                    if (input.action === "retry-preparation")
+                      return boundHost.inspect(target).pipe(
+                        Effect.flatMap((state) =>
+                          boundHost.retryPreparation({ ...target, runId: state.runs.at(-1)!.id }),
+                        ),
+                        Effect.map((result) => ({ accepted: result.status === "accepted" })),
+                      );
                     return (
                       input.action === "send"
                         ? boundHost.send({
@@ -362,14 +369,14 @@ it.live(
           createdBy: "user",
           creationSource: "web",
         });
-        for (const action of ["send", "interrupt"] as const)
+        for (const action of ["send", "interrupt", "retry-preparation"] as const)
           expect(
             yield* call("plugin_fixture_control", {
               id: `denied-${action}`,
               threadId: futureId,
               action,
             }),
-          ).toContain('"isError":true');
+          ).toContain('"code":"unauthorized"');
         const replay = yield* Bound.make("fixture").pipe(
           Effect.provideService(Host, Context.get(server.context, Host)),
           Effect.provideService(Storage, yield* Deferred.await(storageReady)),

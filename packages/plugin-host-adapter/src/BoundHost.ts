@@ -33,6 +33,12 @@ const Interrupt = PluginTarget.mapFields((fields) => ({
 }));
 const LaunchRequest = Schema.Struct({ kind: Schema.Literal("launch"), input: PluginLaunchInput });
 const SendRequest = Schema.Struct({ kind: Schema.Literal("send"), input: Send });
+const Retry = PluginTarget.mapFields((fields) => ({
+  ...fields,
+  commandId: CommandId,
+  runId: Schema.String,
+}));
+const RetryRequest = Schema.Struct({ kind: Schema.Literal("retry-preparation"), input: Retry });
 const IntentMetadata = {
   coreCommandId: Schema.optional(CommandId),
   dispatchLimits: Schema.optional(
@@ -42,11 +48,13 @@ const IntentMetadata = {
 const Request = Schema.Union([
   LaunchRequest,
   SendRequest,
+  RetryRequest,
   Schema.Struct({ kind: Schema.Literal("interrupt"), input: Interrupt }),
 ]);
 const Intent = Schema.Union([
   LaunchRequest.mapFields((fields) => ({ ...fields, ...IntentMetadata })),
   SendRequest.mapFields((fields) => ({ ...fields, ...IntentMetadata })),
+  RetryRequest.mapFields((fields) => ({ ...fields, ...IntentMetadata })),
   Schema.Struct({
     kind: Schema.Literal("interrupt"),
     ...IntentMetadata,
@@ -141,23 +149,25 @@ export const make = (pluginId: string) =>
             )
           : intent.kind === "send"
             ? yield* core.send({ ...intent.input, commandId: input.commandId })
-            : intent.input.preparationId !== undefined
-              ? yield* core.interrupt({
-                  environmentId: intent.input.environmentId,
-                  projectId: intent.input.projectId,
-                  threadId: intent.input.threadId,
-                  commandId: input.commandId,
-                  preparationId: intent.input.preparationId,
-                })
-              : intent.input.runId === null
-                ? null
-                : yield* core.interrupt({
+            : intent.kind === "retry-preparation"
+              ? yield* core.retryPreparation({ ...intent.input, commandId: input.commandId })
+              : intent.input.preparationId !== undefined
+                ? yield* core.interrupt({
                     environmentId: intent.input.environmentId,
                     projectId: intent.input.projectId,
                     threadId: intent.input.threadId,
                     commandId: input.commandId,
-                    runId: intent.input.runId!,
-                  });
+                    preparationId: intent.input.preparationId,
+                  })
+                : intent.input.runId === null
+                  ? null
+                  : yield* core.interrupt({
+                      environmentId: intent.input.environmentId,
+                      projectId: intent.input.projectId,
+                      threadId: intent.input.threadId,
+                      commandId: input.commandId,
+                      runId: intent.input.runId!,
+                    });
       const receipt = result === null ? null : { ...result, commandId: intent.input.commandId };
       const encoded = yield* encodeReceipt(receipt);
       yield* sql`UPDATE host_commands SET result = ${encoded} WHERE id = ${intent.input.commandId}`;
@@ -259,7 +269,14 @@ export const make = (pluginId: string) =>
               (requested.input.runId === undefined || requested.input.runId === activeRun.id))
               ? state.preparationId
               : undefined);
-          if (preparationId !== undefined && preparationId === state.preparationId) {
+          const idleCancellation =
+            requested.input.runId === undefined &&
+            requested.input.preparationId === undefined &&
+            activeRun === undefined;
+          if (
+            (preparationId !== undefined && preparationId === state.preparationId) ||
+            idleCancellation
+          ) {
             const pending = yield* sql<{
               id: CommandId;
               intent: string;
@@ -324,6 +341,8 @@ export const make = (pluginId: string) =>
     const service = Host.of({
       ...core,
       launch: (input) => execute({ kind: "launch", input }).pipe(Effect.flatMap(required)),
+      retryPreparation: (input) =>
+        execute({ kind: "retry-preparation", input }).pipe(Effect.flatMap(required)),
       send: (input) => execute({ kind: "send", input }).pipe(Effect.flatMap(required)),
       interrupt: (input) => execute({ kind: "interrupt", input }),
       receipt: (id) =>

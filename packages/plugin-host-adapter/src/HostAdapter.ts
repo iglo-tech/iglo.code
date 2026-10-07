@@ -20,6 +20,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as Schema from "effect/Schema";
 
 import * as Environment from "../../../apps/server/src/environment/ServerEnvironment.ts";
 import * as Projects from "../../../apps/server/src/project/ProjectService.ts";
@@ -50,6 +51,7 @@ const fail = (operation: string, message: string, cause?: unknown) =>
     message,
     ...(cause === undefined ? {} : { cause }),
   });
+const encodeRunIds = Schema.encodeEffect(Schema.fromJsonString(Schema.Array(Schema.String)));
 const normalizedEvent = (
   event: OrchestrationV2DomainEvent,
 ): Extract<PluginLifecycleItem, { kind: "event" }>["event"] | null => {
@@ -572,15 +574,39 @@ const make = Effect.gen(function* () {
         const state = yield* inspect(input);
         const preparation = yield* setup.get(input.threadId);
         const durable = yield* threads
-          .getThreadRecords(input.threadId, ["runs", "checkpointScopes"])
+          .getThreadRecords(input.threadId, ["runs"])
           .pipe(
             Effect.mapError((cause) =>
               fail("send", "Could not reconcile workspace preparation.", cause),
             ),
           );
-        // A released prepared run commits its checkpoint scope with the release.
-        // Failed preparation has no such scope, even after the live tracker expires.
-        const releasedRuns = new Set(durable.checkpointScopes.map((scope) => scope.runId));
+        // Release commits a root scope event. Its projection is reused by later
+        // turns, so only the immutable event proves this run was released.
+        const preparationIds = durable.runs
+          .filter((run) => run.workspacePreparation !== undefined && run.status !== "preparing")
+          .map((run) => run.id);
+        const encodedPreparationIds = yield* encodeRunIds(preparationIds).pipe(
+          Effect.mapError((cause) =>
+            fail("send", "Could not encode preparation identities.", cause),
+          ),
+        );
+        const releases =
+          preparationIds.length === 0
+            ? []
+            : yield* sql<{ run_id: string }>`
+          SELECT DISTINCT json_extract(payload_json, '$.runId') AS run_id
+          FROM orchestration_events
+          WHERE aggregate_kind = 'thread' AND stream_id = ${input.threadId}
+            AND application_event_version = 2 AND event_type = 'checkpoint-scope.created'
+            AND json_extract(payload_json, '$.kind') = 'root_run'
+            AND json_extract(payload_json, '$.runId') IN
+              (SELECT value FROM json_each(${encodedPreparationIds}))
+        `.pipe(
+                Effect.mapError((cause) =>
+                  fail("send", "Could not reconcile workspace release.", cause),
+                ),
+              );
+        const releasedRuns = new Set(releases.map((release) => release.run_id));
         const unreleased = durable.runs.findLast(
           (run) => run.workspacePreparation !== undefined && !releasedRuns.has(run.id),
         );
@@ -636,6 +662,31 @@ const make = Effect.gen(function* () {
             creationSource: "mcp",
           })
           .pipe(Effect.mapError((cause) => fail("send", "Could not commit instructions.", cause)));
+        return yield* committed(input.commandId);
+      }),
+    retryPreparation: (input) =>
+      Effect.gen(function* () {
+        yield* environment(input.environmentId);
+        // Native retry reconciles a committed acknowledgement and schedules a
+        // preparing run again after restart, without duplicating its instruction.
+        yield* threads
+          .getProjectThreadRecords(input, ["runs"])
+          .pipe(
+            Effect.mapError((cause) =>
+              fail("retry-preparation", "The thread is unavailable in this project.", cause),
+            ),
+          );
+        yield* launch
+          .retryPreparation({
+            commandId: input.commandId,
+            threadId: input.threadId,
+            runId: RunId.make(input.runId),
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              fail("retry-preparation", "Could not retry workspace preparation.", cause),
+            ),
+          );
         return yield* committed(input.commandId);
       }),
     interrupt: (input) =>

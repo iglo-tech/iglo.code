@@ -48,11 +48,15 @@ export class Host extends Context.Service<
       PluginError
     >;
     readonly launch: (input: PluginLaunchInput) => Effect.Effect<PluginCommandReceipt, PluginError>;
+    /** Retry a failed preparation run; use a new identity for each attempt and reuse it after a lost acknowledgement. */
+    readonly retryPreparation: (
+      input: PluginTarget & { readonly commandId: CommandId; readonly runId: string },
+    ) => Effect.Effect<PluginCommandReceipt, PluginError>;
     readonly receipt: (
       commandId: CommandId,
     ) => Effect.Effect<PluginCommandReceipt | null, PluginError>;
     readonly inspect: (target: PluginTarget) => Effect.Effect<PluginThreadState, PluginError>;
-    /** Preparation-only threads return unavailable until handoff; retry the same command identity. */
+    /** Unreleased preparation returns unavailable; retry a failed run with retryPreparation, or a preparation-only launch with launch. */
     readonly send: (
       input: PluginTarget & {
         readonly commandId: CommandId;
@@ -60,7 +64,7 @@ export class Host extends Context.Service<
         readonly mode: "queue" | "auto";
       },
     ) => Effect.Effect<PluginCommandReceipt, PluginError>;
-    /** Cancellation stops setup; checkouts recovered from earlier attempts retain their files. */
+    /** Cancellation stops setup and retires this plugin's pending launches when idle; explicit targets stay pinned. Recovered checkouts retain their files. */
     readonly interrupt: (
       input: PluginTarget & {
         readonly commandId: CommandId;
