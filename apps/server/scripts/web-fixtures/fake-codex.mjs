@@ -10,6 +10,13 @@ if (process.argv.includes("--version")) {
 if (process.argv.includes("--help")) process.exit(0);
 const control = process.env.T3_FAKE_CONTROL;
 const owner = process.env.T3_FAKE_OWNER ?? "fixture";
+if (process.argv.includes("exec")) {
+  const output = process.argv[process.argv.indexOf("--output-last-message") + 1];
+  // Text generation is a separate CLI invocation, with the prompt on stdin.
+  NodeFS.readFileSync(0, "utf8");
+  NodeFS.writeFileSync(output, JSON.stringify({ title: `Thread ${owner}` }));
+  process.exit(0);
+}
 const captured = JSON.parse(
   NodeFS.readFileSync(
     process.env.T3_FAKE_CAPTURE ??
