@@ -8,7 +8,7 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Term           | Meaning                                                                                           |
 | -------------- | ------------------------------------------------------------------------------------------------- |
 | Environment    | One running server and the machine, credentials, workspace access, and state it owns.             |
-| Client         | A web, desktop, or mobile UI connected to an environment. The desktop app can also host a server. |
+| Client         | A web or desktop UI connected to an environment. The desktop app can also host a server.          |
 | Project        | An environment-local workspace record rooted at a directory.                                      |
 | Workspace root | The project's base filesystem directory on the environment.                                       |
 | Worktree       | A separate Git checkout a thread can use instead of the project's main checkout.                  |

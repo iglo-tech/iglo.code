@@ -18,15 +18,15 @@ import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
-import * as ChildProcess from "effect/unstable/process/ChildProcess";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import { HttpClient, HttpClientResponse } from "effect/http";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ServerSettings from "../../serverSettings.ts";
-import * as ResetCreditCoordinator from "../Layers/resetCreditCoordinator.ts";
-import * as ProviderEventLoggers from "../Layers/ProviderEventLoggers.ts";
+import * as ResetCreditCoordinator from "../resetCreditCoordinator.ts";
+import * as ProviderEventLoggers from "../ProviderEventLoggers.ts";
 import * as ModelManifest from "../ModelManifest.ts";
 import {
   createProviderVersionAdvisory,
@@ -38,12 +38,11 @@ import * as CodexAdapterV2 from "../../orchestration-v2/Adapters/CodexAdapterV2.
 import * as IdAllocator from "../../orchestration-v2/IdAllocator.ts";
 import { ProviderAdapterV2RuntimePolicy } from "../../orchestration-v2/ProviderAdapter.ts";
 import * as ProviderCredentialStore from "../ProviderCredentialStore.ts";
-import * as ProviderRegistry from "../Services/ProviderRegistry.ts";
-import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
-import { ProviderRegistryLive } from "../Layers/ProviderRegistry.ts";
+import * as ProviderRegistry from "../ProviderRegistry.ts";
+import * as ProviderInstanceRegistry from "../ProviderInstanceRegistry.ts";
 import * as PubSub from "effect/PubSub";
 
-const testLayer = ServerConfig.layerTest(process.cwd(), {
+const layerTest = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-codex-driver-maintenance-",
 }).pipe(
   Layer.provideMerge(NodeServices.layer),
@@ -94,7 +93,7 @@ const noSpawn = ChildProcessSpawner.make(() =>
 );
 const encodeCredentials = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
-it.layer(testLayer)("CodexDriver", (it) => {
+it.layer(layerTest)("CodexDriver", (it) => {
   it.effect("ordinary workspace discovery recovers after a managed Codex probe fails", () =>
     Effect.gen(function* () {
       const instanceId = ProviderInstanceId.make("managed-workspace-recovery");
@@ -205,7 +204,7 @@ it.layer(testLayer)("CodexDriver", (it) => {
         expect(machine.skills.map((skill) => skill.name)).toEqual(["personal"]);
         const changes = yield* PubSub.unbounded<void>();
         const services = yield* Layer.build(
-          ProviderRegistryLive.pipe(
+          ProviderRegistry.layer.pipe(
             Layer.provide(
               Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
                 getInstance: (requestedId) =>
