@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalFetchInEffect:off - verifies generated remote scripts using real shell and Node processes.
+// @effect-diagnostics nodeBuiltinImport:off globalFetchInEffect:off - verifies generated remote scripts using real shell and Bun processes.
 import * as Effect from "effect/Effect";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { describe, expect, it } from "@effect/vitest";
@@ -7,10 +7,16 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
-import { quoteRemoteArg, remoteDeviceEnvironment, remoteDeviceScript } from "./sshDeviceScript.ts";
+import {
+  quoteRemoteArg,
+  remoteDeviceEnvironment,
+  remoteDeviceScript,
+  remoteDeviceBunCommand,
+} from "./sshDeviceScript.ts";
 import { AGENT_DEVICE_VERSION, DEVICE_HUB_VERSION } from "./DeviceToolchain.ts";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
+const bunPath = process.env.T3_BUN_EXECUTABLE ?? "bun";
 
 it.effect("finds Android Studio Java for a non-interactive SSH session", () =>
   Effect.gen(function* () {
@@ -47,6 +53,37 @@ it.effect("preserves shell metacharacters and newlines in remote arguments", () 
   }),
 );
 
+it("runs the remote stdin bootstrap using Bun in its default install location", async () => {
+  const home = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-ssh-bun-path-"));
+  try {
+    const bin = NodePath.join(home, ".bun/bin");
+    await NodeFSP.mkdir(bin, { recursive: true });
+    await NodeFSP.symlink(
+      (await exec("which", [bunPath])).stdout.trim(),
+      NodePath.join(bin, "bun"),
+    );
+    const pending = exec("/bin/sh", ["-c", remoteDeviceEnvironment + remoteDeviceBunCommand], {
+      env: { HOME: home, PATH: "/usr/bin:/bin" },
+    });
+    pending.child.stdin!.end(remoteDeviceScript("probe-only", "probe"));
+    const result = JSON.parse((await pending).stdout);
+    expect(result.bunPath).toBe((await exec("which", [bunPath])).stdout.trim());
+    expect(result.platforms).toHaveLength(2);
+    await expect(NodeFSP.stat(NodePath.join(home, ".t3/device/hosts"))).rejects.toThrow();
+  } finally {
+    await NodeFSP.rm(home, { recursive: true, force: true });
+  }
+});
+
+it("rejects an unsupported remote Bun runtime with actionable SSH guidance", async () => {
+  await expect(
+    exec(bunPath, [
+      "-e",
+      `Object.defineProperty(process.versions, 'bun', { value: '1.3.14' });\n${remoteDeviceScript("unsupported", "probe")}`,
+    ]),
+  ).rejects.toThrow("Bun 1.4.0 or newer is required on the device host");
+});
+
 describe("remote helper lifecycle", () => {
   it.effect("reuses its own healthy helpers and stops only its own runtime", () =>
     Effect.gen(function* () {
@@ -55,6 +92,10 @@ describe("remote helper lifecycle", () => {
         const home = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-remote-script-"));
         const bin = NodePath.join(home, "bin");
         await NodeFSP.mkdir(bin);
+        await NodeFSP.symlink(
+          (await exec("which", [bunPath])).stdout.trim(),
+          NodePath.join(bin, "bun"),
+        );
         await NodeFSP.writeFile(NodePath.join(bin, "adb"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
         const root = NodePath.join(home, ".t3/device");
         const hubDir = NodePath.join(root, `tools/expo-device-hub@${DEVICE_HUB_VERSION}`);
@@ -98,17 +139,28 @@ else { const child=spawn(process.execPath,[path.join(path.dirname(process.argv[1
           const file = NodePath.join(home, `${owner}-${mode}-${invocation++}.cjs`);
           await NodeFSP.writeFile(
             file,
-            `const originalKill = process.kill; process.kill = (pid, signal) => { if (signal === 'SIGTERM') require('node:fs').appendFileSync(${JSON.stringify(NodePath.join(home, "stops"))}, pid+'\\n'); return originalKill(pid, signal); };\n` +
+            `const childProcess = require('node:child_process'); const originalSpawnSync = childProcess.spawnSync;
+childProcess.spawnSync = (command, args, options) => {
+  if (command === process.execPath && args[0] === '--bun' && args[1] === 'install') {
+    const staging = args[args.indexOf('--cwd') + 1];
+    require('node:fs').cpSync(${JSON.stringify(NodePath.join(home, "hub-template"))}, staging, { recursive: true });
+    return { status: 0, stdout: '', stderr: '' };
+  }
+  if (command === process.execPath && args[0]?.endsWith('/prebuild-install/bin.js')) return { status: 0, stdout: '', stderr: '' };
+  return originalSpawnSync(command, args, options);
+};
+const originalKill = process.kill; process.kill = (pid, signal) => { if (signal === 'SIGTERM') require('node:fs').appendFileSync(${JSON.stringify(NodePath.join(home, "stops"))}, pid+'\\n'); return originalKill(pid, signal); };\n` +
               remoteDeviceScript(owner, mode)
                 .replace(DEVICE_HUB_VERSION, upgraded ? nextHubVersion : DEVICE_HUB_VERSION)
                 .replace(AGENT_DEVICE_VERSION, upgraded ? nextAgentVersion : AGENT_DEVICE_VERSION),
           );
-          const result = await exec(process.execPath, [file], {
-            env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` },
+          const result = await exec(bunPath, [file], {
+            env: { ...process.env, HOME: home, PATH: `${bin}:/usr/bin:/bin` },
           });
           return result.stdout ? JSON.parse(result.stdout) : null;
         };
         const inventory = await invoke("one", "probe");
+        expect(inventory.bunPath).toBe((await exec("which", [bunPath])).stdout.trim());
         expect(inventory.tools.hub.installedVersions).toEqual([DEVICE_HUB_VERSION]);
         expect(inventory.tools.hub.runningVersion).toBeNull();
         expect(inventory.tools.agent.installedVersions).toEqual([AGENT_DEVICE_VERSION]);
@@ -118,11 +170,6 @@ else { const child=spawn(process.execPath,[path.join(path.dirname(process.argv[1
         await NodeFSP.rm(NodePath.join(hubDir, ".install-complete"));
         const installLock = hubDir + ".lock";
         await NodeFSP.symlink("2147483647:exited-installer", installLock);
-        await NodeFSP.writeFile(
-          NodePath.join(bin, "npm"),
-          `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);if(args[0]==='--version'){console.log('10.0.0');process.exit(0);}fs.cpSync(${JSON.stringify(template)},args[args.indexOf('--prefix')+1],{recursive:true});`,
-          { mode: 0o755 },
-        );
         await NodeFSP.mkdir(NodePath.join(root, "hosts/one"), { recursive: true });
         await NodeFSP.writeFile(NodePath.join(root, "hosts/one/fail-start-once"), "");
         // Unavailable advisory bookkeeping must not prevent either helper from starting.
@@ -205,8 +252,8 @@ else { const child=spawn(process.execPath,[path.join(path.dirname(process.argv[1
             upgradedStop,
             originalScript.replace(AGENT_DEVICE_VERSION, "999.0.0"),
           );
-          await exec(process.execPath, [upgradedStop], {
-            env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` },
+          await exec(bunPath, [upgradedStop], {
+            env: { ...process.env, HOME: home, PATH: `${bin}:/usr/bin:/bin` },
           });
           const daemon = JSON.parse(
             await NodeFSP.readFile(NodePath.join(root, "hosts/one/daemon.json"), "utf8"),

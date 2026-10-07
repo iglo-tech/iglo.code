@@ -3,15 +3,15 @@ import type { DeviceToolVersions } from "@t3tools/contracts";
  * Pinned installs of the two external tools device support is built on.
  *
  * `expo-device-hub` streams simulator and emulator screens and `agent-device`
- * drives them. Each is npm-installed separately after its matching consent
+ * drives them. Each is Bun-installed separately after its matching consent
  * step into `<baseDir>/tools/<name>/<version>` and executed from there with the
- * resolved Node runtime, never `npx`: an ephemeral
- * npx cache would make every first `device_open` after a reboot depend on the
+ * resolved Bun runtime: an ephemeral
+ * package runner cache would make every first `device_open` after a reboot depend on the
  * registry, and the pinned versions are part of the contract the injected
  * agent instructions describe.
  *
  * Install follows the pinned-runtime recipe: stage into a temp sibling, write a
- * sentinel only after npm exits 0, then rename into place. npm extracts files
+ * sentinel only after Bun exits 0, then rename into place. Bun extracts files
  * before it finishes, so an entry file alone does not prove a usable tree.
  */
 import * as Duration from "effect/Duration";
@@ -19,10 +19,11 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
+import { resolveBunExecutable } from "@t3tools/shared/bunRuntime";
+import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import * as ProcessRunner from "../processRunner.ts";
 
 const DEVICE_HUB_PACKAGE = "expo-device-hub";
@@ -35,7 +36,7 @@ const installLock = Semaphore.makeUnsafe(1);
 
 export interface DeviceToolPaths {
   readonly installDir: string;
-  /** Absolute path of the tool's entry script, run with a resolved Node runtime. */
+  /** Absolute path of the tool's entry script, run with a resolved Bun runtime. */
   readonly entryPath: string;
   readonly sentinelPath: string;
 }
@@ -132,37 +133,58 @@ const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
     .pipe(Effect.mapError(fail("preparing the install directory")));
 
   return yield* Effect.gen(function* () {
-    const installArgs = [
-      "install",
-      "--prefix",
-      stagingDir,
-      "--no-fund",
-      "--no-audit",
-      `${spec.name}@${spec.version}`,
-    ];
-    const result = yield* runner
-      .run({ command: "npm", args: installArgs, timeout: INSTALL_TIMEOUT })
-      .pipe(
-        Effect.catchTags({
-          ProcessSpawnError: (error) =>
-            error.cause instanceof PlatformError.PlatformError &&
-            error.cause.reason._tag === "NotFound"
-              ? runner.run({
-                  command: "pnpm",
-                  args: ["--package=npm@11", "dlx", "npm", ...installArgs],
-                  timeout: INSTALL_TIMEOUT,
-                })
-              : Effect.fail(error),
+    const environment = yield* HostProcessEnvironment;
+    const bunPath = yield* resolveBunExecutable(
+      spec.name === DEVICE_HUB_PACKAGE ? "Local device support" : "Device automation",
+      environment,
+    ).pipe(Effect.mapError(fail("resolving the Bun runtime")));
+    yield* fs
+      .writeFileString(
+        path.join(stagingDir, "package.json"),
+        JSON.stringify({
+          private: true,
+          dependencies: { [spec.name]: spec.version },
+          trustedDependencies: [],
         }),
-        Effect.mapError(fail("running npm install")),
-      );
+      )
+      .pipe(Effect.mapError(fail("preparing the package manifest")));
+    const result = yield* runner
+      .run({
+        command: bunPath,
+        args: ["--bun", "install", "--cwd", stagingDir, "--production", "--ignore-scripts"],
+        timeout: INSTALL_TIMEOUT,
+        env: environment,
+      })
+      .pipe(Effect.mapError(fail("running Bun install")));
     if (result.code !== 0) {
       return yield* new DeviceToolchainInstallError({
         tool: spec.name,
-        step: "running npm install",
+        step: "running Bun install",
         exitCode: Number(result.code),
         cause: result,
       });
+    }
+    if (spec.name === DEVICE_HUB_PACKAGE) {
+      // node-datachannel's lifecycle downloads its prebuilt N-API addon, then
+      // falls back to npm and a native build. Run only that supported prebuild
+      // step with Bun so a failed download cannot add a Node/npm requirement.
+      const native = yield* runner
+        .run({
+          command: bunPath,
+          args: [path.join(stagingDir, "node_modules", "prebuild-install", "bin.js"), "-r", "napi"],
+          cwd: path.join(stagingDir, "node_modules", "node-datachannel"),
+          env: environment,
+          timeout: INSTALL_TIMEOUT,
+        })
+        .pipe(Effect.mapError(fail("installing native Device streaming support")));
+      if (native.code !== 0) {
+        return yield* new DeviceToolchainInstallError({
+          tool: spec.name,
+          step: "installing native Device streaming support",
+          exitCode: Number(native.code),
+          cause: native,
+        });
+      }
     }
     const stagedEntry = path.join(stagingDir, "node_modules", spec.name, ...spec.entry);
     if (!(yield* fs.exists(stagedEntry).pipe(Effect.orElseSucceed(() => false)))) {

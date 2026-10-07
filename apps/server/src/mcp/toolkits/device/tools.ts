@@ -11,6 +11,7 @@ import {
 import * as Schema from "effect/Schema";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ServerConfig from "../../../config.ts";
 import { Tool, Toolkit } from "effect/ai";
 
@@ -60,7 +61,13 @@ const DeviceOpenTool = Tool.make("device_open", {
   parameters: DeviceToolOpenInput,
   success: DeviceToolOpenResult,
   failure: DeviceToolFailure,
-  dependencies: [...dependencies, FileSystem.FileSystem, Path.Path, ServerConfig.ServerConfig],
+  dependencies: [
+    ...dependencies,
+    FileSystem.FileSystem,
+    Path.Path,
+    ServerConfig.ServerConfig,
+    ChildProcessSpawner.ChildProcessSpawner,
+  ],
 })
   .annotate(Tool.Title, "Open device")
   .annotate(Tool.Readonly, false)

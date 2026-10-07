@@ -12,7 +12,7 @@ import * as Path from "effect/Path";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as ServerConfig from "../../../config.ts";
 import { ensureAgentDeviceShim } from "../../../device/AgentDeviceShim.ts";
-import { nodeRuntimeUnavailableMessage } from "@t3tools/shared/nodeRuntime";
+import { bunRuntimeUnavailableMessage } from "@t3tools/shared/bunRuntime";
 
 import * as DeviceService from "../../../device/DeviceService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -188,8 +188,8 @@ const handlers = {
           (error) =>
             new DeviceToolUnavailableError({
               reason:
-                error._tag === "NodeRuntimeUnavailableError"
-                  ? nodeRuntimeUnavailableMessage("Device automation")
+                error._tag === "BunRuntimeUnavailableError"
+                  ? bunRuntimeUnavailableMessage("Device automation")
                   : "Could not prepare the agent-device launcher.",
               cause: error,
             }),

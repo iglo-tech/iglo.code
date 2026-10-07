@@ -212,10 +212,10 @@ it.effect(
       );
       expect(yield* host.current).toBeNull();
       const error = yield* host
-        .ensureReady(() => Effect.die("Must not install without Node"))
+        .ensureReady(() => Effect.die("Must not install without Bun"))
         .pipe(Effect.flip, Effect.provideService(HostProcessIsExecutable, true));
-      expect(error.message).toContain("Local device support requires Node.js");
-      expect(error.message).toContain("Install Node.js");
+      expect(error.message).toContain("Local device support requires Bun");
+      expect(error.message).toContain("Install Bun");
       yield* host.stop;
       expect(yield* fs.exists(`${baseDir}/tools`)).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),

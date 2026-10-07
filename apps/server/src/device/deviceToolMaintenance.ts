@@ -111,14 +111,14 @@ class DeviceToolMaintenanceError extends Schema.TaggedError<DeviceToolMaintenanc
 }
 
 const runMaintenance = Effect.fn("DeviceToolchain.maintenance")(function* (
-  nodePath: string,
+  bunPath: string,
   script: string,
   operation: "prune",
   tool: "hub" | "agent",
 ) {
   const runner = yield* ProcessRunner.ProcessRunner;
   const result = yield* runner.run({
-    command: nodePath,
+    command: bunPath,
     args: [
       "-e",
       deviceToolMaintenanceScript +
@@ -138,12 +138,12 @@ const runMaintenance = Effect.fn("DeviceToolchain.maintenance")(function* (
 
 export const pruneLocalDeviceTools = Effect.fn("DeviceToolchain.prune")(function* (
   baseDir: string,
-  nodePath: string,
+  bunPath: string,
   tool: "hub" | "agent",
 ) {
   const path = yield* Path.Path;
   yield* runMaintenance(
-    nodePath,
+    bunPath,
     `pruneTools(${JSON.stringify(path.join(baseDir, "tools"))}, ${JSON.stringify(tool === "hub" ? [["expo-device-hub", DEVICE_HUB_VERSION]] : [["agent-device", AGENT_DEVICE_VERSION]])}, false)`,
     "prune",
     tool,
