@@ -33,6 +33,7 @@ import * as Git from "../../../apps/server/src/vcs/GitVcsDriver.ts";
 import * as PullRequests from "../../../apps/server/src/pullRequest/PullRequestService.ts";
 import { deriveProviderInstanceConfigMap } from "../../../apps/server/src/provider/ProviderInstanceRegistryHydration.ts";
 import { providerToolCapability } from "./providerPolicy.ts";
+import * as LaunchCancellation from "./LaunchCancellation.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 
 const fail = (operation: string, message: string, cause?: unknown) =>
@@ -166,6 +167,7 @@ const make = Effect.gen(function* () {
       providerThreads: records.providerThreads,
       turnItems: records.turnItems,
       activeProviderThreadId: records.thread.activeProviderThreadId,
+      pullRequests: records.thread.pullRequests,
     });
     const preparation = yield* setup.get(target.threadId);
     const preparationId =
@@ -436,6 +438,7 @@ const make = Effect.gen(function* () {
           input.workspace.type === "exact-ref"
             ? yield* resolveWorkspaceRef(workspace.workspaceRoot, input.workspace.ref)
             : null;
+        const cancellation = yield* Effect.serviceOption(LaunchCancellation.LaunchCancellation);
         const launched = yield* launch
           .launch({
             commandId: input.commandId,
@@ -465,6 +468,9 @@ const make = Effect.gen(function* () {
                 }),
             createdBy: "agent",
             creationSource: "mcp",
+            ...(Option.isNone(cancellation)
+              ? {}
+              : { beforeCancel: cancellation.value.beforeCancel }),
           })
           .pipe(
             Effect.mapError((cause) =>
@@ -608,7 +614,22 @@ const make = Effect.gen(function* () {
                 ),
               );
           }
-          yield* setup.cancel(input.threadId, preparationId);
+          const cancelled = yield* setup.cancel(input.threadId, preparationId);
+          if (!cancelled) {
+            const current = yield* setup.get(input.threadId);
+            if (
+              current?.phase === "running" &&
+              current.preparationId === preparationId &&
+              !current.stages.some((stage) => stage.id === "agent" && stage.status !== "pending")
+            )
+              return yield* new PluginError({
+                pluginId: "host",
+                code: "unavailable",
+                operation: "interrupt",
+                message:
+                  "Workspace cancellation could not be persisted. Retry with the same command identity.",
+              });
+          }
           yield* threads
             .dispatch({
               type: "thread.metadata.update",

@@ -86,6 +86,8 @@ export interface ThreadLaunchInput {
   readonly interactionMode: ProviderInteractionMode;
   readonly workspaceStrategy: ThreadLaunchWorkspaceStrategy;
   readonly initialMessage?: ThreadLaunchInitialMessage;
+  /** Durable launch owners can refuse cancellation until its disposition is stored. */
+  readonly beforeCancel?: Effect.Effect<boolean>;
   readonly importedNativeThread?: {
     readonly ref: {
       readonly driver: ProviderDriverKind;
@@ -101,7 +103,7 @@ export interface ThreadLaunchInput {
 /** What workspace preparation reads from a launch; a retry rebuilds it from the run. */
 type PreparationInput = Pick<
   ThreadLaunchInput,
-  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage"
+  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage" | "beforeCancel"
 > & {
   /**
    * Set when a retry reuses the worktree its failed attempt created and
@@ -254,6 +256,7 @@ const make = Effect.gen(function* () {
         baseRef: input.workspaceStrategy.baseRef,
         stages: ["fetch", "checkout", "setup-script", "agent"],
         fiber: yield* Effect.fiber,
+        ...(input.beforeCancel === undefined ? {} : { beforeCancel: input.beforeCancel }),
       });
     } else {
       yield* setupTracker.begin({
@@ -263,6 +266,7 @@ const make = Effect.gen(function* () {
         baseRef: reused?.baseRef ?? null,
         stages: ["setup-script", "agent"],
         fiber: yield* Effect.fiber,
+        ...(input.beforeCancel === undefined ? {} : { beforeCancel: input.beforeCancel }),
       });
     }
     yield* Deferred.succeed(started, undefined);

@@ -43,6 +43,8 @@ export class WorktreeSetupTracker extends Context.Service<
       readonly stages: ReadonlyArray<WorktreeSetupStageId>;
       /** Interrupting this fiber cancels the bootstrap. */
       readonly fiber: Fiber.Fiber<unknown, unknown> | null;
+      /** Returns false when a durable owner cannot record cancellation yet. */
+      readonly beforeCancel?: Effect.Effect<boolean>;
     }) => Effect.Effect<void>;
     readonly update: (
       threadId: ThreadId,
@@ -78,7 +80,8 @@ export class WorktreeSetupTracker extends Context.Service<
     /**
      * Interrupts the running bootstrap and waits for it to unwind, so the
      * caller's dispatch has already failed and rolled back when this returns.
-     * Returns false when nothing is running or the setup is past cancellation.
+     * Returns false when nothing is running, setup is past cancellation, or its
+     * durable owner could not record the cancellation.
      * A supplied preparation id leaves a newer attempt running.
      */
     readonly cancel: (threadId: ThreadId, preparationId?: string) => Effect.Effect<boolean>;
@@ -105,6 +108,7 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 interface TrackedSetup {
   readonly snapshot: WorktreeSetupSnapshot;
   readonly fiber: Fiber.Fiber<unknown, unknown> | null;
+  readonly beforeCancel?: Effect.Effect<boolean>;
 }
 
 function emptyStage(id: WorktreeSetupStageId): WorktreeSetupStage {
@@ -192,7 +196,11 @@ export const make = Effect.gen(function* () {
       lastSequenceByThread.set(input.threadId, snapshot.sequence);
       yield* Ref.update(setups, (current) => {
         const next = new Map(current);
-        next.set(input.threadId, { snapshot, fiber: input.fiber });
+        next.set(input.threadId, {
+          snapshot,
+          fiber: input.fiber,
+          ...(input.beforeCancel === undefined ? {} : { beforeCancel: input.beforeCancel }),
+        });
         return next;
       });
       yield* publish(input.threadId, snapshot);
@@ -317,9 +325,10 @@ export const make = Effect.gen(function* () {
       }
       if (preparationId !== undefined && tracked.snapshot.preparationId !== preparationId)
         return false;
+      if (tracked.beforeCancel !== undefined && !(yield* tracked.beforeCancel)) return false;
       yield* Fiber.interrupt(tracked.fiber);
       return true;
-    });
+    }).pipe(Effect.uninterruptible);
 
   const get: WorktreeSetupTracker["Service"]["get"] = (threadId) =>
     Ref.get(setups).pipe(Effect.map((current) => current.get(threadId)?.snapshot ?? null));

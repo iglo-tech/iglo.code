@@ -8,9 +8,14 @@ import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  CommandId,
+  ProjectId,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
-import { startEnvironment } from "./PluginHost.testkit.ts";
+import { makeClient, startEnvironment } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Startup from "../serverRuntimeStartup.ts";
@@ -24,6 +29,12 @@ it.live.each([
   { workspaceType: "exact-ref", mode: "cancelled" },
   { workspaceType: "current", mode: "lost-ack" },
   { workspaceType: "exact-ref", mode: "lost-ack" },
+  { workspaceType: "current", mode: "client" },
+  { workspaceType: "exact-ref", mode: "client" },
+  { workspaceType: "current", mode: "client-storage-failure" },
+  { workspaceType: "exact-ref", mode: "client-storage-failure" },
+  { workspaceType: "current", mode: "plugin-storage-failure" },
+  { workspaceType: "exact-ref", mode: "plugin-storage-failure" },
 ] as const)(
   "automatic preparation recovery for $workspaceType after $mode",
   ({ workspaceType, mode }) =>
@@ -137,16 +148,50 @@ it.live.each([
         expect(yield* fs.readFileString(marker)).toBe("attempt\n");
         let stop: unknown = null;
         if (cancelled) {
-          if (mode === "lost-ack")
-            yield* bound.storage
-              .sql`CREATE TRIGGER fail_cancel_ack BEFORE UPDATE OF result ON host_commands WHEN OLD.id = 'cancel' BEGIN SELECT RAISE(ABORT, 'lost acknowledgement'); END`;
-          const stopping = bound.host.interrupt({ ...target, commandId: CommandId.make("cancel") });
-          if (mode === "lost-ack") {
-            expect(yield* stopping.pipe(Effect.flip)).toMatchObject({ code: "storage" });
-            yield* bound.storage.sql`DROP TRIGGER fail_cancel_ack`;
+          if (mode === "client" || mode === "client-storage-failure") {
+            const client = yield* makeClient(first.context, [AuthOrchestrationOperateScope]);
+            if (mode === "client-storage-failure") {
+              yield* bound.storage
+                .sql`CREATE TRIGGER fail_cancel_disposition BEFORE INSERT ON host_cancelled_launches BEGIN SELECT RAISE(ABORT, 'cancellation storage unavailable'); END`;
+              expect((yield* client["worktreeSetup.cancel"](target)).cancelled).toBe(false);
+              expect(
+                (yield* Context.get(first.context, Tracker.WorktreeSetupTracker).get(
+                  target.threadId,
+                ))?.phase,
+              ).toBe("running");
+              yield* bound.storage.sql`DROP TRIGGER fail_cancel_disposition`;
+            }
+            expect((yield* client["worktreeSetup.cancel"](target)).cancelled).toBe(true);
           } else {
-            stop = yield* stopping;
-            expect(stop).toMatchObject({ status: "accepted" });
+            if (mode === "plugin-storage-failure") {
+              yield* bound.storage
+                .sql`CREATE TRIGGER fail_cancel_callback BEFORE INSERT ON host_cancelled_launches WHEN EXISTS (SELECT 1 FROM host_cancelled_launches WHERE id = NEW.id) BEGIN SELECT RAISE(ABORT, 'cancellation storage unavailable'); END`;
+              expect(
+                yield* bound.host
+                  .interrupt({ ...target, commandId: CommandId.make("cancel") })
+                  .pipe(Effect.flip),
+              ).toMatchObject({ code: "unavailable" });
+              expect(
+                (yield* Context.get(first.context, Tracker.WorktreeSetupTracker).get(
+                  target.threadId,
+                ))?.phase,
+              ).toBe("running");
+              yield* bound.storage.sql`DROP TRIGGER fail_cancel_callback`;
+            }
+            if (mode === "lost-ack")
+              yield* bound.storage
+                .sql`CREATE TRIGGER fail_cancel_ack BEFORE UPDATE OF result ON host_commands WHEN OLD.id = 'cancel' BEGIN SELECT RAISE(ABORT, 'lost acknowledgement'); END`;
+            const stopping = bound.host.interrupt({
+              ...target,
+              commandId: CommandId.make("cancel"),
+            });
+            if (mode === "lost-ack") {
+              expect(yield* stopping.pipe(Effect.flip)).toMatchObject({ code: "storage" });
+              yield* bound.storage.sql`DROP TRIGGER fail_cancel_ack`;
+            } else {
+              stop = yield* stopping;
+              expect(stop).toMatchObject({ status: "accepted" });
+            }
           }
 
           expect((yield* Fiber.join(launching))._tag).toBe("Failure");

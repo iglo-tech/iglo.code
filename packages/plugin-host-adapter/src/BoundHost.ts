@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
+import * as LaunchCancellation from "./LaunchCancellation.ts";
 
 const Send = PluginTarget.mapFields((fields) => ({
   ...fields,
@@ -110,7 +111,21 @@ export const make = (pluginId: string) =>
       }
       const result =
         intent.kind === "launch"
-          ? yield* core.launch({ ...intent.input, commandId: input.commandId })
+          ? yield* core.launch({ ...intent.input, commandId: input.commandId }).pipe(
+              Effect.provideService(LaunchCancellation.LaunchCancellation, {
+                beforeCancel:
+                  sql`INSERT OR IGNORE INTO host_cancelled_launches (id) VALUES (${intent.input.commandId})`.pipe(
+                    Effect.as(true),
+                    Effect.catch((cause) =>
+                      Effect.logWarning("Could not persist plugin launch cancellation", {
+                        pluginId,
+                        commandId: intent.input.commandId,
+                        cause,
+                      }).pipe(Effect.as(false)),
+                    ),
+                  ),
+              }),
+            )
           : intent.kind === "send"
             ? yield* core.send({ ...intent.input, commandId: input.commandId })
             : intent.input.preparationId !== undefined
