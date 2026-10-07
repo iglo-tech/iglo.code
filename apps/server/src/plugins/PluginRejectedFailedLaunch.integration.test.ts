@@ -7,7 +7,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
 import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
-import { PluginError } from "@t3tools/plugin-host-contract/schema";
+import { PluginError, type PluginCommandReceipt } from "@t3tools/plugin-host-contract/schema";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { startEnvironment } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -92,6 +92,7 @@ it.live.each([
         });
         yield* Fiber.interrupt(server.fiber);
         let ready = yield* Deferred.make<{ host: Host["Service"]; storage: Storage["Service"] }>();
+        const initialReceipt = yield* Deferred.make<PluginCommandReceipt>();
         let rejected = rejectedInitially;
         let firstAcquire = true;
         const plugin: ServerPlugin = {
@@ -125,13 +126,15 @@ it.live.each([
                 })
                 .pipe(Effect.result);
               expect(result._tag).toBe("Failure");
+              // Retain the first receipt before registry startup begins asynchronous replay.
+              const created = yield* host.receipt(CommandId.make("initial-launch"));
+              if (!created) return yield* Effect.die("Expected the initial launch receipt");
+              yield* Deferred.succeed(initialReceipt, created);
               if (cancel) {
-                const created = yield* host.receipt(CommandId.make("initial-launch"));
-                expect(created).not.toBeNull();
                 yield* host.interrupt({
                   environmentId: host.environmentId,
                   projectId,
-                  threadId: created!.threadId,
+                  threadId: created.threadId,
                   commandId: CommandId.make("cancel-failed-launch"),
                 });
               }
@@ -162,7 +165,7 @@ it.live.each([
 
         const cancelled = yield* bound.storage.sql`SELECT id FROM host_cancelled_launches`;
         expect(cancelled).toHaveLength(rejectedInitially ? 1 : 0);
-        const createdBeforeRestart = yield* bound.host.receipt(CommandId.make("initial-launch"));
+        const createdBeforeRestart = yield* Deferred.await(initialReceipt);
         const marker = config.baseDir + "/unrequested-recovery";
         yield* Context.get(server.context, Projects.ProjectService).update({
           commandId: CommandId.make("repair-setup"),
@@ -211,7 +214,7 @@ it.live.each([
           // Observe actual registry startup recovery; issue no launch or recovery call.
           yield* Context.get(server.context, Threads.ThreadManagementService)
             .streamStoredEventsFrom({
-              threadId: createdBeforeRestart!.threadId,
+              threadId: createdBeforeRestart.threadId,
               afterSequence: 0,
               eventType: "thread.metadata-updated",
             })
