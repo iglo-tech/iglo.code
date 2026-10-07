@@ -654,7 +654,7 @@ export const layer = Layer.effect(
       readonly id: ScheduledTaskId;
       readonly completedAtIso: string;
       readonly nextRunAtIso: string | null;
-      readonly status: "succeeded" | "failed";
+      readonly status: "queued" | "dispatched" | "failed";
       readonly error: string | null;
       readonly startedAtIso: string;
     }) =>
@@ -773,6 +773,26 @@ export const layer = Layer.effect(
           if (reason !== null) return yield* new WebhookDeliverySkipped({ reason });
         }
 
+        // A recurring check represents current work, not a backlog of missed
+        // intervals. Keep the admitted prompt intact until its turn settles.
+        // Read durable run provenance so this also works after a restart and
+        // with queues created before this policy existed.
+        if (trigger === "scheduled" && active.threadId !== null) {
+          const pending = yield* threadManagement.getProjectThreadRecords(
+            { projectId: active.projectId, threadId: active.threadId },
+            ["runs"],
+            {
+              runScheduledTaskId: active.id,
+              runStatuses: ["queued", "preparing", "starting", "running", "waiting"],
+            },
+          );
+          if (pending.runs.length > 0) {
+            const current = yield* findTask(active.id);
+            if (current !== null) yield* rescheduleNextRun(current, startedAt);
+            return current ?? active;
+          }
+        }
+
         yield* markRunning(active.id, startedAtIso);
         yield* notifyChanged;
 
@@ -832,7 +852,12 @@ export const layer = Layer.effect(
 
         const completedAt = yield* localNow;
         const runSucceeded = result._tag === "Success";
-        const lastRunStatus = runSucceeded ? ("succeeded" as const) : ("failed" as const);
+        const lastRunStatus =
+          result._tag === "Failure"
+            ? "failed"
+            : "delivery" in result.value && result.value.delivery === "queued"
+              ? "queued"
+              : "dispatched";
         const lastRunError = runSucceeded ? null : errorMessage(result.cause);
         // Re-read the task so the next run is computed from the schedule as it
         // is *now* (the user may have edited or deleted it while we ran).
@@ -874,16 +899,14 @@ export const layer = Layer.effect(
       );
     });
 
-    // A due fixed-time run that is long past its slot (server was off or
-    // asleep) is skipped and re-aimed at its next occurrence, not fired late.
-    const rescheduleMissedRun = Effect.fn("ScheduledTaskService.rescheduleMissedRun")(function* (
+    const rescheduleNextRun = Effect.fn("ScheduledTaskService.rescheduleNextRun")(function* (
       task: ScheduledTask,
       now: DateTime.DateTime,
     ) {
       const next = nextRunAt(task, now);
-      yield* Effect.logInfo("Skipping missed schedule task run", {
+      yield* Effect.logInfo("Rescheduling schedule task occurrence", {
         taskId: task.id,
-        missedRunAt: task.nextRunAt,
+        dueAt: task.nextRunAt,
         rescheduledTo: next,
       });
       yield* sql`
@@ -891,9 +914,10 @@ export const layer = Layer.effect(
         SET next_run_at = ${next},
             updated_at = ${iso(now)}
         WHERE task_id = ${task.id}
+          AND created_at = ${task.createdAt} AND updated_at = ${task.updatedAt}
       `.pipe(
         Effect.mapError((cause) =>
-          taskError("Could not reschedule missed schedule task run.", { taskId: task.id, cause }),
+          taskError("Could not reschedule schedule task occurrence.", { taskId: task.id, cause }),
         ),
       );
       yield* notifyChanged;
@@ -912,7 +936,7 @@ export const layer = Layer.effect(
         ({ task, dueAt }) =>
           Effect.suspend(() =>
             isMissedFixedTimeRun(task.schedule, dueAt, now)
-              ? rescheduleMissedRun(task, now)
+              ? rescheduleNextRun(task, now)
               : runTask(task, "scheduled"),
           ).pipe(
             Effect.catch((cause) =>

@@ -157,7 +157,16 @@ export const ScheduledTaskUpsertSchedule = Schema.Union([
 });
 export type ScheduledTaskUpsertSchedule = typeof ScheduledTaskUpsertSchedule.Type;
 
-export const ScheduledTaskRunStatus = Schema.Literals(["never", "running", "succeeded", "failed"]);
+// Delivery outcomes describe admission to a thread, not provider completion.
+// Keep accepting 'succeeded' from schedules written by older servers.
+export const ScheduledTaskRunStatus = Schema.Literals([
+  "never",
+  "running",
+  "queued",
+  "dispatched",
+  "succeeded",
+  "failed",
+]);
 export type ScheduledTaskRunStatus = typeof ScheduledTaskRunStatus.Type;
 
 /** Where a webhook task receives requests. Present only on webhook tasks. */
