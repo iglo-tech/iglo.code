@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// @effect-diagnostics nodeBuiltinImport:off globalFetchInEffect:off - this external smoke harness owns disposable helper processes and state.
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off globalFetch:off globalFetchInEffect:off globalConsole:off - this external smoke harness owns disposable helper processes, HTTP assertions and deadline timers.
 /** Installs and exercises the pinned Device packages with no Node or npm on PATH. */
 import * as NodeAssert from "node:assert";
 import * as NodeChildProcess from "node:child_process";
@@ -97,7 +97,7 @@ const Started = Schema.Struct({
 const decode = <S extends Schema.Top & { readonly DecodingServices: never }>(
   schema: S,
   text: string,
-) => Schema.decodeUnknownSync(Schema.fromJsonString(schema))(text);
+) => Schema.decodeSync(Schema.fromJsonString(schema))(text);
 const remote = async (mode: "probe" | "agent-start" | "stop") => {
   const result = await run(["-e", remoteDeviceScript("smoke", mode)]);
   return result.stdout.trim();

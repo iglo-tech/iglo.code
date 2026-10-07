@@ -33,6 +33,15 @@ export const AGENT_DEVICE_VERSION = "0.21.12";
 
 const INSTALL_TIMEOUT = Duration.minutes(10);
 const installLock = Semaphore.makeUnsafe(1);
+const encodeInstallManifest = Schema.encodeSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      private: Schema.Boolean,
+      dependencies: Schema.Record(Schema.String, Schema.String),
+      trustedDependencies: Schema.Array(Schema.String),
+    }),
+  ),
+);
 
 export interface DeviceToolPaths {
   readonly installDir: string;
@@ -141,7 +150,7 @@ const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
     yield* fs
       .writeFileString(
         path.join(stagingDir, "package.json"),
-        JSON.stringify({
+        encodeInstallManifest({
           private: true,
           dependencies: { [spec.name]: spec.version },
           trustedDependencies: [],
