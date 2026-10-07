@@ -152,7 +152,13 @@ export const PluginThreadState = Schema.Struct({
   nativeSession: Schema.optional(
     Schema.NullOr(Schema.Struct({ id: Schema.String, canResume: Schema.Boolean })),
   ),
-  runs: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
+  runs: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      status: Schema.String,
+      interruptRequested: Schema.optional(Schema.Boolean),
+    }),
+  ),
   resultRunId: Schema.optional(Schema.NullOr(Schema.String)),
   /** Latest persisted completion among the native work represented by a settled result. */
   settledAt: Schema.optional(Schema.NullOr(Schema.Number)),

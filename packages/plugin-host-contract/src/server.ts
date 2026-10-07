@@ -48,6 +48,7 @@ export class Host extends Context.Service<
     readonly redact: (input: {
       readonly text: string;
       readonly threadIds: ReadonlyArray<PluginTarget["threadId"]>;
+      readonly format?: "json";
     }) => Effect.Effect<string, PluginError>;
     readonly projects: () => Effect.Effect<
       ReadonlyArray<Pick<Project, "id" | "title" | "workspaceRoot">>,

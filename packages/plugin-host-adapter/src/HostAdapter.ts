@@ -49,7 +49,8 @@ import { delegatedTaskProgress } from "../../../apps/server/src/orchestration-v2
 import * as ProcessRunner from "../../../apps/server/src/processRunner.ts";
 import * as McpSessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
 
-const encodeString = Schema.encodeSync(Schema.fromJsonString(Schema.String));
+const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Json));
 const fail = (operation: string, message: string, cause?: unknown) =>
   new PluginError({
     pluginId: "host",
@@ -79,6 +80,7 @@ const normalizedEvent = (
     case "subagent.updated":
       return "work-changed";
     case "turn-item.updated":
+      if (event.payload.type === "run_interrupt_request") return "provider-interrupted";
       return ["command_execution", "dynamic_tool", "subagent"].includes(event.payload.type)
         ? "work-changed"
         : null;
@@ -281,6 +283,11 @@ const make = Effect.gen(function* () {
     ]
       .filter((time) => time !== null)
       .map(DateTime.toEpochMillis);
+    const stoppedRuns = new Set(
+      records.turnItems
+        .filter((item) => item.type === "run_interrupt_request")
+        .map((item) => item.runId),
+    );
     return {
       ...target,
       settledAt:
@@ -292,7 +299,11 @@ const make = Effect.gen(function* () {
       workspacePath: records.thread.worktreePath ?? workspace.workspaceRoot,
       branch: records.thread.branch,
       ...(preparationId === undefined ? {} : { preparationId }),
-      runs: runs.map((run) => ({ id: run.id, status: run.status })),
+      runs: runs.map((run) => ({
+        id: run.id,
+        status: run.status,
+        ...(stoppedRuns.has(run.id) ? { interruptRequested: true } : {}),
+      })),
       nativeSession: (() => {
         const current = records.providerThreads.find(
           (thread) => thread.id === records.thread.activeProviderThreadId,
@@ -523,27 +534,16 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const configuration = yield* settings.getSettings;
         const secrets = new Set<string>();
-        const collect = (value: unknown) => {
-          if (!value || typeof value !== "object") return;
-          for (const [name, item] of Object.entries(value)) {
-            if (
-              typeof item === "string" &&
-              item.length >= 8 &&
-              /(?:token|password|secret|credential|key)$/i.test(name)
-            )
-              secrets.add(item);
-            else if (item && typeof item === "object") collect(item);
+        // Follow the settings redactor's actual secret fields, including host-keyed maps.
+        const collect = (value: unknown, visible: unknown) => {
+          if (typeof value === "string" && typeof visible === "string") {
+            if (value.length > 0 && value !== visible) secrets.add(value);
+          } else if (value && typeof value === "object" && visible && typeof visible === "object") {
+            const fields = new Map(Object.entries(visible));
+            for (const [name, item] of Object.entries(value)) collect(item, fields.get(name));
           }
-          if (
-            "secret" in value &&
-            value.secret === true &&
-            "value" in value &&
-            typeof value.value === "string" &&
-            value.value.length >= 8
-          )
-            secrets.add(value.value);
         };
-        collect(configuration);
+        collect(configuration, Settings.redactServerSettingsForClient(configuration));
         for (const threadId of input.threadIds) {
           const session = McpSessions.readMcpProviderSession(threadId);
           if (session) {
@@ -551,12 +551,23 @@ const make = Effect.gen(function* () {
             secrets.add(session.authorizationHeader.replace(/^Bearer /, ""));
           }
         }
-        let text = input.text;
-        for (const secret of secrets) {
-          text = text.replaceAll(encodeString(secret).slice(1, -1), "[redacted]");
-          text = text.replaceAll(secret, "[redacted]");
-        }
-        return text;
+        const redactText = (value: string) => {
+          for (const secret of secrets) value = value.replaceAll(secret, "[redacted]");
+          return value;
+        };
+        const redactJson = (value: Schema.Json): Schema.Json =>
+          typeof value === "string"
+            ? redactText(value)
+            : Array.isArray(value)
+              ? value.map(redactJson)
+              : value && typeof value === "object"
+                ? Object.fromEntries(
+                    Object.entries(value).map(([key, item]) => [key, redactJson(item)]),
+                  )
+                : value;
+        return input.format === "json"
+          ? encodeJson(redactJson(decodeJson(input.text)))
+          : redactText(input.text);
       }).pipe(Effect.mapError((cause) => fail("redact", "Could not redact known secrets.", cause))),
     receipt,
     inspect,

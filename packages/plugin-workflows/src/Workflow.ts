@@ -248,6 +248,7 @@ const make = Effect.gen(function* () {
     };
     const redacted = yield* host.redact({
       text: yield* encodeRun(page),
+      format: "json",
       threadIds: run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : [])),
     });
     return yield* decodeRun(redacted).pipe(
@@ -298,6 +299,7 @@ const make = Effect.gen(function* () {
     return yield* decodeSummary(
       yield* host.redact({
         text: yield* encodeSummary(summary),
+        format: "json",
         threadIds: run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : [])),
       }),
     );
@@ -803,15 +805,15 @@ const make = Effect.gen(function* () {
             state.checkpoints.some((checkpoint) =>
               ["pending", "capturing", "running"].includes(checkpoint.status),
             );
-          // The persisted result and report end the execution clock before delayed recovery.
+          // Settled native work ends the execution clock before delayed recovery.
           const until =
-            !pending && !request && attempt.report && state.settledAt != null
+            !pending && !request && state.settledAt != null
               ? Math.min(
                   now,
                   Math.max(
                     attempt.lastActiveAt,
                     state.settledAt,
-                    attempt.report.receipt.acceptedAt,
+                    attempt.report?.receipt.acceptedAt ?? state.settledAt,
                   ),
                 )
               : now;
@@ -892,7 +894,10 @@ const make = Effect.gen(function* () {
                 (run) => state.resultRunId === undefined || run.id === state.resultRunId,
               );
               if (!execution) return;
-              if (["interrupted", "cancelled", "rolled_back"].includes(execution.status)) {
+              if (
+                execution.interruptRequested ||
+                ["interrupted", "cancelled", "rolled_back"].includes(execution.status)
+              ) {
                 attempt.phase = "interrupted";
                 attempt.resumable =
                   state.nativeSession?.canResume === true &&
@@ -915,6 +920,12 @@ const make = Effect.gen(function* () {
               } else if (execution.status !== "completed") return;
               else if (!attempt.report) {
                 if (!attempt.reminderSent) {
+                  attempt.remainingMs = Math.max(
+                    0,
+                    attempt.remainingMs -
+                      executionElapsed(state.requests, attempt.lastActiveAt, until),
+                  );
+                  attempt.lastActiveAt = now;
                   attempt.phase = "reminding";
                   yield* persist(run);
                   return;
