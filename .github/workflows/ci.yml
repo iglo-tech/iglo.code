@@ -14,9 +14,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Lint, typecheck, and the desktop build each get a runner so they run side by
-  # side instead of one after another. The `Check` job at the end of this file
-  # passes only when every other job does.
   lint:
     name: Lint
     runs-on: blacksmith-8vcpu-ubuntu-2404
@@ -45,10 +42,6 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
-      # Files/dependencies are repo-wide; export checks cover clean workspaces only.
       - name: Check unused code
         run: vp run knip:check
 
@@ -75,9 +68,6 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
       - name: Typecheck
         run: vpr typecheck
 
@@ -97,15 +87,6 @@ jobs:
       - uses: ./.github/actions/setup-apt-mirrors
 
       # Runs in the background while Vite+ installs; the step before the build waits for it.
-      - name: Start installing browser secret helper build libraries
-        run: |
-          sudo sed -i 's|http://|https://|g' /etc/apt/blacksmith-ubuntu-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
-          (
-            set +e
-            sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-            echo "$?" > "$RUNNER_TEMP/apt-status"
-          ) > "$RUNNER_TEMP/apt.log" 2>&1 < /dev/null &
-
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -113,28 +94,9 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
+      - name: Build web and server
+        run: vp run --filter t3 build
 
-      - name: Finish installing browser secret helper build libraries
-        timeout-minutes: 5
-        run: |
-          until test -s "$RUNNER_TEMP/apt-status"; do sleep 1; done
-          cat "$RUNNER_TEMP/apt.log"
-          exit "$(cat "$RUNNER_TEMP/apt-status")"
-
-      - name: Build desktop pipeline
-        run: vp run build:desktop
-
-      - name: Verify preload bundle output
-        run: node apps/desktop/scripts/verify-preload-bundle.mjs
-
-  # Everything except `t3` (apps/server) and the web app, which has its own job
-  # below. `--parallel` drops the package dependency ordering that `vp run`
-  # applies by default: these `test` tasks declare no `dependsOn` and resolve
-  # workspace deps from source, so ordering only bought us idle runners between
-  # dependency layers. The concurrency limit stays at the default 4 so peak load
-  # per runner is unchanged.
   test:
     name: Test
     runs-on: blacksmith-8vcpu-ubuntu-2404
@@ -160,17 +122,6 @@ jobs:
 
       - uses: ./.github/actions/setup-apt-mirrors
 
-      # The desktop tests compile the browser secret helper. The install runs in
-      # the background while Vite+ installs; the step before the tests waits for it.
-      - name: Start installing browser secret helper build libraries
-        run: |
-          sudo sed -i 's|http://|https://|g' /etc/apt/blacksmith-ubuntu-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
-          (
-            set +e
-            sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-            echo "$?" > "$RUNNER_TEMP/apt-status"
-          ) > "$RUNNER_TEMP/apt.log" 2>&1 < /dev/null &
-
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -178,21 +129,8 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
-
-      - name: Test preview artifact validation
-        run: python3 -B .github/scripts/stage-preview-bundle.test.py
-
       - name: Test nightly release checks
         run: node --test .github/scripts/check-nightly-release.test.cjs
-
-      - name: Finish installing browser secret helper build libraries
-        timeout-minutes: 5
-        run: |
-          until test -s "$RUNNER_TEMP/apt-status"; do sleep 1; done
-          cat "$RUNNER_TEMP/apt.log"
-          exit "$(cat "$RUNNER_TEMP/apt-status")"
 
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test
@@ -252,9 +190,6 @@ jobs:
           cache: true
           run-install: true
 
-      # No Electron setup here: `t3` (apps/server) has no Electron dependency
-      # and none of its tests touch the runtime. Only the non-server `test`
-      # job, which covers @t3tools/desktop, needs the download.
       - name: Install Chromium for server browser integration tests
         run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
 
@@ -333,13 +268,13 @@ jobs:
 
       - name: Check Rust formatting
         run: |
-          for crate in resource-monitor kde-snap-shot hyprland-snap-shot; do
+          for crate in resource-monitor; do
             cargo fmt --manifest-path "native/$crate/Cargo.toml" -- --check
           done
 
       - name: Test Rust crates
         run: |
-          for crate in resource-monitor kde-snap-shot hyprland-snap-shot; do
+          for crate in resource-monitor; do
             cargo test --locked --manifest-path "native/$crate/Cargo.toml"
           done
 

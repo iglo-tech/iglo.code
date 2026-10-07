@@ -1,15 +1,12 @@
 # Remote access
 
-Connect a phone, browser, or another desktop app to T3 Code running on a different
+Connect a phone or another browser to T3 Code running on a different
 machine. That machine must stay running and reachable while you work.
 
 ## T3 Connect
 
 T3 Connect makes an environment available to your other devices without setting
-up router forwarding. In the desktop app on the host, open **Settings →
-Connections**, sign in, and enable **T3 Connect** for that environment.
-
-For a command-line host, run:
+up router forwarding. On the host, run:
 
 ```bash
 t3 connect
@@ -34,11 +31,7 @@ disconnect an otherwise healthy conversation.
 
 Use direct pairing when the other device can reach the host's network address.
 
-On a desktop host, open **Settings → Connections**, enable **Network access**,
-then create a pairing link using an address the other device can reach. Changing
-network access restarts the desktop app. You can turn it off in the same place.
-
-For a command-line host, replace `<private-ip>` with the host's LAN or tailnet
+Replace `<private-ip>` with the host's LAN or tailnet
 address:
 
 ```bash
@@ -53,7 +46,7 @@ t3 pair
 
 Scan the QR code on your phone or paste the pairing URL into **Add environment**
 in the receiving app. Connection settings are under **Settings → Connections**
-on web and desktop and **Settings → Environments** on mobile. A loopback address
+in the web client. A loopback address
 such as `127.0.0.1` reaches only the device opening the link.
 
 Pairing authorizes that device for future connections. Use a fresh one-time link
@@ -85,15 +78,14 @@ again, after the other routes, if none of them connect. While connected over a
 later route, T3 Code checks the earlier ones when your network changes, when you
 return to the app, and every minute, and moves back as soon as one works.
 
-On web and desktop, select the route count under the machine's name in
+Select the route count under the machine's name in
 **Settings → Connections** to see its routes. Drag a route to change the order,
-or remove it. On mobile, open the machine under **Settings → Environments** and
-choose **Edit**. Signing out of T3 Connect removes only that route; a machine
+or remove it. Signing out of T3 Connect removes only that route; a machine
 you can still reach another way stays saved.
 
 ### Balance new threads across machines
 
-Auto balance is off by default. On web and desktop, enable it in
+Auto balance is off by default. Enable it in
 **Settings → Connections → Load balancing** to automatically choose a machine for
 new threads in projects grouped across connected environments. The section
 appears once two or more machines are switched on.
@@ -107,14 +99,10 @@ that choice stable. Choose **Auto balance** again to check current resources, or
 a specific machine to override it. Choosing a branch or worktree also keeps the draft
 on that machine. Existing threads stay where they started. If resource checks are
 unavailable or all eligible machines are full, choose a machine manually to continue.
-Mobile keeps its manual environment selection.
 
 ### Tailscale HTTPS
 
-Join both devices to the same tailnet. In the desktop app, enable **Tailscale
-HTTPS** in **Settings → Connections**. Turn it off there to remove that route.
-
-To start a command-line server with Tailscale HTTPS:
+Join both devices to the same tailnet. To start a server with Tailscale HTTPS:
 
 ```bash
 t3 serve --tailscale-serve
@@ -144,40 +132,12 @@ to your server; a hosted pairing link does not make an unreachable backend
 reachable or convert HTTP to HTTPS.
 
 For a plain HTTP LAN endpoint, use the direct pairing URL in a browser that can
-open it, or pair from the desktop app. On mobile, an IP address entered without a
-scheme uses HTTP, so include `https://` when your server uses HTTPS.
-
-## Desktop-managed SSH
-
-In the desktop app, open **Settings → Connections → Add environment**, choose
-**SSH**, and enter a host or SSH alias such as `user@example.com`. T3 Code starts
-or reuses a server there and opens the port forward for you. Projects, provider
-credentials, and agent work stay on the remote machine.
-
-The remote host must be Linux or an Apple Silicon Mac with `curl` or `wget`,
-`tar`, `sha256sum` or `shasum`, and [provider setup](./install.md#providers).
-The first launch downloads T3 Code's server to `~/.t3/runtime` on the host, so
-it takes longer than later ones.
-Provider CLIs must be on the `PATH` of a non-interactive login shell there;
-check with:
-
-```bash
-ssh user@example.com 'sh -lc "command -v claude codex"'
-```
-
-If SSH reconnecting fails after an app update, retry the launch once. Removing
-the connection stops a server that T3 Code launched; a server that was already
-running is left alone.
-
-For Antigravity's Google callback on a remote host, see
-[remote sign-in](./providers-antigravity.md#sign-in-from-a-remote-device).
+open it. Include `https://` when your server uses HTTPS.
 
 ## Browser on a remote environment
 
 Browser tabs belong to the environment, so you and your agents see the same
-tabs from any device. The desktop app shows its own environment's tabs
-directly. Every other device, and the desktop app for other environments,
-streams them from the host. Agents keep using them while no device is
+tabs from any device. The web client streams them from the host. Agents keep using them while no device is
 connected, and `localhost` addresses reach servers on the host.
 
 The first tab downloads a headless Chrome, about 120 MB, into the T3 home. It
@@ -250,8 +210,7 @@ permissions.
 
 To change an existing client's permissions, create a fresh pairing link with the
 scopes it needs. In a browser opened directly on the environment, open that link
-to replace the browser's current grant. For mobile or a saved remote environment
-in web or desktop, use **Add Environment** with the fresh link or code; pairing
+to replace the browser's current grant. For a saved remote environment in the web client, use **Add Environment** with the fresh link or code; pairing
 the same environment replaces its saved grant. Reconnecting alone does not change
 permissions.
 
@@ -322,14 +281,3 @@ Include the diagnostic message and trace ID when reporting a persistent failure.
 
 For a connection that still fails after linking, check the date and time on both
 devices. For server version warnings, follow [Updating T3 Code](./updating.md).
-
-## Using the Desktop App as a Remote Only
-
-If a computer should only drive work running elsewhere, turn off its local environment. In the
-desktop app, open **Settings → Connections** and switch off **Local
-environment**. T3 Code restarts without a local server: no local agents or terminals run, WSL
-backends stay off, and other devices can no longer connect to this computer. Your projects,
-history, and saved connections are kept, and you keep working through pairing, T3 Connect, or SSH.
-
-Switch **Local environment** back on in the same place to restart with your previous local
-settings.

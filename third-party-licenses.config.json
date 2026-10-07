@@ -1,7 +1,7 @@
 {
   "customNotices": [
     {
-      "bundles": ["assets", "desktop", "web"],
+      "bundles": ["assets", "web"],
       "license": "CC0-1.0",
       "name": "Notification Sound 1 by deadrobotmusic",
       "sourceUrl": "https://freesound.org/people/deadrobotmusic/sounds/750607/",
@@ -15,7 +15,7 @@
       ]
     },
     {
-      "bundles": ["assets", "desktop", "web"],
+      "bundles": ["assets", "web"],
       "license": "CC0-1.0",
       "name": "Notification Sound 3 by deadrobotmusic",
       "sourceUrl": "https://freesound.org/people/deadrobotmusic/sounds/750609/",
@@ -29,7 +29,7 @@
       ]
     },
     {
-      "bundles": ["assets", "desktop", "web"],
+      "bundles": ["assets", "web"],
       "license": "CC0-1.0",
       "name": "Folder_Whoosh.wav by BaggoNotes",
       "sourceUrl": "https://freesound.org/people/BaggoNotes/sounds/704258/",
@@ -43,7 +43,7 @@
       ]
     },
     {
-      "bundles": ["assets", "desktop", "web"],
+      "bundles": ["assets", "web"],
       "license": "CC0-1.0",
       "name": "Contarex camera shutter.wav by Tonik1105",
       "sourceUrl": "https://freesound.org/people/Tonik1105/sounds/520684/",

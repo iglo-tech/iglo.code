@@ -8,7 +8,7 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 
 import {
-  readDesktopBaseVersion,
+  readServerBaseVersion,
   resolveNightlyBaseVersion,
   resolveNightlyReleaseMetadata,
   resolveNightlyTargetVersion,
@@ -29,13 +29,13 @@ it.effect("bumps the patch version before deriving nightly prerelease versions",
   }),
 );
 
-it.effect("reports the invalid desktop package version", () =>
+it.effect("reports the invalid server package version", () =>
   Effect.gen(function* () {
     const error = yield* resolveNightlyTargetVersion("nightly").pipe(Effect.flip);
 
-    assert.equal(error._tag, "InvalidDesktopPackageVersionError");
+    assert.equal(error._tag, "InvalidServerPackageVersionError");
     assert.equal(error.version, "nightly");
-    assert.equal(error.message, "Invalid desktop package version 'nightly'.");
+    assert.equal(error.message, "Invalid server package version 'nightly'.");
   }),
 );
 
@@ -88,19 +88,19 @@ it.effect("preserves the GITHUB_OUTPUT configuration cause", () => {
   });
 });
 
-it.layer(NodeServices.layer)("readDesktopBaseVersion", (it) => {
-  it.effect("preserves desktop package read context and its platform cause", () =>
+it.layer(NodeServices.layer)("readServerBaseVersion", (it) => {
+  it.effect("preserves server package read context and its platform cause", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const rootDir = yield* fs.makeTempDirectoryScoped({
         prefix: "resolve-nightly-release-read-",
       });
-      const packageJsonPath = path.join(rootDir, "apps/desktop/package.json");
+      const packageJsonPath = path.join(rootDir, "apps/server/package.json");
 
-      const error = yield* readDesktopBaseVersion(rootDir).pipe(Effect.flip);
+      const error = yield* readServerBaseVersion(rootDir).pipe(Effect.flip);
 
-      if (error._tag !== "NightlyReleaseDesktopPackageError") {
+      if (error._tag !== "NightlyReleaseServerPackageError") {
         return assert.fail(`Unexpected error: ${error._tag}`);
       }
       assert.equal(error.operation, "read");
@@ -110,20 +110,20 @@ it.layer(NodeServices.layer)("readDesktopBaseVersion", (it) => {
     }),
   );
 
-  it.effect("preserves desktop package decode context and its schema cause", () =>
+  it.effect("preserves server package decode context and its schema cause", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const rootDir = yield* fs.makeTempDirectoryScoped({
         prefix: "resolve-nightly-release-decode-",
       });
-      const packageJsonPath = path.join(rootDir, "apps/desktop/package.json");
+      const packageJsonPath = path.join(rootDir, "apps/server/package.json");
       yield* fs.makeDirectory(path.dirname(packageJsonPath), { recursive: true });
       yield* fs.writeFileString(packageJsonPath, "{");
 
-      const error = yield* readDesktopBaseVersion(rootDir).pipe(Effect.flip);
+      const error = yield* readServerBaseVersion(rootDir).pipe(Effect.flip);
 
-      if (error._tag !== "NightlyReleaseDesktopPackageError") {
+      if (error._tag !== "NightlyReleaseServerPackageError") {
         return assert.fail(`Unexpected error: ${error._tag}`);
       }
       assert.equal(error.operation, "decode");

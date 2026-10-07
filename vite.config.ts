@@ -66,7 +66,6 @@ export default defineConfig({
       "**/.t3/**",
       "**/node_modules/**",
       "**/dist/**",
-      "**/dist-electron/**",
       "**/.{idea,git,cache,output,temp}/**",
     ],
     hookTimeout: 60_000,
@@ -89,7 +88,6 @@ export default defineConfig({
       ".macroscope/ignore.md",
       ".alchemy",
       "dist",
-      "dist-electron",
       "node_modules",
       "pnpm-lock.yaml",
       "*.tsbuildinfo",
@@ -111,7 +109,6 @@ export default defineConfig({
       ".repos",
       ".repos/**",
       "dist",
-      "dist-electron",
       "node_modules",
       "pnpm-lock.yaml",
       "*.tsbuildinfo",
@@ -171,7 +168,7 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: ["packages/client-runtime/src/state/**", "apps/{web,desktop}/src/**"],
+        files: ["packages/client-runtime/src/state/**", "apps/web/src/**"],
         rules: { "t3code/no-rpc-permission-bypass": ["error", { allowRawClientAccess: false }] },
       },
       {

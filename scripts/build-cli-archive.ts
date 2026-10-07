@@ -39,7 +39,7 @@ import {
   createStageWorkspaceConfig,
   resolveFffNativeDependencies,
   STAGE_INSTALL_ARGS,
-} from "./build-desktop-artifact.ts";
+} from "./lib/cli-stage.ts";
 import { selectCliRuntimeExternalDependencies } from "./lib/cli-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
@@ -434,8 +434,8 @@ const signWindowsExecutable = Effect.fn("signWindowsExecutable")(function* (
     return;
   }
   yield* stripStaleAuthenticodeEntry(executablePath);
-  // Mirrors electron-builder's invocation for the installer: every value
-  // single-quoted, the file path in Windows form. `$ErrorActionPreference`
+  // Quote each signing argument and pass the file path in Windows form.
+  // `$ErrorActionPreference`
   // makes a signing failure inside the cmdlet surface as a non-zero exit.
   const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
   const script = [
