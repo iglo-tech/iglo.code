@@ -2,10 +2,12 @@ import { type Host } from "@t3tools/plugin-host-contract/server";
 import {
   type PluginLaunchInput,
   type PluginPullRequestRef,
+  type PluginTarget,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
+  CatalogEntry,
   type Agent,
   type Data,
   type Definition,
@@ -14,14 +16,20 @@ import {
   type RunSummary,
   type SkillSnapshot,
 } from "./contracts.ts";
+import { protect } from "./encoding.ts";
 
 type Text = (value: string, limit?: number) => string;
 const encodeTexts = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
 const decodeTexts = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(Schema.String)));
+const decodeCatalog = Schema.decodeUnknownEffect(Schema.Array(CatalogEntry));
 
 // Redact authored text in one host call. Identities, discriminants and protocol
 // values remain usable even when a configured secret happens to equal one.
-const redact = <A>(host: Host["Service"], run: Run, project: (text: Text) => A) =>
+const redact = <A>(
+  host: Host["Service"],
+  threadIds: ReadonlyArray<PluginTarget["threadId"]>,
+  project: (text: Text) => A,
+) =>
   Effect.gen(function* () {
     const texts: string[] = [];
     project((value) => {
@@ -32,12 +40,16 @@ const redact = <A>(host: Host["Service"], run: Run, project: (text: Text) => A) 
       .redact({
         text: encodeTexts(texts),
         format: "json",
-        threadIds: run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : [])),
+        threadIds,
       })
       .pipe(Effect.flatMap(decodeTexts));
     let index = 0;
     return project((_value, limit = 4_000) => visible[index++]!.slice(0, limit));
   });
+
+const title = (value: string, text: Text, limit = 4_000) => text(value, limit).trim();
+const threadIds = (run: Run) =>
+  run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : []));
 
 const data = (value: typeof Data.Type, text: Text) =>
   Object.fromEntries(
@@ -97,9 +109,9 @@ const workspace = (value: PluginLaunchInput["workspace"], text: Text) =>
       : value;
 const definition = (value: Definition, text: Text): Definition => ({
   ...value,
-  title: text(value.title),
+  title: title(value.title, text),
   nodes: value.nodes.map((node) => {
-    const common = { ...node, title: text(node.title) };
+    const common = { ...node, title: title(node.title, text) };
     switch (common.kind) {
       case "agent":
         return agent(common, text);
@@ -114,7 +126,7 @@ const definition = (value: Definition, text: Text): Definition => ({
           ...common,
           pullRequest: pullRequest(common.pullRequest, text),
           branches: common.branches.map((branch) =>
-            agent({ ...branch, title: text(branch.title) }, text),
+            agent({ ...branch, title: title(branch.title, text) }, text),
           ),
         };
       case "decision":
@@ -130,7 +142,7 @@ const definition = (value: Definition, text: Text): Definition => ({
 });
 
 export const displayRun = (host: Host["Service"], run: Run) =>
-  redact(host, run, (text) => ({
+  redact(host, threadIds(run), (text) => ({
     ...run,
     definition: definition(run.definition, text),
     input: data(run.input, text),
@@ -193,9 +205,9 @@ export const displayRun = (host: Host["Service"], run: Run) =>
   }));
 
 export const displaySummary = (host: Host["Service"], run: Run, summary: RunSummary) =>
-  redact(host, run, (text) => ({
+  redact(host, threadIds(run), (text) => ({
     ...summary,
-    definition: { ...summary.definition, title: text(summary.definition.title, 240) },
+    definition: { ...summary.definition, title: title(summary.definition.title, text, 240) },
     reason: summary.reason === null ? null : text(summary.reason, 500),
     attempts: summary.attempts.map((attempt) => ({
       ...attempt,
@@ -207,3 +219,15 @@ export const displaySummary = (host: Host["Service"], run: Run, summary: RunSumm
       pullRequest: pullRequest(review.pullRequest, text),
     })),
   }));
+
+export const displayCatalog = (host: Host["Service"], entries: ReadonlyArray<CatalogEntry>) =>
+  protect(
+    "display",
+    redact(host, [], (text) =>
+      entries.map((entry) => ({
+        ...entry,
+        definition: entry.definition === null ? null : definition(entry.definition, text),
+        reasons: entry.reasons.map((reason) => text(reason, Infinity)),
+      })),
+    ).pipe(Effect.flatMap(decodeCatalog)),
+  );

@@ -302,6 +302,10 @@ const make = Effect.gen(function* () {
       runs: runs.map((run) => ({
         id: run.id,
         status: run.status,
+        resultRelevant: !monitorRuns.has(run.id),
+        ...(run.userMessageId.length > ":message".length && run.userMessageId.endsWith(":message")
+          ? { admissionCommandId: CommandId.make(run.userMessageId.slice(0, -":message".length)) }
+          : {}),
         ...(stoppedRuns.has(run.id) ? { interruptRequested: true } : {}),
       })),
       nativeSession: (() => {

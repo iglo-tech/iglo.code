@@ -157,6 +157,10 @@ export const PluginThreadState = Schema.Struct({
       id: Schema.String,
       status: Schema.String,
       interruptRequested: Schema.optional(Schema.Boolean),
+      /** Monitor-only executions do not determine an owned operation's result. */
+      resultRelevant: Schema.optional(Schema.Boolean),
+      /** Correlates launch/send receipts with the execution they admitted. */
+      admissionCommandId: Schema.optional(CommandId),
     }),
   ),
   resultRunId: Schema.optional(Schema.NullOr(Schema.String)),

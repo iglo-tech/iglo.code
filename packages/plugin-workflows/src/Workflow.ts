@@ -726,7 +726,6 @@ const make = Effect.gen(function* () {
         attempt.phase = "resuming";
         attempt.reason = null;
         attempt.lastActiveAt = now;
-        attempt.executionRunId = null;
         attempt.resumable = false;
         run.state = "running";
         run.reason = null;
@@ -886,7 +885,7 @@ const make = Effect.gen(function* () {
               );
               if (!execution) return;
               // Native follow-ups belong to this generation until an explicit Resume
-              // retains a new execution identity. They cannot erase an earlier Stop.
+              // retains a new execution identity. They cannot erase earlier failure.
               const generation = state.runs.slice(
                 Math.max(
                   0,
@@ -894,7 +893,12 @@ const make = Effect.gen(function* () {
                 ),
               );
               if (
-                generation.some((run) => run.interruptRequested) ||
+                generation.some(
+                  (run) =>
+                    run.interruptRequested ||
+                    (run.resultRelevant !== false &&
+                      ["interrupted", "cancelled", "rolled_back"].includes(run.status)),
+                ) ||
                 ["interrupted", "cancelled", "rolled_back"].includes(execution.status)
               ) {
                 attempt.phase = "interrupted";
@@ -910,6 +914,7 @@ const make = Effect.gen(function* () {
                   (attempt.deadline === null || attempt.deadline > now);
                 attempt.reason = "Native execution was explicitly interrupted.";
               } else if (
+                generation.some((run) => run.resultRelevant !== false && run.status === "failed") ||
                 execution.status === "failed" ||
                 state.checkpoints.some((checkpoint) =>
                   ["failed", "missing", "error", "stale"].includes(checkpoint.status),
@@ -969,8 +974,14 @@ const make = Effect.gen(function* () {
     if (now < Math.min(attempt.deadline ?? Infinity, attempt.lastActiveAt + attempt.remainingMs))
       return true;
     if (
-      attempt.phase === "reminding" &&
-      (yield* host.receipt(commandId(attempt, "reminder")))?.status === "accepted"
+      ["reminding", "resuming"].includes(attempt.phase) &&
+      (yield* host.receipt(
+        commandId(
+          attempt,
+          attempt.phase === "resuming" ? "resume" : "reminder",
+          attempt.phase === "resuming" ? attempt.resumeCount : undefined,
+        ),
+      ))?.status === "accepted"
     )
       return true;
     yield* transaction(
@@ -1315,15 +1326,29 @@ const make = Effect.gen(function* () {
         const receipt =
           (yield* host.receipt(id)) ??
           (yield* host.send({ ...target(run, attempt), commandId: id, mode: "auto", instruction }));
-        const state =
-          receipt.status === "accepted"
-            ? yield* host.inspect(target(run, attempt)).pipe(Effect.result)
+        // A committed Resume remains pending until its generation can be retained.
+        // Receipt reconciliation retries inspection without sending another command.
+        const inspection =
+          receipt.status === "accepted" && kind === "resume"
+            ? yield* host.inspect(target(run, attempt))
             : null;
+        const execution =
+          inspection?.runs.find((run) => run.admissionCommandId === id) ??
+          (inspection?.runs.every((run) => run.admissionCommandId === undefined)
+            ? inspection.runs.findLast(
+                (run) => run.resultRelevant !== false && run.id !== attempt.executionRunId,
+              )
+            : undefined);
+        if (receipt.status === "accepted" && kind === "resume" && !execution)
+          return yield* error(
+            "resume",
+            "The resumed execution identity is unavailable.",
+            "service",
+          );
         yield* sql.withTransaction(
           Effect.gen(function* () {
             // The command lock remains held until the new owned execution is retained.
-            attempt.executionRunId =
-              state?._tag === "Success" ? (state.success.runs.at(-1)?.id ?? null) : null;
+            if (kind === "resume" && execution) attempt.executionRunId = execution.id;
             if (kind === "reminder") attempt.reminderSent = true;
             attempt.phase = attempt.report ? "reported" : "running";
             if (receipt.status === "rejected") {
@@ -1619,7 +1644,13 @@ const make = Effect.gen(function* () {
         } else {
           current.phase = current.report ? "reported" : "running";
           current.executionRunId =
-            inspection?._tag === "Success" ? (inspection.success.runs.at(-1)?.id ?? null) : null;
+            inspection?._tag === "Success"
+              ? ((
+                  inspection.success.runs.find(
+                    (run) => run.admissionCommandId === launchInput.commandId,
+                  ) ?? inspection.success.runs.find((run) => run.resultRelevant !== false)
+                )?.id ?? null)
+              : null;
         }
         yield* persist(run);
       }),
@@ -1802,14 +1833,14 @@ const make = Effect.gen(function* () {
       result: string;
     }>`SELECT result FROM workflow_commands WHERE id IN (${id}, ${legacyId})`;
     if (previous) return yield* decodeRun(previous.result);
-    const entries = yield* catalog.list({
-      environmentId: host.environmentId,
-      projectId: input.projectId,
-    });
-    const entry = entries.find(
-      (entry) => entry.definition?.id === input.definitionId && entry.runnable,
+    const entry = yield* catalog.resolve(
+      {
+        environmentId: host.environmentId,
+        projectId: input.projectId,
+      },
+      input.definitionId,
     );
-    if (!entry?.definition)
+    if (!entry?.definition || !entry.runnable)
       return yield* error(
         "scheduled-start",
         "The scheduled workflow is unavailable or invalid.",

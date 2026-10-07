@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import { Host } from "@t3tools/plugin-host-contract/server";
-import { PluginError } from "@t3tools/plugin-host-contract/schema";
+import { PluginError, type PluginThreadState } from "@t3tools/plugin-host-contract/schema";
 import {
   CommandId,
   EventId,
@@ -25,19 +25,49 @@ import { makeCoreWorkflowFixture } from "./WorkflowsCore.testkit.ts";
 
 const decodeRun = Schema.decodeUnknownEffect(Run);
 
-it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
-  "honors explicit native stop after report with outstanding background work: %s",
+const modes = [
+  "stop-followup",
+  "natural-followup",
+  "workflow-resume",
+  "failed-followup",
+  "interrupted-followup",
+  "failed-monitor",
+  "resume-inspect-outage",
+  "resume-inspect-stale",
+] as const;
+it.live.each(modes)(
+  "retains workflow generation outcomes across native follow-ups and explicit Resume: %s",
   (mode) =>
     Effect.scoped(
       Effect.gen(function* () {
         const test = yield* makeCoreWorkflowFixture;
+        const resuming = mode.startsWith("resume-inspect") || mode === "workflow-resume";
+        let inspectUnavailable = false;
+        let staleInspection: PluginThreadState | null = null;
+        let admittedSends = 0;
         const host = Host.of({
           ...test.core,
           lifecycle: () => Stream.never,
+          inspect: (input) =>
+            inspectUnavailable && staleInspection !== null
+              ? Effect.succeed(staleInspection)
+              : inspectUnavailable
+                ? Effect.fail(
+                    new PluginError({
+                      pluginId: "host",
+                      code: "service",
+                      operation: "inspect",
+                      message: "Post-admission native inspection outage",
+                    }),
+                  )
+                : test.core.inspect(input),
           send: (input) =>
             Effect.gen(function* () {
               const old = yield* test.core.receipt(input.commandId);
               if (old) return old;
+              if (mode === "resume-inspect-stale")
+                staleInspection = yield* test.core.inspect(input);
+              admittedSends++;
               yield* test.threads
                 .dispatch({
                   type: "message.dispatch",
@@ -62,10 +92,11 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
                       }),
                   ),
                 );
+              if (mode.startsWith("resume-inspect")) inspectUnavailable = true;
               return (yield* test.core.receipt(input.commandId))!;
             }),
         });
-        const runtime = yield* test.boot(host);
+        let runtime = yield* test.boot(host);
         const started = yield* runtime
           .invoke("start", {
             ...test.scope,
@@ -218,7 +249,7 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
         const tool = (yield* runtime.registry.tools).find(
           (item) => item.tool.id === "plugin_workflows_report",
         )!.tool;
-        if (mode !== "workflow-resume")
+        if (!resuming)
           yield* tool.invoke(
             {
               version: 1,
@@ -242,20 +273,52 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
             .invoke("get", { ...test.scope, runId: started.id })
             .pipe(Effect.flatMap(decodeRun))).state,
         ).toBe("running");
-        if (mode === "stop-followup" || mode === "workflow-resume") {
+        if (!resuming) yield* runtime.close;
+        if (mode === "stop-followup" || resuming) {
           yield* test.threads.dispatch({
             type: "thread.stop",
             threadId,
             commandId: CommandId.make("manual-stop"),
             reason: "Explicit user Stop",
           });
-        } else if (mode === "natural-followup") {
-          const provider = (yield* test.threads.getProjectThreadRecords(target, [
+        } else {
+          const records = yield* test.threads.getProjectThreadRecords(target, [
+            "runs",
+            "nodes",
             "providerThreads",
-          ])).providerThreads.find((item) => item.id === providerThreadId)!;
+          ]);
+          const provider = records.providerThreads.find((item) => item.id === providerThreadId)!;
           const ended = DateTime.nowUnsafe();
+          const status =
+            mode === "failed-followup"
+              ? "failed"
+              : mode === "interrupted-followup"
+                ? "interrupted"
+                : "completed";
           yield* test.sink.write({
             events: [
+              {
+                id: EventId.make("original-settled"),
+                type: "run.updated",
+                threadId,
+                runId,
+                occurredAt: ended,
+                payload: {
+                  ...records.runs.find((run) => run.id === runId)!,
+                  status,
+                  completedAt: ended,
+                },
+              },
+              ...records.nodes
+                .filter((node) => node.runId === runId)
+                .map((node) => ({
+                  id: EventId.make(`original-node:${node.id}`),
+                  type: "node.updated" as const,
+                  threadId,
+                  runId,
+                  occurredAt: ended,
+                  payload: { ...node, status, completedAt: ended },
+                })),
               {
                 id: EventId.make("native-background-completed"),
                 type: "provider-thread.updated",
@@ -265,18 +328,8 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
               },
             ],
           });
-        } else {
-          const state = yield* runtime
-            .invoke("get", { ...test.scope, runId: started.id })
-            .pipe(Effect.flatMap(decodeRun));
-          yield* runtime.invoke("cancel", {
-            ...test.scope,
-            runId: state.id,
-            expectedRevision: state.revision,
-            clientRequestId: "cancel",
-          });
         }
-        if (mode === "workflow-resume") {
+        if (resuming) {
           yield* runtime.invoke("reconcile", test.scope);
           yield* runtime.invoke("reconcile", test.scope);
           const interrupted = yield* runtime
@@ -290,7 +343,20 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
             clientRequestId: "explicit-workflow-resume",
           });
           yield* runtime.invoke("reconcile", test.scope);
-          yield* tool.invoke(
+          if (mode.startsWith("resume-inspect")) {
+            const pending = yield* runtime
+              .invoke("get", { ...test.scope, runId: started.id })
+              .pipe(Effect.flatMap(decodeRun));
+            expect(pending.attempts[0]!.phase).toBe("resuming");
+          }
+          yield* runtime.close;
+          inspectUnavailable = false;
+          runtime = yield* test.boot(host);
+          yield* runtime.invoke("reconcile", test.scope);
+          const resumedTool = (yield* runtime.registry.tools).find(
+            (item) => item.tool.id === "plugin_workflows_report",
+          )!.tool;
+          yield* resumedTool.invoke(
             {
               version: 1,
               clientRetryKey: "new-generation-report",
@@ -316,9 +382,20 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
             messageId: MessageId.make("native-follow-up"),
             text: "Queued native continuation",
             attachments: [],
-            dispatchMode: { type: "defer_start" },
+            dispatchMode: {
+              type: mode === "failed-monitor" ? "queue_after_active" : "defer_start",
+            },
             createdBy: "agent",
-            creationSource: "mcp",
+            creationSource: mode === "failed-monitor" ? "server" : "mcp",
+            ...(mode === "failed-monitor"
+              ? {
+                  notification: {
+                    source: { kind: "monitor" as const },
+                    outcome: "failed" as const,
+                    summary: "Unrelated monitor failed",
+                  },
+                }
+              : {}),
           });
         }
         const follow = yield* test.threads.getProjectThreadRecords(target, [
@@ -329,6 +406,7 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
         const next = follow.runs.find((item) => item.ordinal === 2)!;
         expect(next).toBeDefined();
         const endedAt = DateTime.nowUnsafe();
+        const status = mode === "failed-monitor" ? "failed" : "completed";
         yield* test.sink.write({
           events: [
             {
@@ -337,7 +415,7 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
               threadId,
               runId: next.id,
               occurredAt: endedAt,
-              payload: { ...next, status: "completed", startedAt: endedAt, completedAt: endedAt },
+              payload: { ...next, status, startedAt: endedAt, completedAt: endedAt },
             },
             ...follow.nodes
               .filter((item) => item.runId === next.id)
@@ -347,7 +425,7 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
                 threadId,
                 runId: next.id,
                 occurredAt: endedAt,
-                payload: { ...item, status: "completed" as const, completedAt: endedAt },
+                payload: { ...item, status, completedAt: endedAt },
               })),
             ...follow.turnItems
               .filter((item) => item.runId === next.id)
@@ -359,13 +437,14 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
                 occurredAt: endedAt,
                 payload: {
                   ...item,
-                  status: "completed" as const,
+                  status,
                   completedAt: endedAt,
                   updatedAt: endedAt,
                 },
               })),
           ],
         });
+        if (!resuming) runtime = yield* test.boot(host);
         yield* runtime.invoke("reconcile", test.scope);
         yield* runtime.invoke("reconcile", test.scope);
         const current = yield* runtime
@@ -376,9 +455,12 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
 
         expect(native.outstandingWork).toEqual([]);
         expect(native.runs.find((run) => run.id === runId)?.interruptRequested === true).toBe(
-          mode === "stop-followup" || mode === "workflow-resume",
+          mode === "stop-followup" || resuming,
         );
-        const expected = mode === "stop-followup" ? "unresolved" : "awaiting-review";
+        const unsuccessful = ["stop-followup", "failed-followup", "interrupted-followup"].includes(
+          mode,
+        );
+        const expected = unsuccessful ? "unresolved" : "awaiting-review";
         if (mode === "stop-followup")
           expect(
             records.turnItems.filter((item) => item.type === "run_interrupt_request").length,
@@ -392,7 +474,10 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
 
         expect(current.state).toBe(expected);
         expect(retained.state).toBe(expected);
-        if (mode === "stop-followup") expect(current.allowedActions).not.toContain("approve");
+        expect(current.attempts[0]!.resumeCount).toBe(resuming ? 1 : 0);
+        expect(admittedSends).toBe(resuming ? 1 : 0);
+        expect(native.runs).toHaveLength(2);
+        if (unsuccessful) expect(current.allowedActions).not.toContain("approve");
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
 );

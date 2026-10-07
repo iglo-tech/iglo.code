@@ -12,6 +12,7 @@ import { Definition, type CatalogEntry, type SaveInput, type ScopeInput } from "
 import { agents, definitionProblems } from "./definition.ts";
 import { error, protect } from "./encoding.ts";
 import { examples } from "./examples.ts";
+import * as Display from "./display.ts";
 
 const isPluginError = Schema.is(PluginError);
 export const location = ".t3code/workflows";
@@ -27,6 +28,11 @@ export class Catalog extends Context.Service<
       input: typeof ScopeInput.Type,
     ) => Effect.Effect<ReadonlyArray<CatalogEntry>, PluginError>;
     readonly save: (input: typeof SaveInput.Type) => Effect.Effect<CatalogEntry, PluginError>;
+    /** Resolve an authored snapshot for execution without applying public redaction. */
+    readonly resolve: (
+      input: typeof ScopeInput.Type,
+      definitionId: string,
+    ) => Effect.Effect<CatalogEntry | undefined, PluginError>;
   }
 >()("@t3tools/plugin-workflows/Catalog") {}
 
@@ -217,6 +223,17 @@ const make = Effect.gen(function* () {
         return { ...entry, source };
       }).pipe(lock.withPermits(1)),
     );
-  return Catalog.of({ validate, list, save });
+  const displayEntry = (entry: CatalogEntry) =>
+    Display.displayCatalog(host, [entry]).pipe(Effect.map((entries) => entries[0]!));
+  return Catalog.of({
+    validate: (scope, definition) => validate(scope, definition).pipe(Effect.flatMap(displayEntry)),
+    list: (input) =>
+      list(input).pipe(Effect.flatMap((entries) => Display.displayCatalog(host, entries))),
+    save: (input) => save(input).pipe(Effect.flatMap(displayEntry)),
+    resolve: (input, definitionId) =>
+      list(input).pipe(
+        Effect.map((entries) => entries.find((entry) => entry.definition?.id === definitionId)),
+      ),
+  });
 });
 export const layer = Layer.effect(Catalog, make);

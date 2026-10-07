@@ -387,6 +387,40 @@ export const make = (pluginId: string) =>
       retryPreparation: (input) =>
         execute({ kind: "retry-preparation", input }).pipe(Effect.flatMap(required)),
       send: (input) => execute({ kind: "send", input }).pipe(Effect.flatMap(required)),
+      inspect: (target) =>
+        Effect.gen(function* () {
+          const state = yield* core.inspect(target);
+          const rows = yield* sql<{
+            id: CommandId;
+            coreCommandId: CommandId | null;
+          }>`SELECT id, json_extract(intent, '$.coreCommandId') AS coreCommandId FROM host_commands
+            WHERE json_extract(intent, '$.input.projectId') = ${target.projectId}
+              AND json_extract(intent, '$.input.threadId') = ${target.threadId}`;
+          const aliases = new Map(
+            rows.map((row) => [
+              row.coreCommandId ?? CommandId.make(`plugin:${pluginId}:${row.id}`),
+              row.id,
+            ]),
+          );
+          return {
+            ...state,
+            runs: state.runs.map((run) =>
+              run.admissionCommandId === undefined
+                ? run
+                : {
+                    ...run,
+                    admissionCommandId:
+                      aliases.get(run.admissionCommandId) ?? run.admissionCommandId,
+                  },
+            ),
+          };
+        }).pipe(
+          Effect.mapError((cause) =>
+            isPluginError(cause)
+              ? cause
+              : error("inspect", "Could not reconcile the owned execution identity.", cause),
+          ),
+        ),
       interrupt: (input) => execute({ kind: "interrupt", input }),
       cancelPending: (target) =>
         Effect.gen(function* () {
