@@ -111,6 +111,10 @@ const make = Effect.fn("makeWithDatabase")(function* (
     );
 
     const statementReaderCache = new WeakMap<NodeSqlite.StatementSync, boolean>();
+    // Node accepts booleans as SQLite integers; Bun's node:sqlite binding rejects
+    // them. Normalize here so every execution/result mode has the same semantics.
+    const bindParameters = (params: ReadonlyArray<unknown>) =>
+      params.map((value) => (typeof value === "boolean" ? Number(value) : value));
     const hasRows = (statement: NodeSqlite.StatementSync): boolean => {
       const cached = statementReaderCache.get(statement);
       if (cached !== undefined) {
@@ -146,9 +150,9 @@ const make = Effect.fn("makeWithDatabase")(function* (
         try {
           statement.setReadBigInts(Boolean(Context.get(fiber.context, Client.SafeIntegers)));
           if (hasRows(statement)) {
-            return Effect.succeed(statement.all(...(params as any)));
+            return Effect.succeed(statement.all(...(bindParameters(params) as any)));
           }
-          const result = statement.run(...(params as any));
+          const result = statement.run(...(bindParameters(params) as any));
           return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
         } catch (cause) {
           return Effect.fail(
@@ -176,11 +180,11 @@ const make = Effect.fn("makeWithDatabase")(function* (
                 if (hasRows(statement)) {
                   statement.setReturnArrays(true);
                   // Safe to cast to array after we've setReturnArrays(true)
-                  return statement.all(...(params as any)) as unknown as ReadonlyArray<
-                    ReadonlyArray<unknown>
-                  >;
+                  return statement.all(
+                    ...(bindParameters(params) as any),
+                  ) as unknown as ReadonlyArray<ReadonlyArray<unknown>>;
                 }
-                statement.run(...(params as any));
+                statement.run(...(bindParameters(params) as any));
                 return [];
               },
               catch: (cause) =>
