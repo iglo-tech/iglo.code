@@ -8,7 +8,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/process";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
+import { resolveSelfInvocation } from "@t3tools/shared/bunRuntime";
 
 import * as ServerConfig from "../../config.ts";
 import {

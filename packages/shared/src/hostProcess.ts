@@ -2,7 +2,9 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as NodeDns from "node:dns";
 import * as NodeOS from "node:os";
-import * as NodeSea from "node:sea";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Native dependency resolution runs before an Effect runtime exists.
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 
 export const HostProcessPlatform = Context.Reference<NodeJS.Platform>(
   "@t3tools/shared/hostProcess/HostProcessPlatform",
@@ -54,7 +56,7 @@ export const HostProcessArguments = Context.Reference<ReadonlyArray<string>>(
 );
 
 /**
- * The command the shell was given, before Node resolved it to the binary:
+ * The command the shell was given, before the runtime resolved it to the binary:
  * `t3` for a PATH lookup, `./t3` or the launcher symlink for an explicit
  * path. `process.argv[0]` and `execPath` are always the resolved binary.
  */
@@ -66,15 +68,14 @@ export const HostProcessInvokedAs = Context.Reference<string>(
 );
 
 /**
- * Whether this process is a Node single-executable rather than a script run
- * by a Node on the machine. Code that needs a sibling file or a Node to run
- * one branches on this: an executable hosts such things as hidden
- * subcommands of itself.
+ * Bun compiled executables identify the embedded CLI through the virtual
+ * `$bunfs` entrypoint. Helpers need a separate interpreter; self-invocations
+ * dispatch hidden CLI subcommands directly.
  */
 export const HostProcessIsExecutable = Context.Reference<boolean>(
   "@t3tools/shared/hostProcess/HostProcessIsExecutable",
   {
-    defaultValue: () => NodeSea.isSea(),
+    defaultValue: () => process.argv[1]?.startsWith("/$bunfs/") ?? false,
   },
 );
 
@@ -116,3 +117,9 @@ export const HostProcessUserId = Context.Reference<number | undefined>(
 );
 
 export const isHostWindows = Effect.map(HostProcessPlatform, (platform) => platform === "win32");
+
+/** Resolve disk-backed dependencies beside a compiled CLI, outside Bun's virtual filesystem. */
+export const resolveHostModuleUrl = (moduleUrl: string): string =>
+  process.argv[1]?.startsWith("/$bunfs/")
+    ? NodeURL.pathToFileURL(NodePath.join(NodePath.dirname(process.execPath), "package.json")).href
+    : moduleUrl;

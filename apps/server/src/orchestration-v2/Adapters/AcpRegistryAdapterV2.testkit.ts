@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AcpRegistrySettings } from "@t3tools/contracts";
-import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
+import { resolveSelfInvocation } from "@t3tools/shared/bunRuntime";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
 import * as FileSystem from "effect/FileSystem";

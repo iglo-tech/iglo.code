@@ -1,3 +1,9 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Exercises actual Bun subprocesses outside the test runtime.
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 import * as NodeSqlite from "node:sqlite";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -182,3 +188,22 @@ it.effect(
       }).pipe(Effect.provide(SqliteClient.layer({ filename })));
     }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it("persists transactions and large integers under the actual Bun runtime", async () => {
+  const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-bun-sqlite-"));
+  try {
+    const child = NodeChildProcess.spawnSync(
+      process.env.T3_BUN_EXECUTABLE ?? "bun",
+      [
+        NodeURL.fileURLToPath(new URL("./testing/sqliteRuntime.fixture.ts", import.meta.url)),
+        NodePath.join(directory, "state.sqlite"),
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(child.error, undefined);
+    assert.equal(child.status, 0, child.stderr);
+    assert.equal(child.stdout, "persisted, rolled back, and recovered from lock contention\n");
+  } finally {
+    await NodeFSP.rm(directory, { recursive: true, force: true });
+  }
+});

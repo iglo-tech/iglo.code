@@ -1,3 +1,4 @@
+import { resolveHostModuleUrl } from "@t3tools/shared/hostProcess";
 import * as NodeModule from "node:module";
 import * as NodeNet from "node:net";
 
@@ -27,10 +28,9 @@ export class NodePtyModuleLoadError extends Schema.TaggedError<NodePtyModuleLoad
 type NodePtyModuleLoader = () => Promise<typeof import("node-pty")>;
 
 // node-pty stays external to the CLI bundle because it dlopens a native
-// addon. Inside a Node single-executable, `import()` cannot load files from
-// disk (only built-ins resolve), while `require` always reads the real
-// filesystem, so both the module and its spawn-helper resolve through it.
-const requireForNodePty = NodeModule.createRequire(import.meta.url);
+// addon. The compiled CLI loads the module and its spawn-helper from the
+// archive's real filesystem rather than Bun's embedded virtual entrypoint.
+const requireForNodePty = NodeModule.createRequire(resolveHostModuleUrl(import.meta.url));
 
 const loadNodePty: NodePtyModuleLoader = () =>
   Promise.resolve().then(() => requireForNodePty("node-pty") as typeof import("node-pty"));
