@@ -1,0 +1,302 @@
+import { expect, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import {
+  CommandId,
+  EventId,
+  MessageId,
+  NodeId,
+  ProjectId,
+  ProviderInstanceId,
+  ProviderDriverKind,
+  ProviderThreadId,
+  ProviderTurnId,
+  RunId,
+  ThreadId,
+  type OrchestrationV2DomainEvent,
+} from "@t3tools/contracts";
+import { Host, type ServerPlugin, type PluginServices } from "@t3tools/plugin-host-contract/server";
+import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
+import { startEnvironment } from "./PluginHost.testkit.ts";
+import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import * as Projects from "../project/ProjectService.ts";
+import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
+import * as EventSink from "../orchestration-v2/EventSink.ts";
+import * as EventStore from "../orchestration-v2/EventStore.ts";
+import * as Projections from "../orchestration-v2/ProjectionStore.ts";
+import * as Startup from "../serverRuntimeStartup.ts";
+
+const selection = {
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: "claude-sonnet-4-6",
+};
+const plugin = (id: string, acquire: ServerPlugin["acquire"]): ServerPlugin => ({
+  manifest: {
+    id,
+    displayName: id,
+    version: "1",
+    hostVersion: 1,
+    requiredCapabilities: ["execution", "persistence", "attention"],
+    server: { tools: [], api: [], scheduleTargets: [] },
+    web: { pages: [], navigation: [], projectActions: [], threadContext: [] },
+  },
+  migrations: [],
+  acquire,
+});
+const services = (attention: PluginServices["attention"]): PluginServices => ({
+  tools: [],
+  api: [],
+  scheduleTargets: [],
+  attention,
+});
+const setup = (plugins: ReadonlyArray<ServerPlugin>) =>
+  Effect.gen(function* () {
+    const config = {
+      ...(yield* makeReplayServerConfig("pr4-independent-repro")),
+      noBrowser: true,
+      traceTimingEnabled: false,
+    };
+    yield* (yield* FileSystem.FileSystem).writeFileString(
+      config.settingsPath,
+      '{"providers":{"codex":{"binaryPath":"/nonexistent/review-provider"},"claudeAgent":{"binaryPath":"/nonexistent/review-provider"}}}',
+    );
+    const server = yield* startEnvironment(config, plugins);
+    yield* Context.get(server.context, Startup.ServerRuntimeStartup).awaitCommandReady;
+    const host = Context.get(server.context, Host);
+    const projects = Context.get(server.context, Projects.ProjectService);
+    const threads = Context.get(server.context, Threads.ThreadManagementService);
+    const projectId = ProjectId.make("isolated-review");
+    yield* projects.create({
+      commandId: CommandId.make("project-create"),
+      projectId,
+      title: "Isolated review",
+      workspaceRoot: config.baseDir,
+    });
+    return { config, server, host, threads, projectId };
+  });
+const createThread = (s: Effect.Success<ReturnType<typeof setup>>, threadId: ThreadId) =>
+  s.threads.dispatch({
+    type: "thread.create",
+    commandId: CommandId.make(threadId + ":create"),
+    threadId,
+    projectId: s.projectId,
+    title: "Background task review",
+    modelSelection: selection,
+    runtimeMode: "approval-required",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    createdBy: "user",
+    creationSource: "web",
+  });
+
+it.live.each([
+  { shape: "unheld-control", explicit: false },
+  { shape: "held-queue", explicit: false },
+  { shape: "unheld-control", explicit: true },
+  { shape: "held-queue", explicit: true },
+])("background interruption: %o", ({ shape, explicit }) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const ready = yield* Deferred.make<Host["Service"]>();
+      const commands = plugin(
+        "probe",
+        Effect.gen(function* () {
+          yield* Deferred.succeed(ready, yield* Host);
+          return services(Stream.empty);
+        }),
+      );
+      const s = yield* setup([commands]);
+      const bound = { host: yield* Deferred.await(ready) };
+      const threadId = ThreadId.make("probe-background");
+      yield* createThread(s, threadId);
+      const now = yield* DateTime.now;
+      const runId = RunId.make("completed-run");
+      const nodeId = NodeId.make("root");
+      const providerThreadId = ProviderThreadId.make("background-provider-thread");
+      const providerTurnId = ProviderTurnId.make("completed-provider-turn");
+      const projection = yield* s.threads.getThreadProjection(threadId);
+      // Persist the completed-root/background-roster shape emitted by the Claude adapter.
+      // Model cold restart: provider session is absent; native background work remains persisted.
+      // No provider is started and no host/orchestration method is substituted.
+      const seeded: ReadonlyArray<OrchestrationV2DomainEvent> = [
+        {
+          id: EventId.make("seed:run"),
+          type: "run.created",
+          threadId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: runId,
+            threadId,
+            ordinal: 1,
+            providerInstanceId: selection.instanceId,
+            modelSelection: selection,
+            providerThreadId,
+            userMessageId: MessageId.make("user-message"),
+            rootNodeId: nodeId,
+            activeAttemptId: null,
+            status: "completed",
+            requestedAt: now,
+            startedAt: now,
+            completedAt: now,
+            checkpointId: null,
+            contextHandoffId: null,
+          },
+        },
+        {
+          id: EventId.make("seed:root"),
+          type: "node.updated",
+          threadId,
+          runId,
+          nodeId,
+          occurredAt: now,
+          payload: {
+            id: nodeId,
+            threadId,
+            runId,
+            parentNodeId: null,
+            rootNodeId: nodeId,
+            kind: "root_turn",
+            status: "completed",
+            countsForRun: true,
+            providerThreadId,
+            providerTurnId,
+            nativeItemRef: null,
+            runtimeRequestId: null,
+            checkpointScopeId: null,
+            startedAt: now,
+            completedAt: now,
+          },
+        },
+        {
+          id: EventId.make("seed:provider-thread"),
+          type: "provider-thread.updated",
+          threadId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: providerThreadId,
+            driver: ProviderDriverKind.make("claudeAgent"),
+            providerInstanceId: selection.instanceId,
+            providerSessionId: null,
+            appThreadId: threadId,
+            ownerNodeId: nodeId,
+            nativeThreadRef: null,
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: 1,
+            lastRunOrdinal: 1,
+            handoffIds: [],
+            forkedFrom: null,
+            pendingBackgroundTasks: [{ taskId: "still-running-command", kind: "command" }],
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          id: EventId.make("seed:turn"),
+          type: "provider-turn.updated",
+          threadId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: providerTurnId,
+            providerThreadId,
+            nodeId,
+            runAttemptId: null,
+            nativeTurnRef: null,
+            ordinal: 1,
+            status: "completed",
+            startedAt: now,
+            completedAt: now,
+          },
+        },
+        {
+          id: EventId.make("seed:thread"),
+          type: "thread.metadata-updated",
+          threadId,
+          occurredAt: now,
+          payload: { ...projection.thread, activeProviderThreadId: providerThreadId },
+        },
+      ];
+      const persistence = yield* Layer.build(
+        EventSink.layer.pipe(
+          Layer.provideMerge(Layer.mergeAll(EventStore.layer, Projections.layer)),
+        ),
+      ).pipe(Effect.provideContext(s.server.context));
+      yield* Context.get(persistence, EventSink.EventSinkV2).write({ events: seeded });
+      const target = { environmentId: s.host.environmentId, projectId: s.projectId, threadId };
+
+      if (shape === "held-queue") {
+        yield* s.threads.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("preparing-message"),
+          threadId,
+          messageId: MessageId.make("preparing-message"),
+          text: "Prepare another turn",
+          attachments: [],
+          dispatchMode: { type: "defer_start", workspaceStrategy: { type: "root" } },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const preparing = (yield* s.threads.getThreadRecords(threadId, ["runs"])).runs.findLast(
+          (r) => r.status === "preparing",
+        )!;
+        yield* bound.host.send({
+          ...target,
+          commandId: CommandId.make("queue-message"),
+          instruction: "Wait in queue",
+          mode: "queue",
+        });
+        yield* s.threads.dispatch({
+          type: "run.interrupt",
+          threadId,
+          commandId: CommandId.make("hold-queue"),
+          runId: preparing.id,
+          holdQueue: true,
+        });
+        const queuedRuns = (yield* s.threads.getThreadRecords(threadId, ["runs"])).runs;
+        expect(queuedRuns.findLast((r) => r.status === "queued")?.queueHeld).toBe(true);
+      }
+      const shell = yield* s.threads.getThreadShell(threadId);
+      const inspected = yield* bound.host.inspect(target);
+      const command = {
+        ...target,
+        commandId: CommandId.make("background-stop"),
+        ...(explicit ? { runId: inspected.runs.findLast((r) => r.status !== "queued")!.id } : {}),
+      };
+      const stopped = yield* bound.host.interrupt(command);
+      expect(stopped?.status).toBe("accepted");
+      expect(yield* bound.host.interrupt(command)).toEqual(stopped);
+      const afterPlugin = yield* s.threads.getThreadShell(threadId);
+      yield* s.threads.dispatch({
+        type: "thread.stop",
+        threadId,
+        commandId: CommandId.make("native-stop-control"),
+      });
+      const afterNative = yield* s.threads.getThreadShell(threadId);
+
+      expect(shell?.pendingBackgroundTasks?.map((w) => w.taskId)).toEqual([
+        "still-running-command",
+      ]);
+      expect(afterNative?.pendingBackgroundTasks).toEqual([]);
+      expect(inspected.outstandingWork.map((w) => w.id)).toContain("still-running-command");
+      expect(afterPlugin?.pendingBackgroundTasks).toEqual([]);
+      if (shape === "held-queue")
+        expect(
+          (yield* s.threads.getThreadRecords(threadId, ["runs"])).runs.findLast(
+            (r) => r.status === "queued",
+          )?.queueHeld,
+        ).toBe(true);
+      expect(
+        yield* bound.host.interrupt({ ...target, commandId: CommandId.make("no-background") }),
+      ).toBeNull();
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);

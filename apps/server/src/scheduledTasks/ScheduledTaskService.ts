@@ -38,6 +38,10 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import {
+  DispatchModeLimit,
+  intersectDispatchModes,
+} from "../orchestration-v2/DispatchModeLimit.ts";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -870,7 +874,19 @@ export const layer = Layer.effect(
               ? `${active.id}:${trigger === "scheduled" ? active.nextRunAt : DateTime.toEpochMillis(startedAt)}:${trigger}`
               : `${active.id}:webhook:${webhook.deliveryId}`);
           if (active.dispatchTarget !== undefined) {
-            yield* sql`INSERT OR IGNORE INTO scheduled_task_occurrences (id, task_id, project_id, target_json, started_at, status) VALUES (${fireKey}, ${active.id}, ${active.projectId}, ${encodeTarget(active.dispatchTarget)}, ${startedAtIso}, 'pending')`;
+            const ambient = yield* DispatchModeLimit;
+            const saved = active.dispatchTarget.dispatchLimits;
+            const limits =
+              saved === undefined
+                ? ambient
+                : ambient === undefined
+                  ? saved
+                  : intersectDispatchModes(saved, ambient);
+            const target = {
+              ...active.dispatchTarget,
+              ...(limits === undefined ? {} : { dispatchLimits: limits }),
+            };
+            yield* sql`INSERT OR IGNORE INTO scheduled_task_occurrences (id, task_id, project_id, target_json, started_at, status) VALUES (${fireKey}, ${active.id}, ${active.projectId}, ${encodeTarget(target)}, ${startedAtIso}, 'pending')`;
             const [receipt] = yield* sql<{
               task_id: string;
               status: string;

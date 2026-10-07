@@ -19,6 +19,11 @@ import * as Schema from "effect/Schema";
 import * as Scheduler from "../../../apps/server/src/scheduling/Scheduler.ts";
 import * as ScheduleTargets from "../../../apps/server/src/scheduling/ScheduleTargets.ts";
 import * as ScheduledTasks from "../../../apps/server/src/scheduledTasks/ScheduledTaskService.ts";
+import * as CommandAccess from "./PluginCommandAccess.ts";
+import {
+  DispatchModeLimit,
+  intersectDispatchModes,
+} from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 const isPluginError = Schema.is(PluginError);
 const encodeOccurrenceIdentity = Schema.encodeEffect(
   Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String])),
@@ -84,8 +89,19 @@ export const make = Effect.gen(function* () {
       Effect.mapError((cause) => (isPluginError(cause) ? cause : error("list", cause))),
     );
   const id = (value: string) => ScheduledTaskId.make(`${prefix}${value}`);
+  const commandLimits = Effect.gen(function* () {
+    const access = yield* Effect.serviceOption(CommandAccess.PluginCommandAccess);
+    const ambient = yield* DispatchModeLimit;
+    const authorized = Option.isNone(access) ? undefined : yield* access.value.authorize({});
+    return authorized === undefined
+      ? ambient
+      : ambient === undefined
+        ? authorized
+        : intersectDispatchModes(authorized, ambient);
+  });
   const upsert = (input: PluginScheduleInput) =>
     Effect.gen(function* () {
+      const limits = yield* commandLimits;
       if (!targets().some((target) => target.id === input.target))
         return yield* new PluginError({
           pluginId,
@@ -100,13 +116,17 @@ export const make = Effect.gen(function* () {
         title: input.title,
         prompt: "Scheduled plugin operation",
         projectId: input.projectId,
-        dispatchTarget: { id: input.target, payload: input.payload },
+        dispatchTarget: {
+          id: input.target,
+          payload: input.payload,
+          ...(limits === undefined ? {} : { dispatchLimits: limits }),
+        },
         enabled: input.enabled,
         schedule: input.schedule,
         workspaceStrategy: { type: "root" },
         modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: DEFAULT_MODEL },
-        runtimeMode: "approval-required",
-        interactionMode: "default",
+        runtimeMode: limits?.runtimeMode ?? "approval-required",
+        interactionMode: limits?.interactionMode ?? "default",
         createdBy: "agent",
         creationSource: "server",
       });
@@ -117,17 +137,23 @@ export const make = Effect.gen(function* () {
       upsert,
       list,
       delete: (value) =>
-        service().pipe(
+        commandLimits.pipe(
+          Effect.andThen(service()),
           Effect.flatMap((service) => service.delete({ id: id(value) })),
           Effect.asVoid,
-          Effect.mapError((cause) => error("delete", cause)),
+          Effect.mapError((cause) => (isPluginError(cause) ? cause : error("delete", cause))),
         ),
       runNow: (value, occurrenceId) =>
         Effect.gen(function* () {
+          const limits = yield* commandLimits;
           const core = yield* service();
           const scopedOccurrenceId = `plugin:${yield* encodeOccurrenceIdentity([pluginId, occurrenceId])}`;
-          yield* core.runNow({ id: id(value), occurrenceId: scopedOccurrenceId });
-        }).pipe(Effect.mapError((cause) => error("runNow", cause))),
+          yield* core
+            .runNow({ id: id(value), occurrenceId: scopedOccurrenceId })
+            .pipe(Effect.provideService(DispatchModeLimit, limits));
+        }).pipe(
+          Effect.mapError((cause) => (isPluginError(cause) ? cause : error("runNow", cause))),
+        ),
       registerDueWork: (run) => scheduler.register(`plugin:${pluginId}`, run),
     }),
     start: Effect.gen(function* () {

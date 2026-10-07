@@ -173,13 +173,20 @@ export const make = (pluginId: string) =>
             message: "The requested environment is not this server.",
           });
         const access = yield* Effect.serviceOption(CommandAccess.PluginCommandAccess);
-        const limits = Option.isNone(access)
+        const ambient = yield* DispatchModeLimit;
+        const authorized = Option.isNone(access)
           ? undefined
           : yield* access.value.authorize(
               requested.kind === "launch"
                 ? { runtimeMode: requested.input.runtimeMode }
                 : { threadId: requested.input.threadId },
             );
+        const limits =
+          authorized === undefined
+            ? ambient
+            : ambient === undefined
+              ? authorized
+              : intersectDispatchModes(authorized, ambient);
         const runIntent = (intent: typeof Intent.Type) =>
           dispatch(intent).pipe(
             Effect.provideService(
@@ -268,7 +275,7 @@ export const make = (pluginId: string) =>
           const active =
             activeRun ??
             (preparationId === undefined && state.outstandingWork.length > 0
-              ? state.runs.at(-1)
+              ? state.runs.findLast((run) => run.status !== "queued")
               : undefined);
           intent = {
             ...requested,

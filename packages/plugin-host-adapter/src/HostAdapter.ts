@@ -19,6 +19,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Environment from "../../../apps/server/src/environment/ServerEnvironment.ts";
 import * as Projects from "../../../apps/server/src/project/ProjectService.ts";
@@ -34,8 +35,12 @@ import * as PullRequests from "../../../apps/server/src/pullRequest/PullRequestS
 import { deriveProviderInstanceConfigMap } from "../../../apps/server/src/provider/ProviderInstanceRegistryHydration.ts";
 import { providerToolCapability } from "./providerPolicy.ts";
 import * as LaunchCancellation from "./LaunchCancellation.ts";
-import { DispatchModeLimit } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
+import {
+  DispatchModeLimit,
+  exceededDispatchModeLimit,
+} from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { latestUnheldRun } from "@t3tools/shared/orchestrationV2ThreadError";
 
 const fail = (operation: string, message: string, cause?: unknown) =>
   new PluginError({
@@ -81,6 +86,7 @@ const make = Effect.gen(function* () {
   const launch = yield* Launch.ThreadLaunchService;
   const setup = yield* Setup.WorktreeSetupTracker;
   const receipts = yield* Receipts.CommandReceiptStoreV2;
+  const sql = yield* SqlClient.SqlClient;
   const events = yield* Events.OrchestrationEventStore;
   const providers = yield* Providers.ProviderRegistry;
   const settings = yield* Settings.ServerSettingsService;
@@ -163,7 +169,7 @@ const make = Effect.gen(function* () {
       runs.filter((run) => run.status === "rolled_back").map((run) => run.id),
     );
     const background = derivePendingBackgroundWork({
-      latestRun: runs.at(-1),
+      latestRun: latestUnheldRun(runs),
       runs,
       providerThreads: records.providerThreads,
       turnItems: records.turnItems,
@@ -419,6 +425,20 @@ const make = Effect.gen(function* () {
     launch: (input) =>
       Effect.gen(function* () {
         yield* environment(input.environmentId);
+        const limit = yield* DispatchModeLimit;
+        if (
+          limit !== undefined &&
+          exceededDispatchModeLimit(limit, {
+            runtimeMode: input.runtimeMode,
+            interactionMode: limit.interactionMode,
+          }) !== undefined
+        )
+          return yield* new PluginError({
+            pluginId: "host",
+            code: "unauthorized",
+            operation: "launch",
+            message: "The requested runtime mode is broader than the command's permission ceiling.",
+          });
         const existing = yield* receipt(input.commandId);
         if (existing !== null) {
           if (existing.status !== "accepted") return existing;
@@ -440,7 +460,6 @@ const make = Effect.gen(function* () {
             ? yield* resolveWorkspaceRef(workspace.workspaceRoot, input.workspace.ref)
             : null;
         const cancellation = yield* Effect.serviceOption(LaunchCancellation.LaunchCancellation);
-        const limit = yield* DispatchModeLimit;
         const launched = yield* launch
           .launch({
             commandId: input.commandId,
@@ -565,7 +584,30 @@ const make = Effect.gen(function* () {
         const unreleased = durable.runs.findLast(
           (run) => run.workspacePreparation !== undefined && !releasedRuns.has(run.id),
         );
+        // Plugin launch creation and its readiness receipt live in core state.
+        // A preparation-only launch has no run and its owner may be unavailable.
+        const pendingLaunches = yield* sql`
+          SELECT launch.command_id FROM orchestration_command_receipts launch
+          WHERE launch.aggregate_kind = 'thread' AND launch.aggregate_id = ${input.threadId}
+            AND launch.command_type = 'thread.create' AND launch.status = 'accepted'
+            AND launch.command_id LIKE 'plugin:%'
+            AND NOT EXISTS (
+              SELECT 1 FROM orchestration_command_receipts ready
+              WHERE ready.command_id = launch.command_id || ':workspace-ready'
+                AND ready.aggregate_kind = 'thread' AND ready.aggregate_id = launch.aggregate_id
+                AND ready.command_type = 'thread.metadata.update' AND ready.status = 'accepted'
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM orchestration_command_receipts instructed
+              WHERE instructed.command_id = launch.command_id || ':initial-message'
+                AND instructed.aggregate_kind = 'thread' AND instructed.aggregate_id = launch.aggregate_id
+                AND instructed.command_type = 'message.dispatch' AND instructed.status = 'accepted'
+            )
+        `.pipe(
+          Effect.mapError((cause) => fail("send", "Could not reconcile launch readiness.", cause)),
+        );
         if (
+          pendingLaunches.length > 0 ||
           (unreleased !== undefined && unreleased.status !== "preparing") ||
           (preparation !== null &&
             !preparation.stages.some((stage) => stage.id === "agent" && stage.status === "done") &&
@@ -663,20 +705,42 @@ const make = Effect.gen(function* () {
           input.runId === undefined
             ? (state.runs.findLast((run) =>
                 ["preparing", "starting", "running", "waiting"].includes(run.status),
-              ) ?? (state.outstandingWork.length > 0 ? state.runs.at(-1) : undefined))
+              ) ??
+              (state.outstandingWork.length > 0
+                ? state.runs.findLast((run) => run.status !== "queued")
+                : undefined))
             : state.runs.find((run) => run.id === input.runId);
         if (selected === undefined) {
           if (input.runId !== undefined)
             return yield* fail("interrupt", "The requested run is not in this thread.");
           return null;
         }
-        if (
-          !["preparing", "starting", "running", "waiting"].includes(selected.status) &&
-          (selected.id !== state.runs.at(-1)?.id ||
-            state.outstandingWork.length === 0 ||
-            selected.status === "rolled_back")
-        )
-          return null;
+        if (!["preparing", "starting", "running", "waiting"].includes(selected.status)) {
+          if (
+            selected.id !== state.runs.findLast((run) => run.status !== "queued")?.id ||
+            selected.status === "rolled_back"
+          )
+            return null;
+          const records = yield* threads
+            .getProjectThreadRecords(input, ["runs", "providerThreads", "turnItems"])
+            .pipe(
+              Effect.mapError((cause) =>
+                fail("interrupt", "Could not reconcile background work.", cause),
+              ),
+            );
+          // Queued nodes remain outstanding, but only native background work
+          // makes a settled run interruptible.
+          if (
+            derivePendingBackgroundWork({
+              latestRun: records.runs.find((run) => run.id === selected.id),
+              runs: records.runs,
+              providerThreads: records.providerThreads,
+              turnItems: records.turnItems,
+              activeProviderThreadId: records.thread.activeProviderThreadId,
+            }).length === 0
+          )
+            return null;
+        }
         yield* threads
           .dispatch({
             type: "run.interrupt",

@@ -163,6 +163,10 @@ export type ScheduledTaskRunStatus = typeof ScheduledTaskRunStatus.Type;
 export const ScheduledTaskDispatchTarget = Schema.Struct({
   id: TrimmedNonEmptyString,
   payload: Schema.Json,
+  /** The authenticated ceiling retained by this target and its occurrence. */
+  dispatchLimits: Schema.optional(
+    Schema.Struct({ runtimeMode: RuntimeMode, interactionMode: ProviderInteractionMode }),
+  ),
 });
 export type ScheduledTaskDispatchTarget = typeof ScheduledTaskDispatchTarget.Type;
 /** Where a webhook task receives requests. Present only on webhook tasks. */

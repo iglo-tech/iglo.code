@@ -3,6 +3,10 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
+import {
+  DispatchModeLimit,
+  intersectDispatchModes,
+} from "../orchestration-v2/DispatchModeLimit.ts";
 
 type Invoke = (input: {
   readonly occurrenceId: string;
@@ -47,15 +51,22 @@ export const layer = Layer.effect(
             }),
         ),
       dispatch: (target, occurrenceId, projectId) =>
-        Effect.suspend(() => {
+        Effect.gen(function* () {
           const invoke = targets.get(target.id);
-          return invoke === undefined
-            ? Effect.fail(
-                new ScheduledTaskError({
-                  message: `Schedule target ${target.id} is unavailable in this environment. Its state has been retained.`,
-                }),
-              )
-            : invoke({ occurrenceId, projectId, payload: target.payload });
+          if (invoke === undefined)
+            return yield* new ScheduledTaskError({
+              message: `Schedule target ${target.id} is unavailable in this environment. Its state has been retained.`,
+            });
+          const ambient = yield* DispatchModeLimit;
+          const limits =
+            target.dispatchLimits === undefined
+              ? ambient
+              : ambient === undefined
+                ? target.dispatchLimits
+                : intersectDispatchModes(target.dispatchLimits, ambient);
+          return yield* invoke({ occurrenceId, projectId, payload: target.payload }).pipe(
+            Effect.provideService(DispatchModeLimit, limits),
+          );
         }),
     });
   }),
