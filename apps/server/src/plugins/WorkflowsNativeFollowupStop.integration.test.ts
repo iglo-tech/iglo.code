@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import { Host } from "@t3tools/plugin-host-contract/server";
+import { PluginError } from "@t3tools/plugin-host-contract/schema";
 import {
   CommandId,
   EventId,
@@ -37,17 +38,30 @@ it.live.each(["stop-followup", "natural-followup", "workflow-resume"] as const)(
             Effect.gen(function* () {
               const old = yield* test.core.receipt(input.commandId);
               if (old) return old;
-              yield* test.threads.dispatch({
-                type: "message.dispatch",
-                threadId: input.threadId,
-                commandId: input.commandId,
-                messageId: MessageId.make(`${input.commandId}:message`),
-                text: input.instruction,
-                attachments: [],
-                dispatchMode: { type: "defer_start" },
-                createdBy: "agent",
-                creationSource: "mcp",
-              });
+              yield* test.threads
+                .dispatch({
+                  type: "message.dispatch",
+                  threadId: input.threadId,
+                  commandId: input.commandId,
+                  messageId: MessageId.make(`${input.commandId}:message`),
+                  text: input.instruction,
+                  attachments: [],
+                  dispatchMode: { type: "defer_start" },
+                  createdBy: "agent",
+                  creationSource: "mcp",
+                })
+                .pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new PluginError({
+                        pluginId: "host",
+                        operation: "send",
+                        code: "service",
+                        message: "Could not commit fixture execution",
+                        cause,
+                      }),
+                  ),
+                );
               return (yield* test.core.receipt(input.commandId))!;
             }),
         });

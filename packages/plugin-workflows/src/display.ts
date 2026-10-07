@@ -39,7 +39,7 @@ const redact = <A>(host: Host["Service"], run: Run, project: (text: Text) => A) 
     return project((_value, limit = 4_000) => visible[index++]!.slice(0, limit));
   });
 
-const data = (value: Data, text: Text) =>
+const data = (value: typeof Data.Type, text: Text) =>
   Object.fromEntries(
     Object.entries(value).map(
       ([key, value]) => [key, typeof value === "string" ? text(value) : value] as const,
@@ -61,7 +61,7 @@ const field = (value: Agent["report"]["fields"][number], text: Text) => ({
   ...value,
   ...(value.values === undefined ? {} : { values: value.values.map((value) => text(value)) }),
 });
-const skill = (value: SkillSnapshot, text: Text) => ({
+const skill = (value: typeof SkillSnapshot.Type, text: Text) => ({
   ...value,
   invocation: text(value.invocation, Infinity),
   path: text(value.path, Infinity),
