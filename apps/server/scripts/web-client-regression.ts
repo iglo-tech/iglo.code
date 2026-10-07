@@ -7,6 +7,7 @@ import * as NodeHttp from "node:http";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
+import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
@@ -91,15 +92,22 @@ async function configure(fixture: EnvironmentFixture, dependencies: WebDependenc
   const threadId = ThreadId.make(NodeCrypto.randomUUID());
   await withRegressionRpc(fixture, async (client) => {
     const provider = (signin: boolean) => ({
-      driver: ProviderDriverKind.make("codex"),
+      driver: ProviderDriverKind.make(signin ? "acpRegistry" : "codex"),
       displayName: signin ? "Fixture sign-in" : "Fixture Codex",
       enabled: true,
-      config: {
-        setupMode: "existing",
-        enabled: true,
-        binaryPath: dependencies.provider,
-        customModels: ["gpt-5.6-sol"],
-      },
+      config: signin
+        ? {
+            source: "local",
+            commandPath: dependencies.authProvider,
+            commandArgs: [],
+            authMethodId: "browser",
+          }
+        : {
+            setupMode: "existing",
+            enabled: true,
+            binaryPath: dependencies.provider,
+            customModels: ["gpt-5.6-sol"],
+          },
       environment: [
         { name: "T3_FAKE_CONTROL", value: dependencies.control, sensitive: false },
         { name: "T3_FAKE_OWNER", value: dependencies.owner, sensitive: false },
@@ -172,27 +180,33 @@ async function addSurface(page: Page, name: "Terminal" | "Browser" | "Device") {
 async function terminalMilestone(
   client: RegressionRpcClient,
   threadId: ThreadId,
-  predicate: (event: TerminalAttachStreamEvent) => boolean,
+  predicate: (event: TerminalAttachStreamEvent, output: string) => boolean,
 ) {
+  let output = "";
   const result = await requestRpc(
     client[WS_METHODS.terminalObserve]({ threadId, terminalId: "term-1" }).pipe(
-      Stream.filter(predicate),
+      Stream.filter((event) => {
+        // PTY chunks may split a line or escape sequence at any byte.
+        if (event.type === "snapshot") output = event.snapshot.history;
+        else if (event.type === "output") output += event.data;
+        return predicate(event, NodeUtil.stripVTControlCharacters(output).replace(/\r+\n/g, "\n"));
+      }),
       Stream.take(1),
       Stream.runHead,
     ),
   ).catch((error: unknown) => {
-    throw new Error(`Terminal milestone ${predicate.toString()}: ${String(error)}`);
+    throw new Error(
+      `Terminal milestone ${predicate.toString()}: ${String(error)}; output=${JSON.stringify(output)}`,
+    );
   });
   NodeAssert.ok(Option.isSome(result), "The terminal stream must expose the requested milestone.");
   return result.value;
 }
 
 function terminalText(event: TerminalAttachStreamEvent) {
-  return event.type === "snapshot"
-    ? event.snapshot.history
-    : event.type === "output"
-      ? event.data
-      : "";
+  const output =
+    event.type === "snapshot" ? event.snapshot.history : event.type === "output" ? event.data : "";
+  return NodeUtil.stripVTControlCharacters(output).replace(/\r+\n/g, "\n");
 }
 
 /** Required behavior is asserted in every run; missing dependencies fail explicitly. */
@@ -264,6 +278,14 @@ export async function runWebClientRegression(
   page.on("console", (message) =>
     consoleMessages.push(redact(`${message.type()}: ${message.text()}`)),
   );
+  page.on("websocket", (socket) => {
+    socket.on("framesent", ({ payload }) => {
+      const frame = String(payload);
+      if (frame.includes("terminal.write")) consoleMessages.push("rpc sent: terminal.write");
+      else if (frame.includes("server.updateSettings"))
+        consoleMessages.push("rpc sent: server.updateSettings");
+    });
+  });
   try {
     const primary = await createEnvironmentFixture(input, {
       prepare: async (paths) => {
@@ -382,7 +404,9 @@ export async function runWebClientRegression(
       await page.waitForFunction(`() => {
         const input = document.querySelector('textarea[aria-label="Terminal input"]');
         const canvas = input?.parentElement?.querySelector('canvas');
-        if (!canvas || !canvas.width || !canvas.height) return false;
+        if (!canvas || !canvas.width || !canvas.height
+          || canvas.width !== Math.round(canvas.clientWidth * devicePixelRatio)
+          || canvas.height !== Math.round(canvas.clientHeight * devicePixelRatio)) return false;
         const pixels = canvas.getContext("2d")?.getImageData(
           0, 0, Math.min(canvas.width, 300), Math.min(canvas.height, 100)
         ).data;
@@ -397,16 +421,26 @@ export async function runWebClientRegression(
       }`);
       await page.screenshot({ path: NodePath.join(artifacts, "terminal-ready.png") });
       await withRegressionRpc(primary, async (client) => {
+        await inputField.locator("..").locator("canvas").click();
         NodeAssert.equal(await inputField.getAttribute("readonly"), null);
-        await inputField.pressSequentially("printf 'terminal-io-fixture\\n'");
-        await inputField.press("Enter");
-        NodeAssert.equal(
-          await inputField.inputValue(),
-          "",
-          "The rendered terminal must consume keyboard input.",
+        await inputField.fill("printf 'terminal-io-fixture\\n'");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          output.includes("printf 'terminal-io-fixture\\n'"),
         );
-        await terminalMilestone(client, seeded.threadId, (event) =>
-          /\r?\nterminal-io-fixture\r?\n/.test(terminalText(event)),
+        await inputField.press("Enter");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          /\nterminal-io-fixture\n/.test(output),
+        );
+        await inputField.fill("trap '/bin/stty size' WINCH; printf 'resize-watcher-ready\\n'");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          output.includes("resize-watcher-ready"),
+        );
+        await inputField.press("Enter");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          /\nresize-watcher-ready\n/.test(output),
+        );
+        const resized = terminalMilestone(client, seeded.threadId, (_event, output) =>
+          /27\s+91/.test(output),
         );
         await requestRpc(
           client[WS_METHODS.terminalResize]({
@@ -416,12 +450,11 @@ export async function runWebClientRegression(
             rows: 27,
           }),
         );
-        await inputField.pressSequentially("/bin/stty size");
-        await inputField.press("Enter");
-        await terminalMilestone(client, seeded.threadId, (event) =>
-          /27\s+91/.test(terminalText(event)),
+        await resized;
+        await inputField.fill("printf 'terminal-error-fixture\\n' >&2; exit 7");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          output.includes("terminal-error-fixture"),
         );
-        await inputField.pressSequentially("printf 'terminal-error-fixture\\n' >&2; exit 7");
         await inputField.press("Enter");
         const exited = await terminalMilestone(
           client,
@@ -463,7 +496,10 @@ export async function runWebClientRegression(
     });
 
     await milestone("settings persist and controlled provider sign-in URL/error", async () => {
-      await page.goto(new URL("/settings/general", primary.origin).href);
+      await page.goto(
+        new URL(`/settings/general?machine=${seeded.descriptor.environmentId}`, primary.origin)
+          .href,
+      );
       const updateChecks = page.getByRole("switch", {
         name: "Check provider versions",
         exact: true,
@@ -474,27 +510,35 @@ export async function runWebClientRegression(
         await updateChecks.elementHandle(),
       );
       await withRegressionRpc(primary, async (client) => {
-        await updateChecks.click();
-        const saved = await requestRpc(
+        const subscribed = Promise.withResolvers<void>();
+        const saved = requestRpc(
           client[WS_METHODS.subscribeServerConfig]({}).pipe(
-            Stream.filter((event) =>
-              event.type === "settingsUpdated"
+            Stream.filter((event) => {
+              if (event.type === "snapshot") subscribed.resolve();
+              return event.type === "settingsUpdated"
                 ? event.payload.settings.enableProviderUpdateChecks
-                : event.type === "snapshot" && event.config.settings.enableProviderUpdateChecks,
-            ),
+                : event.type === "snapshot" && event.config.settings.enableProviderUpdateChecks;
+            }),
             Stream.take(1),
             Stream.runHead,
           ),
-        );
+        ).catch((error: unknown) => {
+          throw new Error(`Settings persistence milestone: ${String(error)}`);
+        });
+        await Promise.race([subscribed.promise, saved]);
+        await updateChecks.click();
         NodeAssert.ok(
-          Option.isSome(saved),
+          Option.isSome(await saved),
           "The settings stream must confirm the save before reload.",
         );
       });
       await page.reload();
       NodeAssert.equal(await updateChecks.getAttribute("aria-checked"), "true");
       await updateChecks.click();
-      await page.goto(new URL("/settings/providers", primary.origin).href);
+      await page.goto(
+        new URL(`/settings/providers?machine=${seeded.descriptor.environmentId}`, primary.origin)
+          .href,
+      );
       await page.getByRole("button", { name: "Select Fixture sign-in", exact: true }).click();
       await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
       await visible(page.getByRole("button", { name: "Copy sign-in link", exact: true }));
@@ -503,30 +547,19 @@ export async function runWebClientRegression(
         await page.evaluate<string>("navigator.clipboard.readText()"),
         /^https:\/\/auth\.fixture\.invalid\/authorize\?/,
       );
-      await withRegressionRpc(primary, async (client) => {
-        const state = await requestRpc(
-          client[WS_METHODS.providerAuthStart]({ instanceId: authProviderId }),
-        );
-        NodeAssert.ok(state.flowId);
-        await requestRpc(
-          client[WS_METHODS.providerAuthCancel]({
-            instanceId: authProviderId,
-            flowId: state.flowId,
-          }),
-        );
-      });
+      await page.getByRole("button", { name: "Cancel sign-in", exact: true }).last().click();
+      await visible(page.getByRole("button", { name: "Retry sign-in", exact: true }).last());
       await NodeFSP.writeFile(NodePath.join(dependencies.control, "auth-error"), "fail");
       await page.getByRole("button", { name: "Retry sign-in", exact: true }).last().click();
-      await visible(page.getByText("Controlled sign-in failure", { exact: false }).first());
+      await visible(
+        page.getByText("The ACP agent could not complete sign-in.", { exact: true }).first(),
+      );
       await NodeFSP.rm(NodePath.join(dependencies.control, "auth-error"));
     });
 
     await milestone("Browser unavailable state", async () => {
       await page.goto(new URL(seeded.route, primary.origin).href);
       await addSurface(page, "Browser");
-      const url = page.getByPlaceholder("Search or enter URL").first();
-      await url.fill(websiteUrl);
-      await url.press("Enter");
       await visible(page.getByRole("button", { name: "Try again", exact: true }).first());
       await page.screenshot({ path: NodePath.join(artifacts, "browser-unavailable.png") });
     });

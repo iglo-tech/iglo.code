@@ -63,7 +63,7 @@ rl.on("line", (line) => {
   if (method === "initialize")
     return reply({
       userAgent: "t3-web-regression/1.0",
-      codexHome: control,
+      codexHome: control ?? process.env.CODEX_HOME ?? process.cwd(),
       platformFamily: "unix",
       platformOs: process.env.T3_FAKE_PLATFORM ?? "linux",
     });

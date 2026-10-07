@@ -244,7 +244,9 @@ export async function createEnvironmentFixture(
     const response = await fetch(new URL(route, pairingUrl), {
       ...options,
       signal: options.signal ?? AbortSignal.timeout(10_000),
-      headers: { ...(cookie ? { cookie } : {}), ...options.headers },
+      // Fixture setup does not share the browser's pool. Close each drained
+      // request so Bun cannot reuse a stale Vite proxy connection across scopes.
+      headers: { connection: "close", ...(cookie ? { cookie } : {}), ...options.headers },
     }).catch((error: unknown) => {
       throw new Error(`${options.method ?? "GET"} ${route}: ${String(error)}\n${output()}`);
     });
@@ -453,6 +455,26 @@ export async function checkEnvironment(fixture: EnvironmentFixture) {
   NodeAssert.ok(session.authenticated, "Pairing must authenticate subsequent requests.");
   const client = await fixture.request("/");
   NodeAssert.ok((await client.text()).includes("<html"), "The web client must be served.");
+  const compressed = await fixture.request(
+    new URL("/api/auth/session", fixture.serverOrigin).href,
+    { headers: { "accept-encoding": "gzip" } },
+  );
+  NodeAssert.match(
+    compressed.headers.get("vary") ?? "",
+    /accept-encoding/i,
+    "HTTP compression negotiation headers must survive packaging.",
+  );
+  NodeAssert.ok(decodeAuthSessionState(await compressed.json()).authenticated);
+  if (fixture.input.kind === "archive") {
+    const html = await (await fixture.request("/")).text();
+    const asset = /src="([^"]+\.js)"/.exec(html)?.[1];
+    NodeAssert.ok(asset, "The shipped client must include its JavaScript entry.");
+    const head = await fixture.request(asset, {
+      method: "HEAD",
+      headers: { "accept-encoding": "gzip" },
+    });
+    NodeAssert.equal(head.headers.get("content-encoding"), "gzip");
+  }
   const cors = await fixture.request(new URL("/api/auth/session", fixture.serverOrigin).href, {
     method: "OPTIONS",
     headers: {
