@@ -12,6 +12,36 @@ import { ServerNotification } from "effect-codex-app-server/schema";
 
 const decodeNotification = Schema.decodeUnknownSync(ServerNotification);
 
+test("the controlled provider returns a deterministic title through codex exec", async () => {
+  const control = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fake-title-"));
+  const output = NodePath.join(control, "title.json");
+  try {
+    const child = NodeChildProcess.spawnSync(
+      process.env.BUN_EXECUTABLE ?? "bun",
+      [
+        NodeURL.fileURLToPath(new URL("fake-codex.mjs", import.meta.url)),
+        "exec",
+        "--output-last-message",
+        output,
+        "-",
+      ],
+      {
+        env: { ...process.env, T3_FAKE_OWNER: "environment-a" },
+        input: "You generate concise thread titles.\nReturn a JSON object with key: title.\n",
+        encoding: "utf8",
+        timeout: 5000,
+      },
+    );
+    expect(child.error).toBeUndefined();
+    expect(child.status, child.stderr).toBe(0);
+    expect(JSON.parse(await NodeFSP.readFile(output, "utf8"))).toEqual({
+      title: "Thread environment-a",
+    });
+  } finally {
+    await NodeFSP.rm(control, { recursive: true, force: true });
+  }
+});
+
 test("the controlled provider streams until released and acknowledges cancellation", async () => {
   const control = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fake-codex-"));
   const child = NodeChildProcess.spawn(
