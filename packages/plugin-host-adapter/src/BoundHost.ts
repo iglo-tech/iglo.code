@@ -72,6 +72,7 @@ export const make = (pluginId: string) =>
         ...(cause === undefined ? {} : { cause }),
       });
     yield* sql`CREATE TABLE IF NOT EXISTS host_commands (id TEXT PRIMARY KEY, request TEXT NOT NULL, intent TEXT NOT NULL, result TEXT)`;
+    yield* sql`CREATE TABLE IF NOT EXISTS host_cancelled_launches (id TEXT PRIMARY KEY)`;
     // Pending intents written by older hosts must retain their original core receipt identity.
     const coreId = (intent: typeof Intent.Type) =>
       intent.coreCommandId ?? CommandId.make(`plugin:${pluginId}:${intent.input.commandId}`);
@@ -93,12 +94,7 @@ export const make = (pluginId: string) =>
           AND json_extract(intent, '$.input.projectId') = ${intent.input.projectId}`;
         for (const row of pending) {
           const launch = yield* decodeIntent(row.intent);
-          if (
-            launch.kind !== "launch" ||
-            launch.input.instruction !== undefined ||
-            launch.input.workspace.type !== "exact-ref"
-          )
-            continue;
+          if (launch.kind !== "launch" || launch.input.instruction !== undefined) continue;
           const created = yield* core.receipt(coreId(launch));
           if (created?.threadId !== intent.input.threadId) continue;
           const ready = yield* core.receipt(CommandId.make(`${coreId(launch)}:workspace-ready`));
@@ -140,7 +136,7 @@ export const make = (pluginId: string) =>
       return receipt;
     });
     const execute = Effect.fn("PluginHost.executeIntent")(
-      function* (requested: typeof Request.Type) {
+      function* (requested: typeof Request.Type, recovering = false) {
         if (requested.input.environmentId !== core.environmentId)
           return yield* new PluginError({
             pluginId,
@@ -164,6 +160,13 @@ export const make = (pluginId: string) =>
                 "This command identity already belongs to a different operation. Retry the original input or use a new identity.",
             });
           if (existing.result !== null) return yield* decodeReceipt(existing.result);
+          if (requested.kind === "launch") {
+            const [cancelled] =
+              yield* sql`SELECT id FROM host_cancelled_launches WHERE id = ${requested.input.commandId}`;
+            if (cancelled !== undefined && recovering) return null;
+            // A new explicit request resumes the same intent; startup never does.
+            yield* sql`DELETE FROM host_cancelled_launches WHERE id = ${requested.input.commandId}`;
+          }
           return yield* dispatch(yield* decodeIntent(existing.intent));
         }
         let intent: typeof Intent.Type =
@@ -182,6 +185,7 @@ export const make = (pluginId: string) =>
                 },
               }
             : requested;
+        const cancelledLaunches: CommandId[] = [];
         if (requested.kind === "interrupt") {
           if (requested.input.runId !== undefined && requested.input.preparationId !== undefined)
             return yield* new PluginError({
@@ -196,9 +200,24 @@ export const make = (pluginId: string) =>
           );
           const preparationId =
             requested.input.preparationId ??
-            (requested.input.runId === undefined && activeRun === undefined
+            ((requested.input.runId === undefined && activeRun === undefined) ||
+            (activeRun?.status === "preparing" &&
+              (requested.input.runId === undefined || requested.input.runId === activeRun.id))
               ? state.preparationId
               : undefined);
+          if (preparationId !== undefined && preparationId === state.preparationId) {
+            const pending = yield* sql<{
+              id: CommandId;
+              intent: string;
+            }>`SELECT id, intent FROM host_commands
+              WHERE result IS NULL AND json_extract(intent, '$.kind') = 'launch'
+              AND json_extract(intent, '$.input.projectId') = ${requested.input.projectId}`;
+            for (const row of pending) {
+              const launch = yield* decodeIntent(row.intent);
+              if ((yield* core.receipt(coreId(launch)))?.threadId === requested.input.threadId)
+                cancelledLaunches.push(row.id);
+            }
+          }
           const active =
             activeRun ??
             (preparationId === undefined && state.outstandingWork.length > 0
@@ -222,10 +241,17 @@ export const make = (pluginId: string) =>
           ),
         };
         const encoded = yield* encodeIntent(intent);
-        yield* sql`INSERT INTO host_commands (id, request, intent) VALUES (${requested.input.commandId}, ${request}, ${encoded})`;
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`INSERT INTO host_commands (id, request, intent) VALUES (${requested.input.commandId}, ${request}, ${encoded})`;
+            // Commit cancellation with its intent, before native I/O or acknowledgement.
+            for (const id of cancelledLaunches)
+              yield* sql`INSERT OR IGNORE INTO host_cancelled_launches (id) VALUES (${id})`;
+          }),
+        );
         return yield* dispatch(intent);
       },
-      (effect, requested) => lock.withLock(requested.input.commandId, effect),
+      (effect, requested, _recovering = false) => lock.withLock(requested.input.commandId, effect),
       Effect.mapError((cause) =>
         isPluginError(cause)
           ? cause
@@ -271,7 +297,7 @@ export const make = (pluginId: string) =>
         pending,
         (row) =>
           decodeRequest(row.request).pipe(
-            Effect.flatMap(execute),
+            Effect.flatMap((request) => execute(request, true)),
             Effect.catchCause((cause) =>
               Cause.hasInterruptsOnly(cause)
                 ? Effect.interrupt

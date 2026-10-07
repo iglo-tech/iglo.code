@@ -561,6 +561,14 @@ export const layer = Layer.effect(
             }
           }
 
+          if (requestedOccurrenceId !== undefined && active.dispatchTarget === undefined)
+            return yield* taskError(
+              "Occurrence identities are only supported by plugin schedules.",
+              {
+                taskId: active.id,
+              },
+            );
+
           const [pending] =
             active.dispatchTarget === undefined
               ? []

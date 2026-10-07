@@ -526,6 +526,10 @@ it.live(
         expect(committed?.status).toBe("accepted");
         const restarted = yield* s.restart();
         const current = Context.get(restarted.server.context, Tracker.WorktreeSetupTracker);
+        // Cancellation stays stopped; only this explicit request starts a new attempt.
+        const retrying = yield* restarted.bound.host
+          .launch(s.input)
+          .pipe(Effect.result, Effect.forkScoped);
         yield* waitGate(current);
         const resumed = yield* restarted.bound.host.inspect(target);
         expect(resumed.preparationId).toBeDefined();
@@ -545,6 +549,7 @@ it.live(
         });
         expect(cancelled?.status).toBe("accepted");
         expect((yield* current.get(target.threadId))?.phase).toBe("cancelled");
+        expect((yield* Fiber.join(retrying))._tag).toBe("Failure");
         expect((yield* restarted.bound.host.inspect(target)).preparationId).toBeUndefined();
         yield* Fiber.interrupt(restarted.server.fiber);
       }),

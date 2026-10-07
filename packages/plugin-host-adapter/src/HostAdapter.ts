@@ -477,7 +477,7 @@ const make = Effect.gen(function* () {
           );
         // Preparation owns the checkout until it releases the agent stage. Async setup
         // may continue afterward, but a cancellable checkout cannot own a final receipt.
-        if (input.workspace.type === "exact-ref" && input.instruction === undefined) {
+        if (input.instruction === undefined) {
           const workspaceReady = () =>
             receipts.getByCommandId(CommandId.make(`${input.commandId}:workspace-ready`)).pipe(
               Effect.map(
@@ -494,7 +494,8 @@ const make = Effect.gen(function* () {
           const current = yield* setup.get(launched.threadId);
           const completed =
             !(yield* workspaceReady()) ||
-            launched.projection.thread.worktreePath === null ||
+            (input.workspace.type === "exact-ref" &&
+              launched.projection.thread.worktreePath === null) ||
             current?.phase === "running"
               ? yield* setup.stream(launched.threadId).pipe(
                   Stream.filter(
@@ -523,7 +524,7 @@ const make = Effect.gen(function* () {
             );
           if (
             !(yield* workspaceReady()) ||
-            prepared?.worktreePath == null ||
+            (input.workspace.type === "exact-ref" && prepared?.worktreePath == null) ||
             cancelledBeforeRelease
           )
             return yield* fail(
@@ -586,8 +587,27 @@ const make = Effect.gen(function* () {
         );
         const preparationId =
           input.preparationId ??
-          (input.runId === undefined && activeRun === undefined ? state.preparationId : undefined);
+          ((input.runId === undefined && activeRun === undefined) ||
+          (activeRun?.status === "preparing" &&
+            (input.runId === undefined || input.runId === activeRun.id))
+            ? state.preparationId
+            : undefined);
         if (preparationId !== undefined) {
+          if (state.preparationId === preparationId && activeRun?.status === "preparing") {
+            yield* threads
+              .dispatch({
+                type: "run.interrupt",
+                commandId: CommandId.make(`${input.commandId}:preparing-run`),
+                threadId: input.threadId,
+                runId: RunId.make(activeRun.id),
+                holdQueue: true,
+              })
+              .pipe(
+                Effect.mapError((cause) =>
+                  fail("interrupt", "Could not interrupt the preparing run.", cause),
+                ),
+              );
+          }
           yield* setup.cancel(input.threadId, preparationId);
           yield* threads
             .dispatch({

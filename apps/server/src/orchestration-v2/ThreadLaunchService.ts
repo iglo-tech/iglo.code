@@ -235,7 +235,6 @@ const make = Effect.gen(function* () {
     started: Deferred.Deferred<void>,
   ) {
     const reused = input.reusedWorktree;
-    const tracked = input.workspaceStrategy.type === "worktree" || reused !== undefined;
     let createdWorktreePath: string | null = null;
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
@@ -251,12 +250,12 @@ const make = Effect.gen(function* () {
         stages: ["fetch", "checkout", "setup-script", "agent"],
         fiber: yield* Effect.fiber,
       });
-    } else if (reused !== undefined) {
+    } else {
       yield* setupTracker.begin({
         threadId,
         preparationId,
         branch: input.workspaceStrategy.branch ?? null,
-        baseRef: reused.baseRef,
+        baseRef: reused?.baseRef ?? null,
         stages: ["setup-script", "agent"],
         fiber: yield* Effect.fiber,
       });
@@ -459,6 +458,7 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
       }
       workspaceRecorded = true;
+      yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
 
       // Rename temporary branches (server-invented above, or sent by clients
       // that name worktrees themselves) in the background so generation latency
@@ -522,14 +522,9 @@ const make = Effect.gen(function* () {
           projectId: input.projectId,
           projectCwd: project.workspaceRoot,
           worktreePath: cwd,
-          ...(tracked
-            ? {
-                observeCompletion: {
-                  onOutputLine: (line: string) =>
-                    setupTracker.appendTail(threadId, "setup-script", line),
-                },
-              }
-            : {}),
+          observeCompletion: {
+            onOutputLine: (line: string) => setupTracker.appendTail(threadId, "setup-script", line),
+          },
           project: {
             id: project.id,
             workspaceRoot: project.workspaceRoot,
@@ -625,7 +620,6 @@ const make = Effect.gen(function* () {
           // stop without deleting a workspace the launch already acknowledged.
           // Failure retains recorded worktrees and removes unrecorded ones.
           if (
-            tracked &&
             projectRoot !== null &&
             createdWorktreePath &&
             ((cancelled && !preparationReleased) || !workspaceRecorded)
@@ -658,7 +652,7 @@ const make = Effect.gen(function* () {
               ),
             );
           }
-          if (tracked && runId === null && !preparationReleased) {
+          if (runId === null && !preparationReleased) {
             yield* threads
               .dispatch({
                 type: "thread.metadata.update",

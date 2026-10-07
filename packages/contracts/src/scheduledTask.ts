@@ -165,6 +165,7 @@ export type ScheduledTaskDeleteInput = typeof ScheduledTaskDeleteInput.Type;
 
 export const ScheduledTaskRunNowInput = Schema.Struct({
   id: ScheduledTaskId,
+  /** Retry identity for plugin dispatch targets; prompt schedules reject it. */
   occurrenceId: Schema.optional(TrimmedNonEmptyString),
 });
 export type ScheduledTaskRunNowInput = typeof ScheduledTaskRunNowInput.Type;
