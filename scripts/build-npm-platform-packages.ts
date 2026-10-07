@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /**
  * Turns the per-platform CLI archives of one release into the npm packages
- * behind `npx t3` / `npm i -g t3`: one `@t3code/t3-<platformKey>` package per
- * archive holding the archive's contents verbatim, plus the `t3` launcher
+ * behind `npx @iglo-tech/iglo-code`: one `@iglo-tech/iglo-code-<platformKey>` package per
+ * archive holding the archive's contents verbatim, plus the fork launcher
  * that lists them as optionalDependencies and execs the one npm installed.
  * The bytes a user gets from npm are therefore the release archive's, and
  * running them needs neither a Node runtime, npm, nor a native build.
  *
  * Output layout under `--output-dir`:
  *
- *   @t3code/t3-<platformKey>/      archive contents flattened + package.json
- *   @t3code/t3-<platformKey>.tgz   the same tree as an npm tarball
- *   t3/                             launcher: package.json, bin/t3.js, README.md
- *   t3.tgz                          the launcher as an npm tarball
+ *   @iglo-tech/iglo-code-<platformKey>/      archive contents flattened + package.json
+ *   @iglo-tech/iglo-code-<platformKey>.tgz   the same tree as an npm tarball
+ *   @iglo-tech/iglo-code/           launcher: package.json, bin/t3.js, README.md
+ *   @iglo-tech/iglo-code.tgz        the launcher as an npm tarball
  *
  * The tarballs are what gets published. `npm publish <dir>` always drops
  * `node_modules/` (npm-packlist ignores it whatever `files` says, and
@@ -39,8 +39,8 @@ import {
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
-export const NPM_PLATFORM_PACKAGE_SCOPE = "@t3code";
-export const NPM_LAUNCHER_PACKAGE_NAME = "t3";
+export const NPM_PLATFORM_PACKAGE_SCOPE = "@iglo-tech";
+export const NPM_LAUNCHER_PACKAGE_NAME = "@iglo-tech/iglo-code";
 
 const encodePackageJson = Schema.encodeEffect(fromJsonStringPretty(Schema.Unknown));
 
@@ -81,7 +81,7 @@ export class NpmPackagesArchiveLayoutError extends Schema.TaggedError<NpmPackage
 }
 
 export function npmPlatformPackageName(platformKey: CliArchivePlatformKey): string {
-  return `${NPM_PLATFORM_PACKAGE_SCOPE}/t3-${platformKey}`;
+  return `${NPM_LAUNCHER_PACKAGE_NAME}-${platformKey}`;
 }
 
 /**
@@ -202,7 +202,7 @@ case "$(uname -s)-$(uname -m)" in
   Linux-aarch64 | Linux-arm64) key=linux-arm64 ;;
   *) key="$(uname -s)-$(uname -m)" ;;
 esac
-for executable in "$package_dir/node_modules/${NPM_PLATFORM_PACKAGE_SCOPE}/t3-$key/t3" "$package_dir/../${NPM_PLATFORM_PACKAGE_SCOPE}/t3-$key/t3"; do
+for executable in "$package_dir/node_modules/${NPM_LAUNCHER_PACKAGE_NAME}-$key/t3" "$package_dir/../../${NPM_LAUNCHER_PACKAGE_NAME}-$key/t3"; do
   if [ -x "$executable" ]; then exec "$executable" "$@"; fi
 done
 printf '%s\n' \
@@ -438,7 +438,7 @@ const command = Command.make(
   buildNpmPlatformPackages,
 ).pipe(
   Command.withDescription(
-    "Build the t3 launcher and @t3code/t3-<platform> npm packages from CLI release archives.",
+    "Build the t3 launcher and @iglo-tech/iglo-code-<platform> npm packages from CLI release archives.",
   ),
 );
 
