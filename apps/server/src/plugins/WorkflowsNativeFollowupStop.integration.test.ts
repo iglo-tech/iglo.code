@@ -291,10 +291,10 @@ it.live.each(modes)(
           const ended = DateTime.nowUnsafe();
           const status =
             mode === "failed-followup"
-              ? "failed"
+              ? ("failed" as const)
               : mode === "interrupted-followup"
-                ? "interrupted"
-                : "completed";
+                ? ("interrupted" as const)
+                : ("completed" as const);
           yield* test.sink.write({
             events: [
               {
@@ -406,7 +406,7 @@ it.live.each(modes)(
         const next = follow.runs.find((item) => item.ordinal === 2)!;
         expect(next).toBeDefined();
         const endedAt = DateTime.nowUnsafe();
-        const status = mode === "failed-monitor" ? "failed" : "completed";
+        const status = mode === "failed-monitor" ? ("failed" as const) : ("completed" as const);
         yield* test.sink.write({
           events: [
             {
