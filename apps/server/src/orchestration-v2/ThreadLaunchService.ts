@@ -45,6 +45,7 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
+import { DispatchModeLimit } from "./DispatchModeLimit.ts";
 import * as IdAllocator from "./IdAllocator.ts";
 import type * as Orchestrator from "./Orchestrator.ts";
 import { makeProviderFailure } from "./ProviderFailure.ts";
@@ -736,6 +737,9 @@ const make = Effect.gen(function* () {
             }),
           })
           .pipe(
+            // This launch owns failure cleanup even if its mode changed during
+            // setup. Release and provider execution keep the caller's ceiling.
+            Effect.provideService(DispatchModeLimit, undefined),
             Effect.catchCause((persistCause) =>
               Effect.logWarning("Failed to persist thread workspace preparation failure", {
                 commandId: input.commandId,
