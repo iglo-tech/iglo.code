@@ -21,10 +21,7 @@ test("a background Codex probe initializes without fixture control or CODEX_HOME
   try {
     const child = NodeChildProcess.spawnSync(
       process.env.BUN_EXECUTABLE ?? "bun",
-      [
-        process.env.T3_TEST_CODEX_FIXTURE ??
-          NodeURL.fileURLToPath(new URL("fake-codex.mjs", import.meta.url)),
-      ],
+      [NodeURL.fileURLToPath(new URL("fake-codex.mjs", import.meta.url))],
       {
         cwd,
         env,
