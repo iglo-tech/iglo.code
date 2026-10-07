@@ -10,7 +10,7 @@ import {
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
-import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
+import { resolveSelfInvocation } from "@t3tools/shared/bunRuntime";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";

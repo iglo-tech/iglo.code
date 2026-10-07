@@ -6,7 +6,7 @@ import {
   HostProcessEnvironment,
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
-import { resolveNodeExecutable, nodeRuntimeUnavailableMessage } from "@t3tools/shared/nodeRuntime";
+import { resolveBunExecutable, bunRuntimeUnavailableMessage } from "@t3tools/shared/bunRuntime";
 import * as Clock from "effect/Clock";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -407,12 +407,12 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
 
   const install = Effect.fn("AntigravityInstallation.install")(
     function* (asset: AntigravityReleaseAsset) {
-      yield* resolveNodeExecutable("Antigravity", environment).pipe(
+      yield* resolveBunExecutable("Antigravity", environment).pipe(
         Effect.provideService(FileSystem.FileSystem, fs),
         Effect.provideService(Path.Path, path),
         Effect.provideService(HostProcessPlatform, platform),
         Effect.mapError((cause) =>
-          installationError("verify", nodeRuntimeUnavailableMessage("Antigravity"), cause),
+          installationError("verify", bunRuntimeUnavailableMessage("Antigravity"), cause),
         ),
       );
       const report = (phase: ProviderInstallState["phase"], message: string | null) =>

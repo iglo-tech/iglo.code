@@ -1,8 +1,9 @@
+import { resolveHostModuleUrl } from "@t3tools/shared/hostProcess";
 import * as NodeModule from "node:module";
 
 const CACHE_MS = 5 * 60_000;
 
-const requireForKeyring = NodeModule.createRequire(import.meta.url);
+const requireForKeyring = NodeModule.createRequire(resolveHostModuleUrl(import.meta.url));
 
 /** Rejected when nobody answers the macOS Keychain prompt in time. */
 export class CursorKeychainTimeoutError extends Error {

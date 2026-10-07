@@ -249,13 +249,13 @@ const expectPreviousRelease = Effect.fn("test.expectPreviousAntigravityRelease")
 });
 
 it.layer(NodeServices.layer)("Antigravity installation", (it) => {
-  it.effect("reports missing Node before downloading the standalone provider runtime", () =>
+  it.effect("reports missing Bun before downloading the standalone provider runtime", () =>
     Effect.gen(function* () {
       const { installation, requests, validations } = yield* makeHarness();
       yield* installation.start;
       expect(yield* terminalState(installation)).toMatchObject({
         phase: "failed",
-        message: expect.stringContaining("Install Node.js"),
+        message: expect.stringContaining("Install Bun"),
       });
       expect(requests).toEqual([]);
       expect(validations).toEqual([]);

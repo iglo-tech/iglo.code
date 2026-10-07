@@ -8,7 +8,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
+import { resolveSelfInvocation } from "@t3tools/shared/bunRuntime";
 import * as EffectAcpErrors from "effect-acp/errors";
 import { xAiRateLimitedErrorCode } from "../../provider/acp/XAiAcpExtension.ts";
 import { assert, describe, it } from "@effect/vitest";
