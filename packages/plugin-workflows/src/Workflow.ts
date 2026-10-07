@@ -1864,11 +1864,9 @@ const make = Effect.gen(function* () {
       "schedule",
       Effect.gen(function* () {
         yield* environment(input.environmentId);
-        const entries = yield* catalog.list(input);
-        const entry = entries.find(
-          (entry) => entry.definition?.id === input.definitionId && entry.runnable,
-        );
-        if (!entry) return yield* error("schedule", "The workflow is unavailable or not runnable.");
+        const entry = yield* catalog.resolve(input, input.definitionId);
+        if (!entry?.runnable)
+          return yield* error("schedule", "The workflow is unavailable or not runnable.");
         yield* schedules.upsert({
           id: input.id,
           title: input.title,

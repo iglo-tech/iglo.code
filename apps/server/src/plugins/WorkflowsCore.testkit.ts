@@ -71,6 +71,7 @@ export const makeCoreWorkflowFixture = Effect.gen(function* () {
   const boot = Effect.fnUntraced(function* (
     host: Host["Service"] = core,
     selected: ServerPlugin = plugin,
+    targets?: ScheduleTargets.ScheduleTargets["Service"],
   ) {
     const lifetime = yield* Scope.make();
     yield* Effect.addFinalizer(() => Scope.close(lifetime, Exit.void));
@@ -78,7 +79,9 @@ export const makeCoreWorkflowFixture = Effect.gen(function* () {
       Layer.succeedContext(context),
       NodeServices.layer,
       Scheduler.layer,
-      ScheduleTargets.layer,
+      targets === undefined
+        ? ScheduleTargets.layer
+        : Layer.succeed(ScheduleTargets.ScheduleTargets, targets),
       Layer.succeed(Host, host),
     );
     const pluginContext = yield* Layer.build(
