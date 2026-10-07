@@ -48,7 +48,7 @@ const binding = vi.hoisted(() => ({
 
 // Bind the production client to the test's authenticated server session.
 vi.mock("../src/connection/runtime", async () => {
-  const { Atom } = await import("effect/unstable/reactivity");
+  const { Atom } = await import("effect/reactivity");
   const Layer = await import("effect/Layer");
   const Effect = await import("effect/Effect");
   const Stream = await import("effect/Stream");
@@ -86,7 +86,7 @@ vi.mock("../src/connection/runtime", async () => {
   };
 });
 vi.mock("../src/state/session", async () => {
-  const { Atom } = await import("effect/unstable/reactivity");
+  const { Atom } = await import("effect/reactivity");
   const Option = await import("effect/Option");
   const { appAtomRegistry } = await import("../src/rpc/atomRegistry");
   const connected = Atom.make(true);

@@ -20,13 +20,14 @@ import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import { AuthOrchestrationReadScope } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { HttpBody, HttpClient } from "effect/unstable/http";
+import { HttpBody, HttpClient } from "effect/http";
 import { startEnvironment, origin, makeClient } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Projects from "../project/ProjectService.ts";
@@ -39,7 +40,7 @@ import * as Ids from "../orchestration-v2/IdAllocator.ts";
 import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadCommands from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as Ingestor from "../orchestration-v2/ProviderEventIngestor.ts";
-import { OrchestrationV2EventSinkLayerLive } from "../orchestration-v2/runtimeLayer.ts";
+import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
 
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeListing = Schema.decodeSync(
@@ -127,12 +128,13 @@ it.live(
           worktreePath: null,
         });
         const deps = yield* Layer.build(
-          Layer.mergeAll(Ids.layer, Projections.layer, OrchestrationV2EventSinkLayerLive),
+          Layer.mergeAll(Ids.layer, Projections.layer, layerEventSink),
         ).pipe(Effect.provide(server.context));
         const fs = yield* FileSystem.FileSystem;
         const nativeFrames = yield* Queue.unbounded<SDKMessage>();
         const opened: Claude.ClaudeAgentSdkQueryOpenInput[] = [];
         const adapter = Claude.makeClaudeAdapterV2({
+          crypto: yield* Crypto.Crypto,
           instanceId,
           settings,
           environment: {},
@@ -165,7 +167,7 @@ it.live(
         ).pipe(Effect.provide(server.context.pipe(Context.merge(deps))));
         const mgrContext = yield* Layer.build(
           Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
-            Layer.provide(Registry.makeSingleLayer(adapter)),
+            Layer.provide(Registry.layerFromAdapters([adapter])),
           ),
         ).pipe(Effect.provide(server.context.pipe(Context.merge(deps), Context.merge(ingestion))));
         const manager = Context.get(mgrContext, Manager.ProviderSessionManagerV2);

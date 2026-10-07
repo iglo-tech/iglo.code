@@ -7,7 +7,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { startEnvironment } from "./PluginHost.testkit.ts";

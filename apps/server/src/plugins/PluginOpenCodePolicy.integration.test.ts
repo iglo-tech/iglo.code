@@ -22,7 +22,7 @@ import * as Deferred from "effect/Deferred";
 import * as Stream from "effect/Stream";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
-import { HttpBody, HttpClient } from "effect/unstable/http";
+import { HttpBody, HttpClient } from "effect/http";
 import { startEnvironment, makeClient, origin } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Config from "../config.ts";
@@ -34,8 +34,8 @@ import * as Ids from "../orchestration-v2/IdAllocator.ts";
 import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as Ingestor from "../orchestration-v2/ProviderEventIngestor.ts";
 import * as Executor from "../orchestration-v2/ThreadCommandExecutor.ts";
-import { OrchestrationV2EventSinkLayerLive } from "../orchestration-v2/runtimeLayer.ts";
-import * as Providers from "../provider/Services/ProviderRegistry.ts";
+import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
+import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Sessions from "../mcp/McpProviderSession.ts";
 import { makeReplayAdapter } from "../orchestration-v2/Adapters/OpenCode2AdapterV2.testkit.ts";
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -139,12 +139,7 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
           worktreePath: null,
         });
         const deps = yield* Layer.build(
-          Layer.mergeAll(
-            Ids.layer,
-            Projections.layer,
-            OrchestrationV2EventSinkLayerLive,
-            Executor.layer,
-          ),
+          Layer.mergeAll(Ids.layer, Projections.layer, layerEventSink, Executor.layer),
         ).pipe(Effect.provide(server.context));
         const ctx = server.context.pipe(
           Context.merge(deps),
@@ -271,7 +266,7 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
         }).pipe(Effect.provide(ctx));
         const managerContext = yield* Layer.build(
           Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
-            Layer.provide(Registry.makeSingleLayer(adapter)),
+            Layer.provide(Registry.layerFromAdapters([adapter])),
           ),
         ).pipe(Effect.provide(ctx.pipe(Context.merge(ingestor))));
         const manager = Context.get(managerContext, Manager.ProviderSessionManagerV2);

@@ -8,9 +8,9 @@
  * schema is always up to date before the application starts.
  */
 
-import * as Migrator from "effect/unstable/sql/Migrator";
+import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
 // Import all migrations statically
@@ -70,7 +70,9 @@ import Migration0053 from "./Migrations/053_PullRequestFilesViewed.ts";
 import Migration0054 from "./Migrations/054_ProjectionThreadsAutoSettleDisabledAt.ts";
 import Migration0055 from "./Migrations/055_OrchestrationV2.ts";
 import Migration0056 from "./Migrations/056_RemoveRedundantProjectionIndexes.ts";
-import Migration0057 from "./Migrations/057_ScheduleDispatchTargets.ts";
+import Migration0057 from "./Migrations/057_ScheduledTaskWebhooks.ts";
+import Migration0058 from "./Migrations/058_WebhookRelayDeliveries.ts";
+import Migration0059 from "./Migrations/059_ScheduleDispatchTargets.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -141,7 +143,9 @@ export const migrationEntries = [
   // Preserve this migration's schema. Future V2 schema changes need new migrations.
   [55, "OrchestrationV2", Migration0055],
   [56, "RemoveRedundantProjectionIndexes", Migration0056],
-  [57, "ScheduleDispatchTargets", Migration0057],
+  [57, "ScheduledTaskWebhooks", Migration0057],
+  [58, "WebhookRelayDeliveries", Migration0058],
+  [59, "ScheduleDispatchTargets", Migration0059],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -160,6 +164,43 @@ const makeMigrationLoader = (throughId?: number) =>
  * Uses the base Migrator.make without platform dependencies
  */
 const run = Migrator.make({});
+
+// Earlier plugin builds used 57 before upstream assigned it to webhooks. Move
+// their ledger entry only after applying the missing upstream schema, because
+// the migrator skips every id below the highest recorded migration.
+const reconcileScheduleDispatchMigration = Effect.fn("reconcileScheduleDispatchMigration")(
+  function* () {
+    const sql = yield* SqlClient.SqlClient;
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const tables =
+          yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
+        if (tables.length === 0) return [];
+        const history = yield* sql<{
+          readonly migration_id: number;
+          readonly name: string;
+        }>`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 57`;
+        if (
+          !history.some((row) => row.migration_id === 57 && row.name === "ScheduleDispatchTargets")
+        )
+          return [];
+        if (history.length !== 1)
+          return yield* new Migrator.MigrationError({
+            kind: "BadState",
+            message: "Cannot reconcile plugin schedule migration with unexpected later migrations.",
+          });
+        yield* Migration0057;
+        yield* Migration0058;
+        yield* sql`UPDATE effect_sql_migrations SET migration_id = 59 WHERE migration_id = 57`;
+        yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (57, 'ScheduledTaskWebhooks'), (58, 'WebhookRelayDeliveries')`;
+        return [
+          [57, "ScheduledTaskWebhooks"],
+          [58, "WebhookRelayDeliveries"],
+        ] as const;
+      }),
+    );
+  },
+);
 
 export interface RunMigrationsOptions {
   readonly toMigrationInclusive?: number | undefined;
@@ -184,6 +225,9 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
       : [];
   const executedMigrations = [
     ...previewMigrations,
+    ...(toMigrationInclusive === undefined || toMigrationInclusive >= 59
+      ? yield* reconcileScheduleDispatchMigration()
+      : []),
     ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
   ];
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);

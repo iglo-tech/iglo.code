@@ -45,6 +45,7 @@ import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -488,6 +489,7 @@ it.live("inspection excludes abandoned background work after native rollback", (
       };
       let opened = 0;
       const adapter = Codex.makeCodexAdapterV2({
+        crypto: yield* Crypto.Crypto,
         instanceId: selection.instanceId,
         settings: yield* decodeCodexSettings({}),
         environment: {},
@@ -505,7 +507,7 @@ it.live("inspection excludes abandoned background work after native rollback", (
       });
       const managerContext = yield* Layer.build(
         Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
-          Layer.provide(AdapterRegistry.makeSingleLayer(adapter)),
+          Layer.provide(AdapterRegistry.layerFromAdapters([adapter])),
         ),
       ).pipe(Effect.provide(context.pipe(Context.merge(ingestor))));
       const rollbackContext = yield* Layer.build(

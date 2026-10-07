@@ -1,34 +1,38 @@
-import { Host } from "@t3tools/plugin-host-contract/server";
+import { Host, type PluginTool } from "@t3tools/plugin-host-contract/server";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { McpServer, McpSchema } from "effect/unstable/ai";
+import { McpSchema } from "effect/ai";
 
 import * as Registry from "./PluginRegistry.ts";
 import * as Invocation from "../../../apps/server/src/mcp/McpInvocationContext.ts";
 import * as PluginTools from "./PluginToolService.ts";
-import * as McpTool from "./McpTool.ts";
+import type * as Scope from "effect/Scope";
 
 const encodeText = Schema.encodeEffect(Schema.fromJsonString(Schema.Json));
 
-const register = Effect.gen(function* () {
-  const server = yield* McpServer.McpServer;
-  const optionalRegistry = yield* Effect.serviceOption(Registry.PluginRegistry);
-  if (Option.isNone(optionalRegistry)) return;
-  const registry = optionalRegistry.value;
-  const optionalHost = yield* Effect.serviceOption(Host);
-  if (Option.isNone(optionalHost)) return;
-  const host = optionalHost.value;
-  const tools = yield* PluginTools.make.pipe(Effect.provideService(Host, host));
-  yield* registry.awaitStarted;
-  for (const { pluginId, tool } of yield* registry.tools) {
-    const invoke = tools.bind(pluginId, tool);
-    yield* server.addTool({
-      tool: McpTool.make(tool),
-      annotations: Context.empty(),
-      handle: (payload) =>
+type RegisterTool = (
+  tool: PluginTool,
+  handle: (
+    payload: unknown,
+  ) => Effect.Effect<McpSchema.CallToolResult, never, Invocation.McpInvocationContext>,
+) => Effect.Effect<void, never, Scope.Scope>;
+
+/** Waits for core recovery; the transport forks registration during startup. */
+export const register = (registerTool: RegisterTool) =>
+  Effect.gen(function* () {
+    const optionalRegistry = yield* Effect.serviceOption(Registry.PluginRegistry);
+    if (Option.isNone(optionalRegistry)) return;
+    const registry = optionalRegistry.value;
+    const optionalHost = yield* Effect.serviceOption(Host);
+    if (Option.isNone(optionalHost)) return;
+    const host = optionalHost.value;
+    const tools = yield* PluginTools.make.pipe(Effect.provideService(Host, host));
+    yield* registry.awaitStarted;
+    for (const { pluginId, tool } of yield* registry.tools) {
+      const invoke = tools.bind(pluginId, tool);
+      yield* registerTool(tool, (payload) =>
         Effect.withFiber((fiber) => {
           const invocation = Context.getUnsafe(fiber.context, Invocation.McpInvocationContext);
           return invoke(payload, invocation).pipe(
@@ -41,36 +45,34 @@ const register = Effect.gen(function* () {
                 });
               }),
             ),
-            Effect.catchTag("PluginError", (error) =>
-              Effect.succeed(
-                new McpSchema.CallToolResult({
-                  isError: true,
-                  structuredContent: {
-                    error: {
-                      code: error.code,
-                      pluginId,
-                      operation: error.operation,
-                      message: error.message,
+            Effect.catchTags({
+              PluginError: (error) =>
+                Effect.succeed(
+                  new McpSchema.CallToolResult({
+                    isError: true,
+                    structuredContent: {
+                      error: {
+                        code: error.code,
+                        pluginId,
+                        operation: error.operation,
+                        message: error.message,
+                      },
                     },
-                  },
-                  content: [{ type: "text", text: error.message }],
-                }),
-              ),
-            ),
+                    content: [{ type: "text", text: error.message }],
+                  }),
+                ),
+            }),
             Effect.orDie,
           );
         }),
-    });
-  }
-}).pipe(
-  Effect.ensuring(
-    Effect.serviceOption(Registry.PluginRegistry).pipe(
-      Effect.flatMap((registry) =>
-        Option.isSome(registry) ? registry.value.markToolsReady : Effect.void,
+      );
+    }
+  }).pipe(
+    Effect.ensuring(
+      Effect.serviceOption(Registry.PluginRegistry).pipe(
+        Effect.flatMap((registry) =>
+          Option.isSome(registry) ? registry.value.markToolsReady : Effect.void,
+        ),
       ),
     ),
-  ),
-);
-
-/** Registration waits for core recovery without delaying creation of the HTTP transport. */
-export const layer = Layer.effectDiscard(register.pipe(Effect.forkScoped, Effect.asVoid));
+  );

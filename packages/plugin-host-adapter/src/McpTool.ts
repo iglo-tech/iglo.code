@@ -1,6 +1,6 @@
 import type { PluginTool } from "@t3tools/plugin-host-contract/server";
 import * as Schema from "effect/Schema";
-import { McpSchema } from "effect/unstable/ai";
+import { McpSchema } from "effect/ai";
 
 /** Use the same wire descriptor for guarded validation and MCP publication. */
 export const make = (tool: PluginTool) => {

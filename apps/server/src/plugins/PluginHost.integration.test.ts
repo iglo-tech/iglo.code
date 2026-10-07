@@ -11,15 +11,15 @@ import { Host, Storage, Schedules, type ServerPlugin } from "@t3tools/plugin-hos
 import { EnvironmentId, type PluginLaunchInput } from "@t3tools/plugin-host-contract/schema";
 import * as Scope from "effect/Scope";
 import * as Exit from "effect/Exit";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as Registry from "@t3tools/plugin-host-adapter/registry";
 import * as Context from "effect/Context";
 import { startEnvironment, makeClient, origin as testOrigin } from "./PluginHost.testkit.ts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { HttpBody, HttpClient, HttpServer } from "effect/unstable/http";
-import * as NetAddress from "effect/unstable/net/NetAddress";
+import { HttpBody, HttpClient, HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
 import * as Stream from "effect/Stream";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
