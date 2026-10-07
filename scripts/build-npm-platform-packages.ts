@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Turns the per-platform CLI archives of one release into the npm packages
  * behind `npx @iglo-tech/iglo-code`: one `@iglo-tech/iglo-code-<platformKey>` package per
@@ -50,15 +50,6 @@ export class NpmPackagesCommandFailedError extends Schema.TaggedError<NpmPackage
 ) {
   override get message(): string {
     return `${this.command} exited with code ${this.exitCode}.`;
-  }
-}
-
-export class NpmPackagesToolMissingError extends Schema.TaggedError<NpmPackagesToolMissingError>()(
-  "NpmPackagesToolMissingError",
-  { tool: Schema.String, purpose: Schema.String },
-) {
-  override get message(): string {
-    return `\`${this.tool}\` is not on PATH; it is needed to ${this.purpose}.`;
   }
 }
 

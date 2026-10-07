@@ -63,6 +63,62 @@ const extractingRunner = (fs: FileSystem.FileSystem, path: Path.Path, commands: 
   });
 
 it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
+  it.effect("rejects unsupported targets without fetching an archive", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-platform-" });
+      const requests: string[] = [];
+      const error = yield* ensurePinnedRuntimeInstalled({
+        baseDir,
+        version,
+        fs,
+        path,
+        platform: "win32",
+        arch: "x64",
+        httpClient: releaseHttpClient(yield* validChecksums, requests),
+        runner: extractingRunner(fs, path),
+        validate: () => Effect.die("unsupported archives must never validate"),
+      }).pipe(Effect.flip);
+      assert.include(error.message, "unsupported target win32-x64");
+      assert.include(error.message, "darwin-arm64, linux-arm64, linux-x64");
+      assert.deepEqual(requests, []);
+    }),
+  );
+
+  it.effect("reports an unavailable fork release without falling back to upstream", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-unavailable-" });
+      const requests: string[] = [];
+      const error = yield* ensurePinnedRuntimeInstalled({
+        baseDir,
+        version,
+        fs,
+        path,
+        platform: "linux",
+        arch: "x64",
+        httpClient: HttpClient.make((request) => {
+          requests.push(request.url);
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(request, new Response(null, { status: 404 })),
+          );
+        }),
+        runner: extractingRunner(fs, path),
+        validate: () => Effect.die("missing archives must never validate"),
+      }).pipe(Effect.flip);
+      assert.include(error.message, "fork release artifact unavailable");
+      assert.include(
+        error.message,
+        "https://github.com/iglo-tech/iglo.code/releases/download/v1.2.3/SHA256SUMS",
+      );
+      assert.deepEqual(requests, [
+        "https://github.com/iglo-tech/iglo.code/releases/download/v1.2.3/SHA256SUMS",
+      ]);
+    }),
+  );
+
   it.effect("installs the verified release archive as the runtime executable", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
