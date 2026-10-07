@@ -48,6 +48,12 @@ export async function prepareWebDependencies(
   const sdk = NodePath.join(paths.scratch, "android-sdk");
   await NodeFSP.mkdir(NodePath.join(sdk, "platform-tools"), { recursive: true });
   await NodeFSP.mkdir(NodePath.join(sdk, "emulator"));
+  await NodeFSP.mkdir(NodePath.join(sdk, "cmdline-tools", "latest", "bin"), { recursive: true });
+  await NodeFSP.writeFile(
+    NodePath.join(sdk, "cmdline-tools", "latest", "bin", "avdmanager"),
+    "#!/bin/sh\nexit 0\n",
+    { mode: 0o755 },
+  );
   await NodeFSP.writeFile(
     NodePath.join(sdk, "platform-tools", "adb"),
     "#!/bin/sh\nprintf 'List of devices attached\\n'\n",
