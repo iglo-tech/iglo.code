@@ -1,4 +1,5 @@
-// @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics nodeBuiltinImport:off - External acceptance fixture owns disposable OS processes and filesystem state.
+// @effect-diagnostics globalFetch:off globalTimers:off globalConsole:off - Plain async HTTP/WebSocket checks use native deadlines and raw stderr diagnostics outside Effect.
 import * as NodeAssert from "node:assert/strict";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeEvents from "node:events";

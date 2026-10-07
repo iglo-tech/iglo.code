@@ -32,6 +32,7 @@ const command = Command.make(
       );
       try {
         await checkEnvironment(fixture);
+        // @effect-diagnostics-next-line globalConsoleInEffect:off - Preserve the raw acceptance status line on stdout without Effect logger metadata.
         console.log(
           `[environment-smoke] ${input.source ? "source" : "archive"}: authenticated HTTP, cookies, CORS, WebSocket upgrade and persistence across restart passed.`,
         );
