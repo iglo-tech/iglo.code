@@ -25,6 +25,15 @@ export async function prepareWebDependencies(
   const bin = NodePath.join(paths.scratch, "bin");
   await NodeFSP.mkdir(control);
   await NodeFSP.mkdir(bin);
+  const authFixture = NodePath.join(paths.scratch, "provider-fixtures", "fake-acp.mjs");
+  await NodeFSP.mkdir(NodePath.dirname(authFixture));
+  await NodeFSP.copyFile(NodePath.join(here, "fake-acp.mjs"), authFixture);
+  const authProvider = NodePath.join(bin, "acp-signin");
+  await NodeFSP.writeFile(
+    authProvider,
+    `#!/bin/sh\nexec ${shellQuote(paths.interpreter)} ${shellQuote(authFixture)} --control ${shellQuote(control)} "$@"\n`,
+    { mode: 0o755 },
+  );
   const provider = NodePath.join(bin, "codex");
   await NodeFSP.writeFile(
     provider,
@@ -115,6 +124,7 @@ export async function prepareWebDependencies(
       T3_WEB_FIXTURE_BIN: bin,
     },
     provider,
+    authProvider,
     control,
     owner,
     bin,
