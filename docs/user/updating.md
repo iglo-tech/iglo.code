@@ -40,11 +40,10 @@ Update the side the notice names, then reconnect.
 
 The offered action depends on how the server runs:
 
-| Action                    | What to do                                                                                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Update server**         | Keep the client open while it installs and reconnects. Supported background services update remotely.                                                                     |
-| **Copy update command**   | Run the command on the named host to update the detected global npm install, then restart the server with your usual options.                                             |
-| **Copy relaunch command** | Stop the command-line server on its host and relaunch with the copied command, keeping your usual subcommand and options. This does not update an installed `t3` command. |
+| Action                  | What to do                                                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Update server**       | Keep the client open while it installs and reconnects. Supported background services update remotely.                   |
+| **Copy update command** | Stop the command-line server on the named host, run the copied installer command, then restart with your usual options. |
 
 On the host, run:
 
@@ -58,9 +57,9 @@ asks before restarting the background service; if you decline, run
 stop it and start it again afterwards with your usual options such as `--host`
 or `--tailscale-serve`.
 
-If you run the server with `npx` rather than an installed `t3`, there is
-nothing to update on the host: stop the server and relaunch it as
-`npx t3@<client-version>` with the same subcommand and options.
+Installed iglo.code environments select releases from `iglo-tech/iglo.code`. If that
+fork has no matching archive, the update fails without downloading upstream T3 Code.
+For a source checkout, update the repository and restart its Bun server instead.
 
 ## If an update fails
 

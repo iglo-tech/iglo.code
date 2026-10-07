@@ -9,7 +9,7 @@ import * as Socket from "effect/socket/Socket";
 import type { EnvironmentFixture } from "../../../../scripts/lib/environment-smoke.ts";
 
 const makeClient = RpcClient.make(WsRpcGroup);
-const decodeTicket = Schema.decodeUnknownSync(AuthWebSocketTicketResult);
+const decodeTicket = Schema.decodeUnknownSync(Schema.toCodecJson(AuthWebSocketTicketResult));
 export type RegressionRpcClient = Effect.Success<typeof makeClient>;
 
 /** The same authenticated transport the web client uses, with a scoped socket. */

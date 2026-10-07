@@ -63,7 +63,7 @@ export const resolveServerInstallation = Effect.gen(function* () {
   const platform = yield* HostProcessPlatform;
   const entry = yield* fs.realPath(executable ? executablePath : (args[1] ?? ""));
   const match =
-    /^(.*)\/lib\/node_modules\/t3\/(?:dist\/bin\.mjs|bin\/t3\.js|node_modules\/@t3code\/t3-[^/]+\/t3)$/.exec(
+    /^(.*)\/lib\/node_modules\/(t3|@iglo-tech\/iglo-code)\/(?:dist\/bin\.mjs|bin\/t3\.js|node_modules\/(?:@t3code\/t3-|@iglo-tech\/iglo-code-)[^/]+\/t3)$/.exec(
       entry,
     );
   if (!match) {
@@ -83,11 +83,12 @@ export const resolveServerInstallation = Effect.gen(function* () {
   )
     return null;
 
-  const packageRoot = path.join(prefix, "lib/node_modules/t3");
+  const packageName = match[2]!;
+  const packageRoot = path.join(prefix, "lib/node_modules", packageName);
   const manifest = yield* fs
     .readFileString(path.join(packageRoot, "package.json"))
     .pipe(Effect.flatMap(decodeInstallManifest));
-  if (manifest.name !== "t3" || !manifest.bin) return null;
+  if (manifest.name !== packageName || !manifest.bin) return null;
   const bin = yield* fs.realPath(path.join(packageRoot, manifest.bin.t3));
   const globalBin = yield* fs.realPath(path.join(prefix, "bin/t3"));
   if (globalBin !== bin) return null;
@@ -115,13 +116,13 @@ export const resolveServerInstallation = Effect.gen(function* () {
  */
 function suggestedPackageSpec(version: string): string {
   const channel = /^[^-+]+-(nightly|preview)\./.exec(version)?.[1];
-  return channel === undefined ? "t3" : `t3@${channel}`;
+  return channel === undefined ? "@iglo-tech/iglo-code" : `@iglo-tech/iglo-code@${channel}`;
 }
 
 /**
  * Render a `t3 <subcommand>` suggestion that matches how this process was
- * launched, so copy/pasting it actually works: `npx t3 connect` suggests
- * `npx t3 serve`, a global install suggests `t3 serve`, and a nightly build
+ * launched, so copy/pasting it actually works: a package runner suggests
+ * the fork's package, a global install suggests `t3 serve`, and a nightly build
  * keeps the `@nightly` tag.
  */
 export function formatCliCommand(input: {
@@ -148,18 +149,17 @@ export const resolveCliCommand = (subcommand: string) =>
 
 /**
  * `t3 <subcommand>` as root, for setup a person runs once on the host. `sudo`
- * resets PATH on most distributions, which drops a user-installed Node (nvm,
- * fnm, a tarball) and with it `npx` or a global `t3`, so the command carries
- * PATH through unless Node is on root's PATH too.
+ * resets PATH on most distributions, which drops a user-installed Bun and the CLI, so the command carries
+ * PATH through unless the runtime is on root's PATH too.
  */
 export const resolveRootCliCommand = (subcommand: string) =>
   Effect.gen(function* () {
     const command = yield* resolveCliCommand(subcommand);
     const executablePath = yield* HostProcessExecutablePath;
-    const systemNode = ROOT_PATH_DIRECTORIES.some((directory) =>
+    const systemRuntime = ROOT_PATH_DIRECTORIES.some((directory) =>
       executablePath.startsWith(`${directory}/`),
     );
-    return systemNode ? `sudo ${command}` : `sudo env "PATH=$PATH" ${command}`;
+    return systemRuntime ? `sudo ${command}` : `sudo env "PATH=$PATH" ${command}`;
   });
 
 /** Debian and Ubuntu's sudo `secure_path`, minus snap. */

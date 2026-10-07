@@ -1,10 +1,10 @@
 # Live background-work verification
 
-Run from the repository root with Node 24 and installed dependencies. This uses
+Run from the repository root with the pinned Bun runtime and installed dependencies. This uses
 real provider CLI credentials and consumes model usage:
 
 ```sh
-node apps/server/scripts/verify-background-live.ts --repeat 2
+bun apps/server/scripts/verify-background-live.ts --repeat 2
 ```
 
 Each scenario starts the production server in a fresh temporary T3 home and Git
@@ -36,7 +36,7 @@ are failures, never skipped passes. Inspect the retained trace to distinguish th
 Check the verifier's failure detection with a real failing HTTP dependency:
 
 ```sh
-node apps/server/scripts/verify-background-live.ts --scenario active --fail-gate
+bun apps/server/scripts/verify-background-live.ts --scenario active --fail-gate
 ```
 
 That command must exit nonzero. It must not be counted as a passing product test.

@@ -5,19 +5,17 @@ web app. Set up the machine where the agents will work first.
 
 ## Requirements
 
+The supported targets are macOS arm64, Linux x64, and Linux arm64. Release archives
+include the Bun runtime for the server and its helpers; Node.js and npm are not
+required by iglo.code. Provider CLIs keep their own prerequisites.
+
 You need an installed, authenticated provider before starting a thread. You can
 launch T3 Code and configure providers afterwards.
 
 ## Command line
 
 ```bash
-curl -fsSL https://t3.codes/install.sh | sh
-```
-
-On Windows, in PowerShell:
-
-```powershell
-irm https://t3.codes/install.ps1 | iex
+curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | sh
 ```
 
 This puts `t3` in `~/.local/bin`. If your shell reports `command not found`
@@ -41,23 +39,24 @@ If `t3` or `t3 start` reports an already running server, connect to that server
 instead. Stop it before starting a replacement, or use a different `--base-dir`
 for an independent server.
 
-To try T3 Code once without installing it, run `npx t3@latest` instead (needs
-Node.js for `npx`).
+### Run from source
 
-### Intel Macs
-
-There is no `t3` executable for Intel Macs. To
-run a server there, build it from source with Node.js 24 and `vp`
-([Install vp](https://github.com/pingdotgg/t3code#install-vp)):
+Install Bun 1.4.0 or newer and Vite+ for the contributor toolchain, then run:
 
 ```bash
 git clone https://github.com/iglo-tech/iglo.code.git
-cd iglo.code && vp i && vp run --filter t3 build
-node apps/server/dist/bin.mjs
+cd iglo.code
+vp i
+vp run --filter t3 build
+bun apps/server/src/bin.ts serve --base-dir /tmp/iglo-source --no-browser
 ```
 
-`t3 update` and the background service do not apply to a server run this way;
-update it with `git pull` and a rebuild.
+For the development web client, use `vp run dev` and open its printed pairing URL.
+Vite+ and pnpm may use Node internally; that is separate from the Bun application
+runtime. See [Development](../operations/development.md) for setup.
+
+Source runs are updated with `git pull`; installed archives use `t3 update`.
+Intel macOS and Windows are unsupported.
 
 ## Providers
 
