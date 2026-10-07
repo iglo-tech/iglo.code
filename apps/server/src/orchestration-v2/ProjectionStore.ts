@@ -2890,7 +2890,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   ? sql``
                   : sql`AND EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_messages AS message
-                WHERE message.message_id = json_extract(orchestration_v2_projection_runs.payload_json, '$.userMessageId')
+                WHERE message.thread_id = orchestration_v2_projection_runs.thread_id
+                  AND message.run_id = orchestration_v2_projection_runs.run_id
                   AND json_extract(message.payload_json, '$.scheduledTaskId') = ${filter.runScheduledTaskId}
               )`
               }
@@ -6001,7 +6002,7 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 (filter?.runScheduledTaskId === undefined ||
                   projection.messages.some(
                     (message) =>
-                      message.id === row.userMessageId &&
+                      message.runId === row.id &&
                       message.scheduledTaskId === filter.runScheduledTaskId,
                   )),
             ),

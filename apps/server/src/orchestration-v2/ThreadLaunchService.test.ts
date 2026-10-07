@@ -22,8 +22,13 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProviderTurnId,
   OrchestrationV2ThreadProjectionJson,
   ScheduledTaskId,
+  ScheduledTask,
+  ScheduledTaskListResult,
+  ScheduledTaskRunNowResult,
+  ForwardCompatibleArray,
   type ServerProvider,
   ThreadId,
   TurnItemId,
@@ -34,6 +39,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -58,8 +64,9 @@ import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as IdAllocator from "./IdAllocator.ts";
-import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
+import type { ProviderAdapterV2Shape, ProviderAdapterV2SessionRuntime } from "./ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
+import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadLaunch from "./ThreadLaunchService.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as ThreadTitleRegeneration from "./ThreadTitleRegenerationService.ts";
@@ -339,7 +346,20 @@ it.effect.each(
         creationSource: createdBy === "agent" ? "mcp" : "web",
       });
       const result = yield* tasks.runNow({ id: task.id });
-      assert.equal(result.task.lastRunStatus, "dispatched");
+      assert.equal(result.task.lastDelivery, "dispatched");
+      // Remote clients can be upgraded independently from their server.
+      const legacyTask = ScheduledTask.mapFields(
+        ({ lastDelivery: _delivery, ...fields }) => fields,
+      );
+      const legacyList = Schema.Struct({ tasks: ForwardCompatibleArray(legacyTask) });
+      const legacyRunNow = Schema.Struct({ task: legacyTask });
+      const wireList = Schema.encodeSync(ScheduledTaskListResult)(yield* tasks.list());
+      assert.lengthOf(Schema.decodeUnknownSync(legacyList)(wireList).tasks, 1);
+      const wireResult = Schema.encodeSync(ScheduledTaskRunNowResult)(result);
+      assert.equal(
+        Schema.decodeUnknownSync(legacyRunNow)(wireResult).task.lastRunStatus,
+        "succeeded",
+      );
       const projectThreads = yield* threads.listProjectThreads({
         projectId,
         includeSubagents: false,
@@ -472,7 +492,7 @@ it.effect.each([
             type: "run.updated",
             threadId: launched.threadId,
             runId: source.id,
-            nodeId: source.rootNodeId,
+            nodeId: source.rootNodeId ?? undefined,
             providerInstanceId: source.providerInstanceId,
             occurredAt: now,
             payload: {
@@ -489,7 +509,7 @@ it.effect.each([
                   type: "turn-item.updated" as const,
                   threadId: launched.threadId,
                   runId: source.id,
-                  nodeId: source.rootNodeId,
+                  nodeId: source.rootNodeId ?? undefined,
                   providerInstanceId: source.providerInstanceId,
                   occurredAt: now,
                   payload: {
@@ -561,7 +581,8 @@ it.effect.each([
       1,
     );
     const current = (yield* tasks.list()).tasks[0]!;
-    assert.equal(current.lastRunStatus, "queued");
+    assert.equal(current.lastDelivery, "queued");
+    assert.equal(current.lastRunStatus, "succeeded");
     assert.equal(current.runCount, 1);
     assert.isTrue(Date.parse(current.nextRunAt!) > DateTime.toEpochMillis(yield* DateTime.now));
     if (limited) {
@@ -632,7 +653,7 @@ it.effect.each([
         assert.equal((yield* tasks.list()).tasks[0]?.runCount, 2);
       }
     }
-  }).pipe(Effect.provide(scheduled.layer), Effect.provide(harness.layer));
+  }).pipe(Effect.provide(Layer.provideMerge(scheduled.layer, harness.layer)));
 });
 
 it.effect(
@@ -678,7 +699,7 @@ it.effect(
           yield* TestClock.adjust("5 minutes");
           yield* scheduled.tick();
           yield* TestClock.adjust(Duration.millis(1));
-          assert.equal((yield* tasks.runNow({ id: definition.id })).task.lastRunStatus, "queued");
+          assert.equal((yield* tasks.runNow({ id: definition.id })).task.lastDelivery, "queued");
           const ordinary = yield* threads.sendToThread({
             projectId,
             threadId: first.threadId,
@@ -891,7 +912,247 @@ it.effect("preserves an existing 400-message automation backlog and ordinary que
     assert.deepEqual(after.messages, before.messages);
     assert.deepEqual(after.runs, before.runs);
     assert.equal((yield* tasks.list()).tasks[0]?.runCount, 0);
-  }).pipe(Effect.provide(scheduled.layer), Effect.provide(harness.layer));
+  }).pipe(Effect.provide(Layer.provideMerge(scheduled.layer, harness.layer)));
+});
+
+it.effect.each(["pause", "edit", "rebind pending"] as const)(
+  "revalidates automatic admission after a concurrent %s",
+  (change) => {
+    const harness = makeHarness({ runSetup: () => Effect.never });
+    const scheduled = makeScheduledHarness();
+    return Effect.gen(function* () {
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const tasks = yield* ScheduledTasks.ScheduledTaskService;
+      const first = yield* launches.launch(
+        launchInput({ command: "race:first", thread: "race:first", message: "Work" }),
+      );
+      const second = yield* launches.launch(
+        launchInput({ command: "race:second", thread: "race:second", message: "Other work" }),
+      );
+      const definition = {
+        id: ScheduledTaskId.make("race:task"),
+        title: "Monitor",
+        prompt: "Old prompt",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 300_000 },
+        projectId,
+        threadId: first.threadId,
+        workspaceStrategy: { type: "root" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      } as const;
+      yield* tasks.upsert(definition);
+      if (change === "rebind pending") yield* tasks.runNow({ id: definition.id });
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const original = threads.getProjectThreadRecords;
+      const lookup = vi
+        .spyOn(threads, "getProjectThreadRecords")
+        .mockImplementation((input, fields, filters) =>
+          original(input, fields, filters).pipe(
+            Effect.tap(() =>
+              filters?.runScheduledTaskId === definition.id
+                ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
+                : Effect.void,
+            ),
+          ),
+        );
+      yield* Effect.addFinalizer(() => Effect.sync(() => lookup.mockRestore()));
+      yield* TestClock.adjust("5 minutes");
+      const tick = yield* scheduled.tick().pipe(Effect.forkScoped);
+      yield* Deferred.await(entered);
+      // Keep the same clock value: edits can share the admission's millisecond.
+      if (change === "pause") {
+        yield* tasks.setEnabled({ id: definition.id, enabled: false });
+      } else {
+        yield* tasks.upsert({
+          ...definition,
+          prompt: "Edited prompt",
+          modelSelection: { ...modelSelection, model: "gpt-5.4" },
+          ...(change === "rebind pending" ? { threadId: second.threadId } : {}),
+        });
+      }
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(tick);
+      lookup.mockRestore();
+      const after = yield* threads.getThreadProjection(first.threadId);
+      assert.equal(
+        after.messages.filter((message) => message.scheduledTaskId === definition.id).length,
+        change === "rebind pending" ? 1 : 0,
+      );
+      if (change !== "pause") {
+        yield* scheduled.tick();
+        const target = yield* threads.getThreadProjection(
+          change === "rebind pending" ? second.threadId : first.threadId,
+        );
+        const admitted = target.messages.find(
+          (message) => message.scheduledTaskId === definition.id,
+        )!;
+        assert.equal(admitted.text, "Edited prompt");
+        assert.equal(
+          target.runs.find((run) => run.id === admitted.runId)?.modelSelection.model,
+          "gpt-5.4",
+        );
+      }
+    }).pipe(Effect.provide(Layer.provideMerge(scheduled.layer, harness.layer)));
+  },
+);
+
+it.effect(
+  "records a failed admission and advances the schedule when the target was deleted",
+  () => {
+    const harness = makeHarness();
+    const scheduled = makeScheduledHarness();
+    return Effect.gen(function* () {
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const tasks = yield* ScheduledTasks.ScheduledTaskService;
+      const launched = yield* launches.launch(
+        launchInput({ command: "deleted:create", thread: "deleted:thread" }),
+      );
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("deleted:task"),
+        title: "Monitor",
+        prompt: "Check progress",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 300_000 },
+        projectId,
+        threadId: launched.threadId,
+        workspaceStrategy: { type: "root" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      });
+      yield* threads.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("deleted:delete"),
+        threadId: launched.threadId,
+      });
+      yield* TestClock.adjust("5 minutes");
+      yield* scheduled.tick();
+      const current = (yield* tasks.list()).tasks.find((candidate) => candidate.id === task.id)!;
+      assert.equal(current.lastRunStatus, "failed");
+      assert.isNotNull(current.lastRunError);
+      assert.equal(current.runCount, 1);
+      assert.isTrue(Date.parse(current.nextRunAt!) > DateTime.toEpochMillis(yield* DateTime.now));
+      yield* scheduled.tick();
+      assert.equal((yield* tasks.list()).tasks[0]?.runCount, 1);
+    }).pipe(Effect.provide(Layer.provideMerge(scheduled.layer, harness.layer)));
+  },
+);
+
+it.effect("retains the occurrence when its queued prompt is promoted to Steer", () => {
+  const harness = makeHarness();
+  const scheduled = makeScheduledHarness();
+  return Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const tasks = yield* ScheduledTasks.ScheduledTaskService;
+    const events = yield* EventSink.EventSinkV2;
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const launched = yield* launches.launch(
+      launchInput({ command: "steer:create", thread: "steer:thread", message: "Work" }),
+    );
+    const initial = yield* threads.getThreadProjection(launched.threadId);
+    const run = initial.runs[0]!;
+    const providerThread = initial.providerThreads[0]!;
+    const now = yield* DateTime.now;
+    yield* events.write({
+      events: [
+        {
+          id: EventId.make("steer:running"),
+          type: "run.updated",
+          threadId: launched.threadId,
+          runId: run.id,
+          occurredAt: now,
+          payload: { ...run, status: "running", startedAt: now },
+        },
+        {
+          id: EventId.make("steer:session"),
+          type: "provider-session.attached",
+          threadId: launched.threadId,
+          occurredAt: now,
+          payload: {
+            id: providerThread.providerSessionId!,
+            driver: ProviderDriverKind.make("codex"),
+            providerInstanceId: modelSelection.instanceId,
+            status: "running",
+            cwd: "/repo",
+            model: modelSelection.model,
+            capabilities: CodexProviderCapabilitiesV2,
+            createdAt: now,
+            updatedAt: now,
+            lastError: null,
+          },
+        },
+        {
+          id: EventId.make("steer:turn"),
+          type: "provider-turn.updated",
+          threadId: launched.threadId,
+          runId: run.id,
+          occurredAt: now,
+          payload: {
+            id: ProviderTurnId.make("steer:turn"),
+            providerThreadId: providerThread.id,
+            nodeId: run.rootNodeId!,
+            runAttemptId: run.activeAttemptId,
+            nativeTurnRef: null,
+            ordinal: 1,
+            status: "running",
+            startedAt: now,
+            completedAt: null,
+          },
+        },
+      ],
+    });
+    const { task } = yield* tasks.upsert({
+      id: ScheduledTaskId.make("steer:task"),
+      title: "Monitor",
+      prompt: "Check progress",
+      enabled: true,
+      schedule: { type: "interval", everyMs: 300_000 },
+      projectId,
+      threadId: launched.threadId,
+      workspaceStrategy: { type: "root" },
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+    });
+    yield* TestClock.adjust("5 minutes");
+    yield* scheduled.tick();
+    const queued = (yield* threads.getThreadProjection(launched.threadId)).runs.find(
+      (candidate) => candidate.status === "queued",
+    )!;
+    const sessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
+    const providerSession = (yield* threads.getThreadProjection(launched.threadId))
+      .providerSessions[0]!;
+    const sessionLookup = vi
+      .spyOn(sessions, "get")
+      .mockReturnValue(
+        Effect.succeed(Option.some({ providerSession } as ProviderAdapterV2SessionRuntime)),
+      );
+    yield* Effect.addFinalizer(() => Effect.sync(() => sessionLookup.mockRestore()));
+    yield* threads.dispatch({
+      type: "queued-message.promote-to-steer",
+      commandId: CommandId.make("steer:promote"),
+      threadId: launched.threadId,
+      queuedRunId: queued.id,
+      targetRunId: run.id,
+    });
+    yield* TestClock.adjust("5 minutes");
+    yield* scheduled.tick();
+    const after = yield* threads.getThreadProjection(launched.threadId);
+    assert.equal(
+      after.messages.find((message) => message.scheduledTaskId === task.id)?.runId,
+      run.id,
+    );
+    assert.lengthOf(
+      after.messages.filter((message) => message.scheduledTaskId === task.id),
+      1,
+    );
+    assert.equal((yield* tasks.list()).tasks[0]?.runCount, 1);
+  }).pipe(Effect.provide(Layer.provideMerge(scheduled.layer, harness.layer)));
 });
 
 it.effect("returns a visible preparing message while provisioning is still blocked", () =>

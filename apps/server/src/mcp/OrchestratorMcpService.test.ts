@@ -1636,6 +1636,22 @@ describe("OrchestratorMcpService provider resolution", () => {
         ),
       );
 
+    it.effect.each(["queued", "dispatched"] as const)(
+      "exposes %s delivery independently from the legacy admission status",
+      (lastDelivery) =>
+        Effect.gen(function* () {
+          const upserted = yield* Ref.make(0);
+          const listed = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+            Effect.flatMap((mcp) => mcp.listScheduledTasks(supervisedClient, { projectId })),
+            Effect.provide(
+              service([task({ lastRunStatus: "succeeded", lastDelivery })], null, upserted),
+            ),
+          );
+          assert.equal(listed.tasks[0]?.lastDelivery, lastDelivery);
+          assert.equal(listed.tasks[0]?.lastRunStatus, "succeeded");
+        }),
+    );
+
     it.effect("hides a webhook URL from a caller below the task's modes", () =>
       Effect.gen(function* () {
         const upserted = yield* Ref.make(0);

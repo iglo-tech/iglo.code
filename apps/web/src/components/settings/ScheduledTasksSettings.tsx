@@ -462,7 +462,7 @@ function ScheduledTaskRow({
           </span>
           {task.lastRunStatus !== "never" ? (
             <Badge variant={statusVariant(task.lastRunStatus)}>
-              Last delivery: {task.lastRunStatus}
+              Last delivery: {task.lastDelivery ?? task.lastRunStatus}
             </Badge>
           ) : null}
           {task.lastRunError ? <span className="text-destructive">{task.lastRunError}</span> : null}

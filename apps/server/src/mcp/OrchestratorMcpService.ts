@@ -247,6 +247,7 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     schedule: task.schedule,
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
+    ...(task.lastDelivery === undefined ? {} : { lastDelivery: task.lastDelivery }),
     // A bare path is not a URL anyone can call, so agents never get one to share.
     ...(task.webhook?.url == null || !mayRun ? {} : { webhookUrl: task.webhook.url }),
     ...(task.webhook === undefined
