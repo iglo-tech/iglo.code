@@ -65,6 +65,10 @@ export class OrchestrationCommandReceiptRepository extends Context.Service<
       Option.Option<OrchestrationCommandReceipt>,
       OrchestrationCommandReceiptRepositoryError
     >;
+    readonly hasPendingWorkspacePreparation: (
+      threadId: ThreadId,
+      includeNativePreparations?: boolean,
+    ) => Effect.Effect<boolean, OrchestrationCommandReceiptRepositoryError>;
   }
 >()("t3/persistence/OrchestrationCommandReceipts/OrchestrationCommandReceiptRepository") {}
 
@@ -177,6 +181,45 @@ const makeOrchestrationCommandReceiptRepository = Effect.gen(function* () {
     insertIfAbsent,
     upsert,
     getByCommandId,
+    hasPendingWorkspacePreparation: (threadId, includeNativePreparations = false) =>
+      sql`
+        SELECT 1 AS pending FROM orchestration_command_receipts launch
+        WHERE launch.aggregate_kind = 'thread' AND launch.aggregate_id = ${threadId}
+          AND launch.command_type = 'thread.create' AND launch.status = 'accepted'
+          AND launch.command_id LIKE 'plugin:%'
+          AND NOT EXISTS (
+            SELECT 1 FROM orchestration_command_receipts ready
+            WHERE ready.command_id = launch.command_id || ':workspace-ready'
+              AND ready.aggregate_kind = 'thread' AND ready.aggregate_id = launch.aggregate_id
+              AND ready.command_type = 'thread.metadata.update' AND ready.status = 'accepted'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM orchestration_command_receipts instructed
+            WHERE instructed.command_id = launch.command_id || ':initial-message'
+              AND instructed.aggregate_kind = 'thread' AND instructed.aggregate_id = launch.aggregate_id
+              AND instructed.command_type = 'message.dispatch' AND instructed.status = 'accepted'
+          )
+        UNION ALL
+        SELECT 1 AS pending FROM orchestration_v2_projection_runs preparation
+        WHERE preparation.thread_id = ${threadId}
+          AND json_type(preparation.payload_json, '$.workspacePreparation') = 'object'
+          AND (${includeNativePreparations ? 1 : 0} = 1 OR json_extract(preparation.payload_json, '$.userMessageId') LIKE 'plugin:%:message')
+          AND NOT EXISTS (
+            SELECT 1 FROM orchestration_events released
+            WHERE released.aggregate_kind = 'thread' AND released.stream_id = preparation.thread_id
+              AND released.application_event_version = 2 AND released.event_type = 'checkpoint-scope.created'
+              AND json_extract(released.payload_json, '$.kind') = 'root_run'
+              AND json_extract(released.payload_json, '$.runId') = preparation.run_id
+          )
+        LIMIT 1
+      `.pipe(
+        Effect.map((rows) => rows.length > 0),
+        Effect.mapError(
+          toPersistenceSqlError(
+            "OrchestrationCommandReceiptRepository.hasPendingWorkspacePreparation:query",
+          ),
+        ),
+      ),
   } satisfies OrchestrationCommandReceiptRepository["Service"];
 });
 

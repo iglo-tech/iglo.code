@@ -5,6 +5,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { assert, it, describe } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Hex from "effect/encoding/Hex";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -2794,6 +2795,195 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
   });
 
   describe("worktree operations", () => {
+    it.effect.each(["true", "false", "always", "inherit", "simple"] as const)(
+      "owned worktrees preserve native tracking policy: %s",
+      (policy) =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          const remote = yield* makeTmpDir("git-remote-");
+          const { initialBranch } = yield* initRepoWithCommit(cwd);
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          const path = yield* Path.Path;
+          yield* git(remote, ["init", "--bare"]);
+          yield* git(cwd, ["remote", "add", "origin", remote]);
+          yield* git(cwd, ["push", "origin", "HEAD:refs/heads/dev"]);
+          yield* git(cwd, ["branch", "--set-upstream-to=origin/dev", initialBranch]);
+          yield* git(cwd, ["tag", "fixture-tag"]);
+          yield* git(cwd, ["config", "branch.autoSetupMerge", policy]);
+          yield* git(cwd, ["config", "branch.autoSetupRebase", "always"]);
+          const head = yield* git(cwd, ["rev-parse", "HEAD"]);
+          const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "owned");
+          const config = () =>
+            git(cwd, ["config", "--get-regexp", "^branch\\.dev\\.(remote|merge|rebase)$"]).pipe(
+              Effect.catch(() => Effect.succeed("")),
+            );
+          for (const refName of ["origin/dev", initialBranch, head, "fixture-tag"]) {
+            const input = { cwd, path: worktreePath, refName, newRefName: "dev" };
+            yield* driver.createWorktree(input);
+            const nativeConfig = yield* config();
+            yield* driver.removeWorktree({ cwd, path: worktreePath });
+            yield* git(cwd, ["branch", "-D", "dev"]);
+            yield* driver.createWorktree(input, { ownerId: `policy:${policy}:${refName}` });
+            assert.equal(yield* config(), nativeConfig);
+            yield* driver.createWorktree(input, {
+              ownerId: `policy:${policy}:${refName}`,
+              resume: true,
+            });
+            assert.equal(yield* config(), nativeConfig);
+            assert.equal(yield* git(worktreePath, ["rev-parse", "HEAD"]), head);
+            assert.equal(yield* git(cwd, ["rev-parse", "origin/dev"]), head);
+            assert.equal(
+              yield* git(cwd, ["for-each-ref", "--format=%(refname)", "refs/t3/worktree-owners/"]),
+              "",
+            );
+            yield* driver.removeWorktree({ cwd, path: worktreePath });
+            yield* git(cwd, ["branch", "-D", "dev"]);
+          }
+        }),
+    );
+
+    it.effect("requires the original owner to resume a reserved branch and checkout", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "owned");
+        const input = {
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/owned",
+        };
+        const ownerId = "first-launch";
+        // Reachable process-loss prefix: the atomic branch reservation committed,
+        // but worktree checkout has not run yet.
+        yield* git(cwd, [
+          "update-ref",
+          "--create-reflog",
+          "-m",
+          `t3code-worktree:${Hex.encode(new TextEncoder().encode(ownerId))}`,
+          `refs/heads/${input.newRefName}`,
+          yield* git(cwd, ["rev-parse", "HEAD"]),
+          "",
+        ]);
+        assert.equal(
+          (yield* driver
+            .createWorktree(input, { ownerId: "other-launch", resume: true })
+            .pipe(Effect.result))._tag,
+          "Failure",
+        );
+        assert.equal(yield* fs.exists(worktreePath), false);
+        yield* driver.createWorktree(input, { ownerId, resume: true });
+        yield* fs.writeFileString(path.join(worktreePath, "untracked-work"), "keep");
+        assert.equal(
+          (yield* driver
+            .createWorktree(input, { ownerId: "other-launch", resume: true })
+            .pipe(Effect.result))._tag,
+          "Failure",
+        );
+        assert.equal(
+          (yield* driver.createWorktree(input, { ownerId }).pipe(Effect.result))._tag,
+          "Failure",
+        );
+        yield* driver.createWorktree(input, { ownerId, resume: true });
+        assert.equal(yield* fs.readFileString(path.join(worktreePath, "untracked-work")), "keep");
+        yield* driver.removeWorktree({ cwd, path: worktreePath, force: true });
+        yield* driver.createWorktree(input, { ownerId, resume: true });
+        assert.equal(
+          yield* git(worktreePath, ["rev-parse", "HEAD"]),
+          yield* git(cwd, ["rev-parse", initialBranch]),
+        );
+      }),
+    );
+    it.effect("resumes a committed worktree intent without replacing its checkout", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "recover");
+        const input = {
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/recover",
+        };
+        yield* driver.createWorktree(input);
+        yield* fs.writeFileString(path.join(worktreePath, "retained-marker"), "keep");
+        let claimed = 0;
+        const resumed = yield* driver.createWorktree(input, {
+          resume: true,
+          progress: {
+            onWorktreeClaimed: () =>
+              Effect.sync(() => {
+                claimed++;
+              }),
+          },
+        });
+        assert.equal(resumed.worktree.refName, "feature/recover");
+        assert.equal(yield* fs.readFileString(path.join(worktreePath, "retained-marker")), "keep");
+        assert.equal(claimed, 0);
+        // A fresh intent still rejects the existing branch.
+        assert.isTrue((yield* driver.createWorktree(input).pipe(Effect.result))._tag === "Failure");
+        // A cancelled checkout can leave its branch; replay recreates it at the recorded revision.
+        yield* driver.removeWorktree({ cwd, path: worktreePath, force: true });
+        yield* driver.createWorktree(input, { resume: true });
+        assert.equal(
+          yield* git(worktreePath, ["rev-parse", "HEAD"]),
+          yield* git(cwd, ["rev-parse", initialBranch]),
+        );
+      }),
+    );
+    it.effect("rejects changed, locked, and unrelated worktree recovery candidates", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* makeTmpDir("git-worktrees-");
+        const worktreePath = path.join(root, "recover");
+        const input = {
+          cwd,
+          path: worktreePath,
+          refName: initialBranch,
+          newRefName: "feature/recover",
+        };
+        yield* driver.createWorktree(input);
+        const original = yield* git(worktreePath, ["rev-parse", "HEAD"]);
+        assert.isTrue(
+          (yield* driver
+            .createWorktree({ ...input, path: path.join(root, "elsewhere") }, { resume: true })
+            .pipe(Effect.result))._tag === "Failure",
+        );
+        yield* git(cwd, ["worktree", "lock", worktreePath]);
+        assert.isTrue(
+          (yield* driver.createWorktree(input, { resume: true }).pipe(Effect.result))._tag ===
+            "Failure",
+        );
+        yield* git(cwd, ["worktree", "unlock", worktreePath]);
+        yield* fs.writeFileString(path.join(worktreePath, "tracked.txt"), "local edits");
+        yield* git(worktreePath, ["add", "tracked.txt"]);
+        assert.isTrue(
+          (yield* driver.createWorktree(input, { resume: true }).pipe(Effect.result))._tag ===
+            "Failure",
+        );
+        assert.equal(
+          yield* fs.readFileString(path.join(worktreePath, "tracked.txt")),
+          "local edits",
+        );
+        yield* git(worktreePath, ["commit", "-m", "advanced checkout"]);
+        assert.isTrue(
+          (yield* driver.createWorktree(input, { resume: true }).pipe(Effect.result))._tag ===
+            "Failure",
+        );
+        assert.notEqual(yield* git(worktreePath, ["rev-parse", "HEAD"]), original);
+      }),
+    );
+
     it.effect("uses parallel checkout without skipping filters or hooks", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

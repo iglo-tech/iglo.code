@@ -1,0 +1,27 @@
+{
+  "name": "@t3tools/plugin-host-adapter",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./registry": "./src/PluginRegistry.ts",
+    "./host": "./src/HostAdapter.ts",
+    "./mcp": "./src/McpRegistration.ts",
+    "./provider-policy": "./src/providerPolicy.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vp test run --config ../../vite.config.ts --dir ."
+  },
+  "dependencies": {
+    "@t3tools/contracts": "workspace:*",
+    "@t3tools/plugin-host-contract": "workspace:*",
+    "@t3tools/shared": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

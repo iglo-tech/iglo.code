@@ -40,6 +40,21 @@ const runtimeModeRank: Record<RuntimeMode, number> = {
 };
 const interactionModeRank: Record<ProviderInteractionMode, number> = { plan: 0, default: 1 };
 
+/** A replay keeps its committed ceiling and can be narrowed by its current caller. */
+export const intersectDispatchModes = (
+  left: DispatchModes,
+  right: DispatchModes,
+): DispatchModes => ({
+  runtimeMode:
+    runtimeModeRank[left.runtimeMode] < runtimeModeRank[right.runtimeMode]
+      ? left.runtimeMode
+      : right.runtimeMode,
+  interactionMode:
+    interactionModeRank[left.interactionMode] < interactionModeRank[right.interactionMode]
+      ? left.interactionMode
+      : right.interactionMode,
+});
+
 /** Which of `modes` is broader than `limit`, if either. */
 export const exceededDispatchModeLimit = (
   limit: DispatchModes,

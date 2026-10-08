@@ -61,5 +61,7 @@ export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 export * from "./worktreeSetup.ts";
+export * from "./pluginHost.ts";
+export * from "./compiledPlugins.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";

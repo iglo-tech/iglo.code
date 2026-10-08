@@ -73,6 +73,7 @@ import Migration0056 from "./Migrations/056_RemoveRedundantProjectionIndexes.ts"
 import Migration0057 from "./Migrations/057_ScheduledTaskWebhooks.ts";
 import Migration0058 from "./Migrations/058_WebhookRelayDeliveries.ts";
 import Migration0059 from "./Migrations/059_ScheduledTaskDelivery.ts";
+import Migration0060 from "./Migrations/060_ScheduleDispatchTargets.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -146,6 +147,7 @@ export const migrationEntries = [
   [57, "ScheduledTaskWebhooks", Migration0057],
   [58, "WebhookRelayDeliveries", Migration0058],
   [59, "ScheduledTaskDelivery", Migration0059],
+  [60, "ScheduleDispatchTargets", Migration0060],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -164,6 +166,65 @@ const makeMigrationLoader = (throughId?: number) =>
  * Uses the base Migrator.make without platform dependencies
  */
 const run = Migrator.make({});
+
+// Earlier plugin builds used 57 and 59 before main assigned them. Move
+// their ledger entry only after applying the missing upstream schema, because
+// the migrator skips every id below the highest recorded migration.
+const reconcileScheduleDispatchMigration = Effect.fn("reconcileScheduleDispatchMigration")(
+  function* () {
+    const sql = yield* SqlClient.SqlClient;
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const tables =
+          yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
+        if (tables.length === 0) return [];
+        const history = yield* sql<{
+          readonly migration_id: number;
+          readonly name: string;
+        }>`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 57`;
+        const legacy = history.find(
+          (row) =>
+            (row.migration_id === 57 || row.migration_id === 59) &&
+            row.name === "ScheduleDispatchTargets",
+        );
+        if (legacy === undefined) return [];
+        if (
+          legacy.migration_id === 57
+            ? history.length !== 1
+            : history.length !== 3 ||
+              !history.some(
+                (row) => row.migration_id === 57 && row.name === "ScheduledTaskWebhooks",
+              ) ||
+              !history.some(
+                (row) => row.migration_id === 58 && row.name === "WebhookRelayDeliveries",
+              )
+        )
+          return yield* new Migrator.MigrationError({
+            kind: "BadState",
+            message: "Cannot reconcile plugin schedule migration with unexpected later migrations.",
+          });
+        if (legacy.migration_id === 57) {
+          yield* Migration0057;
+          yield* Migration0058;
+        }
+        yield* Migration0059;
+        yield* sql`UPDATE effect_sql_migrations SET migration_id = 60 WHERE migration_id = ${legacy.migration_id}`;
+        if (legacy.migration_id === 57)
+          yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (57, 'ScheduledTaskWebhooks'), (58, 'WebhookRelayDeliveries')`;
+        yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (59, 'ScheduledTaskDelivery')`;
+        return [
+          ...(legacy.migration_id === 57
+            ? ([
+                [57, "ScheduledTaskWebhooks"],
+                [58, "WebhookRelayDeliveries"],
+              ] as const)
+            : []),
+          [59, "ScheduledTaskDelivery"],
+        ] as const;
+      }),
+    );
+  },
+);
 
 export interface RunMigrationsOptions {
   readonly toMigrationInclusive?: number | undefined;
@@ -188,6 +249,9 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
       : [];
   const executedMigrations = [
     ...previewMigrations,
+    ...(toMigrationInclusive === undefined || toMigrationInclusive >= 60
+      ? yield* reconcileScheduleDispatchMigration()
+      : []),
     ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
   ];
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);

@@ -76,6 +76,27 @@ layer("NodeSqliteClient", (it) => {
       assert.equal(missing.reason._tag, "ConstraintError");
     }),
   );
+
+  it.effect("rolls back a failed deferred COMMIT before reusing the connection", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`PRAGMA foreign_keys = ON`;
+      yield* sql`CREATE TABLE transaction_parents(id INTEGER PRIMARY KEY)`;
+      yield* sql`CREATE TABLE transaction_children(parent_id INTEGER REFERENCES transaction_parents(id) DEFERRABLE INITIALLY DEFERRED)`;
+      const failed = yield* sql
+        .withTransaction(sql`INSERT INTO transaction_children VALUES (99)`)
+        .pipe(Effect.exit);
+      assert.equal(failed._tag, "Failure");
+      assert.deepEqual(yield* sql`SELECT * FROM transaction_children`, []);
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`INSERT INTO transaction_parents VALUES (1)`;
+          yield* sql`INSERT INTO transaction_children VALUES (1)`;
+        }),
+      );
+      assert.deepEqual(yield* sql`SELECT * FROM transaction_children`, [{ parent_id: 1 }]);
+    }),
+  );
 });
 
 const makeTempDatabase = Effect.gen(function* () {

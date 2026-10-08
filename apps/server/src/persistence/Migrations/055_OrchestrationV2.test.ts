@@ -1,19 +1,90 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { migrationEntries, runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import ScheduleDispatchTargets from "./060_ScheduleDispatchTargets.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("055_OrchestrationV2", (it) => {
+  it.effect.each([false, true])(
+    "upgrades plugin migration 59 without losing occurrences, injected failure=%s",
+    (injectFailure) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: 58 });
+        yield* ScheduleDispatchTargets;
+        yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (59, 'ScheduleDispatchTargets')`;
+        yield* sql`INSERT INTO scheduled_task_occurrences (id, task_id, project_id, target_json, started_at, status) VALUES ('retained', 'schedule', 'project', '{}', '2026-10-07T00:00:00.000Z', 'pending')`;
+        if (injectFailure) {
+          yield* sql`CREATE TRIGGER reject_delivery_migration BEFORE INSERT ON effect_sql_migrations WHEN NEW.name = 'ScheduledTaskDelivery' BEGIN SELECT RAISE(ABORT, 'injected failure'); END`;
+          assert.ok(Exit.isFailure(yield* Effect.exit(runMigrations())));
+          assert.deepStrictEqual(
+            yield* sql`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id = 59`,
+            [{ migration_id: 59, name: "ScheduleDispatchTargets" }],
+          );
+          const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
+          assert.ok(!columns.some(({ name }) => name === "last_delivery"));
+          yield* sql`DROP TRIGGER reject_delivery_migration`;
+        }
+        assert.deepStrictEqual(yield* runMigrations(), [[59, "ScheduledTaskDelivery"]]);
+        assert.deepStrictEqual(yield* runMigrations(), []);
+        assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
+          { id: "retained", status: "pending" },
+        ]);
+        assert.deepStrictEqual(
+          yield* sql`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 59 ORDER BY migration_id`,
+          [
+            { migration_id: 59, name: "ScheduledTaskDelivery" },
+            { migration_id: 60, name: "ScheduleDispatchTargets" },
+          ],
+        );
+        const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
+        assert.ok(columns.some(({ name }) => name === "last_delivery"));
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
+  it.effect("preserves plugin occurrences when reconciling the former migration 57", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 56 });
+      yield* ScheduleDispatchTargets;
+      yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (57, 'ScheduleDispatchTargets')`;
+      yield* sql`INSERT INTO scheduled_task_occurrences (id, task_id, project_id, target_json, started_at, status) VALUES ('owned-occurrence', 'schedule', 'project', '{}', '2026-10-07T00:00:00.000Z', 'pending')`;
+
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [57, "ScheduledTaskWebhooks"],
+        [58, "WebhookRelayDeliveries"],
+        [59, "ScheduledTaskDelivery"],
+      ]);
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
+      assert.deepStrictEqual(occurrences, [{ id: "owned-occurrence", status: "pending" }]);
+      const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
+      assert.ok(columns.some(({ name }) => name === "dispatch_target_json"));
+      assert.ok(columns.some(({ name }) => name === "last_delivery"));
+      assert.ok(columns.some(({ name }) => name === "webhook_token"));
+      assert.ok(columns.some(({ name }) => name === "webhook_secret"));
+      const history =
+        yield* sql`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 57 ORDER BY migration_id`;
+      assert.deepStrictEqual(history, [
+        { migration_id: 57, name: "ScheduledTaskWebhooks" },
+        { migration_id: 58, name: "WebhookRelayDeliveries" },
+        { migration_id: 59, name: "ScheduledTaskDelivery" },
+        { migration_id: 60, name: "ScheduleDispatchTargets" },
+      ]);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("keeps released migrations contiguous", () =>
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 58 }, (_, index) => index + 1),
+        Array.from({ length: 60 }, (_, index) => index + 1),
       );
     }),
   );
@@ -30,6 +101,8 @@ layer("055_OrchestrationV2", (it) => {
         [56, "RemoveRedundantProjectionIndexes"],
         [57, "ScheduledTaskWebhooks"],
         [58, "WebhookRelayDeliveries"],
+        [59, "ScheduledTaskDelivery"],
+        [60, "ScheduleDispatchTargets"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -54,6 +127,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 56, name: "RemoveRedundantProjectionIndexes" },
         { migration_id: 57, name: "ScheduledTaskWebhooks" },
         { migration_id: 58, name: "WebhookRelayDeliveries" },
+        { migration_id: 59, name: "ScheduledTaskDelivery" },
+        { migration_id: 60, name: "ScheduleDispatchTargets" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

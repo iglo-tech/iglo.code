@@ -85,6 +85,7 @@ const probe = {
 const ProbeToolkit = Toolkit.make(
   Tool.make("reads", probe),
   Tool.make("reads_as_caller", probe),
+  Tool.make("writes_plugin_state_as_caller", probe),
   Tool.make("acts_as_caller", probe),
   Tool.make("writes", probe),
   Tool.make("writes_threads", {
@@ -104,6 +105,7 @@ const ran = Effect.succeed({ ran: "ran" });
 const probeHandlers: McpToolAccess.Handlers<typeof ProbeToolkit.tools> = {
   reads: McpToolAccess.reads(() => ran),
   reads_as_caller: McpToolAccess.readsAsCaller(() => ran),
+  writes_plugin_state_as_caller: McpToolAccess.writesPluginStateAsCaller(() => ran),
   acts_as_caller: McpToolAccess.actsAsCaller(() => ran),
   writes: McpToolAccess.writes(() => ran),
   writes_threads: McpToolAccess.writesThreads(
@@ -211,6 +213,9 @@ it.effect.each([
 
   // What belongs to the calling thread needs one; changing it needs its live turn.
   ["reads_as_caller", ended, {}, "ran"],
+  ["writes_plugin_state_as_caller", supervised, {}, "ran"],
+  ["writes_plugin_state_as_caller", ended, {}, "ran"],
+  ["writes_plugin_state_as_caller", fullAccessClient, {}, "thread_credential_required"],
   ["reads_as_caller", fullAccessClient, {}, "thread_credential_required"],
   ["acts_as_caller", supervised, {}, "ran"],
   ["acts_as_caller", ended, {}, "parent_not_active"],

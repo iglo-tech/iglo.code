@@ -37,6 +37,7 @@ import {
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
+import { PluginProjectActions, PluginThreadContext } from "../../plugins/PluginSlots";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -355,6 +356,20 @@ export const ChatHeader = memo(function ChatHeader({
           )}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {activeProject === null ? null : isServerThread ? (
+        <PluginThreadContext
+          target={{
+            environmentId: activeThreadEnvironmentId,
+            projectId: activeProject.id,
+            threadId: activeThreadId,
+          }}
+        />
+      ) : (
+        <PluginProjectActions
+          environmentId={activeThreadEnvironmentId}
+          projectId={activeProject.id}
+        />
+      )}
     </div>
   );
 });

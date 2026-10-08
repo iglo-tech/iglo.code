@@ -1484,6 +1484,30 @@ export const layerWithOptions = (
       ): ProviderAdapterV2SessionRuntime => {
         const providerSessionId = runtime.providerSessionId;
         const subscribeEvents = makeEventSubscription(eventSubscribers);
+        const policyOwner = (threadId: ThreadId) =>
+          Effect.gen(function* () {
+            const entry = (yield* Ref.get(sessions)).get(sessionKey(providerSessionId));
+            const credential = McpProviderSession.readMcpProviderSession(threadId);
+            return entry?.runtime === runtime &&
+              entry.mcpCredentialIdByThread.get(threadId) === credential?.providerSessionId
+              ? credential
+              : undefined;
+          });
+        const invalidatePolicy = (threadId: ThreadId) =>
+          policyOwner(threadId).pipe(
+            Effect.tap((owner) =>
+              Effect.sync(() =>
+                McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(owner),
+              ),
+            ),
+            Effect.asVoid,
+          );
+        const publishesNativePolicy =
+          runtime.driver === "claudeAgent" || runtime.driver === "opencode2";
+        // Codex thread RPCs omit turn permission overrides. Treat their policy
+        // as unknown until a turn applies it, including while the RPC is pending.
+        const invalidateThreadPolicy = (threadId: ThreadId) =>
+          runtime.driver === "codex" ? invalidatePolicy(threadId) : Effect.void;
         // Every provider's turn operations pass through here, so this is where they are
         // counted. Only turn starts are timed: until the provider accepts the turn.
         const turnMetrics = (operation: string, model?: string) =>
@@ -1511,6 +1535,7 @@ export const layerWithOptions = (
                 providerInstanceId: runtime.instanceId,
               }),
             ).pipe(
+              Effect.andThen(invalidateThreadPolicy(input.threadId)),
               Effect.andThen(runtime.ensureThread(input)),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
@@ -1548,7 +1573,11 @@ export const layerWithOptions = (
                 isProviderThreadLoaded({ providerSessionId, threadId, providerThreadKey }),
               ),
               Effect.flatMap((loaded) =>
-                loaded ? Effect.succeed(input.providerThread) : runtime.resumeThread(input),
+                loaded
+                  ? Effect.succeed(input.providerThread)
+                  : invalidateThreadPolicy(threadId).pipe(
+                      Effect.andThen(runtime.resumeThread(input)),
+                    ),
               ),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
@@ -1576,6 +1605,7 @@ export const layerWithOptions = (
                 providerInstanceId: runtime.instanceId,
               }),
             ).pipe(
+              Effect.andThen(invalidateThreadPolicy(input.targetThreadId)),
               Effect.andThen(runtime.forkThread(input)),
               Effect.tap((providerThread) =>
                 markProviderThreadLoaded({
@@ -1617,7 +1647,19 @@ export const layerWithOptions = (
                     ),
                   ),
                   () =>
-                    runtime.startTurn(input).pipe(turnMetrics("send", input.modelSelection.model)),
+                    Effect.gen(function* () {
+                      // Retain the credential owner across native I/O so an old
+                      // session cannot publish policy into its replacement.
+                      const owner = yield* policyOwner(input.threadId);
+                      if (!publishesNativePolicy)
+                        McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(owner);
+                      yield* runtime.startTurn(input);
+                      if (!publishesNativePolicy)
+                        McpProviderSession.updateMcpProviderSessionRuntimePolicy(
+                          owner,
+                          input.runtimePolicy,
+                        );
+                    }).pipe(turnMetrics("send", input.modelSelection.model)),
                   (_, exit) =>
                     Exit.isFailure(exit)
                       ? observeActivity(

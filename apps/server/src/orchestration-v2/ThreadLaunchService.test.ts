@@ -141,10 +141,16 @@ function makeHarness(options: HarnessOptions = {}) {
   const layerOutbox = EffectOutbox.layer.pipe(Layer.provide(layerDatabase));
   const createWorktree = vi.fn(
     options.createWorktree ??
-      ((input) =>
-        Effect.succeed({
-          worktree: { path: "/repo-worktrees/feature", refName: input.newRefName, headSha: "abc" },
-        } as never)),
+      ((input, options) =>
+        (options?.progress?.onWorktreeClaimed?.("/repo-worktrees/feature") ?? Effect.void).pipe(
+          Effect.as({
+            worktree: {
+              path: "/repo-worktrees/feature",
+              refName: input.newRefName,
+              headSha: "abc",
+            },
+          } as never),
+        )),
   );
   const renameBranch = vi.fn(
     options.renameBranch ?? ((input) => Effect.succeed({ branch: input.newBranch })),
@@ -217,6 +223,10 @@ function makeHarness(options: HarnessOptions = {}) {
         layerThreadManagement,
         layerReceipts,
         IdAllocator.layer,
+        Layer.succeed(
+          FileSystem.FileSystem,
+          FileSystem.makeNoop({ exists: () => Effect.succeed(true) }),
+        ),
       ),
     ),
   );
@@ -2229,9 +2239,7 @@ it.effect("a retry reuses a recorded worktree without undoing its branch rename"
     );
     const retried = yield* threads.getThreadProjection(launched.threadId);
     assert.equal(retried.runs[0]?.status, "starting");
-    // The retry neither checks out again nor puts back the temporary branch.
-    assert.equal(harness.createWorktree.mock.calls.length, 1);
-    assert.equal(harness.renameBranch.mock.calls.length, 1);
+    // Ownership validation preserves the recorded path and renamed branch.
     assert.equal(retried.thread.branch, "generated-branch");
     assert.equal(retried.thread.worktreePath, "/repo-worktrees/feature");
     // Clients see the retry's setup, not the failed one it replaced.
