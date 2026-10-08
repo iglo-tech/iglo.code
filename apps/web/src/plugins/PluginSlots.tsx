@@ -1,12 +1,19 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import type { EnvironmentId, PluginTarget, ProjectId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  PluginCatalog,
+  PluginPageState,
+  PluginTarget,
+  ProjectId,
+} from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
 import { Button } from "../components/ui/button";
 import { useConnectedEnvironmentIds, useEnvironment } from "../state/environments";
-import { availableCatalogAtom, attentionAtom } from "./runtime";
+import { availableCatalogAtom, attentionAtom, pluginConnectedAtom } from "./runtime";
 import { compiledWebPlugins } from "./compiled";
 import { createPluginWebContext } from "./context";
 
@@ -14,9 +21,22 @@ export function usePluginContributions(
   environmentId: EnvironmentId,
   projectId: ProjectId | null = null,
   threadId: PluginTarget["threadId"] | null = null,
+  page: { readonly state?: PluginPageState; readonly retainWhileDisconnected?: boolean } = {},
 ) {
-  const catalog = useAtomValue(availableCatalogAtom(environmentId));
+  const current = useAtomValue(availableCatalogAtom(environmentId));
+  const connected = useAtomValue(pluginConnectedAtom(environmentId));
+  const environment = useEnvironment(environmentId);
   const navigate = useNavigate();
+  // A page keeps its last catalog while the connection is unreconciled so drafts and
+  // snapshots stay visible; plugins gate mutations on `connection`.
+  const [retained, setRetained] = useState<PluginCatalog | null>(null);
+  if (page.retainWhileDisconnected && current !== null && current !== retained)
+    setRetained(current);
+  const catalog = current ?? (page.retainWhileDisconnected ? retained : null);
+  const connection: PluginWebContext["connection"] =
+    connected && current !== null ? "connected" : "disconnected";
+  const label = environment?.label ?? environmentId;
+  const stateKey = page.state === undefined ? "" : JSON.stringify(page.state);
   const contributions = useMemo(
     () =>
       compiledWebPlugins.flatMap((plugin) => {
@@ -28,19 +48,30 @@ export function usePluginContributions(
         );
         if (descriptor === undefined) return [];
         const bound = plugin.bind(environmentId);
-        const context = createPluginWebContext(
+        const context = createPluginWebContext({
           environmentId,
+          environmentLabel: label,
           descriptor,
           projectId,
           threadId,
+          ...(stateKey === "" ? {} : { pageState: JSON.parse(stateKey) as PluginPageState }),
+          connection,
           navigate,
-        );
+        });
         return [{ ...bound, context }];
       }),
-    [catalog, environmentId, navigate, projectId, threadId],
+    [catalog, connection, environmentId, label, navigate, projectId, stateKey, threadId],
   );
-  return { catalog, contributions };
+  return { catalog, contributions, connection };
 }
+
+/** Links to pages this client or server does not contribute stay visible but unavailable. */
+const pageAvailable = (
+  plugin: ReturnType<typeof usePluginContributions>["contributions"][number],
+  pageId: string,
+) =>
+  plugin.pages.some((page) => page.id === pageId) &&
+  plugin.context.descriptor.manifest.web.pages.includes(pageId);
 
 function EnvironmentPluginNavigation({ environmentId }: { environmentId: EnvironmentId }) {
   const { contributions } = usePluginContributions(environmentId);
@@ -81,16 +112,21 @@ function EnvironmentPluginNavigation({ environmentId }: { environmentId: Environ
                       {plugin.manifest.displayName}: {summary.error.message}
                     </p>,
                   ]),
-              ...summary.items.map((item) => (
-                <Button
-                  key={`${summary.pluginId}:${item.id}`}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => plugin.context.navigate(item.link)}
-                >
-                  <span className="min-w-0 truncate">{item.summary}</span>
-                </Button>
-              )),
+              ...summary.items.map((item) => {
+                const available = pageAvailable(plugin, item.link.pageId);
+                return (
+                  <Button
+                    key={`${summary.pluginId}:${item.id}`}
+                    variant="ghost"
+                    size="sm"
+                    disabled={!available}
+                    title={available ? item.reason : "This page is not available in this client."}
+                    onClick={() => plugin.context.navigate(item.link)}
+                  >
+                    <span className="min-w-0 truncate">{item.summary}</span>
+                  </Button>
+                );
+              }),
             ];
       })}
     </div>

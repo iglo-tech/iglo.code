@@ -390,6 +390,9 @@ importers:
       '@t3tools/plugin-host-contract':
         specifier: workspace:*
         version: link:../../packages/plugin-host-contract
+      '@t3tools/plugin-workflows':
+        specifier: workspace:*
+        version: link:../../packages/plugin-workflows
       '@t3tools/provider-acp-registry':
         specifier: workspace:*
         version: link:../../packages/provider-acp-registry
@@ -586,6 +589,9 @@ importers:
       vite-plus:
         specifier: 1.0.0
         version: 1.0.0(@types/node@24.12.4)(@vitest/ui@5.0.1(vitest@5.0.1))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(msw@2.12.11(@types/node@24.12.4)(typescript@7.0.2))(terser@5.48.0)(typescript@7.0.2)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
 
   infra/relay:
     dependencies:
@@ -832,10 +838,16 @@ importers:
       effect:
         specifier: 4.0.2
         version: 4.0.2(patch_hash=ec61ee307eaec3e17f757e0e6a16296ea4b7a8c3188df0c6ec5e66301fd78688)
+      react:
+        specifier: 19.2.6
+        version: 19.2.6
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
     devDependencies:
+      '@types/react':
+        specifier: ~19.3.0
+        version: 19.3.0
       vite-plus:
         specifier: 1.0.0
         version: 1.0.0(@types/node@24.12.4)(@vitest/ui@5.0.1)(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(msw@2.12.11(@types/node@24.12.4)(typescript@7.0.2))(terser@5.48.0)(typescript@7.0.2)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)

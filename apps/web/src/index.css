@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Compiled plugin web modules live outside the app directory. */
+@source "../../../packages/plugin-*/src";
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));

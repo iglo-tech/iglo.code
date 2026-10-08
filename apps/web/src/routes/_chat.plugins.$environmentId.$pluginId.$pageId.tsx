@@ -1,17 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
+import { EnvironmentId } from "@t3tools/contracts";
 import { PluginPageContent } from "../plugins/PluginPageContent";
 import { isElectron } from "../env";
 import { usePluginContributions } from "../plugins/PluginSlots";
+import { validatePluginSearch } from "../plugins/pageLink";
 
-const Search = Schema.Struct({
-  pluginProjectId: Schema.optional(ProjectId),
-  pluginThreadId: Schema.optional(ThreadId),
-});
-const decodeSearch = Schema.decodeUnknownSync(Search);
 export const Route = createFileRoute("/_chat/plugins/$environmentId/$pluginId/$pageId")({
-  validateSearch: (input: Record<string, unknown>) => decodeSearch(input),
+  validateSearch: validatePluginSearch,
   component: PluginPage,
 });
 
@@ -19,10 +14,14 @@ function PluginPage() {
   const params = Route.useParams();
   const search = Route.useSearch();
   const environmentId = EnvironmentId.make(params.environmentId);
-  const { catalog, contributions } = usePluginContributions(
+  const { catalog, contributions, connection } = usePluginContributions(
     environmentId,
     search.pluginProjectId ?? null,
     search.pluginThreadId ?? null,
+    {
+      ...(search.pluginState === undefined ? {} : { state: search.pluginState }),
+      retainWhileDisconnected: true,
+    },
   );
   return (
     <PluginPageContent
@@ -30,6 +29,7 @@ function PluginPage() {
       contributions={contributions}
       pluginId={params.pluginId}
       pageId={params.pageId}
+      connection={connection}
       electron={isElectron}
     />
   );

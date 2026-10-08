@@ -9,6 +9,7 @@ export function PluginPageContent({
   pluginId,
   pageId,
   electron = false,
+  connection = "connected",
 }: {
   readonly catalog: PluginCatalog | null;
   readonly contributions: ReadonlyArray<
@@ -17,6 +18,7 @@ export function PluginPageContent({
   readonly pluginId: string;
   readonly pageId: string;
   readonly electron?: boolean;
+  readonly connection?: PluginWebContext["connection"];
 }) {
   const plugin = contributions.find((item) => item.manifest.id === pluginId);
   const page = plugin?.pages.find(
@@ -28,6 +30,12 @@ export function PluginPageContent({
       <WorkspacePageHeader electron={electron}>
         <span className="text-sm font-medium">{page?.title ?? "Plugin unavailable"}</span>
       </WorkspacePageHeader>
+      {page !== undefined && connection === "disconnected" ? (
+        <p role="status" className="border-b border-border bg-warning/8 px-6 py-2 text-sm">
+          Disconnected from this environment. Showing the last loaded state; changes wait until it
+          reconnects.
+        </p>
+      ) : null}
       <main className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
         {page !== undefined && plugin !== undefined ? (
           page.render(plugin.context)
