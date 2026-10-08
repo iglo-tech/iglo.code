@@ -266,3 +266,44 @@ it.effect("locates blocking errors and warnings while preserving their reasons",
     }),
   ).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it.effect("names an existing identity when a new workflow would take it over", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture;
+      const fs = yield* FileSystem.FileSystem;
+      const scope = { environmentId: test.environmentId, projectId: test.projectId };
+      const directory = `${test.directory}/.t3code/workflows`;
+      yield* fs.makeDirectory(directory, { recursive: true });
+      const existing = Yaml.stringify({ ...sequence, title: "Original" });
+      yield* fs.writeFileString(`${directory}/kept-name.yaml`, existing);
+      const taken = yield* test
+        .invoke("save", { ...scope, definition: sequence, expectedRevision: null })
+        .pipe(Effect.result);
+      expect(taken).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          code: "conflict",
+          message:
+            "A workflow with ID sequence already exists in this project. Choose a different workflow ID.",
+        },
+      });
+      expect(yield* fs.readFileString(`${directory}/kept-name.yaml`)).toBe(existing);
+      yield* fs.writeFileString(`${directory}/other.yaml`, "not: [valid");
+      const file = yield* test
+        .invoke("save", {
+          ...scope,
+          definition: { ...sequence, id: "other" },
+          expectedRevision: null,
+        })
+        .pipe(Effect.result);
+      expect(file).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          code: "conflict",
+          message: expect.stringContaining("other.yaml already exists"),
+        },
+      });
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);

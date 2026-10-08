@@ -6,21 +6,6 @@ import { isDefinitionLike } from "./editing.ts";
 
 export type PageProps = PluginWebContext & { readonly client: WorkflowClient };
 
-/**
- * Delays that coalesce typing into one request. Hosts and tests may set them to 0, which
- * issues the request immediately so no behavior depends on wall-clock time.
- */
-export const authoringTimings = { searchDelayMs: 250, validationDelayMs: 400 };
-/** Run after `delayMs` (immediately at 0); the returned cleanup cancels a pending run. */
-export function debounce(run: () => void, delayMs: number): () => void {
-  if (delayMs <= 0) {
-    run();
-    return () => {};
-  }
-  const timer = setTimeout(run, delayMs);
-  return () => clearTimeout(timer);
-}
-
 export function errorMessage(cause: unknown): string {
   if (typeof cause === "object" && cause !== null && "message" in cause) {
     const message = (cause as { message: unknown }).message;
@@ -203,4 +188,43 @@ export function readDraft(store: PluginDraftStore, key: string): DraftEnvelope |
 }
 export function writeDraft(store: PluginDraftStore, key: string, envelope: DraftEnvelope) {
   return store.write(key, JSON.stringify(envelope));
+}
+
+/** Local drafts for one project, newest last, with where each one reopens. */
+export function projectDrafts(store: PluginDraftStore, projectId: ProjectId) {
+  const prefix = `${projectId}:`;
+  return store.keys().flatMap((key) => {
+    if (!key.startsWith(prefix)) return [];
+    const envelope = readDraft(store, key);
+    if (envelope === null) return [];
+    const workflow = key.slice(prefix.length);
+    return [
+      {
+        key,
+        title: envelope.definition.title || envelope.definition.id,
+        state: workflow.startsWith("new:") ? { draft: workflow } : { source: workflow },
+        isNew: workflow.startsWith("new:"),
+      },
+    ];
+  });
+}
+
+/** An identity not used by the catalog or a local draft: `base`, then `base-2`, `base-3`… */
+export async function unusedWorkflowId(
+  client: WorkflowClient,
+  store: PluginDraftStore,
+  projectId: ProjectId,
+  base: string,
+): Promise<string> {
+  const page = await client.library({ projectId, query: base, limit: 50 });
+  const used = new Set([
+    ...page.entries.flatMap((entry) => (entry.definitionId === null ? [] : [entry.definitionId])),
+    ...projectDrafts(store, projectId).flatMap(
+      (draft) => readDraft(store, draft.key)?.definition.id ?? [],
+    ),
+  ]);
+  for (let index = 1; ; index++) {
+    const candidate = index === 1 ? base : `${base}-${index}`;
+    if (!used.has(candidate)) return candidate;
+  }
 }

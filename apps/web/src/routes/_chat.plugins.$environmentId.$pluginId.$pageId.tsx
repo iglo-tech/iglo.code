@@ -14,7 +14,7 @@ function PluginPage() {
   const params = Route.useParams();
   const search = Route.useSearch();
   const environmentId = EnvironmentId.make(params.environmentId);
-  const { catalog, contributions, connection } = usePluginContributions(
+  const { catalog, contributions, status } = usePluginContributions(
     environmentId,
     search.pluginProjectId ?? null,
     search.pluginThreadId ?? null,
@@ -29,7 +29,7 @@ function PluginPage() {
       contributions={contributions}
       pluginId={params.pluginId}
       pageId={params.pageId}
-      connection={connection}
+      status={status}
       electron={isElectron}
     />
   );

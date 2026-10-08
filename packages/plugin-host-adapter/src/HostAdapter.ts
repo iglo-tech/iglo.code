@@ -618,7 +618,7 @@ const make = Effect.gen(function* () {
         const snapshots = yield* providers.refreshWorkspaceSnapshot({
           instanceId: input.providerInstanceId,
           cwd: workspace.workspaceRoot,
-          fresh: true,
+          fresh: input.fresh ?? true,
         });
         const found = snapshots.find(
           (provider) => provider.instanceId === input.providerInstanceId,

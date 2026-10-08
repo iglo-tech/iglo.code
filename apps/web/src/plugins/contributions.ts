@@ -1,5 +1,12 @@
 import type { PluginWebContext, WebPlugin } from "@t3tools/plugin-host-contract/web";
-import { createElement } from "react";
+import { Suspense, createElement } from "react";
+
+// Plugins may load page modules lazily; the shell shows a textual status meanwhile.
+const loading = createElement(
+  "p",
+  { role: "status", className: "px-6 py-8 text-sm text-muted-foreground" },
+  "Loading page…",
+);
 
 export function bind<Client>(plugin: WebPlugin<Client>, client: Client) {
   return {
@@ -7,7 +14,12 @@ export function bind<Client>(plugin: WebPlugin<Client>, client: Client) {
     pages: plugin.pages.map((page) => ({
       id: page.id,
       title: page.title,
-      render: (context: PluginWebContext) => createElement(page.component, { ...context, client }),
+      render: (context: PluginWebContext) =>
+        createElement(
+          Suspense,
+          { fallback: loading },
+          createElement(page.component, { ...context, client }),
+        ),
     })),
     navigation: plugin.navigation,
     projectActions: plugin.projectActions,

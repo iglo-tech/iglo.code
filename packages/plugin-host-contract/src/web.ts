@@ -12,6 +12,8 @@ import type {
 /** Bounded editing state scoped to one environment and plugin; never execution state. */
 export interface PluginDraftStore {
   readonly read: (key: string) => string | null;
+  /** Stored keys, least recently written first. */
+  readonly keys: () => ReadonlyArray<string>;
   /** Returns false when the value exceeds the host bound or storage is unavailable. */
   readonly write: (key: string, value: string) => boolean;
   readonly remove: (key: string) => void;
@@ -79,12 +81,18 @@ export interface PluginDesign {
     readonly side?: "left" | "right" | "bottom";
     readonly children: ReactNode;
   }>;
-  /** Holds in-app navigation while `when` is true and offers Keep editing or Discard. */
+  /**
+   * Holds in-app navigation while `when` is true and offers Keep editing or Discard, plus
+   * `keepLabel` to leave while keeping a stored draft. `protectReload` also asks before a
+   * reload or tab close, for edits that would not survive one.
+   */
   readonly NavigationGuard: ComponentType<{
     readonly when: boolean;
     readonly title: string;
     readonly description: string;
     readonly onDiscard?: () => void;
+    readonly keepLabel?: string;
+    readonly protectReload?: boolean;
   }>;
 }
 

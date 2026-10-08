@@ -566,7 +566,7 @@ function AgentInspector({
         <Select
           id={controlId(node.id, "skill")}
           value={node.skill ?? ""}
-          disabled={readOnly || skills === null}
+          disabled={readOnly}
           invalid={invalid("skill")}
           options={withCurrent(
             skillOptions,

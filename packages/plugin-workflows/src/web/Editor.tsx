@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AuthoringEntry,
   Capabilities,
@@ -8,9 +8,8 @@ import type {
 } from "../contracts.ts";
 import {
   TargetBar,
-  authoringTimings,
-  debounce,
   draftKey,
+  unusedWorkflowId,
   errorCode,
   errorMessage,
   readDraft,
@@ -20,6 +19,7 @@ import {
   type DraftBase,
   type PageProps,
 } from "./common.tsx";
+import { authoringTimings, debounce } from "./timings.ts";
 import {
   addStep,
   exportYaml,
@@ -142,30 +142,56 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   }, [client, projectId, offline, capabilitiesAttempt]);
 
   const readOnly = server?.packaged === true;
-  const dirty =
-    draft !== null &&
-    !readOnly &&
-    (base?.mode !== "edit" || server === null || !sameDefinition(draft, server.definition));
-  // Local drafts survive reloads and disconnection; saving or discarding clears them.
+  // A new workflow is unsaved until its first save; otherwise compare with the saved file.
+  const dirty = useMemo(
+    () =>
+      draft !== null &&
+      !readOnly &&
+      (base?.mode === "new" || server === null || !sameDefinition(draft, server.definition)),
+    [draft, readOnly, base?.mode, server],
+  );
+  // Local drafts survive reloads and disconnection; saving or discarding clears them. Writes
+  // are coalesced while typing and flushed when the page closes.
+  const exported = useMemo(
+    () => (panel === "export" && draft !== null ? exportYaml(draft) : null),
+    [panel, draft],
+  );
+  const pendingWrite = useRef<(() => void) | null>(null);
   useEffect(() => {
+    pendingWrite.current = null;
     if (storageKey === null || draft === null || base === null) return;
     if (!dirty) {
       props.drafts.remove(storageKey);
       return;
     }
-    setStorageFailed(
-      !writeDraft(props.drafts, storageKey, {
-        version: 1,
-        base,
-        definition: draft,
-        updatedAt: Date.now(),
-      }),
-    );
+    const write = () => {
+      pendingWrite.current = null;
+      setStorageFailed(
+        !writeDraft(props.drafts, storageKey, {
+          version: 1,
+          base,
+          definition: draft,
+          updatedAt: Date.now(),
+        }),
+      );
+    };
+    pendingWrite.current = write;
+    return debounce(write, authoringTimings.draftDelayMs);
   }, [props.drafts, storageKey, draft, base, dirty]);
+  useEffect(() => () => pendingWrite.current?.(), []);
+  const forget = () => {
+    pendingWrite.current = null;
+    if (storageKey !== null) props.drafts.remove(storageKey);
+  };
 
   const local = useMemo(() => (draft === null ? [] : localProblems(draft)), [draft]);
   const draftJson = useMemo(() => JSON.stringify(draft), [draft]);
   const locallyValid = !local.some((problem) => problem.severity === "error");
+  const [validationFailure, setValidationFailure] = useState<{
+    readonly json: string;
+    readonly message: string;
+  } | null>(null);
+  const [validateAttempt, setValidateAttempt] = useState(0);
   useEffect(() => {
     if (draft === null || projectId === null || offline || !locallyValid) return;
     let active = true;
@@ -180,14 +206,18 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                 entry.reasons.map((message) => ({ severity: "error" as const, message })),
             });
         },
-        () => {},
+        (cause: unknown) => {
+          if (active) setValidationFailure({ json: draftJson, message: errorMessage(cause) });
+        },
       );
     }, authoringTimings.validationDelayMs);
     return () => {
       active = false;
       cancel();
     };
-  }, [client, projectId, offline, locallyValid, draft, draftJson]);
+  }, [client, projectId, offline, locallyValid, draft, draftJson, validateAttempt]);
+  const validationUnavailable =
+    validationFailure !== null && validationFailure.json === draftJson ? validationFailure : null;
   const authoritative = checked !== null && checked.json === draftJson;
   const problems: ReadonlyArray<Problem> = locallyValid && authoritative ? checked.problems : local;
   const blocking = problems.some((problem) => problem.severity === "error");
@@ -217,7 +247,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     if (narrow && id !== null) setInspectorOpen(true);
   };
   const discard = () => {
-    if (storageKey !== null) props.drafts.remove(storageKey);
+    forget();
     setDraft(server?.definition ?? null);
     setBase(server === null ? null : baseOf(server));
     setStatus({ kind: "idle" });
@@ -227,7 +257,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     if (projectId === null || source === null) return;
     client.read({ projectId, source }).then(
       (entry) => {
-        if (storageKey !== null) props.drafts.remove(storageKey);
+        forget();
         setServer(entry);
         setDraft(entry.definition);
         setBase(baseOf(entry));
@@ -278,7 +308,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           });
     request.then(
       (entry) => {
-        if (storageKey !== null) props.drafts.remove(storageKey);
+        forget();
         setServer(entry);
         setDraft(entry.definition);
         setBase(baseOf(entry));
@@ -315,19 +345,20 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   };
   const clone = () => {
     if (draft === null || projectId === null) return;
-    const workflowKey = `new:${draft.id}-copy:${Date.now().toString(36)}`;
-    writeDraft(props.drafts, draftKey(projectId, workflowKey), {
-      version: 1,
-      base: { mode: "new", source: null, fingerprint: null, revision: null },
-      definition: {
-        ...draft,
-        id: slug(`${draft.id}-copy`),
-        title: `${draft.title} (copy)`,
-        revision: 1,
+    const original = draft;
+    void unusedWorkflowId(client, props.drafts, projectId, slug(`${original.id}-copy`)).then(
+      (id) => {
+        const workflowKey = `new:${id}:${Date.now().toString(36)}`;
+        writeDraft(props.drafts, draftKey(projectId, workflowKey), {
+          version: 1,
+          base: { mode: "new", source: null, fingerprint: null, revision: null },
+          definition: { ...original, id, title: `${original.title} (copy)`, revision: 1 },
+          updatedAt: Date.now(),
+        });
+        props.navigate({ pageId: "workflows.editor", projectId, state: { draft: workflowKey } });
       },
-      updatedAt: Date.now(),
-    });
-    props.navigate({ pageId: "workflows.editor", projectId, state: { draft: workflowKey } });
+      (cause: unknown) => setStatus({ kind: "failed", message: errorMessage(cause) }),
+    );
   };
   const goTo = (problem: Problem) => {
     setSelected(problem.nodeId ?? null);
@@ -355,6 +386,23 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         </div>
       </section>
     );
+  if (source === null && draft === null)
+    return (
+      <section className="mx-auto w-full max-w-3xl px-6 py-8 text-sm">
+        <h1 className="text-lg font-semibold">This draft is no longer on this device</h1>
+        <p className="mt-2 text-muted-foreground">
+          It was saved, discarded, or removed to make room for newer drafts.
+        </p>
+        <div className="mt-4">
+          <Button
+            variant="outline"
+            onClick={() => props.navigate({ pageId: "workflows.library", projectId })}
+          >
+            Open library
+          </Button>
+        </div>
+      </section>
+    );
   const saveAllowed = base?.mode === "replace" ? permissions.replace : permissions.save;
   const statusText =
     status.kind === "saving"
@@ -374,7 +422,6 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     base.source === server.source &&
     base.fingerprint !== null &&
     base.fingerprint !== server.fingerprint;
-  const exported = draft === null ? null : exportYaml(draft);
   const inspector =
     draft === null ? null : (
       <Inspector
@@ -409,10 +456,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       <props.NavigationGuard
         when={dirty}
         title="Leave with unsaved workflow changes?"
-        description="Keep editing to save them, or discard this local draft."
-        onDiscard={() => {
-          if (storageKey !== null) props.drafts.remove(storageKey);
-        }}
+        description={
+          storageFailed
+            ? "This draft could not be kept on this device. Keep editing to save it, or discard it."
+            : "Your draft stays on this device and is listed in the library until you save or discard it."
+        }
+        onDiscard={forget}
+        {...(storageFailed ? {} : { keepLabel: "Leave and keep draft" })}
+        protectReload={storageFailed || base?.mode === "new"}
       />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
@@ -425,7 +476,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
               ? ` · ${problems.filter((problem) => problem.severity === "error").length} to fix`
               : ""}
             {draft !== null && locallyValid && !authoritative && !offline
-              ? " · checking with the server…"
+              ? validationUnavailable === null
+                ? " · checking with the server…"
+                : " · validation unavailable"
               : ""}
           </p>
         </div>
@@ -517,7 +570,37 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           </Button>
         </div>
       ) : null}
-      {status.kind === "conflict" || outdated ? (
+      {validationUnavailable === null || authoritative ? null : (
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-destructive">
+          <span>Validation is unavailable: {validationUnavailable.message}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            ariaLabel="Retry validation"
+            disabled={offline}
+            onClick={() => setValidateAttempt((value) => value + 1)}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+      {status.kind === "conflict" && base?.mode === "new" ? (
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
+          <span>Not saved: {status.message} Your draft is kept.</span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setStatus({ kind: "idle" });
+              setSelected(null);
+              if (narrow) setInspectorOpen(true);
+              setFocus(controlId(null, "id"));
+            }}
+          >
+            Change workflow ID
+          </Button>
+        </div>
+      ) : status.kind === "conflict" || outdated ? (
         <div
           role="alert"
           className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm"

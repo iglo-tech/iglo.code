@@ -2,15 +2,16 @@ import { useEffect, useState } from "react";
 import type { Definition, LibraryEntry, LibraryPage } from "../contracts.ts";
 import {
   TargetBar,
-  authoringTimings,
-  debounce,
   draftKey,
+  projectDrafts,
+  unusedWorkflowId,
   errorMessage,
   useProjects,
   writeDraft,
   type DraftEnvelope,
   type PageProps,
 } from "./common.tsx";
+import { authoringTimings, debounce } from "./timings.ts";
 import { exportYaml, importYaml, newDefinition, slug } from "./editing.ts";
 
 const PAGE_SIZE = 20;
@@ -51,6 +52,9 @@ function Library(props: PageProps) {
     readonly note: string | null;
   } | null>(null);
   const offline = connection === "disconnected";
+  const [localDrafts, setLocalDrafts] = useState(() =>
+    projectId === null ? [] : projectDrafts(props.drafts, projectId),
+  );
 
   useEffect(() => {
     if (query === search) return;
@@ -115,18 +119,24 @@ function Library(props: PageProps) {
   const clone = (entry: LibraryEntry) => {
     if (projectId === null) return;
     setActionError(null);
-    client.read({ projectId, source: entry.source }).then(
-      (read) => {
+    client
+      .read({ projectId, source: entry.source })
+      .then(async (read) => {
         if (read.definition === null) return;
+        const id = await unusedWorkflowId(
+          client,
+          props.drafts,
+          projectId,
+          slug(`${read.definition.id}-copy`),
+        );
         openDraft({
           ...read.definition,
-          id: slug(`${read.definition.id}-copy`),
+          id,
           title: `${read.definition.title} (copy)`,
           revision: 1,
         });
-      },
-      (cause: unknown) => setActionError(errorMessage(cause)),
-    );
+      })
+      .catch((cause: unknown) => setActionError(errorMessage(cause)));
   };
   const exportEntry = (entry: LibraryEntry) => {
     if (projectId === null) return;
@@ -252,6 +262,44 @@ function Library(props: PageProps) {
             </Button>
           </div>
         </div>
+      )}
+      {localDrafts.length === 0 || projectId === null ? null : (
+        <section aria-labelledby="wf-local-drafts" className="flex flex-col gap-2">
+          <h2 id="wf-local-drafts" className="text-sm font-medium">
+            Unsaved drafts on this device
+          </h2>
+          <ul aria-label="Unsaved drafts" className="flex flex-col gap-1">
+            {localDrafts.map((draft) => (
+              <li key={draft.key} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="min-w-0 flex-1 break-words">
+                  {draft.title}
+                  {draft.isNew ? " · new workflow" : " · unsaved changes"}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  ariaLabel={`Open draft ${draft.title}`}
+                  onClick={() =>
+                    props.navigate({ pageId: "workflows.editor", projectId, state: draft.state })
+                  }
+                >
+                  Open
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  ariaLabel={`Discard draft ${draft.title}`}
+                  onClick={() => {
+                    props.drafts.remove(draft.key);
+                    setLocalDrafts(projectDrafts(props.drafts, projectId));
+                  }}
+                >
+                  Discard
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {actionError === null ? null : (
         <p role="alert" className="text-sm text-destructive">

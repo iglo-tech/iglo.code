@@ -1,12 +1,20 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { PluginDraftStore } from "@t3tools/plugin-host-contract/web";
 
-/** Bounds keep plugin drafts from crowding out the client's own persisted state. */
-export const PLUGIN_DRAFT_LIMITS = { entries: 16, characters: 524_288, key: 256 } as const;
+/**
+ * Bounds keep plugin drafts from crowding out the client's own persisted state: browsers
+ * typically allow about 5M characters per origin, shared with everything else the app stores.
+ */
+export const PLUGIN_DRAFT_LIMITS = {
+  entries: 16,
+  characters: 524_288,
+  totalCharacters: 1_048_576,
+  key: 256,
+} as const;
 
 /**
  * Plugin drafts survive reloads in browser storage, scoped by environment and plugin.
- * The least recently written draft is evicted once a plugin exceeds its entry bound.
+ * The least recently written drafts are evicted to stay within the entry and size budgets.
  */
 export function createPluginDraftStore(
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null,
@@ -29,16 +37,26 @@ export function createPluginDraftStore(
   const valid = (key: string) => key.length > 0 && key.length <= PLUGIN_DRAFT_LIMITS.key;
   return {
     read: (key) => (storage && valid(key) ? storage.getItem(entryKey(key)) : null),
+    keys: () =>
+      storage ? readIndex().filter((key) => storage.getItem(entryKey(key)) !== null) : [],
     write: (key, value) => {
       if (!storage || !valid(key) || value.length > PLUGIN_DRAFT_LIMITS.characters) return false;
       const index = [...readIndex().filter((item) => item !== key), key];
+      const size = (item: string) =>
+        item === key ? value.length : (storage.getItem(entryKey(item))?.length ?? 0);
+      let total = index.reduce((sum, item) => sum + size(item), 0);
+      const evicted: string[] = [];
+      while (
+        index.length > 1 &&
+        (index.length > PLUGIN_DRAFT_LIMITS.entries || total > PLUGIN_DRAFT_LIMITS.totalCharacters)
+      ) {
+        const oldest = index.shift()!;
+        total -= size(oldest);
+        evicted.push(oldest);
+      }
       try {
+        for (const item of evicted) storage.removeItem(entryKey(item));
         storage.setItem(entryKey(key), value);
-        for (const evicted of index.splice(
-          0,
-          Math.max(0, index.length - PLUGIN_DRAFT_LIMITS.entries),
-        ))
-          storage.removeItem(entryKey(evicted));
         storage.setItem(indexKey, JSON.stringify(index));
         return true;
       } catch {
