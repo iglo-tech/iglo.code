@@ -97,6 +97,9 @@ boundaries: React, native callbacks, the CLI, HTTP adapters. Never in a domain s
 persistence code, or service constructor. A named adapter may bridge a service into a Promise API,
 but no Effect service depends on it.
 
+For platform adapter changes in this fork, read [Bun runtime boundaries](./bun-runtime.md).
+It records retained compatibility APIs, native Bun candidates, and the behavior each must preserve.
+
 Compose a shared resource once in an application-owned layer and provide its context to integration
 runtimes. Don't create a managed or Atom runtime per feature to hand it out. When acquisition can
 fail and callers need a fallback, keep the failure typed: an error on the operation or an explicit

@@ -629,8 +629,8 @@ Current high-value span and metric boundaries include:
 
 ## Heap Snapshots
 
-To see what a long-running server holds in memory, send it `SIGUSR2`. The server writes a V8 heap
-snapshot to its logs dir and logs the path. This works for `t3` and service installs
+To see what a long-running server holds in memory, send it `SIGUSR2`. The server writes a V8-format
+heap snapshot of Bun's JavaScriptCore heap to its logs dir and logs the path. This works for `t3` and service installs
 on macOS and Linux. Windows has no `SIGUSR2`.
 
 Send the signal to the server pid in `server-runtime.json`, which sits in the server's state dir
