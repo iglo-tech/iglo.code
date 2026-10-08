@@ -2,6 +2,7 @@
 import * as NodeAssert from "node:assert/strict";
 import * as NodeSqlite from "node:sqlite";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as SqliteClient from "../nodeSqliteClient.ts";
 
@@ -22,7 +23,10 @@ const write = Effect.gen(function* () {
     (yield* sql<{ disabled: number }>`SELECT ${false} AS disabled`.unprepared)[0]?.disabled,
     0,
   );
-  NodeAssert.equal((yield* sql<{ enabled: number }>`SELECT ${true} AS enabled`.raw)[0]?.enabled, 1);
+  const rawFlags = yield* Schema.decodeUnknownEffect(
+    Schema.Array(Schema.Struct({ enabled: Schema.Number })),
+  )(yield* sql`SELECT ${true} AS enabled`.raw);
+  NodeAssert.equal(rawFlags[0]?.enabled, 1);
   NodeAssert.deepEqual(yield* sql`SELECT ${true}, ${false}`.values, [[1, 0]]);
   NodeAssert.deepEqual(yield* sql`SELECT ${false}`.valuesUnprepared, [[0]]);
   yield* sql`CREATE TABLE flags(enabled INTEGER)`;
