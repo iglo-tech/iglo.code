@@ -61,12 +61,6 @@ function assertPackageVersion(path: string, version: string): void {
 const tempRoot = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-release-smoke-"));
 
 try {
-  NodeChildProcess.execFileSync(
-    process.execPath,
-    ["--test", NodePath.resolve(repoRoot, ".github/scripts/relay-state-output.test.cjs")],
-    { stdio: "inherit" },
-  );
-
   copyWorkspaceManifestFixture(tempRoot);
 
   NodeChildProcess.execFileSync(

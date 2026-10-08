@@ -1,5 +1,5 @@
 /**
- * Naming shared by the release workflow, the runtime installers, and
+ * Naming shared by the CLI packaging tools, the runtime installers, and
  * install scripts for the per-platform CLI archives attached to GitHub
  * Releases. Every consumer derives the same file names from a version and a
  * platform key, so a rename here is a release-breaking change.
@@ -11,11 +11,8 @@ export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
 
 /**
- * The archives a release attaches. Kept in step with the build_linux_cli
- * matrix, build_windows_arm64_cli, and the `cli_archive` rows in
- * .github/workflows/release.yml: a key here without a build there produces
- * download URLs that 404, and a build there without a key here is
- * unreachable from every installer.
+ * The archive platforms published by the upstream release repository. Keep
+ * these aligned with its assets so installers only offer available downloads.
  */
 // No darwin-x64: Node single-executables are unsupported on x64 macOS (the
 // SEA docs list macOS as arm64 only) and the binary segfaults on start.

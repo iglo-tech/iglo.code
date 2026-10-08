@@ -70,9 +70,12 @@ scope prominent in AGENTS.md and review user and developer guidance.
 Desktop packaging can contain helpers or jobs also used by the server release.
 Move shared helpers into CLI tooling before deleting their desktop module; retain
 the standalone archives, npm packages, signing, resource monitor, and web build.
-The fork keeps these helpers in `scripts/lib/cli-stage.ts` and the platform jobs
-in `.github/workflows/release-cli.yml`. Reconcile upstream improvements to those
-paths when packaging changes; the pruning helper only rewrites known imports.
+The fork keeps packaging helpers in `scripts/lib/cli-stage.ts`. Reconcile upstream
+improvements there when packaging changes; the pruning helper only rewrites known imports.
+Preserve the fork's lightweight CI: `.github/workflows/ci.yml` is the only workflow,
+with one standard Ubuntu x64 job, branch-based cancellation, and a small smoke-test set.
+Remove other imported workflows, including releases, deployments, previews, bots,
+and Windows lanes. Packaging helpers remain available for manual use.
 Retain shared implementation code even if it includes desktop/mobile adapters or
 comments. Preserve remote access, mobile browsers, and users' device projects.
 

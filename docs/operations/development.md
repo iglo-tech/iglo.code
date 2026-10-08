@@ -132,16 +132,17 @@ vp lint <files>
 vp run --filter <package> typecheck
 ```
 
-CI owns the full suite; see
-[ci.yml](../../.github/workflows/ci.yml) for its current jobs.
-The [manual Windows lane](../../.github/workflows/windows-tests.yml) is available for focused
-Windows investigation while that suite is not a required gate.
+CI runs one Linux x64 job on pull requests, pushes to `main`, and manual dispatches.
+It checks formatting, lint, types, a small smoke-test set, and the web/server build.
+New runs cancel older queued and running checks for the same source repository and branch.
+Run focused tests for changed behavior locally; CI does not run the full suite.
+See [ci.yml](../../.github/workflows/ci.yml) for the current checks.
 
 ### Unused code
 
 `vp run knip:check` checks unused files and dependencies across the repo, then
 unused runtime exports in `apps/server`, `apps/web`, and every internal package under
-`packages/`. CI enforces both checks.
+`packages/`. Run this audit locally when needed.
 Exported types and Effect schemas are allowed without consumers. The schema preprocessor
 recognizes schema types, including aliases and schema classes; functions that create or decode
 schemas remain checked. Canonical Effect service construction APIs stay exported with an explicit
