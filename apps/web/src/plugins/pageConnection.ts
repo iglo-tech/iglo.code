@@ -5,7 +5,12 @@ export interface RetainedCatalog {
   readonly environmentId: EnvironmentId;
   readonly catalog: PluginCatalog;
 }
-export type PluginPageStatus = "connected" | "reconciling" | "disconnected";
+export type PluginPageStatus =
+  | "connected"
+  | "reconciling"
+  | "disconnected"
+  | "unsupported"
+  | "catalog-unavailable";
 
 /** A page may keep its own environment's last catalog while the connection reconciles. */
 export function pageCatalog(
@@ -18,7 +23,18 @@ export function pageCatalog(
   return retain && retained?.environmentId === environmentId ? retained.catalog : null;
 }
 
-/** Connected-but-unreconciled differs from offline; both hold mutations. */
-export function pageStatus(connected: boolean, current: PluginCatalog | null): PluginPageStatus {
-  return !connected ? "disconnected" : current === null ? "reconciling" : "connected";
+/**
+ * Connected-but-unreconciled differs from offline, from a server without the plugin host,
+ * and from a failed catalog request; all of them hold mutations.
+ */
+export function pageStatus(input: {
+  readonly connected: boolean;
+  readonly supported: boolean;
+  readonly catalogFailed: boolean;
+  readonly current: PluginCatalog | null;
+}): PluginPageStatus {
+  if (!input.connected) return "disconnected";
+  if (!input.supported) return "unsupported";
+  if (input.current !== null) return "connected";
+  return input.catalogFailed ? "catalog-unavailable" : "reconciling";
 }

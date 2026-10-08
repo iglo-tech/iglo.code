@@ -218,7 +218,12 @@ export async function unusedWorkflowId(
 ): Promise<string> {
   const page = await client.library({ projectId, query: base, limit: 50 });
   const used = new Set([
-    ...page.entries.flatMap((entry) => (entry.definitionId === null ? [] : [entry.definitionId])),
+    // Saving a new workflow writes `<id>.yaml`, so authored file names (including invalid
+    // files with no readable identity) are taken too.
+    ...page.entries.flatMap((entry) => [
+      ...(entry.definitionId === null ? [] : [entry.definitionId]),
+      ...(entry.packaged ? [] : [(entry.source.split("/").at(-1) ?? "").replace(/\.ya?ml$/, "")]),
+    ]),
     ...projectDrafts(store, projectId).flatMap(
       (draft) => readDraft(store, draft.key)?.definition.id ?? [],
     ),

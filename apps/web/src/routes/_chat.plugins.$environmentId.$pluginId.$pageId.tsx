@@ -14,7 +14,7 @@ function PluginPage() {
   const params = Route.useParams();
   const search = Route.useSearch();
   const environmentId = EnvironmentId.make(params.environmentId);
-  const { catalog, contributions, status } = usePluginContributions(
+  const { catalog, contributions, status, retryCatalog } = usePluginContributions(
     environmentId,
     search.pluginProjectId ?? null,
     search.pluginThreadId ?? null,
@@ -30,6 +30,7 @@ function PluginPage() {
       pluginId={params.pluginId}
       pageId={params.pageId}
       status={status}
+      onRetryCatalog={retryCatalog}
       electron={isElectron}
     />
   );

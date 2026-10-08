@@ -39,13 +39,14 @@ export const pluginConnectedAtom = Atom.family((environmentId: EnvironmentId) =>
     Option.isSome(get(environmentSession.preparedConnectionValueAtom(environmentId))),
   ),
 );
+export const pluginSupportedAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make((get) =>
+    supportsPlugins(get(environmentSession.initialConfigValueAtom(environmentId))),
+  ),
+);
 const models = createPluginAtoms(connectionAtomRuntime, {
   connected: pluginConnectedAtom,
-  supported: Atom.family((environmentId: EnvironmentId) =>
-    Atom.make((get) =>
-      supportsPlugins(get(environmentSession.initialConfigValueAtom(environmentId))),
-    ),
-  ),
+  supported: pluginSupportedAtom,
   catalog: (environmentId) =>
     followStreamInEnvironment(
       environmentId,

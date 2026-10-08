@@ -91,7 +91,11 @@ export class Host extends Context.Service<
       input: PluginLifecycleScope,
     ) => Effect.Effect<Extract<PluginLifecycleItem, { kind: "snapshot" }>, PluginError>;
     readonly providers: () => Effect.Effect<ReadonlyArray<PluginProvider>, PluginError>;
-    /** Rescans fresh by default (drops other providers' cwd snapshots); `fresh: false` revalidates the cached snapshot. */
+    /**
+     * Rescans fresh by default, which invalidates provider caches and drops other instances'
+     * snapshots for the cwd. `fresh: false` does neither; it may still rescan this instance's
+     * workspace snapshot when none is in progress.
+     */
     readonly skills: (input: {
       readonly projectId: ProjectId;
       readonly providerInstanceId: ProviderInstanceId;

@@ -736,6 +736,18 @@ it.live(
           next: { to: "done" },
         });
 
+        // A coalesced draft write still pending when the page is hidden (reload, tab close) is
+        // flushed then, since unmount effects never run on a reload.
+        const sourceDraft = (key: string) =>
+          key.endsWith(encodeURIComponent(`${projectId}:.t3code/workflows/release-notes.yaml`));
+        authoringTimings.draftDelayMs = 60_000;
+        yield* promise(() => type("wf-workflow-title", "Pending title"));
+        expect([...storage.values.keys()].some(sourceDraft)).toBe(false);
+        yield* promise(() => act(async () => void globalThis.dispatchEvent(new Event("pagehide"))));
+        const pending = [...storage.values].find(([key]) => sourceDraft(key));
+        expect(pending?.[1]).toContain("Pending title");
+        authoringTimings.draftDelayMs = 0;
+
         // A concurrent external edit conflicts; the draft is kept with compare and reload.
         yield* fs.writeFileString(
           `${first.directory}/release-notes.yaml`,
@@ -851,7 +863,9 @@ it.live(
         yield* promise(flush);
         yield* promise(() => tracked.settle("read"));
 
-        // A second clone gets an unused identity; leaving keeps it listed as a local draft.
+        // A second clone gets an unused identity, skipping names taken by files (even invalid
+        // ones); leaving keeps it listed as a local draft.
+        yield* fs.writeFileString(`${first.directory}/implementation-copy-2.yaml`, "nodes: [");
         yield* promise(() => click("Library"));
         yield* promise(flush);
         yield* promise(() => tracked.settle("library"));
@@ -859,7 +873,7 @@ it.live(
         yield* promise(() => tracked.settle("library"));
         yield* cloneImplementation();
         expect(control(pluginDesign.Input, "wf-workflow-id").props.value).toBe(
-          "implementation-copy-2",
+          "implementation-copy-3",
         );
         yield* promise(() => clickLeaving("Library"));
         expect(page()).toContain("Leave with unsaved workflow changes?");
@@ -872,7 +886,7 @@ it.live(
         yield* promise(() => click(`Open draft ${cloneTitle}`));
         yield* promise(flush);
         expect(control(pluginDesign.Input, "wf-workflow-id").props.value).toBe(
-          "implementation-copy-2",
+          "implementation-copy-3",
         );
         yield* promise(() => clickLeaving("Library"));
         yield* promise(() => press("Leave and keep draft"));

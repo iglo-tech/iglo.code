@@ -178,7 +178,22 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     pendingWrite.current = write;
     return debounce(write, authoringTimings.draftDelayMs);
   }, [props.drafts, storageKey, draft, base, dirty]);
-  useEffect(() => () => pendingWrite.current?.(), []);
+  useEffect(() => {
+    // A reload or tab close never unmounts; flush a pending write when the page is hidden.
+    const flush = () => pendingWrite.current?.();
+    const hidden = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    if (typeof globalThis.addEventListener === "function")
+      globalThis.addEventListener("pagehide", flush);
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", hidden);
+    return () => {
+      flush();
+      if (typeof globalThis.removeEventListener === "function")
+        globalThis.removeEventListener("pagehide", flush);
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden);
+    };
+  }, []);
   const forget = () => {
     pendingWrite.current = null;
     if (storageKey !== null) props.drafts.remove(storageKey);

@@ -1,9 +1,21 @@
 import type { PluginCatalog } from "@t3tools/contracts";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
+import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import type { bind } from "./contributions";
 import type { PluginPageStatus } from "./pageConnection";
+const statusText: Record<Exclude<PluginPageStatus, "connected">, string> = {
+  disconnected:
+    "Disconnected from this environment. Showing the last loaded state; changes wait until it reconnects.",
+  reconciling:
+    "Reconnecting to this environment. Showing the last loaded state; changes wait until it reconciles.",
+  unsupported:
+    "This environment does not support plugins. Showing the last loaded state; changes are unavailable.",
+  "catalog-unavailable":
+    "This environment's plugin catalog could not be loaded. Showing the last loaded state; changes wait until it loads.",
+};
+
 export function PluginPageContent({
   catalog,
   contributions,
@@ -11,6 +23,7 @@ export function PluginPageContent({
   pageId,
   electron = false,
   status = "connected",
+  onRetryCatalog,
 }: {
   readonly catalog: PluginCatalog | null;
   readonly contributions: ReadonlyArray<
@@ -20,6 +33,7 @@ export function PluginPageContent({
   readonly pageId: string;
   readonly electron?: boolean;
   readonly status?: PluginPageStatus;
+  readonly onRetryCatalog?: () => void;
 }) {
   const plugin = contributions.find((item) => item.manifest.id === pluginId);
   const page = plugin?.pages.find(
@@ -32,11 +46,17 @@ export function PluginPageContent({
         <span className="text-sm font-medium">{page?.title ?? "Plugin unavailable"}</span>
       </WorkspacePageHeader>
       {page === undefined || status === "connected" ? null : (
-        <p role="status" className="border-b border-border bg-warning/8 px-6 py-2 text-sm">
-          {status === "disconnected"
-            ? "Disconnected from this environment. Showing the last loaded state; changes wait until it reconnects."
-            : "Reconnecting to this environment. Showing the last loaded state; changes wait until it reconciles."}
-        </p>
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 border-b border-border bg-warning/8 px-6 py-2 text-sm"
+        >
+          <span>{statusText[status]}</span>
+          {status === "catalog-unavailable" && onRetryCatalog !== undefined ? (
+            <Button size="sm" variant="outline" onClick={onRetryCatalog}>
+              Retry
+            </Button>
+          ) : null}
+        </div>
       )}
       <main className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
         {page !== undefined && plugin !== undefined ? (

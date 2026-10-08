@@ -1,4 +1,4 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { EnvironmentId, PluginPageState, PluginTarget, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -7,7 +7,13 @@ import { useMemo, useState } from "react";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
 import { Button } from "../components/ui/button";
 import { useConnectedEnvironmentIds, useEnvironment } from "../state/environments";
-import { availableCatalogAtom, attentionAtom, pluginConnectedAtom } from "./runtime";
+import {
+  availableCatalogAtom,
+  attentionAtom,
+  catalogAtom,
+  pluginConnectedAtom,
+  pluginSupportedAtom,
+} from "./runtime";
 import { compiledWebPlugins } from "./compiled";
 import { createPluginWebContext } from "./context";
 import { pageCatalog, pageStatus, type RetainedCatalog } from "./pageConnection";
@@ -20,6 +26,9 @@ export function usePluginContributions(
 ) {
   const current = useAtomValue(availableCatalogAtom(environmentId));
   const connected = useAtomValue(pluginConnectedAtom(environmentId));
+  const supported = useAtomValue(pluginSupportedAtom(environmentId));
+  const catalogFailed = AsyncResult.isFailure(useAtomValue(catalogAtom(environmentId)));
+  const retryCatalog = useAtomRefresh(catalogAtom(environmentId));
   const environment = useEnvironment(environmentId);
   const navigate = useNavigate();
   // A page keeps its own environment's last catalog while the connection is unreconciled
@@ -37,7 +46,7 @@ export function usePluginContributions(
     current,
     page.retainWhileDisconnected ?? false,
   );
-  const status = pageStatus(connected, current);
+  const status = pageStatus({ connected, supported, catalogFailed, current });
   const connection: PluginWebContext["connection"] =
     status === "connected" ? "connected" : "disconnected";
   const label = environment?.label ?? environmentId;
@@ -67,7 +76,7 @@ export function usePluginContributions(
       }),
     [catalog, connection, environmentId, label, navigate, projectId, stateKey, threadId],
   );
-  return { catalog, contributions, connection, status };
+  return { catalog, contributions, connection, status, retryCatalog };
 }
 
 /** Links to pages this client or server does not contribute stay visible but unavailable. */
