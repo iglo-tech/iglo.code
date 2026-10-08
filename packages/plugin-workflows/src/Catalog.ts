@@ -48,9 +48,11 @@ type Scope = typeof ScopeInput.Type;
 export class Catalog extends Context.Service<
   Catalog,
   {
+    /** `fresh: false` (authoring feedback) reuses cached skill snapshots; starts rescan. */
     readonly validate: (
       scope: Scope,
       definition: Definition,
+      options?: { readonly fresh?: boolean },
     ) => Effect.Effect<CatalogEntry, PluginError>;
     readonly list: (input: Scope) => Effect.Effect<ReadonlyArray<CatalogEntry>, PluginError>;
     readonly library: (input: LibraryInput) => Effect.Effect<LibraryPage, PluginError>;
@@ -104,13 +106,16 @@ const make = Effect.gen(function* () {
     if (!project) return yield* error("catalog", "The project is unavailable.", "unavailable");
     return path.join(project.workspaceRoot, location);
   });
-  /** Provider and skill discovery shared by every definition validated in one request. */
-  const discovery = Effect.fnUntraced(function* (projectId: ProjectId) {
+  /**
+   * Provider and skill discovery shared by every definition validated in one request.
+   * Authoring reads cached workspace skill snapshots; publication and execution rescan fresh.
+   */
+  const discovery = Effect.fnUntraced(function* (projectId: ProjectId, fresh: boolean) {
     const providers = yield* Effect.cached(host.providers().pipe(Effect.result));
     const cache = new Map<ProviderInstanceId, Effect.Effect<SkillsResult>>();
     type SkillsResult = Effect.Success<ReturnType<typeof skillsOf>>;
     const skillsOf = (providerInstanceId: ProviderInstanceId) =>
-      host.skills({ projectId, providerInstanceId }).pipe(Effect.result);
+      host.skills({ projectId, providerInstanceId, fresh }).pipe(Effect.result);
     return {
       providers,
       skills: (instanceId: ProviderInstanceId) =>
@@ -128,6 +133,7 @@ const make = Effect.gen(function* () {
     scope: Scope,
     input: Definition,
     shared?: Discovery,
+    fresh = true,
   ) {
     yield* root(scope);
     const definition = yield* decode(input).pipe(
@@ -138,7 +144,7 @@ const make = Effect.gen(function* () {
     const problems: Problem[] = definitionDiagnostics(definition);
     if (new TextEncoder().encode(Yaml.stringify(definition)).byteLength > limits.definitionBytes)
       problems.push({ severity: "error", message: sizeReason });
-    const found = shared ?? (yield* discovery(scope.projectId));
+    const found = shared ?? (yield* discovery(scope.projectId, fresh));
     const discovered = yield* found.providers;
     const providers = discovered._tag === "Success" ? discovered.success : [];
     if (discovered._tag === "Failure")
@@ -312,11 +318,11 @@ const make = Effect.gen(function* () {
         }
       : validation;
   });
-  const list = (input: Scope) =>
+  const list = (input: Scope, fresh: boolean) =>
     protect(
       "catalog",
       Effect.gen(function* () {
-        const shared = yield* discovery(input.projectId);
+        const shared = yield* discovery(input.projectId, fresh);
         const entries: CatalogEntry[] = [];
         for (const entry of yield* scan(input)) {
           // The legacy catalog keeps its reasons-only shape; located problems use library/read.
@@ -344,17 +350,26 @@ const make = Effect.gen(function* () {
       "library",
       Effect.gen(function* () {
         const query = input.query?.trim().toLowerCase() ?? "";
-        const matching = (yield* scan(input)).filter(
-          (entry) =>
+        const scanned = yield* scan(input);
+        // Search the displayed (redacted) titles so hit counts cannot reveal protected text.
+        const titles =
+          query === ""
+            ? []
+            : yield* Display.displayTexts(
+                host,
+                scanned.map((entry) => entry.definition?.title ?? ""),
+              );
+        const matching = scanned.filter(
+          (entry, index) =>
             query === "" ||
-            [entry.source, entry.definition?.id ?? "", entry.definition?.title ?? ""].some((text) =>
+            [entry.source, entry.definition?.id ?? "", titles[index] ?? ""].some((text) =>
               text.toLowerCase().includes(query),
             ),
         );
         const offset = input.offset ?? 0;
         const limit = input.limit ?? 20;
         const page = matching.slice(offset, offset + limit);
-        const shared = yield* discovery(input.projectId);
+        const shared = yield* discovery(input.projectId, false);
         const entries: LibraryEntry[] = [];
         for (const entry of page) {
           const validation = yield* evaluate(input, entry, shared);
@@ -396,7 +411,7 @@ const make = Effect.gen(function* () {
     );
   /** Authoring view: protected text becomes placeholders; reasons are display-redacted. */
   const authoring = Effect.fnUntraced(function* (entry: Scanned, scope: Scope) {
-    const validation = yield* evaluate(scope, entry);
+    const validation = yield* evaluate(scope, entry, yield* discovery(scope.projectId, false));
     let text: string;
     let definition: Definition | null = null;
     let protectedValues = 0;
@@ -501,10 +516,17 @@ const make = Effect.gen(function* () {
         if (authored.length > 1) return yield* error("save", duplicateReason, "conflict");
         const source = authored[0]?.source ?? `${location}/${restored.id}.yaml`;
         const filename = path.join(directory, path.basename(source));
+        // A new workflow must not take over an existing identity or file; name the remedy.
+        if (input.expectedRevision === null && authored[0])
+          return yield* error(
+            "save",
+            `A workflow with ID ${restored.id} already exists in this project. Choose a different workflow ID.`,
+            "conflict",
+          );
         if (!authored[0] && (yield* fs.exists(filename)))
           return yield* error(
             "save",
-            "The destination already contains another or invalid workflow definition.",
+            `The file ${path.basename(source)} already exists in this project. Choose a different workflow ID.`,
             "conflict",
           );
         const previous = authored[0]?.definition;
@@ -595,7 +617,9 @@ const make = Effect.gen(function* () {
       "skills",
       Effect.gen(function* () {
         yield* root(input);
-        const found = yield* (yield* discovery(input.projectId)).skills(input.providerInstanceId);
+        const found = yield* (yield* discovery(input.projectId, false)).skills(
+          input.providerInstanceId,
+        );
         if (found._tag === "Failure") return yield* found.failure;
         return found.success.map((skill) => ({
           name: skill.name,
@@ -616,9 +640,12 @@ const make = Effect.gen(function* () {
   const displayEntry = (entry: CatalogEntry) =>
     Display.displayCatalog(host, [entry]).pipe(Effect.map((entries) => entries[0]!));
   return Catalog.of({
-    validate: (scope, definition) => validate(scope, definition).pipe(Effect.flatMap(displayEntry)),
+    validate: (scope, definition, options) =>
+      validate(scope, definition, undefined, options?.fresh ?? true).pipe(
+        Effect.flatMap(displayEntry),
+      ),
     list: (input) =>
-      list(input).pipe(
+      list(input, false).pipe(
         // Save and execution resolve identities from every source; only transport is bounded.
         Effect.map((entries) => entries.slice(0, 100 + examples.length)),
         Effect.flatMap((entries) => Display.displayCatalog(host, entries)),
@@ -631,7 +658,7 @@ const make = Effect.gen(function* () {
     skills,
     projects,
     resolve: (input, definitionId) =>
-      list(input).pipe(
+      list(input, true).pipe(
         Effect.map((entries) => entries.find((entry) => entry.definition?.id === definitionId)),
       ),
   });

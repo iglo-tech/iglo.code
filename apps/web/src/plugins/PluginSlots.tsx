@@ -1,12 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import type {
-  EnvironmentId,
-  PluginCatalog,
-  PluginPageState,
-  PluginTarget,
-  ProjectId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, PluginPageState, PluginTarget, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
 import { useMemo, useState } from "react";
@@ -16,6 +10,7 @@ import { useConnectedEnvironmentIds, useEnvironment } from "../state/environment
 import { availableCatalogAtom, attentionAtom, pluginConnectedAtom } from "./runtime";
 import { compiledWebPlugins } from "./compiled";
 import { createPluginWebContext } from "./context";
+import { pageCatalog, pageStatus, type RetainedCatalog } from "./pageConnection";
 
 export function usePluginContributions(
   environmentId: EnvironmentId,
@@ -27,14 +22,24 @@ export function usePluginContributions(
   const connected = useAtomValue(pluginConnectedAtom(environmentId));
   const environment = useEnvironment(environmentId);
   const navigate = useNavigate();
-  // A page keeps its last catalog while the connection is unreconciled so drafts and
-  // snapshots stay visible; plugins gate mutations on `connection`.
-  const [retained, setRetained] = useState<PluginCatalog | null>(null);
-  if (page.retainWhileDisconnected && current !== null && current !== retained)
-    setRetained(current);
-  const catalog = current ?? (page.retainWhileDisconnected ? retained : null);
+  // A page keeps its own environment's last catalog while the connection is unreconciled
+  // so drafts and snapshots stay visible; plugins gate mutations on `connection`.
+  const [retained, setRetained] = useState<RetainedCatalog | null>(null);
+  if (
+    page.retainWhileDisconnected &&
+    current !== null &&
+    (retained?.catalog !== current || retained.environmentId !== environmentId)
+  )
+    setRetained({ environmentId, catalog: current });
+  const catalog = pageCatalog(
+    retained,
+    environmentId,
+    current,
+    page.retainWhileDisconnected ?? false,
+  );
+  const status = pageStatus(connected, current);
   const connection: PluginWebContext["connection"] =
-    connected && current !== null ? "connected" : "disconnected";
+    status === "connected" ? "connected" : "disconnected";
   const label = environment?.label ?? environmentId;
   const stateKey = page.state === undefined ? "" : JSON.stringify(page.state);
   const contributions = useMemo(
@@ -62,7 +67,7 @@ export function usePluginContributions(
       }),
     [catalog, connection, environmentId, label, navigate, projectId, stateKey, threadId],
   );
-  return { catalog, contributions, connection };
+  return { catalog, contributions, connection, status };
 }
 
 /** Links to pages this client or server does not contribute stay visible but unavailable. */

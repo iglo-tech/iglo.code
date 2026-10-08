@@ -1,9 +1,23 @@
 import type { WebPlugin } from "@t3tools/plugin-host-contract/web";
+import { lazy } from "react";
 import { manifest, type WorkflowClient } from "../contracts.ts";
-import { EditorPageView } from "./Editor.tsx";
 
-export { authoringTimings } from "./common.tsx";
-import { LibraryPageView } from "./Library.tsx";
+export { authoringTimings } from "./timings.ts";
+
+// Pages load on first visit; the manifest and navigation stay in the shell bundle.
+let library: Promise<typeof import("./Library.tsx")> | undefined;
+let editor: Promise<typeof import("./Editor.tsx")> | undefined;
+const loadLibrary = () => (library ??= import("./Library.tsx"));
+const loadEditor = () => (editor ??= import("./Editor.tsx"));
+/** Load both page modules ahead of navigation (for example on hover, or in tests). */
+export const preloadWorkflowPages = () =>
+  Promise.all([loadLibrary(), loadEditor()]).then(() => undefined);
+const LibraryPageView = lazy(() =>
+  loadLibrary().then((module) => ({ default: module.LibraryPageView })),
+);
+const EditorPageView = lazy(() =>
+  loadEditor().then((module) => ({ default: module.EditorPageView })),
+);
 
 /** Workflow pages: one library and one editor, bound to the host's selected environment. */
 export const web: WebPlugin<WorkflowClient> = {

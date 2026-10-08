@@ -28,6 +28,20 @@ describe("plugin drafts", () => {
     expect(first.read("project:flow")).toBeNull();
   });
 
+  it("keeps drafts within a total size budget and lists the survivors", () => {
+    const storage = memory();
+    const store = createPluginDraftStore(storage, EnvironmentId.make("one"), "workflows");
+    const large = "x".repeat(PLUGIN_DRAFT_LIMITS.characters);
+    expect(store.write("first", large)).toBe(true);
+    expect(store.write("second", large)).toBe(true);
+    expect(store.keys()).toEqual(["first", "second"]);
+    // A third large draft evicts the oldest so the plugin stays within its budget.
+    expect(store.write("third", large)).toBe(true);
+    expect(store.keys()).toEqual(["second", "third"]);
+    const stored = [...storage.values.values()].reduce((sum, value) => sum + value.length, 0);
+    expect(stored).toBeLessThanOrEqual(PLUGIN_DRAFT_LIMITS.totalCharacters + 1_000);
+  });
+
   it("rejects oversized drafts and evicts the least recently written beyond the bound", () => {
     const storage = memory();
     const store = createPluginDraftStore(storage, EnvironmentId.make("one"), "workflows");

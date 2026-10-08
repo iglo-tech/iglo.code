@@ -91,9 +91,11 @@ export class Host extends Context.Service<
       input: PluginLifecycleScope,
     ) => Effect.Effect<Extract<PluginLifecycleItem, { kind: "snapshot" }>, PluginError>;
     readonly providers: () => Effect.Effect<ReadonlyArray<PluginProvider>, PluginError>;
+    /** Rescans fresh by default (drops other providers' cwd snapshots); `fresh: false` revalidates the cached snapshot. */
     readonly skills: (input: {
       readonly projectId: ProjectId;
       readonly providerInstanceId: ProviderInstanceId;
+      readonly fresh?: boolean;
     }) => Effect.Effect<ReadonlyArray<ServerProviderSkill>, PluginError>;
     readonly workspace: (
       projectId: ProjectId,

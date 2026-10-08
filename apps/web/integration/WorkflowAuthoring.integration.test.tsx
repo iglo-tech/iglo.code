@@ -14,7 +14,11 @@ import {
 import { Host, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
 import { plugin as workflowPlugin } from "@t3tools/plugin-workflows/server";
-import { authoringTimings, web as workflowsWeb } from "@t3tools/plugin-workflows/web";
+import {
+  authoringTimings,
+  preloadWorkflowPages,
+  web as workflowsWeb,
+} from "@t3tools/plugin-workflows/web";
 import {
   Definition,
   type WorkflowClient,
@@ -151,7 +155,7 @@ const sequence = (id: string, title: string) => ({
 });
 
 // External provider discovery is replayed; the plugin, catalog files, auth and RPC are real.
-const replay = { providersFail: false, skillsFail: false };
+const replay = { providersFail: false, skillsFail: false, projectsFail: false };
 const discoveryFailure = (operation: string) =>
   new PluginError({
     pluginId: "host",
@@ -168,6 +172,8 @@ const replayedWorkflows: ServerPlugin = {
         Host,
         Host.of({
           ...host,
+          projects: () =>
+            replay.projectsFail ? Effect.fail(discoveryFailure("projects")) : host.projects(),
           providers: () =>
             replay.providersFail
               ? Effect.fail(discoveryFailure("providers"))
@@ -280,13 +286,19 @@ it.live(
         vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
         // Requests coalesced while typing are issued immediately, so tests await each request.
         const timings = { ...authoringTimings };
-        Object.assign(authoringTimings, { searchDelayMs: 0, validationDelayMs: 0 });
+        Object.assign(authoringTimings, {
+          searchDelayMs: 0,
+          validationDelayMs: 0,
+          draftDelayMs: 0,
+        });
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
             Object.assign(authoringTimings, timings);
-            Object.assign(replay, { providersFail: false, skillsFail: false });
+            Object.assign(replay, { providersFail: false, skillsFail: false, projectsFail: false });
           }),
         );
+        // Lazy page modules resolve within act once loaded.
+        yield* Effect.promise(preloadWorkflowPages);
         const fs = yield* FileSystem.FileSystem;
         const environments = yield* Effect.forEach(
           ["Workstation", "Workstation (2)"],
@@ -462,7 +474,7 @@ it.live(
               contributions={[{ ...target.plugin, context }]}
               pluginId={pluginId}
               pageId={pageId}
-              connection={connection}
+              status={connection}
             />
           );
         }
@@ -501,6 +513,16 @@ it.live(
           root().find(
             (node) => node.type === type && (node.props.id === key || node.props.ariaLabel === key),
           );
+        // TanStack history consults blockers only when a document exists, checked on push.
+        const clickLeaving = async (label: string) => {
+          await act(async () => {
+            vi.stubGlobal("document", {});
+            buttons(label)[0]!.props.onClick();
+            vi.unstubAllGlobals();
+            vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+          });
+          await flush();
+        };
         const click = (label: string, index = 0) =>
           act(async () => buttons(label)[index]!.props.onClick());
         // Host-owned controls (the navigation guard) are plain rendered buttons.
@@ -639,6 +661,17 @@ it.live(
         expect(control(pluginDesign.Textarea, "wf-agent-2-instruction").props.value).toBe(
           "Review the notes",
         );
+        // A failed server check is reported with Retry instead of "checking" forever.
+        replay.projectsFail = true;
+        yield* promise(() => write("wf-agent-2-instruction", "Review the notes carefully"));
+        yield* promise(() => tracked.settleLatest("validate"));
+        expect(page()).toContain("Validation is unavailable:");
+        expect(page()).toContain("validation unavailable");
+        replay.projectsFail = false;
+        yield* promise(() => click("Retry validation"));
+        yield* promise(() => tracked.settleLatest("validate"));
+        expect(page()).not.toContain("Validation is unavailable");
+        expect(page()).toContain("No problems. Ready to save.");
 
         // Authorization: a read-only pairing cannot save until operate access is granted.
         expect(page()).toContain("not allowed to save");
@@ -797,10 +830,14 @@ it.live(
         yield* promise(() => type("Search workflows", "packaged:implementation"));
         yield* promise(() => tracked.settle("library"));
         expect(page()).toContain("Packaged · read-only");
-        yield* promise(() => click("Clone to edit"));
-        yield* promise(() => tracked.settle("read"));
-        yield* promise(flush);
-        yield* promise(() => tracked.settleLatest("validate"));
+        const cloneImplementation = function* () {
+          yield* promise(() => click("Clone to edit"));
+          yield* promise(() => tracked.settle("read"));
+          yield* promise(() => tracked.settle("library"));
+          yield* promise(flush);
+          yield* promise(() => tracked.settleLatest("validate"));
+        };
+        yield* cloneImplementation();
         expect(control(pluginDesign.Input, "wf-workflow-id").props.value).toBe(
           "implementation-copy",
         );
@@ -811,6 +848,87 @@ it.live(
             Yaml.parse(yield* fs.readFileString(`${first.directory}/implementation-copy.yaml`)),
           ).nodes.map((node) => node.kind),
         ).toEqual(["agent", "human", "end"]);
+        yield* promise(flush);
+        yield* promise(() => tracked.settle("read"));
+
+        // A second clone gets an unused identity; leaving keeps it listed as a local draft.
+        yield* promise(() => click("Library"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settle("library"));
+        yield* promise(() => type("Search workflows", "packaged:implementation"));
+        yield* promise(() => tracked.settle("library"));
+        yield* cloneImplementation();
+        expect(control(pluginDesign.Input, "wf-workflow-id").props.value).toBe(
+          "implementation-copy-2",
+        );
+        yield* promise(() => clickLeaving("Library"));
+        expect(page()).toContain("Leave with unsaved workflow changes?");
+        yield* promise(() => press("Leave and keep draft"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settle("library"));
+        expect(router.state.location.pathname).toContain("workflows.library");
+        expect(page()).toContain("Unsaved drafts on this device");
+        const cloneTitle = "Implementation and human review (copy)";
+        yield* promise(() => click(`Open draft ${cloneTitle}`));
+        yield* promise(flush);
+        expect(control(pluginDesign.Input, "wf-workflow-id").props.value).toBe(
+          "implementation-copy-2",
+        );
+        yield* promise(() => clickLeaving("Library"));
+        yield* promise(() => press("Leave and keep draft"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settle("library"));
+        yield* promise(() => click(`Discard draft ${cloneTitle}`));
+        expect(page()).not.toContain("Unsaved drafts on this device");
+        expect(
+          [...storage.values.keys()].filter((key) => key.includes(":workflows:entry:")),
+        ).toEqual([]);
+
+        // A link to a draft that is gone explains it instead of loading forever.
+        yield* promise(() =>
+          act(async () => {
+            await router.navigate({
+              to: "/plugins/$environmentId/$pluginId/$pageId",
+              params: {
+                environmentId: first.environmentId,
+                pluginId: "workflows",
+                pageId: "workflows.editor",
+              },
+              search: { pluginProjectId: projectId, pluginState: { draft: "new:gone:x" } },
+            });
+          }),
+        );
+        yield* promise(flush);
+        expect(page()).toContain("This draft is no longer on this device");
+
+        // Importing an existing identity names the conflict and lets the user pick another ID.
+        yield* promise(() => click("Open library"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settle("library"));
+        yield* promise(() => click("Import YAML"));
+        yield* promise(() =>
+          write("Workflow YAML to import", Yaml.stringify(sequence("w0", "W0 again"))),
+        );
+        yield* promise(() => click("Open as new draft"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settleLatest("validate"));
+        yield* promise(() => click("Save"));
+        yield* promise(() => tracked.settle("save"));
+        expect(page()).toContain(
+          "A workflow with ID w0 already exists in this project. Choose a different workflow ID.",
+        );
+        expect(buttons("Compare")).toHaveLength(0);
+        yield* promise(() => click("Change workflow ID"));
+        yield* promise(() => type("wf-workflow-id", "w0-imported"));
+        yield* promise(() => tracked.settleLatest("validate"));
+        yield* promise(() => click("Save"));
+        yield* promise(() => tracked.settle("save"));
+        expect(
+          decodeDefinition(
+            Yaml.parse(yield* fs.readFileString(`${first.directory}/w0-imported.yaml`)),
+          ).title,
+        ).toBe("W0 again");
+        expect(yield* fs.readFileString(`${first.directory}/w00.yaml`)).toBe(unrelated);
 
         // The similarly named second environment keeps its own catalog and receives no writes.
         yield* promise(() =>
