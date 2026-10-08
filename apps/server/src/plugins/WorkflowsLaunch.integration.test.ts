@@ -3,7 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as FileSystem from "effect/FileSystem";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
 import { Definition, Run } from "@t3tools/plugin-workflows/contracts";

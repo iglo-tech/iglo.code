@@ -15,7 +15,7 @@ import { plugin as workflowPlugin } from "@t3tools/plugin-workflows/server";
 import { plugin as fixturePlugin } from "@t3tools/plugin-fixture/server";
 import { Run as WorkflowRun } from "@t3tools/plugin-workflows/contracts";
 import * as Registry from "@t3tools/plugin-host-adapter/registry";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import type { ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";

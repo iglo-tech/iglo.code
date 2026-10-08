@@ -12,6 +12,7 @@ import {
   type PluginAttentionItem,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Clock from "effect/Clock";
@@ -22,7 +23,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import {
   Run,
   RunSummary,
@@ -141,6 +142,8 @@ const executionElapsed = (requests: PluginThreadState["requests"], from: number,
 
 const make = Effect.gen(function* () {
   const host = yield* Host;
+  const crypto = yield* Crypto.Crypto;
+  const hash = (value: unknown) => digest(value).pipe(Effect.provideService(Crypto.Crypto, crypto));
   const { sql } = yield* Storage;
   const schedules = yield* Schedules;
   const catalog = yield* Catalog.Catalog;
@@ -404,7 +407,7 @@ const make = Effect.gen(function* () {
                 ? `Call your native skill tool with name ${skill.name}.`
                 : `$${skill.name}`,
           path: skill.path,
-          fingerprint: file._tag === "Success" ? digest(file.success) : null,
+          fingerprint: file._tag === "Success" ? yield* hash(file.success) : null,
           limitation:
             file._tag === "Success"
               ? null
@@ -480,7 +483,8 @@ const make = Effect.gen(function* () {
       !current ||
       current.path !== attempt.skill.path ||
       (attempt.skill.fingerprint &&
-        (contents?._tag !== "Success" || digest(contents.success) !== attempt.skill.fingerprint))
+        (contents?._tag !== "Success" ||
+          (yield* hash(contents.success)) !== attempt.skill.fingerprint))
     )
       return yield* error(
         operation,
@@ -491,8 +495,8 @@ const make = Effect.gen(function* () {
   const start = Effect.fn("Workflows.start")(function* (requested: StartInput) {
     const input = yield* decodeStart(requested);
     yield* environment(input.environmentId);
-    const id = `workflow-${digest([input.environmentId, input.projectId, input.clientRequestId]).slice(0, 32)}`;
-    const requestDigest = digest(input);
+    const id = `workflow-${(yield* hash([input.environmentId, input.projectId, input.clientRequestId])).slice(0, 32)}`;
+    const requestDigest = yield* hash(input);
     const [previous] = yield* sql<{
       digest: string;
       result: string;
@@ -547,7 +551,7 @@ const make = Effect.gen(function* () {
           environmentId: host.environmentId,
           projectId: input.projectId,
           definition: input.definition,
-          digest: digest(input.definition),
+          digest: yield* hash(input.definition),
           skills,
           input: input.input,
           state: "running",
@@ -595,7 +599,7 @@ const make = Effect.gen(function* () {
     const input = yield* decodeReport(requested);
     if (new TextEncoder().encode(canonical(input)).byteLength > limits.reportBytes)
       return yield* error("report", "Report exceeds the 64 KiB protocol limit.");
-    const payloadDigest = digest(input);
+    const payloadDigest = yield* hash(input);
     const now = yield* Clock.currentTimeMillis;
     return yield* transaction(
       "report",
@@ -666,7 +670,7 @@ const make = Effect.gen(function* () {
   ) {
     yield* environment(input.environmentId);
     const id = `${input.runId}:command:${input.clientRequestId}`;
-    const requestDigest = digest([operation, input]);
+    const requestDigest = yield* hash([operation, input]);
     const now = yield* Clock.currentTimeMillis;
     return yield* transaction(
       operation,
@@ -1489,7 +1493,7 @@ const make = Effect.gen(function* () {
         for (const execution of active)
           yield* host.interrupt({
             ...target(run, current),
-            commandId: commandId(current, `interrupt-${digest(execution.id).slice(0, 16)}`),
+            commandId: commandId(current, `interrupt-${(yield* hash(execution.id)).slice(0, 16)}`),
             runId: execution.id,
           });
         const stopped = yield* host.inspect(target(run, current));
@@ -1503,7 +1507,7 @@ const make = Effect.gen(function* () {
       if (observed.workspace.type !== "exact-ref" || observed.workspacePath) return;
       const workspace = yield* host.prepareWorkspace({
         projectId: observed.projectId,
-        key: digest(observed.id).slice(0, 32),
+        key: (yield* hash(observed.id)).slice(0, 32),
         ref: observed.workspace.ref,
       });
       yield* transaction(
@@ -1643,7 +1647,7 @@ const make = Effect.gen(function* () {
       const workspace = review
         ? yield* host.prepareWorkspace({
             projectId: observed.projectId,
-            key: digest(attempt.id).slice(0, 32),
+            key: (yield* hash(attempt.id)).slice(0, 32),
             ref: review.head,
           })
         : { path: observed.workspacePath, branch: observed.branch, head: "" };
@@ -1884,10 +1888,10 @@ const make = Effect.gen(function* () {
     readonly definitionId: string;
     readonly input: StartInput["input"];
   }) {
-    const clientRequestId = `schedule:${digest(input.occurrenceId)}`;
-    const id = `workflow-${digest([host.environmentId, input.projectId, clientRequestId]).slice(0, 32)}`;
+    const clientRequestId = `schedule:${yield* hash(input.occurrenceId)}`;
+    const id = `workflow-${(yield* hash([host.environmentId, input.projectId, clientRequestId])).slice(0, 32)}`;
     // Receipts retained by older versions used the raw occurrence identity.
-    const legacyId = `workflow-${digest([host.environmentId, input.projectId, input.occurrenceId]).slice(0, 32)}`;
+    const legacyId = `workflow-${(yield* hash([host.environmentId, input.projectId, input.occurrenceId])).slice(0, 32)}`;
     const [previous] = yield* sql<{
       result: string;
     }>`SELECT result FROM workflow_commands WHERE id IN (${id}, ${legacyId})`;

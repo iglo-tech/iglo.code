@@ -98,9 +98,10 @@ export const make = (pluginId: string) =>
         ...(cause === undefined ? {} : { cause }),
       });
     yield* sql`CREATE TABLE IF NOT EXISTS host_commands (id TEXT PRIMARY KEY, request TEXT NOT NULL, intent TEXT NOT NULL, result TEXT)`;
-    yield* sql`CREATE TABLE IF NOT EXISTS host_cancelled_launches (id TEXT PRIMARY KEY)`;
+    // Owner cancellation is final; stopped preparation permits an explicit resume.
     yield* sql`CREATE TABLE IF NOT EXISTS host_canceled_commands (id TEXT PRIMARY KEY)`;
     yield* sql`CREATE INDEX IF NOT EXISTS host_commands_thread ON host_commands (json_extract(intent, '$.input.threadId'))`;
+    yield* sql`CREATE TABLE IF NOT EXISTS host_cancelled_launches (id TEXT PRIMARY KEY)`;
     // Pending intents written by older hosts must retain their original core receipt identity.
     const coreId = (intent: typeof Intent.Type) =>
       intent.coreCommandId ?? CommandId.make(`plugin:${pluginId}:${intent.input.commandId}`);

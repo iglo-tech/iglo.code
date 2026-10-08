@@ -2738,7 +2738,7 @@ describe("OpenCode2 adapter", () => {
             runtimeMode: policy(runtimeMode).runtimeMode,
           });
           const workflowThreadId = fixture.threadId;
-          const server = `t3-code-${workflowThreadId.replaceAll(/[^a-zA-Z0-9_-]/g, "_")}`;
+          const server = yield* t3McpServerName(workflowThreadId);
           const pluginRule = {
             action: `${server}_plugin_fixture_report`,
             resource: "*",
@@ -2780,8 +2780,13 @@ describe("OpenCode2 adapter", () => {
               ...opening,
               ...paths,
               out("session.create", {
+                id: null,
+                parentID: null,
+                title: null,
+                agent: null,
                 location: { directory: WORK },
                 model: { providerID: "opencode", id: "big-pickle" },
+                metadata: null,
                 permissions,
               }),
               replyData("session.create", sessionInfo({ permissions })),

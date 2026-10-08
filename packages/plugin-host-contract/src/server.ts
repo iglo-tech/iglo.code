@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import type * as FileSystem from "effect/FileSystem";
+import type * as Crypto from "effect/Crypto";
 import type * as Path from "effect/Path";
 import type * as Stream from "effect/Stream";
 import type * as SqlClient from "effect/sql/SqlClient";
@@ -238,6 +239,6 @@ export interface ServerPlugin {
   readonly acquire: Effect.Effect<
     PluginServices,
     PluginError,
-    Host | Storage | Schedules | Scope.Scope | FileSystem.FileSystem | Path.Path
+    Host | Storage | Schedules | Scope.Scope | FileSystem.FileSystem | Path.Path | Crypto.Crypto
   >;
 }

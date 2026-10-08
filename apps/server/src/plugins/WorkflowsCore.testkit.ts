@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Host, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { CommandId, ProjectId } from "@t3tools/contracts";
 import { plugin } from "@t3tools/plugin-workflows/server";

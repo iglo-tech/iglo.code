@@ -3,7 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import { CommandId, EventId, MessageId, ProviderInstanceId, RunId } from "@t3tools/contracts";
 import { Run, Definition } from "@t3tools/plugin-workflows/contracts";

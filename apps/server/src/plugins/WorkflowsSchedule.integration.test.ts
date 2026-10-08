@@ -11,7 +11,7 @@ import { plugin } from "@t3tools/plugin-workflows/server";
 import * as Tasks from "../scheduledTasks/ScheduledTaskService.ts";
 import { sequence } from "./Workflows.testkit.ts";
 import * as Registry from "@t3tools/plugin-host-adapter/registry";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as Projects from "../project/ProjectService.ts";
 import * as Startup from "../serverRuntimeStartup.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";

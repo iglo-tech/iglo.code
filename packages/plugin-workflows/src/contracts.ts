@@ -14,8 +14,8 @@ import {
   type PluginManifest,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Schema from "effect/Schema";
-import * as Rpc from "effect/unstable/rpc/Rpc";
-import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
+import * as Rpc from "effect/rpc/Rpc";
+import * as RpcGroup from "effect/rpc/RpcGroup";
 
 /** Protocol bounds apply at save, start and report acceptance. */
 export const limits = {

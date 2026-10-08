@@ -44,10 +44,10 @@ import {
   exceededDispatchModeLimit,
 } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
-import { latestUnheldRun, runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { delegatedTaskProgress } from "../../../apps/server/src/orchestration-v2/SubagentProjection.ts";
 import * as ProcessRunner from "../../../apps/server/src/processRunner.ts";
 import * as McpSessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
+import { latestUnheldRun, runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Json));
@@ -795,7 +795,7 @@ const make = Effect.gen(function* () {
             interactionMode:
               input.interactionMode === "plan" || limit?.interactionMode === "plan"
                 ? "plan"
-                : (input.interactionMode ?? limit?.interactionMode ?? "default"),
+                : "default",
             workspaceStrategy:
               input.workspace.type === "current"
                 ? { type: "root" }

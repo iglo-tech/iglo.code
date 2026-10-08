@@ -1,4 +1,5 @@
-import * as NodeCrypto from "node:crypto";
+import * as Crypto from "effect/Crypto";
+import * as Hex from "effect/encoding/Hex";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
@@ -36,5 +37,12 @@ export function canonical(value: unknown): string {
       .join(",")}}`;
   return encodeJson(value);
 }
-export const digest = (value: unknown) =>
-  NodeCrypto.createHash("sha256").update(canonical(value)).digest("hex");
+export const digest = Effect.fnUntraced(function* (value: unknown) {
+  const crypto = yield* Crypto.Crypto;
+  return yield* crypto.digest("SHA-256", new TextEncoder().encode(canonical(value))).pipe(
+    Effect.map(Hex.encode),
+    Effect.mapError((cause) =>
+      error("digest", "Could not compute workflow identity.", "service", cause),
+    ),
+  );
+});
