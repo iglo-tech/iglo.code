@@ -1,6 +1,8 @@
 @import "tailwindcss";
-/* Compiled plugin web modules live outside the app directory. */
-@source "../../../packages/plugin-*/src";
+/* Compiled plugin web modules live outside the app directory. Tailwind does not expand a
+   wildcard directory after "../", so each compiled plugin package is listed explicitly. */
+@source "../../../packages/plugin-fixture/src";
+@source "../../../packages/plugin-workflows/src";
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
