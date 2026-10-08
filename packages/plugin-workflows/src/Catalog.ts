@@ -48,7 +48,10 @@ type Scope = typeof ScopeInput.Type;
 export class Catalog extends Context.Service<
   Catalog,
   {
-    /** `fresh: false` (authoring feedback) reuses cached skill snapshots; starts rescan. */
+    /**
+     * `fresh: false` (authoring feedback) does not invalidate provider caches or drop other
+     * instances' skill snapshots; the default fresh check is used by publication and starts.
+     */
     readonly validate: (
       scope: Scope,
       definition: Definition,
@@ -108,7 +111,8 @@ const make = Effect.gen(function* () {
   });
   /**
    * Provider and skill discovery shared by every definition validated in one request.
-   * Authoring reads cached workspace skill snapshots; publication and execution rescan fresh.
+   * Authoring discovery does not invalidate caches or drop other instances' snapshots;
+   * publication and execution rescan fresh.
    */
   const discovery = Effect.fnUntraced(function* (projectId: ProjectId, fresh: boolean) {
     const providers = yield* Effect.cached(host.providers().pipe(Effect.result));

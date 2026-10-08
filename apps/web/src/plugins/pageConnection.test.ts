@@ -22,9 +22,13 @@ describe("plugin page connection", () => {
     expect(pageCatalog(retained, first, fresh, true)).toBe(fresh);
   });
 
-  it("distinguishes offline from connected-but-unreconciled", () => {
-    expect(pageStatus(false, null)).toBe("disconnected");
-    expect(pageStatus(true, null)).toBe("reconciling");
-    expect(pageStatus(true, catalog(EnvironmentId.make("first")))).toBe("connected");
+  it("labels offline, unsupported, failed-catalog and reconciling states apart", () => {
+    const current = catalog(EnvironmentId.make("first"));
+    const base = { connected: true, supported: true, catalogFailed: false, current: null };
+    expect(pageStatus({ ...base, connected: false })).toBe("disconnected");
+    expect(pageStatus({ ...base, supported: false })).toBe("unsupported");
+    expect(pageStatus({ ...base, catalogFailed: true })).toBe("catalog-unavailable");
+    expect(pageStatus(base)).toBe("reconciling");
+    expect(pageStatus({ ...base, current })).toBe("connected");
   });
 });

@@ -7,8 +7,17 @@ export { authoringTimings } from "./timings.ts";
 // Pages load on first visit; the manifest and navigation stay in the shell bundle.
 let library: Promise<typeof import("./Library.tsx")> | undefined;
 let editor: Promise<typeof import("./Editor.tsx")> | undefined;
-const loadLibrary = () => (library ??= import("./Library.tsx"));
-const loadEditor = () => (editor ??= import("./Editor.tsx"));
+// A failed chunk load is forgotten so the next attempt fetches it again.
+const loadLibrary = () =>
+  (library ??= import("./Library.tsx").catch((cause: unknown) => {
+    library = undefined;
+    throw cause;
+  }));
+const loadEditor = () =>
+  (editor ??= import("./Editor.tsx").catch((cause: unknown) => {
+    editor = undefined;
+    throw cause;
+  }));
 /** Load both page modules ahead of navigation (for example on hover, or in tests). */
 export const preloadWorkflowPages = () =>
   Promise.all([loadLibrary(), loadEditor()]).then(() => undefined);

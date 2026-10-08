@@ -55,6 +55,35 @@ describe("plugin drafts", () => {
   });
 });
 
+describe("plugin drafts under a browser quota", () => {
+  it("writes first and evicts only the oldest other drafts when the quota rejects", () => {
+    const base = memory();
+    const quota = 25;
+    const storage = {
+      ...base,
+      setItem: (key: string, value: string) => {
+        const used = [...base.values].reduce(
+          (sum, [item, stored]) => sum + (item === key ? 0 : stored.length),
+          0,
+        );
+        if (used + value.length > quota) throw new Error("QuotaExceededError");
+        base.setItem(key, value);
+      },
+    };
+    const store = createPluginDraftStore(storage, EnvironmentId.make("one"), "workflows");
+    expect(store.write("a", "aaaa")).toBe(true);
+    expect(store.write("b", "bbbb")).toBe(true);
+    // Too large even alone: nothing is evicted and existing drafts survive.
+    expect(store.write("huge", "x".repeat(quota + 1))).toBe(false);
+    expect([store.read("a"), store.read("b")]).toEqual(["aaaa", "bbbb"]);
+    // Fits only after evicting the oldest other draft.
+    expect(store.write("c", "c".repeat(10))).toBe(true);
+    expect(store.read("a")).toBeNull();
+    expect(store.read("b")).toBe("bbbb");
+    expect(store.read("c")).toBe("c".repeat(10));
+  });
+});
+
 describe("plugin page links", () => {
   it("keeps bounded page state and drops invalid state without losing the target", () => {
     expect(

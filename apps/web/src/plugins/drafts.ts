@@ -41,27 +41,49 @@ export function createPluginDraftStore(
       storage ? readIndex().filter((key) => storage.getItem(entryKey(key)) !== null) : [],
     write: (key, value) => {
       if (!storage || !valid(key) || value.length > PLUGIN_DRAFT_LIMITS.characters) return false;
-      const index = [...readIndex().filter((item) => item !== key), key];
-      const size = (item: string) =>
-        item === key ? value.length : (storage.getItem(entryKey(item))?.length ?? 0);
-      let total = index.reduce((sum, item) => sum + size(item), 0);
-      const evicted: string[] = [];
+      const others = readIndex().filter((item) => item !== key);
+      // Write first so a failure never costs other drafts; free space only when the
+      // browser quota rejects it, oldest first and never the draft being written.
+      const removed: Array<readonly [string, string]> = [];
+      for (;;) {
+        try {
+          storage.setItem(entryKey(key), value);
+          break;
+        } catch {
+          const oldest = others.shift();
+          if (oldest === undefined) {
+            // Even an empty budget cannot hold it: put the evicted drafts back.
+            for (const [item, stored] of removed) {
+              try {
+                storage.setItem(entryKey(item), stored);
+              } catch {
+                // Space they used is free again, so this only fails if storage changed.
+              }
+            }
+            return false;
+          }
+          const stored = storage.getItem(entryKey(oldest));
+          if (stored !== null) removed.push([oldest, stored]);
+          storage.removeItem(entryKey(oldest));
+        }
+      }
+      const size = (item: string) => storage.getItem(entryKey(item))?.length ?? 0;
+      let total = others.reduce((sum, item) => sum + size(item), value.length);
       while (
-        index.length > 1 &&
-        (index.length > PLUGIN_DRAFT_LIMITS.entries || total > PLUGIN_DRAFT_LIMITS.totalCharacters)
+        others.length > 0 &&
+        (others.length + 1 > PLUGIN_DRAFT_LIMITS.entries ||
+          total > PLUGIN_DRAFT_LIMITS.totalCharacters)
       ) {
-        const oldest = index.shift()!;
+        const oldest = others.shift()!;
         total -= size(oldest);
-        evicted.push(oldest);
+        storage.removeItem(entryKey(oldest));
       }
       try {
-        for (const item of evicted) storage.removeItem(entryKey(item));
-        storage.setItem(entryKey(key), value);
-        storage.setItem(indexKey, JSON.stringify(index));
-        return true;
+        storage.setItem(indexKey, JSON.stringify([...others, key]));
       } catch {
-        return false;
+        // The index is advisory; entries remain readable by key.
       }
+      return true;
     },
     remove: (key) => {
       if (!storage || !valid(key)) return;
