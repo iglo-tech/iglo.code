@@ -13,6 +13,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { FetchHttpClient, HttpClient } from "effect/http";
+import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
 import { cliArchiveFileName, cliArchivePlatformKey } from "@t3tools/shared/cliRelease";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { afterAll, afterEach, beforeAll, expect } from "vite-plus/test";
@@ -313,7 +314,7 @@ effectIt.layer(
         yield* Effect.promise(async () => {
           const first = start(home, mode);
           const ready = await first.next("ready");
-          expect(ready.bun).toBe("1.4.0");
+          expect(ready.bun).toBe(BUN_VERSION);
           expect(ready.dbValue).toBe("original history");
           expect(ready.stopMarker).toBe(false);
           await stop(first);
@@ -345,7 +346,7 @@ effectIt.layer(
           expect(previous.activeVersion).toBe("1.0.0");
           expect(previous.status).toBe("pending");
           const trial = await launcher.next("trial");
-          expect(trial.bun).toBe("1.4.0");
+          expect(trial.bun).toBe(BUN_VERSION);
           expect(trial.version).toBe("1.1.0");
           expect(trial.activeVersion).toBe("1.0.0");
           expect(trial.status).toBe("pending");
@@ -385,7 +386,7 @@ effectIt.layer(
           expect(failed.wal).toBe(true);
           expect(failed.backup).toBe(true);
           const restored = await launcher.next("rolled-back");
-          expect(restored.bun).toBe("1.4.0");
+          expect(restored.bun).toBe(BUN_VERSION);
           expect(restored.version).toBe("1.0.0");
           expect(restored.activeVersion).toBe("1.0.0");
           expect(restored.status).toBe("rolled-back");

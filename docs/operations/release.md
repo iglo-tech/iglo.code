@@ -1,132 +1,61 @@
-# Release Checklist
+# Manual builds and deployments
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
-This document covers the unified release workflow for stable and nightly web and CLI releases.
+This fork runs lightweight CI only. Tags and schedules do not publish releases, npm packages,
+web previews, or production deployments. Build and publish explicitly when needed.
 
-## What the workflow does
+## Build web and server
 
-- Workflow: `.github/workflows/release.yml`
-- Triggers:
-  - manual `workflow_dispatch` with `channel=stable`, the normal way to ship stable. Stable
-    and nightly dispatches must select `main`; preview may select any branch. The channel defaults
-    to preview so an omitted selection cannot publish a stable release.
-  - push tag matching `v*.*.*` for a stable release of an explicit commit
-  - scheduled nightly check every 30 minutes
-  - manual `workflow_dispatch` with `channel=nightly`
-  - manual `workflow_dispatch` with `channel=preview`, the maintainers' test train. It exercises the whole release flow (build, sign, notarize, smoke, publish) for a commit that end users must never receive, which is how an unmerged branch or a risky change gets a real release run before it lands. It builds the triggering commit with nightly's versioning under the `preview` prerelease identifier (`0.0.41-preview.<date>.<run>`) and publishes a GitHub prerelease plus the npm packages under the `preview` dist-tag. Preview is not on the schedule, no default npm dist-tag points at it, it is selected only by an explicit preview channel. The only ways onto it are downloading the release by hand, `bunx @iglo-tech/iglo-code@preview`, `T3CODE_CHANNEL=preview` for the install scripts, or `t3 update --channel preview` from a terminal; each prints a warning, and the CLI asks for confirmation when the running build is not itself a preview. The release itself is named as a maintainer test build and its body is a warning rather than generated notes: a changelog of unmerged branch history is not a changelog, and nightly and stable notes are unaffected because each series resolves its previous tag within its own channel. The hosted web app and Discord announcements are skipped. Keep it; it costs nothing when idle.
-- A manual stable release builds the commit of the latest published nightly, not `main` HEAD.
-  Nightly is the release candidate: verify the nightly, then promote it. Merges to `main` keep
-  landing while you verify and never leak into the stable build.
-  - The version defaults to the one the nightly previewed (`0.0.39-nightly.*` ships as `0.0.39`).
-    Pass the `version` input to override it, for example for a minor bump.
-  - The stable tag is created on the nightly's commit when the GitHub Release is published.
-  - Pushing a `vX.Y.Z` tag by hand still works and builds exactly the tagged commit. Use it when
-    the commit to ship is not the latest nightly, such as a cherry-picked fix on a release branch.
-- Runs lint, typecheck, and tests alongside artifact builds. Publishing waits for every check.
-- Reads the shared production T3 Connect relay URL and Clerk client configuration before packaging clients.
-- Builds the platform-independent JS (server bundle and web client) once in the `build_bundle` job and hands it to every platform job as the `js-bundle` artifact; the platform jobs only package it, so no runner rebuilds it.
-- Builds three CLI archives in parallel through `release-cli.yml`, each on hardware of its own architecture: macOS arm64 and Linux x64 and arm64.
-- Publishes one GitHub Release with all produced files.
-  - Stable tags with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
-  - Only plain stable `X.Y.Z` releases are marked as the repository's latest release.
-  - Nightly runs are always GitHub prereleases and never marked latest.
-  - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
-- Builds self-contained CLI archives for macOS arm64, Linux x64, and Linux arm64, and attaches them to the fork's GitHub Release with `SHA256SUMS`. Intel macOS and Windows are excluded from release selection.
-  - [build-cli-archive.ts](../../scripts/build-cli-archive.ts) packages the Bun-compiled server, web client, disk-backed native/SDK dependencies, and a pinned interpreter at `runtime/bun`. The interpreter runs arbitrary helper scripts; the compiled CLI handles application subcommands. Installed execution needs no system Node, npm, or Bun.
-  - [vite.config.ts](../../apps/server/vite.config.ts) bundles one coherent Effect module graph before Bun compiles it. Development checks, compilation, and the interpreter archive use `.bun-version` (1.4.0). Vite+ and pnpm remain contributor tooling.
-  - macOS executables and native addons are signed with the Developer ID certificate and notarized when Apple secrets are present, or signed ad hoc otherwise.
-  - Installation, pinned service releases, and updates use `iglo-tech/iglo.code`. Explicit release-origin overrides remain supported; missing fork artifacts fail without selecting an upstream release.
-  - [smoke-cli-archive.ts](../../scripts/smoke-cli-archive.ts) extracts outside the repository, removes system runtimes from PATH, then checks authenticated HTTP, pairing cookies, CORS, WebSocket upgrade, and state across restart. The [Bun compatibility workflow](../../.github/workflows/bun-runtime.yml) also runs the source launch and real web-client suite on each supported target.
-- Publishes the CLI to npm with OIDC trusted publishing from the same workflow file, as the same bytes the GitHub Release carries: `scripts/build-npm-platform-packages.ts` unpacks the three CLI archives into `@iglo-tech/iglo-code-<platform>-<arch>` packages (each with `os`/`cpu` set so npm installs only the matching one) and generates the `@iglo-tech/iglo-code` launcher package, which lists them as `optionalDependencies` and execs the installed executable. The generated `bin/t3.js` is a POSIX shell launcher, so launching an installed package needs no JavaScript interpreter. `bun apps/server/scripts/cli.ts publish` publishes the platform packages first and the launcher last, after a `--dry-run` pass over all of them so an auth or scope error fails before anything is live.
-  - stable releases publish npm dist-tag `latest`
-  - nightly releases publish npm dist-tag `nightly`
-  - preview releases publish npm dist-tag `preview`, which nothing resolves unless asked for by name
-  - one-time setup: the `@iglo-tech` npm scope (org) must exist, and `@iglo-tech/iglo-code` and each `@iglo-tech/iglo-code-<platform>-<arch>` package needs a trusted publisher registered for this workflow file (see below).
-- Builds the hosted web app on Vercel while the CLI jobs run, and makes it live only after a release is published:
-  - stable releases are aliased to the `latest` hosted app channel
-  - nightly releases are aliased to the `nightly` hosted app channel
-- Signing is optional and auto-detected per platform from secrets.
+Run focused checks for changed behavior as described in [development](./development.md#checks),
+then build the web client and server:
 
-## Required release credentials
+```sh
+vp i --frozen-lockfile
+vp run --filter t3 build
+```
 
-Stable releases require these GitHub Actions secrets in addition to the platform and deployment
-credentials documented below:
+The build puts the server bundle and bundled web client in `apps/server/dist`.
+Use the pinned Bun version in `.bun-version` for development, executable compilation, and
+archive packaging. Vite+ and pnpm remain contributor tooling.
 
-- `RELEASE_APP_ID`
-- `RELEASE_APP_PRIVATE_KEY`
+## Build a standalone archive
 
-The finalize job uses them to commit and push aligned package versions to `main` as the Release App.
-GitHub Release publication uses the repository-scoped workflow token so it has a rate-limit quota
-independent from the shared Release App installation.
+Build on the archive's target host: macOS arm64, Linux x64, or Linux arm64. For example,
+after the web/server build on Linux x64:
+
+```sh
+cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
+mkdir -p apps/server/dist/resource-monitor/linux-x64
+cp native/resource-monitor/target/release/t3-resource-monitor apps/server/dist/resource-monitor/linux-x64/
+bun apps/server/scripts/cli.ts build-exe --target linux-x64
+version=$(bun -p "require('./apps/server/package.json').version")
+bun scripts/build-cli-archive.ts --platform linux --arch x64 --version "$version" --output-dir /tmp/iglo-release
+bun scripts/smoke-cli-archive.ts --archive "/tmp/iglo-release/t3-$version-linux-x64.tar.gz" --expect-version "$version"
+```
+
+Use the matching platform and architecture for other targets. The archive carries the web client,
+native assets, disk-backed SDK dependencies, and a pinned interpreter at `runtime/bun` for helper
+scripts. Installed execution needs no system Node, npm, or Bun. Publish archives and `SHA256SUMS`
+to `iglo-tech/iglo.code`; installers and updates default to that fork and never fall back to upstream.
+An explicit `T3CODE_RELEASE_BASE_URL` can point at a mirror.
+
+Run the source/archive smoke and real-client checks locally on each target before publishing;
+see [development checks](./development.md#checks). npm packaging tools remain available in
+`scripts/` for manual use.
 
 ## T3 Connect relay deployment
 
-The relay is a shared control plane versioned separately from client releases. Stable and nightly
-client builds must point at the same relay so users see the same linked environments when switching
-release channels.
-
-`.github/workflows/deploy-relay.yml` deploys Alchemy stage `prod` on every push to `main`. The
-release workflow reads the relay URL and Clerk client configuration from the existing `production`
-GitHub Actions environment before building CLI or hosted web artifacts.
-
-Required repository variables shared by relay deployments:
-
-- `CLOUDFLARE_ACCOUNT_ID`
-- `PLANETSCALE_ORGANIZATION`
-- `AXIOM_ORG_ID`
-
-Required repository secrets shared by relay deployments:
-
-- `CLOUDFLARE_API_TOKEN`
-- `PLANETSCALE_API_TOKEN_ID`
-- `PLANETSCALE_API_TOKEN`
-- `AXIOM_TOKEN`
-
-Required `production` environment variables:
-
-- `RELAY_API_ZONE_NAME`
-- `RELAY_TUNNEL_ZONE_NAME`
-- `CLERK_PUBLISHABLE_KEY`
-- `CLERK_JWT_AUDIENCE`
-- `CLERK_JWT_TEMPLATE`
-- `CLERK_CLI_OAUTH_CLIENT_ID`
-- `APNS_ENVIRONMENT`
-- `APNS_TEAM_ID`
-- `APNS_KEY_ID`
-- `APNS_BUNDLE_ID`
-
-Optional `production` environment variables:
-
-- `RELAY_DOMAIN` when overriding the derived `relay.<RELAY_API_ZONE_NAME>` domain
-- `RELAY_TUNNEL_CLEANUP_MODE` with `off`, `dry-run`, or `enabled`. Missing and blank values use
-  `off`.
-- `RELAY_LEGACY_TUNNEL_CLEANUP_MODE` with the same values, for tunnels whose host never registered
-  recovery. Missing and blank values use `off`.
-
-Required `production` environment secrets:
-
-- `CLERK_SECRET_KEY`
-- `APNS_PRIVATE_KEY`
-
-After changing a variable or secret, run the **Deploy T3 Connect relay** workflow manually from
-`main` with **force** unchecked. Alchemy compares the values the Worker reads and redeploys it when
-one changed. Check **force** only to redeploy resources with no detected change: a forced run also
-replaces the Postgres runtime role and its password
-([alchemy-run/alchemy#1832](https://github.com/alchemy-run/alchemy/issues/1832)).
-
-The account-scoped repository credentials are consumed by Alchemy while provisioning relay stages; they
-are not bound into the relay Worker. The production deployment uses an Axiom personal access token,
-so `AXIOM_ORG_ID` must accompany `AXIOM_TOKEN`. The `prod` stage owns the retained PlanetScale
-database. Local personal stages provision isolated branches from it and are never deployed by CI.
-Production adopts the configured relay API and tunnel DNS zones as retained Cloudflare resources.
-Personal stages reference the production-owned zones.
-
-Developers deploy personal stages locally rather than through pull-request automation:
+Deploy relay stages locally using the credentials and configuration in the
+[relay guide](../../infra/relay/README.md). The relay is versioned separately from client builds.
 
 ```sh
 vp run --filter t3code-relay deploy -- --stage "$USER" --env-file .env.local
 ```
+
+Use a personal stage for development. Deploy the shared `prod` stage explicitly with its production
+configuration. Alchemy compares configured values and redeploys changed resources. A forced deploy
+also replaces the Postgres runtime role and password, so use it only when needed.
 
 ### Managed tunnel cleanup rollout
 
@@ -245,109 +174,15 @@ Legacy cleanup, on the same disposable stage:
     reachable at the same hostname.
 14. Remove `RELAY_LEGACY_TUNNEL_GRACE_MINUTES` from the disposable stage.
 
-## Marketing site deployment
-
-On nightly releases, the release workflow builds the same commit as a staged
-production deployment of the marketing site's Vercel project while the CLI
-jobs run, and promotes it with `vercel promote` after the release is published.
-Stable releases do not deploy the marketing site because they can promote an
-older nightly commit.
-
-The job looks up the `t3code-marketing` project using the existing `VERCEL_TOKEN`
-and `VERCEL_ORG_ID` secrets. It also respects the optional `VERCEL_TEAM_SLUG`
-variable. The Vercel project's root directory must be `apps/marketing`.
-Git deployments remain disabled in `apps/marketing/vercel.ts`.
-
-## Hosted web app release deployment
-
-The hosted app is intentionally not deployed by Vercel's Git integration. The
-web project disables automatic Git deployments in `apps/web/vercel.ts` via
-`git.deploymentEnabled: false`. `.github/workflows/release.yml` builds the web
-app with Vercel CLI as a staged production deployment (`--skip-domain`) while
-the CLI jobs run, and aliases the channel domains to it after the GitHub
-Release succeeds.
-
-Required GitHub Actions secrets:
-
-- `VERCEL_TOKEN`
-- `VERCEL_ORG_ID`
-- `VERCEL_PROJECT_ID`
-
-Optional GitHub Actions variables:
-
-- `VERCEL_TEAM_SLUG`: overrides the Vercel CLI scope when the team slug is preferred over the `VERCEL_ORG_ID` secret.
-- `T3CODE_WEB_ROUTER_URL`: defaults to `https://app.t3.codes`.
-- `T3CODE_WEB_LATEST_DOMAIN`: defaults to `latest.app.t3.codes`.
-- `T3CODE_WEB_NIGHTLY_DOMAIN`: defaults to `nightly.app.t3.codes`.
-
-Required Vercel domains:
-
-- `app.t3.codes`: the router domain users open, updated by stable releases.
-- `latest.app.t3.codes`: channel alias updated by stable releases.
-- `nightly.app.t3.codes`: channel alias updated by nightly releases.
-
-The router domain uses `apps/web/vercel.ts` routes. Users opt into a channel by
-visiting `/__t3code/channel?channel=latest` or
-`/__t3code/channel?channel=nightly`; the router stores the
-`t3code_web_channel` cookie and rewrites future requests on `app.t3.codes` to
-the matching channel alias.
-
-The release deploy job rewrites release package versions before upload so the
-hosted app's About panel renders the release version. Stable deploys alias the
-same deployment to both the `latest` channel and the router domain so the router
-rules stay current. Nightly deploys only alias the `nightly` channel. The job
-also passes `VITE_HOSTED_APP_CHANNEL=latest|nightly`, which renders the hosted
-update track selector in the About panel. Changing the selector navigates
-through `/__t3code/channel` on the router domain so the user's channel cookie is
-updated before redirecting to the hosted app root.
-
-One-time Vercel dashboard setup:
-
-1. Confirm the web project root directory remains `apps/web`.
-2. Add the three domains above to the web project.
-3. Disable automatic Git deployments in the dashboard if desired; the committed
-   `vercel.ts` setting is the source-of-truth, but disconnecting Git in the
-   dashboard is also safe.
-4. Run one stable release deployment, or manually alias the current stable
-   deployment, so `app.t3.codes` points at a deployment containing the router
-   rules in `apps/web/vercel.ts`. Future stable releases keep this alias current.
-
-## Nightly builds
-
-- Workflow: `.github/workflows/release.yml`
-- Triggers:
-  - scheduled check every 30 minutes
-  - manual `workflow_dispatch` with `channel=nightly`
-- Automatic nightlies require new commits and at least six hours since the last nightly was published, including manual nightlies.
-- Manual nightlies bypass the time and change checks. Nightly runs remain serialized. Scheduled runs wait for an active nightly to finish, then check the publication gap before building.
-- Runs the same quality gates and artifact matrix as the tagged release flow.
-- Publishes a GitHub prerelease only:
-  - current tag format: `vX.Y.Z-nightly.YYYYMMDD.<run_number>`
-  - `nightly-v...` is accepted only as a legacy previous-nightly tag
-  - release name includes the short commit SHA
-  - `make_latest` is always `false`
-- Uses the next stable patch version as the nightly base. For example, `0.0.17` produces nightlies on `0.0.18-nightly.*`.
-- Publishes the CLI npm packages (`@iglo-tech/iglo-code` and `@iglo-tech/iglo-code-<platform>-<arch>`) to the `nightly` npm dist-tag using the same nightly version.
-- Does not commit version bumps back to `main`.
-
 ## Server self-update release invariant
 
 Connected servers update to the client's exact version, not to an npm dist-tag. Every released
 hosted client version must therefore have a matching `@iglo-tech/iglo-code@<version>` package available on
 npm before users can receive that client.
 
-The workflow enforces this ordering:
-
-1. `publish_cli` publishes the exact release version to npm, on every channel.
-2. `release` depends on `publish_cli` before exposing CLI archives in GitHub Releases.
-3. `deploy_web` depends on `release` before moving the hosted channel to the new client.
-   `build_web` builds that client earlier with `vercel deploy --prod --skip-domain`, which
-   leaves the custom domains alone but moves the project's own `*.vercel.app` production
-   hostname. That hostname is behind Vercel SSO, so users only get the client through the
-   custom domains.
-
-Preserve these dependencies when changing the release graph. Publishing a client first would leave
-the **Update server** action targeting a package version that does not exist yet.
+When publishing manually, make the matching server package and CLI archives available before
+exposing the hosted client. Publishing a client first would leave the **Update server** action
+targeting a package version that does not exist yet.
 
 For a release smoke test, confirm `npm view @iglo-tech/iglo-code@<version> version` returns the expected version, then
 connect the new client to a server on the previous version and verify that the update action
@@ -356,85 +191,3 @@ remote update applies them and reconnects. A failed trial must restore the datab
 restart the previous server. If the installed launcher does not support the target protocol,
 verify that the update stops before restart and run `bunx @iglo-tech/iglo-code@<version> service update` once on the
 server machine. Also test the manual update guidance when those environments are available.
-
-## 0) npm OIDC trusted publishing setup (CLI)
-
-The workflow runs `bun scripts/build-npm-platform-packages.ts` on the downloaded CLI archives, then
-`bun apps/server/scripts/cli.ts publish --packages-dir npm-packages`, which runs `npm publish` on
-each `@iglo-tech/iglo-code-<platform>-<arch>.tgz` and finally on `iglo-code.tgz`, the launcher. The script publishes
-tarballs it built itself rather than directories: `npm publish <dir>` strips `node_modules/` from the
-tarball no matter what `files` says, and the executable loads its native addons from there. Four
-packages are published per release: `@iglo-tech/iglo-code`, `@iglo-tech/iglo-code-darwin-arm64`,
-`@iglo-tech/iglo-code-linux-arm64`, `@iglo-tech/iglo-code-linux-x64`.
-
-Checklist:
-
-1. Confirm the npm org owns package `@iglo-tech/iglo-code` and the `@iglo-tech` scope exists on npm (create the org if
-   it does not).
-2. For `@iglo-tech/iglo-code` and each `@iglo-tech/iglo-code-<platform>-<arch>` package, configure a Trusted Publisher in the
-   npm package settings (a package that has never been published needs a first publish or a
-   placeholder before the setting exists; the `--dry-run` step in `publish_cli` reports which
-   names are still rejected):
-   - Provider: GitHub Actions
-   - Repository: this repo
-   - Workflow file: `.github/workflows/release.yml`
-   - Environment (if used): match your npm trusted publishing config
-3. Ensure npm account and org policies allow trusted publishing for every package.
-4. Create release tag `vX.Y.Z` and push; workflow will:
-   - build and smoke-test the three CLI archives
-   - build the npm packages from those archives
-   - publish them with npm dist-tag `latest`
-5. Nightly runs publish with npm dist-tag `nightly`; preview runs with `preview`.
-
-## 1) Release validation and unsigned builds
-
-There is no dry-run tag path. Pushing any accepted non-nightly tag, including
-`v0.0.0-test.1`, classifies the run as the stable channel. It publishes `@iglo-tech/iglo-code` with npm dist-tag
-`latest`, creates a real GitHub Release, aliases the hosted app to `latest.app.t3.codes` and
-`app.t3.codes`, and can commit a version bump to `main` in the finalize job. Do not push a test tag
-to validate the workflow.
-
-The workflow has no non-publishing `workflow_dispatch` mode. Use normal CI or local quality gates to
-validate checks and builds without shipping. To exercise the complete release graph at lower stable
-risk, manually dispatch `channel=nightly`; this still publishes a real nightly npm package, GitHub
-prerelease, hosted nightly alias, and marketing site, but it does not update stable app aliases or
-commit a version bump to `main`. Only run it when a real nightly release is acceptable.
-
-Manual `channel=stable` is also a real stable-channel release. Omitting signing secrets only makes
-platform artifacts unsigned; it does not prevent publication.
-
-## 2) Apple signing + notarization setup (macOS)
-
-CLI archives use a Developer ID Application certificate when `CSC_LINK` and
-`CSC_KEY_PASSWORD` are configured; otherwise they are signed ad hoc. Export the
-certificate and private key as a `.p12`, store its base64 contents as `CSC_LINK`,
-and store its password as `CSC_KEY_PASSWORD`.
-
-For notarization, create an App Store Connect API key and configure
-`APPLE_API_KEY` (the raw `.p8` contents), `APPLE_API_KEY_ID`, and
-`APPLE_API_ISSUER`. The workflow writes the key to a temporary file, signs the
-executable and native addons, and notarizes the CLI archive.
-
-## 3) Ongoing release checklist
-
-1. Pick the latest nightly and verify it: run the smoke test above against its artifacts and
-   check the nightly channel for regressions.
-2. Dispatch the Release workflow with `channel=stable`. Leave `version` empty unless the version
-   should differ from the one the nightly previewed.
-3. Confirm the `Resolve release commit` notice names the nightly tag and commit you verified. If a
-   newer nightly published in between, the run builds that one instead.
-4. Verify workflow steps:
-   - preflight passes
-   - release quality checks pass
-   - `build_bundle` and all platform builds pass
-   - `publish_cli` publishes the exact release version before the release job
-   - release job uploads expected files
-5. Smoke test downloaded artifacts.
-
-## 4) Troubleshooting
-
-- macOS build unsigned when expected signed:
-  - Check the certificate and App Store Connect secrets are populated and non-empty.
-- Build fails with signing error:
-  - Retry with secrets removed to confirm unsigned path still works.
-  - Re-check certificate/profile names and tenant/client credentials.

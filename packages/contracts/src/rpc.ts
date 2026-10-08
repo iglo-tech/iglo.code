@@ -1,4 +1,5 @@
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
+import { CompiledPluginRpcGroup } from "./compiledPlugins.ts";
 import {
   ChatGptReconnectProfileInput,
   ChatGptReconnectProfile,
@@ -1920,4 +1921,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeArchivedShellRpc,
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
-).middleware(RpcScopeAuthorization);
+)
+  .merge(CompiledPluginRpcGroup)
+  .middleware(RpcScopeAuthorization);

@@ -3348,7 +3348,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input, options) {
-    const targetBranch = input.newRefName ?? input.refName;
+    let targetBranch = input.newRefName ?? input.refName;
     const sanitizedBranch = targetBranch.replace(/\//g, "-");
     const repoName = path.basename(input.cwd);
     let worktreePath = input.path;
@@ -3368,37 +3368,423 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }
       worktreePath = path.join(parentDir, repoName, sanitizedBranch);
     }
-    const args = input.newRefName
-      ? ["worktree", "add", "-b", input.newRefName, worktreePath, input.refName]
-      : ["worktree", "add", worktreePath, input.refName];
+    let createBranch = input.newRefName !== undefined;
+    let checkoutExists = false;
+    let ownedBaseCommit: string | undefined;
+    let pendingLegacyClaim: { ownerKey: string; baseKey: string; marker: string } | undefined;
+    if (options?.recordedWorktreePath !== undefined && options.ownerId !== undefined) {
+      // Git may have finished an owned branch rename before thread metadata committed.
+      // The registered checkout chooses the candidate; ownership and revision are
+      // still validated below before it can be reused.
+      const recordedPath = yield* fileSystem.realPath(options.recordedWorktreePath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: "GitVcsDriver.createWorktree.resume",
+              command: "git worktree list",
+              cwd: input.cwd,
+              detail: "Could not reconcile the recorded checkout path.",
+              cause,
+            }),
+        ),
+      );
+      const registered = parseWorktreeBranchPaths(
+        yield* runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
+          "worktree",
+          "list",
+          "--porcelain",
+          "-z",
+        ]),
+      );
+      for (const [branch, checkout] of registered) {
+        const actual = yield* fileSystem.realPath(checkout).pipe(Effect.orElseSucceed(() => null));
+        if (actual === recordedPath) {
+          targetBranch = branch;
+          break;
+        }
+      }
+    }
+    const branchExistsBeforeClaim =
+      options?.resume === true &&
+      input.newRefName !== undefined &&
+      (yield* branchExists(input.cwd, targetBranch));
+    if (
+      options?.recordedWorktreePath !== undefined &&
+      (!branchExistsBeforeClaim || options.ownerId === undefined)
+    ) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.createWorktree.resume",
+          cwd: input.cwd,
+          args: ["worktree", "list"],
+        }),
+        detail: "The recorded checkout no longer owns its branch.",
+      });
+    }
+    if (options?.ownerId !== undefined && input.newRefName !== undefined) {
+      const ownerMarker = `t3code-worktree:${Hex.encode(new TextEncoder().encode(options.ownerId))}`;
+      const ownerHash = yield* crypto
+        .digest("SHA-256", new TextEncoder().encode(options.ownerId))
+        .pipe(
+          Effect.map(Hex.encode),
+          Effect.mapError(
+            (cause) =>
+              new GitCommandError({
+                operation: "GitVcsDriver.createWorktree.ownership",
+                command: "crypto.digest SHA-256",
+                cwd: input.cwd,
+                detail: "Could not identify the worktree owner.",
+                cause,
+              }),
+          ),
+        );
+      const ownerRef = `refs/t3/worktree-owners/${ownerHash}`;
+      const ownerConfigKey = `branch.${targetBranch}.t3codeOwner`;
+      const baseConfigKey = `branch.${targetBranch}.t3codeBaseCommit`;
+      if (options.resume && branchExistsBeforeClaim) {
+        const configured = yield* executeGit(
+          "GitVcsDriver.createWorktree.ownership",
+          input.cwd,
+          ["config", "--local", "--get", ownerConfigKey],
+          { allowNonZeroExit: true },
+        );
+        const history = yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
+          "reflog",
+          "show",
+          "--format=%H %gs",
+          `refs/heads/${targetBranch}`,
+        ]);
+        const legacy =
+          options.allowLegacyClaim === true &&
+          options.recordedWorktreePath !== undefined &&
+          configured.exitCode === 1 &&
+          !history.includes("branch: Created from refs/t3/worktree-owners/") &&
+          !history.includes(" t3code-worktree:");
+        if (
+          !legacy &&
+          configured.stdout.trim() !== ownerMarker &&
+          (configured.exitCode !== 1 ||
+            !history
+              .split("\n")
+              .some(
+                (entry) =>
+                  entry.endsWith(` ${ownerMarker}`) ||
+                  entry.endsWith(` branch: Created from ${ownerRef}`),
+              ))
+        ) {
+          return yield* new GitCommandError({
+            ...gitCommandContext({
+              operation: "GitVcsDriver.createWorktree.ownership",
+              cwd: input.cwd,
+              args: ["reflog", "show"],
+            }),
+            detail: "The existing branch belongs to a different provisioning intent.",
+          });
+        }
+        // Upgrade older claims while their reflog proof is still available.
+        if (legacy)
+          pendingLegacyClaim = {
+            ownerKey: ownerConfigKey,
+            baseKey: baseConfigKey,
+            marker: ownerMarker,
+          };
+        else
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "config",
+            "--local",
+            ownerConfigKey,
+            ownerMarker,
+          ]);
+        const recordedBase = yield* readConfigValue(input.cwd, baseConfigKey);
+        ownedBaseCommit =
+          recordedBase ??
+          history
+            .split("\n")
+            .find(
+              (entry) =>
+                entry.endsWith(` ${ownerMarker}`) ||
+                entry.endsWith(` branch: Created from ${ownerRef}`) ||
+                (legacy && entry.includes(" branch: Created from ")),
+            )
+            ?.split(" ")[0];
+        if (ownedBaseCommit !== undefined && !legacy) {
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "config",
+            "--local",
+            baseConfigKey,
+            ownedBaseCommit,
+          ]);
+        }
+      } else {
+        const commit = (yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
+          "rev-parse",
+          "--verify",
+          `${input.refName}^{commit}`,
+        ])).trim();
+        const symbolicRef = (yield* runGitStdout(
+          "GitVcsDriver.createWorktree.ownership",
+          input.cwd,
+          ["rev-parse", "--symbolic-full-name", input.refName],
+        )).trim();
+        // A private alias puts the owner into Git's atomic branch-creation reflog
+        // while preserving Git's native upstream and rebase configuration.
+        yield* Effect.gen(function* () {
+          yield* runGit(
+            "GitVcsDriver.createWorktree.ownership",
+            input.cwd,
+            symbolicRef.startsWith("refs/")
+              ? ["symbolic-ref", ownerRef, symbolicRef]
+              : ["update-ref", "--no-deref", ownerRef, commit],
+          );
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "branch",
+            "--create-reflog",
+            ...(symbolicRef.startsWith("refs/") ? [] : ["--no-track"]),
+            targetBranch,
+            ownerRef,
+          ]);
+          // Branch configuration survives reflog expiry and Git removes it when
+          // deleting the branch, so a later branch with the same name has no claim.
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "config",
+            "--local",
+            ownerConfigKey,
+            ownerMarker,
+          ]);
+          // A symbolic source can advance during provisioning. Pin the commit
+          // Git actually used to create the owned branch.
+          const initialCommit = (yield* runGitStdout(
+            "GitVcsDriver.createWorktree.ownership",
+            input.cwd,
+            ["rev-parse", "--verify", `refs/heads/${targetBranch}^{commit}`],
+          )).trim();
+          yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+            "config",
+            "--local",
+            baseConfigKey,
+            initialCommit,
+          ]);
+          ownedBaseCommit = initialCommit;
+        }).pipe(
+          Effect.ensuring(
+            runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+              "update-ref",
+              "--no-deref",
+              "-d",
+              ownerRef,
+            ]).pipe(Effect.ignore),
+          ),
+        );
+      }
+      createBranch = false;
+    }
+    if (options?.resume && input.newRefName && branchExistsBeforeClaim) {
+      const branchCommit = (yield* runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
+        "rev-parse",
+        "--verify",
+        `refs/heads/${targetBranch}^{commit}`,
+      ])).trim();
+      const requestedCommit = (yield* runGitStdout(
+        "GitVcsDriver.createWorktree.resume",
+        input.cwd,
+        ["rev-parse", "--verify", `${ownedBaseCommit ?? input.refName}^{commit}`],
+      )).trim();
+      const registered = parseWorktreeBranchPaths(
+        yield* runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
+          "worktree",
+          "list",
+          "--porcelain",
+          "-z",
+        ]),
+      ).get(targetBranch);
+      const pathMatches =
+        registered === undefined ||
+        (yield* Effect.all([
+          fileSystem.realPath(registered),
+          fileSystem.realPath(worktreePath),
+          fileSystem.realPath(options.recordedWorktreePath ?? worktreePath),
+        ]).pipe(
+          Effect.map(([actual, expected, recorded]) => actual === expected && actual === recorded),
+          Effect.mapError(
+            (cause) =>
+              new GitCommandError({
+                ...gitCommandContext({
+                  operation: "GitVcsDriver.createWorktree.resume",
+                  cwd: input.cwd,
+                  args: ["worktree", "list"],
+                }),
+                detail: "Could not reconcile the recorded checkout path.",
+                cause,
+              }),
+          ),
+        ));
+      if (branchCommit !== requestedCommit || !pathMatches) {
+        return yield* new GitCommandError({
+          ...gitCommandContext({
+            operation: "GitVcsDriver.createWorktree.resume",
+            cwd: input.cwd,
+            args: ["worktree", "add"],
+          }),
+          detail: "The recorded worktree branch no longer matches its requested revision or path.",
+        });
+      }
+      checkoutExists = registered !== undefined;
+      if (options.recordedWorktreePath !== undefined && !checkoutExists) {
+        return yield* new GitCommandError({
+          ...gitCommandContext({
+            operation: "GitVcsDriver.createWorktree.resume",
+            cwd: input.cwd,
+            args: ["worktree", "list"],
+          }),
+          detail: "The recorded checkout is no longer registered with this repository.",
+        });
+      }
+      createBranch = false;
+      if (checkoutExists) {
+        const [repositoryDir, checkoutDir, checkoutHead, checkoutRef] = yield* Effect.all([
+          runGitStdout("GitVcsDriver.createWorktree.resume", input.cwd, [
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+          ]),
+          runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, [
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+          ]),
+          runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, ["rev-parse", "HEAD"]),
+          runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, [
+            "rev-parse",
+            "--symbolic-full-name",
+            "HEAD",
+          ]),
+        ]);
+        const sameRepository = yield* Effect.all([
+          fileSystem.realPath(repositoryDir.trim()),
+          fileSystem.realPath(checkoutDir.trim()),
+        ]).pipe(
+          Effect.map(([expected, actual]) => expected === actual),
+          Effect.mapError(
+            (cause) =>
+              new GitCommandError({
+                ...gitCommandContext({
+                  operation: "GitVcsDriver.createWorktree.resume",
+                  cwd: worktreePath,
+                  args: ["rev-parse", "--git-common-dir"],
+                }),
+                detail: "Could not reconcile the checkout repository.",
+                cause,
+              }),
+          ),
+        );
+        if (
+          !sameRepository ||
+          checkoutHead.trim() !== requestedCommit ||
+          checkoutRef.trim() !== `refs/heads/${targetBranch}`
+        ) {
+          return yield* new GitCommandError({
+            ...gitCommandContext({
+              operation: "GitVcsDriver.createWorktree.resume",
+              cwd: worktreePath,
+              args: ["rev-parse", "HEAD"],
+            }),
+            detail:
+              "The recorded checkout no longer matches its repository, branch, or requested revision.",
+          });
+        }
+        const unchanged = yield* executeGit(
+          "GitVcsDriver.createWorktree.resume",
+          worktreePath,
+          ["diff", "--quiet", "HEAD", "--"],
+          { allowNonZeroExit: true },
+        );
+        const lockPath = (yield* runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, [
+          "rev-parse",
+          "--git-path",
+          "locked",
+        ])).trim();
+        if (
+          (unchanged.exitCode !== 0 &&
+            !(options.recordedWorktreePath !== undefined && unchanged.exitCode === 1)) ||
+          (yield* fileSystem.exists(path.resolve(worktreePath, lockPath)).pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  ...gitCommandContext({
+                    operation: "GitVcsDriver.createWorktree.resume",
+                    cwd: worktreePath,
+                    args: ["rev-parse", "--git-path", "locked"],
+                  }),
+                  detail: "Could not inspect the checkout lock.",
+                  cause,
+                }),
+            ),
+          ))
+        ) {
+          return yield* new GitCommandError({
+            ...gitCommandContext({
+              operation: "GitVcsDriver.createWorktree.resume",
+              cwd: worktreePath,
+              args: ["diff", "--quiet", "HEAD"],
+            }),
+            detail:
+              "The recorded checkout is locked or has changed; it cannot be reconciled automatically.",
+          });
+        }
+      }
+    }
+    if (pendingLegacyClaim !== undefined && checkoutExists) {
+      // A legacy claim is written only after repository, branch, commit, path,
+      // and checkout checks pass. Foreign or replaced worktrees remain untouched.
+      yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+        "config",
+        "--local",
+        pendingLegacyClaim.ownerKey,
+        pendingLegacyClaim.marker,
+      ]);
+      yield* runGit("GitVcsDriver.createWorktree.ownership", input.cwd, [
+        "config",
+        "--local",
+        pendingLegacyClaim.baseKey,
+        ownedBaseCommit ??
+          (yield* runGitStdout("GitVcsDriver.createWorktree.resume", worktreePath, [
+            "rev-parse",
+            "HEAD",
+          ])).trim(),
+      ]);
+    }
+    const args = createBranch
+      ? ["worktree", "add", "-b", input.newRefName!, worktreePath, input.refName]
+      : ["worktree", "add", worktreePath, targetBranch];
     const progress = options?.progress;
     const onCheckoutProgress = progress?.onCheckoutProgress;
 
     const checkoutWorkers = (yield* readConfigValue(input.cwd, "checkout.workers")) ?? "0";
-    yield* executeGit(
-      "GitVcsDriver.createWorktree",
-      input.cwd,
-      ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
-      {
-        fallbackErrorDetail: "git worktree add failed",
-        timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-        ...(onCheckoutProgress
-          ? {
-              // Git only prints checkout progress when stderr is a tty or the
-              // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
-              env: { GIT_PROGRESS_DELAY: "0", LC_ALL: "C" },
-              progress: {
-                onStderrLine: (line) => {
-                  const parsed = parseGitCheckoutProgressLine(line);
-                  return parsed ? onCheckoutProgress(parsed) : Effect.void;
+    if (!checkoutExists)
+      yield* executeGit(
+        "GitVcsDriver.createWorktree",
+        input.cwd,
+        ["-c", `checkout.workers=${checkoutWorkers}`, ...args],
+        {
+          fallbackErrorDetail: "git worktree add failed",
+          timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+          ...(onCheckoutProgress
+            ? {
+                // Git only prints checkout progress when stderr is a tty or the
+                // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
+                env: { GIT_PROGRESS_DELAY: "0", LC_ALL: "C" },
+                progress: {
+                  onStderrLine: (line) => {
+                    const parsed = parseGitCheckoutProgressLine(line);
+                    return parsed ? onCheckoutProgress(parsed) : Effect.void;
+                  },
                 },
-              },
-            }
-          : {}),
-      },
-    );
+              }
+            : {}),
+        },
+      );
 
-    if (progress?.onWorktreeClaimed) {
+    if (!checkoutExists && progress?.onWorktreeClaimed) {
       yield* progress.onWorktreeClaimed(worktreePath);
     }
 
@@ -3483,7 +3869,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const baseBranch = parsedBaseRef?.branchName ?? input.baseRefName;
       yield* runGit("GitVcsDriver.createWorktree.configureBaseRef", input.cwd, [
         "config",
-        `branch.${input.newRefName}.gh-merge-base`,
+        `branch.${targetBranch}.gh-merge-base`,
         baseBranch,
       ]);
     }

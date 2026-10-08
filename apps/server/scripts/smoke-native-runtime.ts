@@ -7,6 +7,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
+import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 
@@ -22,7 +23,7 @@ NodeAssert.strict.ok(
 );
 NodeAssert.strict.equal(
   (await exec(process.execPath, ["-p", "process.versions.bun ?? ''"])).stdout.trim(),
-  "1.4.0",
+  BUN_VERSION,
 );
 const scratch = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "iglo-native-bun-smoke-"));
 try {
@@ -86,7 +87,7 @@ try {
   }
   NodeAssert.strict.equal(
     (await exec(bun, ["-p", "process.versions.bun ?? ''"], { cwd: root, env })).stdout.trim(),
-    "1.4.0",
+    BUN_VERSION,
   );
   const result = await exec(
     mode === "archive" ? fixture : bun,

@@ -53,6 +53,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import packageJson from "../../../package.json" with { type: "json" };
 import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { makePluginToolFixture } from "../../plugins/PluginHost.testkit.ts";
 import type { EventNdjsonLogger } from "../../provider/EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "../../provider/ProviderEventLoggers.ts";
 import * as IdAllocator from "../IdAllocator.ts";
@@ -1872,6 +1873,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     onEvent: (event: ProviderAdapterV2Event) => Effect.Effect<unknown> = () => Effect.void,
     onRequest: (method: string, params: unknown) => Effect.Effect<void> = () => Effect.void,
     readChildMetadata?: Parameters<typeof withCodexReplayChildMetadata>[2],
+    appThreadId?: ThreadId,
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -1925,7 +1927,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             }),
         },
       });
-      const threadId = ThreadId.make(`thread-${transcript.scenario}`);
+      const threadId = appThreadId ?? ThreadId.make(`thread-${transcript.scenario}`);
       const runtime = yield* adapter.openSession({
         threadId,
         providerSessionId: ProviderSessionId.make(`provider-session-${transcript.scenario}`),
@@ -1980,6 +1982,111 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         firstTerminal: Deferred.await(firstTerminal),
       };
     });
+
+  it.live(
+    "injects plugin reporting permission on new and resumed threads with refreshed credentials",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const scenario = "plugin-reporting";
+          const fixture = yield* makePluginToolFixture(
+            "codex",
+            ThreadId.make(`thread-${scenario}`),
+            { workflow: true },
+          );
+          const threadId = fixture.threadId;
+          const first = yield* fixture.issue;
+          const refreshed = yield* fixture.issue;
+          McpProviderSession.setMcpProviderSession(first);
+          const entries = codexReplayPreamble({
+            nativeThreadId: "native-plugin-reporting",
+            nativeTurnId: "unused",
+            prompt: "unused",
+          }).slice(0, 5);
+          entries[3] = {
+            type: "expect_outbound",
+            frame: {
+              id: 2,
+              method: "thread/start",
+              params: {
+                cwd: "/workspace",
+                model: "gpt-5.4",
+                config: {
+                  "tools.update_plan.enabled": true,
+                  mcp_servers: {
+                    "t3-code": {
+                      url: first.endpoint,
+                      http_headers: { Authorization: first.authorizationHeader },
+                      tools: {
+                        plugin_fixture_report: { approval_mode: "approve" },
+                        plugin_workflows_report: { approval_mode: "approve" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          };
+          entries.push({
+            type: "expect_outbound",
+            frame: {
+              id: 3,
+              method: "thread/resume",
+              params: {
+                threadId: "native-plugin-reporting",
+                excludeTurns: true,
+                cwd: "/workspace",
+                model: "gpt-5.4",
+                config: {
+                  "tools.update_plan.enabled": true,
+                  mcp_servers: {
+                    "t3-code": {
+                      url: refreshed.endpoint,
+                      http_headers: { Authorization: refreshed.authorizationHeader },
+                      tools: {
+                        plugin_fixture_report: { approval_mode: "approve" },
+                        plugin_workflows_report: { approval_mode: "approve" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+          entries.push({
+            type: "emit_inbound",
+            frame: {
+              id: 3,
+              result: { thread: { id: "native-plugin-reporting", updatedAt: 1782622450 } },
+            },
+          });
+          const harness = yield* makeCodexReplayHarness(
+            makeCodexReplayTranscript({ scenario, entries }),
+            undefined,
+            undefined,
+            undefined,
+            threadId,
+          );
+          yield* fixture.report(
+            { url: first.endpoint, headers: { Authorization: first.authorizationHeader } },
+            "first",
+          );
+          McpProviderSession.setMcpProviderSession(refreshed);
+          const resumed = yield* harness.runtime.resumeThread({
+            providerThread: harness.providerThread,
+            threadId,
+            modelSelection: CODEX_TEST_MODEL_SELECTION,
+            runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+          });
+          assert.equal(resumed.nativeThreadRef?.nativeId, "native-plugin-reporting");
+          yield* fixture.report(
+            { url: refreshed.endpoint, headers: { Authorization: refreshed.authorizationHeader } },
+            "resumed",
+          );
+        }),
+      ).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    { timeout: 30_000 },
+  );
 
   it.effect.each(["supported", "unsupported", "invalid"] as const)(
     "delivers native history with %s app-server protocol",

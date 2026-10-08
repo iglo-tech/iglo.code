@@ -25,6 +25,10 @@ const workspaceFiles = [
   "packages/tailscale/package.json",
   "packages/effect-acp/package.json",
   "packages/effect-codex-app-server/package.json",
+  "packages/plugin-fixture/package.json",
+  "packages/plugin-host-adapter/package.json",
+  "packages/plugin-host-contract/package.json",
+  "packages/plugin-workflows/package.json",
   "scripts/package.json",
 ] as const;
 
@@ -61,12 +65,6 @@ function assertPackageVersion(path: string, version: string): void {
 const tempRoot = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-release-smoke-"));
 
 try {
-  NodeChildProcess.execFileSync(
-    process.execPath,
-    ["test", NodePath.resolve(repoRoot, ".github/scripts/relay-state-output.test.cjs")],
-    { stdio: "inherit" },
-  );
-
   copyWorkspaceManifestFixture(tempRoot);
 
   NodeChildProcess.execFileSync(

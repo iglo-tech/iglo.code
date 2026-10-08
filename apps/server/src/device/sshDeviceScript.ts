@@ -145,9 +145,9 @@ async function install(name, version, entry) {
   }
 }
 (async () => {
-  const [requiredMajor, requiredMinor] = bunVersion.split('.').map(Number);
-  const [major, minor] = (process.versions.bun || '').split('.').map(Number);
-  if (!process.versions.bun || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(process.versions.bun) || major < requiredMajor || (major === requiredMajor && minor < requiredMinor)) throw Error('Bun ' + bunVersion + ' or newer is required on the device host. Install the supported version and expose ~/.bun/bin or bun on the non-interactive SSH PATH.');
+  const [requiredMajor, requiredMinor, requiredPatch] = bunVersion.split('.').map(Number);
+  const [major, minor, patch] = (process.versions.bun || '').split(/[.+-]/).map(Number);
+  if (!process.versions.bun || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(process.versions.bun) || major < requiredMajor || (major === requiredMajor && (minor < requiredMinor || (minor === requiredMinor && patch < requiredPatch)))) throw Error('Bun ' + bunVersion + ' or newer is required on the device host. Install the supported version and expose ~/.bun/bin or bun on the non-interactive SSH PATH.');
   const ios = process.platform === 'darwin' && run('xcrun', ['simctl', 'help']).status === 0;
   const android = run('adb', ['version']).status === 0;
   const platforms = [

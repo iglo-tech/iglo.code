@@ -5,12 +5,17 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-export const BUN_VERSION = "1.4.0";
+export const BUN_VERSION = "1.4.2";
 
 export const isSupportedBunVersion = (version: string | undefined): boolean => {
   if (version === undefined || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version)) return false;
-  const [major = 0, minor = 0] = version.split(".").map(Number);
-  return major > 1 || (major === 1 && minor >= 4);
+  const [major = 0, minor = 0, patch = 0] = version.split(/[.+-]/u).map(Number);
+  const [minimumMajor = 0, minimumMinor = 0, minimumPatch = 0] = BUN_VERSION.split(".").map(Number);
+  return (
+    major > minimumMajor ||
+    (major === minimumMajor &&
+      (minor > minimumMinor || (minor === minimumMinor && patch >= minimumPatch)))
+  );
 };
 
 import {

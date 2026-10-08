@@ -53,6 +53,10 @@
     "@effect/vitest": "catalog:",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@t3tools/contracts": "workspace:*",
+    "@t3tools/plugin-fixture": "workspace:*",
+    "@t3tools/plugin-host-adapter": "workspace:*",
+    "@t3tools/plugin-host-contract": "workspace:*",
+    "@t3tools/plugin-workflows": "workspace:*",
     "@t3tools/shared": "workspace:*",
     "@t3tools/ssh": "workspace:*",
     "@t3tools/tailscale": "workspace:*",
@@ -65,6 +69,6 @@
     "vite-plus": "catalog:"
   },
   "engines": {
-    "bun": ">=1.4.0"
+    "bun": ">=1.4.2"
   }
 }

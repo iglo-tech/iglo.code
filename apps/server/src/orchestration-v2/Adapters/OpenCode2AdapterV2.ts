@@ -54,6 +54,7 @@ import {
   type ProviderInstanceId,
   type RunId,
   type RuntimeRequestId,
+  ThreadId,
 } from "@t3tools/contracts";
 import type * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -467,15 +468,38 @@ export const t3McpServerName = Effect.fn("t3McpServerName")(function* (threadId:
 /**
  * The rules that keep T3's MCP servers to their own thread, after the mode's:
  * the last matching rule wins, so every thread's T3 server is denied and then
- * this thread's own is allowed again, in every mode. A subagent's session
- * inherits the thread's.
+ * this thread's own is allowed again. Supervised plugin mutations ask unless
+ * explicitly allowed. A subagent's session inherits the thread's.
  */
-const mcpRules = (mcpServerName: string | null): ReadonlyArray<Rule> =>
+const mcpRules = (
+  mcpServerName: string | null,
+  threadId: string | null,
+  policy: RulesPolicy,
+): ReadonlyArray<Rule> =>
   mcpServerName === null
     ? []
     : [
         { action: "t3-code-*", resource: "*", effect: "deny" },
         { action: `${mcpServerName}_*`, resource: "*", effect: "allow" },
+        ...(policy.runtimeMode === "full-access"
+          ? []
+          : [
+              {
+                action: `${mcpServerName}_plugin_*`,
+                resource: "*",
+                effect: "ask" as const,
+              },
+            ]),
+        ...(
+          (threadId === null
+            ? undefined
+            : McpProviderSession.readMcpProviderSession(ThreadId.make(threadId))
+          )?.readOnlyPluginTools ?? []
+        ).map((id) => ({
+          action: `${mcpServerName}_${id}`,
+          resource: "*",
+          effect: "allow" as const,
+        })),
       ];
 
 const sessionRules = (
@@ -483,6 +507,7 @@ const sessionRules = (
   paths: ReadonlyArray<Rule>,
   grants: ReadonlyArray<Rule>,
   mcpServerName: string | null,
+  threadId: string | null,
 ): ReadonlyArray<Rule> => [
   ...(policy.runtimeMode === "full-access"
     ? [rule("*", "allow")]
@@ -496,7 +521,7 @@ const sessionRules = (
   // are never denied: the free tier refuses sessions whose rules deny them.
   ...(policy.interactionMode === "plan" ? [rule("edit", "deny")] : []),
   ...paths,
-  ...mcpRules(mcpServerName),
+  ...mcpRules(mcpServerName, threadId, policy),
 ];
 
 const sameRules = (left: ReadonlyArray<Rule> | undefined, right: ReadonlyArray<Rule>) =>
@@ -2989,11 +3014,19 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         paths,
         policy.runtimeMode === "full-access" ? [] : thread.grants,
         appThreadId === null ? null : yield* mcpServerNameFor(appThreadId),
+        appThreadId,
       );
     });
 
     /** Writes the session's rules for `policy` when they differ from what it has. */
     const writeRules = Effect.fnUntraced(function* (state: ThreadState, policy: RulesPolicy) {
+      const threadId = state.providerThread.appThreadId;
+      const credential =
+        state.subagent === undefined && threadId !== null
+          ? McpProviderSession.readMcpProviderSession(threadId)
+          : undefined;
+      const owner = credential?.providerInstanceId === instanceId ? credential : undefined;
+      McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(owner);
       // A subagent's session may use its thread's T3 server, the root's.
       const rules = yield* rulesFor(state, policy, rootOf(state).providerThread.appThreadId);
       if (!sameRules(state.rules, rules)) {
@@ -3004,6 +3037,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         state.rules = rules;
       }
       state.policy = policy;
+      // Resume and compaction apply rules without the manager's startTurn hook.
+      McpProviderSession.updateMcpProviderSessionRuntimePolicy(owner, {
+        ...policy,
+        cwd: state.directory,
+      });
     });
 
     const register = (

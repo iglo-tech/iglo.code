@@ -168,6 +168,38 @@ export default defineConfig({
     },
     overrides: [
       {
+        files: ["packages/plugin-*/src/**"],
+        excludeFiles: ["packages/plugin-host-adapter/**", "packages/plugin-host-contract/**"],
+        rules: {
+          "eslint/no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                {
+                  group: [
+                    "**/apps/**",
+                    "**/client-runtime/**",
+                    "**/plugin-host-adapter/**",
+                    "**/contracts/**",
+                    "**/shared/**",
+                    "@t3tools/client-runtime",
+                    "@t3tools/client-runtime/**",
+                    "@t3tools/plugin-host-adapter",
+                    "@t3tools/plugin-host-adapter/**",
+                    "@t3tools/contracts",
+                    "@t3tools/contracts/**",
+                    "@t3tools/shared",
+                    "@t3tools/shared/**",
+                  ],
+                  message:
+                    "Plugins use @t3tools/plugin-host-contract and their own contracts. T3 implementation dependencies belong in the host adapter.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
         files: ["packages/client-runtime/src/state/**", "apps/web/src/**"],
         rules: { "t3code/no-rpc-permission-bypass": ["error", { allowRawClientAccess: false }] },
       },

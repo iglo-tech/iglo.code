@@ -499,6 +499,8 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         accentColor,
         enabled,
         snapshot: provider.snapshot,
+        commitWorkspaceSnapshot: provider.commitWorkspaceSnapshot,
+        invalidateCaches: provider.invalidateCaches,
         snapshotForCwd: (cwd) =>
           !enabled
             ? provider.snapshot.getSnapshot

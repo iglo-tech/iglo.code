@@ -5,6 +5,8 @@
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { makePluginToolFixture } from "../../plugins/PluginHost.testkit.ts";
 import {
   CheckpointId,
   EnvironmentId,
@@ -78,6 +80,10 @@ const durable = { durable: { aggregateID: SESSION, seq: 1, version: 1 } };
 const mcpRules = [
   { action: "t3-code-*", resource: "*", effect: "deny" },
   { action: "t3-code-thread_opencode2-adapter_*", resource: "*", effect: "allow" },
+];
+const supervisedMcpRules = [
+  ...mcpRules,
+  { action: "t3-code-thread_opencode2-adapter_plugin_*", resource: "*", effect: "ask" },
 ];
 const t3Rules = [{ action: "*", resource: "*", effect: "allow" }, ...mcpRules];
 const sessionInfo = (overrides: Record<string, unknown> = {}) => ({
@@ -182,7 +188,7 @@ const withInstructions = (
 
 const openCode2ReplayRuntimeWithInstructions = (
   entries: ReadonlyArray<ProviderReplayEntry>,
-  options?: { readonly external?: boolean },
+  options?: { readonly external?: boolean; readonly threadId?: ThreadId },
 ) => openCode2ReplayRuntime(withInstructions(entries), options);
 
 /** What every session sends when it opens: the event stream, then the model list. */
@@ -228,7 +234,7 @@ const turnInput = (
   runtimeMode: "full-access" | "approval-required" = "full-access",
 ) => ({
   appThread: {} as OrchestrationV2AppThread,
-  threadId,
+  threadId: thread.appThreadId ?? threadId,
   runId: RunId.make("run:opencode2-adapter"),
   runOrdinal: 1,
   providerTurnOrdinal: 1,
@@ -276,7 +282,7 @@ const supervisedRules = [
   { action: "edit", resource: "*", effect: "ask" },
   { action: "external_directory", resource: "*", effect: "ask" },
   ...buildPaths,
-  ...mcpRules,
+  ...supervisedMcpRules,
 ];
 
 // The first ask and question form the spike recorded (recordings/permission, question).
@@ -796,7 +802,7 @@ describe("OpenCode2 adapter", () => {
         // A subagent's session may use its thread's T3 MCP server.
         out("session.update", {
           sessionID: CHILD,
-          permissions: [...supervisedRules.slice(0, 3), ...mcpRules],
+          permissions: [...supervisedRules.slice(0, 3), ...supervisedMcpRules],
         }),
         reply("session.update", null),
         out("session.prompt", { sessionID: SESSION, text: "<any>" }),
@@ -1915,7 +1921,7 @@ describe("OpenCode2 adapter", () => {
               ...supervisedRules.slice(0, 3),
               { action: "shell", resource: "echo *", effect: "allow" },
               // A subagent's session may use its thread's T3 MCP server.
-              ...mcpRules,
+              ...supervisedMcpRules,
             ],
           }),
           reply("session.update", null),
@@ -2090,7 +2096,7 @@ describe("OpenCode2 adapter", () => {
         // The subagent gets them too before its execution runs anything.
         out("session.update", {
           sessionID: CHILD,
-          permissions: [...supervisedRules.slice(0, 3), ...mcpRules],
+          permissions: [...supervisedRules.slice(0, 3), ...supervisedMcpRules],
         }),
         reply("session.update", null),
         event("session.execution.started", { sessionID: CHILD }),
@@ -2720,6 +2726,121 @@ describe("OpenCode2 adapter", () => {
         assert.equal((yield* Fiber.join(terminal))?.status, "completed");
         yield* runtime.unloadThread!({ providerThread: thread });
       }).pipe(Effect.scoped),
+  );
+
+  it.live.each(["full-access", "approval-required"] as const)(
+    "injects plugin reporting permission on new and resumed managed sessions with refreshed credentials in %s",
+    (runtimeMode) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fixture = yield* makePluginToolFixture("opencode", threadId, {
+            workflow: true,
+            runtimeMode: policy(runtimeMode).runtimeMode,
+          });
+          const workflowThreadId = fixture.threadId;
+          const server = yield* t3McpServerName(workflowThreadId);
+          const pluginRule = {
+            action: `${server}_plugin_fixture_report`,
+            resource: "*",
+            effect: "allow",
+          };
+          const paths =
+            runtimeMode === "full-access"
+              ? []
+              : [out("agent.list", "<any>"), reply("agent.list", agentList)];
+          const permissions = [
+            ...(runtimeMode === "full-access" ? t3Rules : supervisedRules).map((rule) => ({
+              ...rule,
+              action: rule.action.replace("t3-code-thread_opencode2-adapter", server),
+            })),
+            pluginRule,
+            { action: `${server}_plugin_workflows_report`, resource: "*", effect: "allow" },
+          ];
+          const firstCredential = yield* fixture.issue;
+          const injection = (credential: McpProviderSession.McpProviderSessionConfig) => [
+            out("mcp.add", {
+              server,
+              "location[directory]": WORK,
+              config: {
+                type: "remote",
+                url: credential.endpoint,
+                headers: { Authorization: credential.authorizationHeader },
+                oauth: false,
+              },
+            }),
+            reply("mcp.add", null),
+            out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+            promptAccepted,
+            event("session.execution.succeeded", { sessionID: SESSION }),
+            out("mcp.remove", { server, "location[directory]": WORK }),
+            reply("mcp.remove", null),
+          ];
+          const first = yield* openCode2ReplayRuntimeWithInstructions(
+            [
+              ...opening,
+              ...paths,
+              out("session.create", {
+                id: null,
+                parentID: null,
+                title: null,
+                agent: null,
+                location: { directory: WORK },
+                model: { providerID: "opencode", id: "big-pickle" },
+                metadata: null,
+                permissions,
+              }),
+              replyData("session.create", sessionInfo({ permissions })),
+              ...injection(firstCredential),
+            ],
+            { threadId: workflowThreadId },
+          );
+          const created = yield* first.ensureThread({
+            threadId: workflowThreadId,
+            modelSelection: bigPickle,
+            runtimePolicy: policy(runtimeMode),
+          });
+          const initialTerminal = yield* terminalOf(first).pipe(Effect.forkScoped);
+          yield* first.startTurn(turnInput(created, bigPickle, runtimeMode));
+          assert.equal((yield* Fiber.join(initialTerminal))?.status, "completed");
+          yield* fixture.report(
+            {
+              url: firstCredential.endpoint,
+              headers: { Authorization: firstCredential.authorizationHeader },
+            },
+            "first",
+          );
+          const freshCredential = yield* fixture.issue;
+          assert.notEqual(firstCredential.authorizationHeader, freshCredential.authorizationHeader);
+          const second = yield* openCode2ReplayRuntimeWithInstructions(
+            [
+              ...opening,
+              out("session.get", { sessionID: SESSION }),
+              replyData("session.get", sessionInfo({ permissions })),
+              ...noOpenRequests,
+              ...paths,
+              ...injection(freshCredential),
+            ],
+            { threadId: workflowThreadId },
+          );
+          const resumedThread = yield* second.resumeThread({
+            providerThread: created,
+            threadId: workflowThreadId,
+            modelSelection: bigPickle,
+            runtimePolicy: policy(runtimeMode),
+          });
+          const resumedTerminal = yield* terminalOf(second).pipe(Effect.forkScoped);
+          yield* second.startTurn(turnInput(resumedThread, bigPickle, runtimeMode));
+          assert.equal((yield* Fiber.join(resumedTerminal))?.status, "completed");
+          yield* fixture.report(
+            {
+              url: freshCredential.endpoint,
+              headers: { Authorization: freshCredential.authorizationHeader },
+            },
+            "resumed",
+          );
+        }),
+      ).pipe(Effect.provide(NodeServices.layer)),
+    { timeout: 30_000 },
   );
 
   it.effect("registers a long thread id's MCP server under a name OpenCode accepts", () =>

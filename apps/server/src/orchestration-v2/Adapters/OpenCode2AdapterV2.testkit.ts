@@ -254,7 +254,7 @@ export const replayServer = (
   });
 
 /** The 2.x adapter over a replayed server. */
-const makeReplayAdapter = (
+export const makeReplayAdapter = (
   transcript: ProviderReplayTranscript,
   options?: {
     readonly external?: boolean;
@@ -300,7 +300,11 @@ function layerRegistry(
  */
 export const openCode2ReplayRuntime = (
   entries: ReadonlyArray<ProviderReplayEntry>,
-  options?: { readonly external?: boolean; readonly borrowers?: { current: number } },
+  options?: {
+    readonly external?: boolean;
+    readonly borrowers?: { current: number };
+    readonly threadId?: ThreadId;
+  },
 ) =>
   Effect.gen(function* () {
     const adapter = yield* makeReplayAdapter(
@@ -314,7 +318,7 @@ export const openCode2ReplayRuntime = (
       options,
     );
     return yield* adapter.openSession({
-      threadId: ThreadId.make("thread:opencode2-adapter"),
+      threadId: options?.threadId ?? ThreadId.make("thread:opencode2-adapter"),
       providerSessionId: ProviderSessionId.make("provider-session:opencode2-adapter"),
       modelSelection: {
         instanceId: ProviderInstanceId.make("opencode"),

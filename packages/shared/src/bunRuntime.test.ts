@@ -14,12 +14,30 @@ import {
   HostProcessIsExecutable,
   HostProcessPlatform,
 } from "./hostProcess.ts";
-import { resolveBunExecutable, resolveSelfInvocation, selfInvocationArgs } from "./bunRuntime.ts";
+import {
+  isSupportedBunVersion,
+  resolveBunExecutable,
+  resolveSelfInvocation,
+  selfInvocationArgs,
+} from "./bunRuntime.ts";
 import { symlinksSupported } from "./testing/symlinks.ts";
 
 const bunExecutable =
   process.env.T3_BUN_EXECUTABLE ??
   NodeChildProcess.execFileSync("which", ["bun"], { encoding: "utf8" }).trim();
+
+it.each([
+  ["1.4.0", false],
+  ["1.4.1", false],
+  ["1.4.2", true],
+  ["1.4.10", true],
+  ["1.5.0", true],
+  ["2.0.0", true],
+  ["1.4", false],
+  [undefined, false],
+] as const)("checks helper runtime version %s", (version, supported) => {
+  expect(isSupportedBunVersion(version)).toBe(supported);
+});
 
 describe("Self invocation", () => {
   it.effect("runs the entrypoint script with the current runtime", () =>

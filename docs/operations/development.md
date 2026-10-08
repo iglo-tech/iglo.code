@@ -2,7 +2,7 @@
 
 ## First checkout
 
-The application runs on Bun 1.4.0 or newer on macOS arm64, Linux x64, and Linux
+The application runs on Bun 1.4.2 or newer on macOS arm64, Linux x64, and Linux
 arm64. Development and packaging use the version pinned in `.bun-version`.
 The retained Vite+/pnpm contributor toolchain uses Node 24 independently of the
 application runtime. Install Bun and Vite+ (`vp`) before starting the server. Set up a coding agent
@@ -129,18 +129,23 @@ vp lint <files>
 vp run --filter <package> typecheck
 ```
 
-CI owns the full suite; see
-[ci.yml](../../.github/workflows/ci.yml) for its current jobs.
-The [Bun runtime lane](../../.github/workflows/bun-runtime.yml) exercises source
-and extracted archives on each supported target, including their real web clients.
-Run `bun scripts/smoke-cli-archive.ts --source` for the source transport/persistence
+CI runs one Linux x64 job on pull requests, pushes to `main`, and manual dispatches.
+It checks formatting, lint, types, a small smoke-test set, and the web/server build.
+New runs cancel older queued and running checks for the same source repository and branch.
+Run focused tests for changed behavior locally; CI does not run the full suite.
+See [ci.yml](../../.github/workflows/ci.yml) for the current checks.
+
+Run `bun scripts/smoke-cli-archive.ts --source` locally for the source transport/persistence
 check, or pass `--archive <path> --expect-version <version>` for an archive.
+Run `bun apps/server/scripts/web-client-regression.ts source` for the real development client,
+or pass `archive <path> <version>` for the shipped client. These checks use disposable environments;
+set `T3_WEB_REGRESSION_BROWSER` to the Chromium executable when testing the client.
 
 ### Unused code
 
 `vp run knip:check` checks unused files and dependencies across the repo, then
 unused runtime exports in `apps/server`, `apps/web`, and every internal package under
-`packages/`. CI enforces both checks.
+`packages/`. Run this audit locally when needed.
 Exported types and Effect schemas are allowed without consumers. The schema preprocessor
 recognizes schema types, including aliases and schema classes; functions that create or decode
 schemas remain checked. Canonical Effect service construction APIs stay exported with an explicit

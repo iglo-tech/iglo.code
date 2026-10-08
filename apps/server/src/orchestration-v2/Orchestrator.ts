@@ -190,6 +190,15 @@ export class OrchestratorSubagentThreadReadOnlyError extends Schema.TaggedError<
   }
 }
 
+export class OrchestratorWorkspacePreparationPendingError extends Schema.TaggedError<OrchestratorWorkspacePreparationPendingError>()(
+  "OrchestratorWorkspacePreparationPendingError",
+  { commandId: CommandId, threadId: ThreadId },
+) {
+  override get message(): string {
+    return "Workspace preparation has not released this thread. Retry workspace preparation before sending more instructions.";
+  }
+}
+
 /** The command's thread runs above the modes its sender may touch (see `DispatchModeLimit`). */
 export class OrchestratorThreadAboveModeLimitError extends Schema.TaggedError<OrchestratorThreadAboveModeLimitError>()(
   "OrchestratorThreadAboveModeLimitError",
@@ -247,6 +256,7 @@ export function canReplayCommandReceipt(
 }
 
 export const OrchestratorV2Error = Schema.Union([
+  OrchestratorWorkspacePreparationPendingError,
   OrchestratorDispatchError,
   OrchestratorCommandRejectedError,
   OrchestratorProjectionError,
@@ -4441,6 +4451,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
   ) =>
     Effect.gen(function* () {
+      // Held initial instructions create preparation; ordinary sends require its
+      // durable release. Check under the command lock, without retiring a retryable ID.
+      if (
+        command.dispatchMode.type !== "defer_start" &&
+        (yield* commandReceipts
+          .hasPendingWorkspacePreparation(command.threadId, command.commandId)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestratorDispatchError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  cause,
+                }),
+            ),
+          ))
+      )
+        return yield* new OrchestratorWorkspacePreparationPendingError({
+          commandId: command.commandId,
+          threadId: command.threadId,
+        });
+
       let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
       if (command.manualContinuationOfRunId !== undefined) {
         const source = projection.runs.find((run) => run.id === command.manualContinuationOfRunId);
@@ -4819,10 +4851,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const activeProviderThread = projection.providerThreads.find(
         (candidate) => candidate.id === projection.thread.activeProviderThreadId,
       );
-      const activeRun = projection.runs.find(isBlockingRun);
+      // Queue admission must respect the same blocks as queue promotion.
+      // A limited terminal run or a held queue has no active run to wait for.
+      const queueBlocker =
+        projection.runs.find(isBlockingRun) ??
+        (dispatchMode.type === "queue_after_active"
+          ? (usageLimitBlockedRun(
+              projection.runs,
+              projection.turnItems,
+              projection.providerSessions.find(
+                (session) => session.id === activeProviderThread?.providerSessionId,
+              )?.lastError ?? null,
+            ) ?? projection.runs.find((run) => run.status === "queued" && run.queueHeld === true))
+          : undefined);
       const pendingMergeBackTransfers = pendingMergeBackTransfersForThread(projection);
       const shouldQueue =
-        activeRun !== undefined &&
+        queueBlocker !== undefined &&
         (dispatchMode.type === "defer_start" ||
           dispatchMode.type === "start_immediately" ||
           dispatchMode.type === "queue_after_active");
@@ -4837,13 +4881,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const queueProviderThread =
           activeProviderThread ??
           projection.providerThreads.find(
-            (candidate) => candidate.id === activeRun.providerThreadId,
+            (candidate) => candidate.id === queueBlocker.providerThreadId,
           );
         if (queueProviderThread === undefined) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
-            cause: `Active run ${activeRun.id} has no provider thread for queued dispatch.`,
+            cause: `Blocking run ${queueBlocker.id} has no provider thread for queued dispatch.`,
           });
         }
         const now = yield* DateTime.now;
@@ -4897,7 +4941,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const attemptId = idAllocator.derive.runAttempt({ runId, attemptOrdinal: 1 });
         const rootNodeId = idAllocator.derive.rootNode({ runId });
         const checkpointScope =
-          activeRun.status === "preparing"
+          queueBlocker.status === "preparing"
             ? null
             : yield* runtimePolicy.resolve({ thread: projection.thread, modelSelection }).pipe(
                 Effect.flatMap((resolvedRuntimePolicy) =>
@@ -7762,7 +7806,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         candidate.input === WORKSPACE_PREPARATION_INPUT,
     );
     if (
-      run?.status !== (command.type === "prepared-run.retry" ? "failed" : "preparing") ||
+      run === undefined ||
+      (command.type === "prepared-run.retry"
+        ? run.status !== "failed" && run.status !== "interrupted" && run.status !== "cancelled"
+        : run.status !== "preparing") ||
       attempt === undefined ||
       rootNode === undefined ||
       providerThread === undefined ||
@@ -7998,7 +8045,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
 
   /**
-   * Returns a run whose workspace preparation failed to preparing. The failure
+   * Returns a run whose workspace preparation failed or was interrupted to preparing. The failure
    * item turns cancelled so clients stop offering the retry; ThreadLaunchService
    * runs the recorded preparation again once this commits.
    */
@@ -8022,14 +8069,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         state === null ||
         state.run.workspacePreparation === undefined ||
-        failureItem === undefined ||
+        (state.run.status === "failed"
+          ? failureItem === undefined
+          : state.rootNode.checkpointScopeId !== null) ||
         projection.thread.archivedAt !== null ||
         projection.thread.deletedAt !== null
       ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Run ${command.runId} has no failed workspace preparation to retry.`,
+          cause: `Run ${command.runId} has no unreleased failed, interrupted or cancelled workspace preparation to retry.`,
         });
       }
       if (projection.runs.some((run) => run.id !== state.run.id && isBlockingRun(run))) {
@@ -8048,11 +8097,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         providerInstanceId: state.run.providerInstanceId,
         occurredAt: now,
       };
-      yield* emitEvent({
-        ...scope,
-        type: "turn-item.updated",
-        payload: { ...failureItem, status: "cancelled", updatedAt: now },
-      });
+      if (failureItem !== undefined) {
+        yield* emitEvent({
+          ...scope,
+          type: "turn-item.updated",
+          payload: { ...failureItem, status: "cancelled", updatedAt: now },
+        });
+      }
       yield* emitEvent({
         ...scope,
         type: "turn-item.updated",
@@ -10491,7 +10542,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         Effect.gen(function* () {
           // Refused like the check above: nothing recorded, so the same command
           // can go through once the thread's user lowers it again.
-          if (cause._tag === "OrchestratorThreadAboveModeLimitError") return yield* cause;
+          if (
+            cause._tag === "OrchestratorThreadAboveModeLimitError" ||
+            cause._tag === "OrchestratorWorkspacePreparationPendingError"
+          )
+            return yield* cause;
           const rejectedAt = yield* DateTime.now;
           const receipt = yield* eventSink
             .commitRejectedCommand({

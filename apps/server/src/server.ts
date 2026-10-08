@@ -58,6 +58,7 @@ import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceR
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
+import * as McpToolPolicy from "./mcp/McpToolPolicy.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
@@ -72,6 +73,8 @@ import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
+import * as CompiledPlugins from "./plugins/compiled.ts";
+import * as PluginCommandReceipts from "./orchestration-v2/CommandReceiptStore.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import * as ServerSettings from "./serverSettings.ts";
@@ -524,6 +527,10 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 );
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
+  CompiledPlugins.layer.pipe(
+    Layer.provide(layerPullRequestService),
+    Layer.provide(PluginCommandReceipts.layerFromApplicationReceipts),
+  ),
   AgentAwarenessRelay.layer,
   // Asks T3 Connect to deliver webhooks it held while this environment was offline.
   HeldHooksWaker.layer,
@@ -697,7 +704,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(ServerHttp.layerHttpCompression),
 );
 
-const layerMakeServer = Layer.unwrap(
+export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
     const activation = yield* Deferred.make<void>();
@@ -1069,9 +1076,10 @@ const layerMakeServer = Layer.unwrap(
       // PR reads, Git operations, and WebSocket discovery share one process limiter.
       Layer.provide(VcsProcess.layer),
       Layer.provideMerge(layerPlatformServices),
+      Layer.provide(McpToolPolicy.layer),
     );
   }),
 );
 
 // The CLI supplies configuration.
-export const runServer = Layer.launch(layerMakeServer);
+export const runServer = Layer.launch(layer);

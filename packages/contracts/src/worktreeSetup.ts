@@ -50,6 +50,7 @@ export type WorktreeSetupPhase = typeof WorktreeSetupPhase.Type;
 
 export const WorktreeSetupSnapshot = Schema.Struct({
   threadId: ThreadId,
+  preparationId: Schema.optional(Schema.String),
   phase: WorktreeSetupPhase,
   startedAt: IsoDateTime,
   endedAt: Schema.NullOr(IsoDateTime),

@@ -1,5 +1,5 @@
 /**
- * Naming shared by the release workflow, the runtime installers, and
+ * Naming shared by the CLI packaging tools, the runtime installers, and
  * install scripts for the per-platform CLI archives attached to GitHub
  * Releases. Every consumer derives the same file names from a version and a
  * platform key, so a rename here is a release-breaking change.

@@ -75,14 +75,17 @@ it("runs the remote stdin bootstrap using Bun in its default install location", 
   }
 });
 
-it("rejects an unsupported remote Bun runtime with actionable SSH guidance", async () => {
-  await expect(
-    exec(bunPath, [
-      "-e",
-      `Object.defineProperty(process.versions, 'bun', { value: '1.3.14' });\n${remoteDeviceScript("unsupported", "probe")}`,
-    ]),
-  ).rejects.toThrow("Bun 1.4.0 or newer is required on the device host");
-});
+it.each(["1.3.14", "1.4.0", "1.4.1"])(
+  "rejects remote Bun %s with actionable SSH guidance",
+  async (version) => {
+    await expect(
+      exec(bunPath, [
+        "-e",
+        `Object.defineProperty(process.versions, 'bun', { value: '${version}' });\n${remoteDeviceScript("unsupported", "probe")}`,
+      ]),
+    ).rejects.toThrow("Bun 1.4.2 or newer is required on the device host");
+  },
+);
 
 describe("remote helper lifecycle", () => {
   it.effect("reuses its own healthy helpers and stops only its own runtime", () =>
