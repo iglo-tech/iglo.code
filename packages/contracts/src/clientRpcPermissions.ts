@@ -16,6 +16,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   "plugins.fixture.schedule": AuthOrchestrationOperateScope,
   // Endpoint checks exist to configure exports, so they need the same grant as saving them.
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,
+  "plugins.workflows.save": AuthOrchestrationOperateScope,
+  "plugins.workflows.replace": AuthOrchestrationOperateScope,
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsUpdate]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsComment]: AuthSourceControlWriteScope,

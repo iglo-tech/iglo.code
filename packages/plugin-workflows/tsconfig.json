@@ -1,5 +1,25 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "types": ["node"] },
+  "compilerOptions": {
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        // Severities deep-merge with tsconfig.base.json; the web module is ordinary browser code.
+        "overrides": [
+          {
+            "include": ["**/web/*.tsx", "**/web/*.ts"],
+            "options": {
+              "diagnosticSeverity": {
+                "globalDate": "off",
+                "globalTimers": "off"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
   "include": ["src"]
 }

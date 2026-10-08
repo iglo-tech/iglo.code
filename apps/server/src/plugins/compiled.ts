@@ -6,6 +6,11 @@ import {
   Run as WorkflowRun,
   RunSummary,
   CatalogEntry,
+  AuthoringEntry,
+  LibraryPage,
+  Capabilities,
+  Skill,
+  ProjectSummary,
 } from "@t3tools/plugin-workflows/contracts";
 import { Host, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
@@ -119,7 +124,19 @@ export const handlers = (registry: Registry.PluginRegistry["Service"]) => ({
   [workflowRpcs.validate._tag]: (input: typeof workflowRpcs.validate.payloadSchema.Type) =>
     request(registry, workflowRpcs.validate._tag, input, CatalogEntry),
   [workflowRpcs.save._tag]: (input: typeof workflowRpcs.save.payloadSchema.Type) =>
-    request(registry, workflowRpcs.save._tag, input, CatalogEntry),
+    request(registry, workflowRpcs.save._tag, input, AuthoringEntry),
+  [workflowRpcs.library._tag]: (input: typeof workflowRpcs.library.payloadSchema.Type) =>
+    request(registry, workflowRpcs.library._tag, input, LibraryPage),
+  [workflowRpcs.read._tag]: (input: typeof workflowRpcs.read.payloadSchema.Type) =>
+    request(registry, workflowRpcs.read._tag, input, AuthoringEntry),
+  [workflowRpcs.replace._tag]: (input: typeof workflowRpcs.replace.payloadSchema.Type) =>
+    request(registry, workflowRpcs.replace._tag, input, AuthoringEntry),
+  [workflowRpcs.capabilities._tag]: (input: typeof workflowRpcs.capabilities.payloadSchema.Type) =>
+    request(registry, workflowRpcs.capabilities._tag, input, Capabilities),
+  [workflowRpcs.skills._tag]: (input: typeof workflowRpcs.skills.payloadSchema.Type) =>
+    request(registry, workflowRpcs.skills._tag, input, Schema.Array(Skill)),
+  [workflowRpcs.projects._tag]: (input: typeof workflowRpcs.projects.payloadSchema.Type) =>
+    request(registry, workflowRpcs.projects._tag, input, Schema.Array(ProjectSummary)),
   [workflowRpcs.start._tag]: (input: typeof workflowRpcs.start.payloadSchema.Type) =>
     request(registry, workflowRpcs.start._tag, input, WorkflowRun),
   [workflowRpcs.get._tag]: (input: typeof workflowRpcs.get.payloadSchema.Type) =>

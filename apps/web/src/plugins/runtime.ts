@@ -16,6 +16,10 @@ import {
   createEnvironmentRpcCommand,
   followStreamInEnvironment,
 } from "@t3tools/client-runtime/state/runtime";
+import type { EnvironmentSupervisor } from "@t3tools/client-runtime/connection";
+import type { EnvironmentAuthorizationError } from "@t3tools/contracts";
+import type { EnvironmentRpcUnavailableError } from "@t3tools/client-runtime/rpc";
+import type { RpcClientError } from "effect/rpc/RpcClientError";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -30,12 +34,13 @@ import { environmentSession } from "../state/session";
 
 export const supportsPlugins = (config: ServerConfig | null) =>
   config?.environment.capabilities.pluginHost === 1;
-const models = createPluginAtoms(connectionAtomRuntime, {
-  connected: Atom.family((environmentId: EnvironmentId) =>
-    Atom.make((get) =>
-      Option.isSome(get(environmentSession.preparedConnectionValueAtom(environmentId))),
-    ),
+export const pluginConnectedAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make((get) =>
+    Option.isSome(get(environmentSession.preparedConnectionValueAtom(environmentId))),
   ),
+);
+const models = createPluginAtoms(connectionAtomRuntime, {
+  connected: pluginConnectedAtom,
   supported: Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get) =>
       supportsPlugins(get(environmentSession.initialConfigValueAtom(environmentId))),
@@ -56,11 +61,22 @@ export const catalogAtom = models.catalog;
 export const availableCatalogAtom = models.availableCatalog;
 export const attentionAtom = models.attention;
 
-const authorize = (environmentId: EnvironmentId, method: string) =>
+const unavailable = (pluginId: string, message: string) =>
+  new PluginError({ pluginId, operation: "client", code: "unavailable", message });
+/** Verify the selected environment still publishes this plugin API before calling it. */
+export const authorizePluginApi = (
+  plugin: { readonly id: string; readonly displayName: string },
+  environmentId: EnvironmentId,
+  method: string,
+): Effect.Effect<
+  void,
+  PluginError | EnvironmentAuthorizationError | EnvironmentRpcUnavailableError | RpcClientError,
+  EnvironmentSupervisor.EnvironmentSupervisor
+> =>
   Effect.gen(function* () {
     if (!supportsPlugins(yield* getInitialServerConfig()))
       return yield* new PluginError({
-        pluginId: "fixture",
+        pluginId: plugin.id,
         operation: "client",
         code: "unsupported",
         message: "This environment does not support this plugin interface.",
@@ -69,41 +85,26 @@ const authorize = (environmentId: EnvironmentId, method: string) =>
     if (
       catalog.environmentId !== environmentId ||
       !catalog.plugins.some(
-        (plugin) =>
-          plugin.manifest.id === "fixture" &&
-          plugin.manifest.hostVersion === 1 &&
-          plugin.manifest.server.api.includes(method) &&
-          plugin.status === "available",
+        (item) =>
+          item.manifest.id === plugin.id &&
+          item.manifest.hostVersion === 1 &&
+          item.manifest.server.api.includes(method) &&
+          item.status === "available",
       )
     )
-      return yield* new PluginError({
-        pluginId: "fixture",
-        operation: "client",
-        code: "unavailable",
-        message: "Reports is unavailable in this environment.",
-      });
+      return yield* unavailable(
+        plugin.id,
+        `${plugin.displayName} is unavailable in this environment.`,
+      );
   }).pipe(
     Effect.catchTags({
-      ConnectionBlockedError: (cause) =>
-        Effect.fail(
-          new PluginError({
-            pluginId: "fixture",
-            operation: "client",
-            code: "unavailable",
-            message: cause.message,
-          }),
-        ),
-      ConnectionTransientError: (cause) =>
-        Effect.fail(
-          new PluginError({
-            pluginId: "fixture",
-            operation: "client",
-            code: "unavailable",
-            message: cause.message,
-          }),
-        ),
+      ConnectionBlockedError: (cause) => Effect.fail(unavailable(plugin.id, cause.message)),
+      ConnectionTransientError: (cause) => Effect.fail(unavailable(plugin.id, cause.message)),
     }),
   );
+const fixture = { id: "fixture", displayName: "Reports" };
+const authorize = (environmentId: EnvironmentId, method: string) =>
+  authorizePluginApi(fixture, environmentId, method);
 const list = createEnvironmentCommand(connectionAtomRuntime, {
   label: "plugins.fixture.list",
   execute: (input: ListInput) =>

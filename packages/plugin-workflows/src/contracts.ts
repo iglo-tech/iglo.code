@@ -11,6 +11,8 @@ import {
   PluginPullRequestRef,
   PluginLaunchInput,
   PluginScheduleInput,
+  PluginProviderModel,
+  ProviderInstanceId,
   type PluginManifest,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Schema from "effect/Schema";
@@ -384,13 +386,147 @@ export const RunListInput = Schema.Struct({
   projectId: ProjectId,
   before: Schema.optional(Schema.String),
 });
+/**
+ * A located validation result. `control` names the inspector control that repairs it,
+ * relative to the node (for example `instruction`, `next` or `report.fields.0`).
+ */
+export const Problem = Schema.Struct({
+  severity: Schema.Literals(["error", "warning"]),
+  message: Schema.String,
+  nodeId: Schema.optional(Schema.String),
+  control: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+});
+export type Problem = typeof Problem.Type;
 export const CatalogEntry = Schema.Struct({
   source: Schema.String,
   definition: Schema.NullOr(Definition),
   runnable: Schema.Boolean,
+  /** Blocking reasons, preserved verbatim from the parser and validators. */
   reasons: Schema.Array(Schema.String),
+  problems: Schema.optional(Schema.Array(Problem)),
 });
 export type CatalogEntry = typeof CatalogEntry.Type;
+const sourceText = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256));
+/** SHA-256 of a catalog source's content; repairs and protected values are bound to it. */
+const fingerprint = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
+export const LibraryInput = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  query: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
+  offset: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
+});
+export type LibraryInput = typeof LibraryInput.Type;
+export const LibraryEntry = Schema.Struct({
+  source: Schema.String,
+  packaged: Schema.Boolean,
+  fingerprint,
+  definitionId: Schema.NullOr(Id),
+  title: Schema.NullOr(Schema.String),
+  revision: Schema.NullOr(Schema.Int),
+  summary: Schema.NullOr(
+    Schema.Struct({
+      steps: Schema.Int,
+      agents: Schema.Int,
+      reviewers: Schema.Int,
+      checks: Schema.Int,
+      decisions: Schema.Int,
+      humanGates: Schema.Int,
+      ends: Schema.Int,
+    }),
+  ),
+  runnable: Schema.Boolean,
+  duplicate: Schema.Boolean,
+  reasons: Schema.Array(Schema.String),
+  problems: Schema.Array(Problem),
+});
+export type LibraryEntry = typeof LibraryEntry.Type;
+export const LibraryPage = Schema.Struct({
+  entries: Schema.Array(LibraryEntry),
+  /** Entries matching the query across the entire catalog, not only this page. */
+  total: Schema.Int,
+  offset: Schema.Int,
+  nextOffset: Schema.NullOr(Schema.Int),
+});
+export type LibraryPage = typeof LibraryPage.Type;
+/**
+ * Authoring view of one source. Authored text the host would redact is replaced by a
+ * whole-string placeholder bound to the source fingerprint; saving restores it on the server.
+ */
+export const AuthoringEntry = Schema.Struct({
+  source: Schema.String,
+  packaged: Schema.Boolean,
+  fingerprint,
+  definition: Schema.NullOr(Definition),
+  runnable: Schema.Boolean,
+  reasons: Schema.Array(Schema.String),
+  problems: Schema.Array(Problem),
+  duplicate: Schema.Boolean,
+  /** Canonical YAML of the authoring definition, or the file text when it is invalid. */
+  text: Schema.String,
+  protectedValues: Schema.Int,
+  /** False when protected text could not be represented by placeholders (unparseable YAML). */
+  lossless: Schema.Boolean,
+});
+export type AuthoringEntry = typeof AuthoringEntry.Type;
+export const ReadInput = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  source: sourceText,
+});
+export type ReadInput = typeof ReadInput.Type;
+/** Replace exactly one authored file whose content still has the observed fingerprint. */
+export const ReplaceInput = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  source: sourceText,
+  fingerprint,
+  definition: Definition,
+});
+export type ReplaceInput = typeof ReplaceInput.Type;
+export const ProviderCapability = Schema.Struct({
+  instanceId: Schema.String,
+  driver: Schema.String,
+  displayName: Schema.NullOr(Schema.String),
+  available: Schema.Boolean,
+  /** Whether this provider can submit the structured report every graph agent requires. */
+  reporting: Schema.Boolean,
+  reason: Schema.NullOr(Schema.String),
+  runtimeModes: Schema.Array(RuntimeMode),
+  models: Schema.Array(PluginProviderModel),
+});
+export type ProviderCapability = typeof ProviderCapability.Type;
+export const NodeKind = Schema.Literals([
+  "agent",
+  "check",
+  "decision",
+  "parallel",
+  "join",
+  "human",
+  "end",
+]);
+export type NodeKind = typeof NodeKind.Type;
+export const Capabilities = Schema.Struct({
+  /** Node kinds this backend validates and executes. */
+  nodeKinds: Schema.Array(NodeKind),
+  providers: Schema.Array(ProviderCapability),
+  discoveryError: Schema.NullOr(Schema.String),
+});
+export type Capabilities = typeof Capabilities.Type;
+export const SkillsInput = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  providerInstanceId: ProviderInstanceId,
+});
+export const Skill = Schema.Struct({
+  name: Schema.String,
+  displayName: Schema.NullOr(Schema.String),
+  description: Schema.NullOr(Schema.String),
+  enabled: Schema.Boolean,
+});
+export type Skill = typeof Skill.Type;
+export const ProjectSummary = Schema.Struct({ id: ProjectId, title: Schema.String });
+export type ProjectSummary = typeof ProjectSummary.Type;
 export const ScopeInput = Schema.Struct({ environmentId: EnvironmentId, projectId: ProjectId });
 export const StartInput = Schema.Struct({
   ...ScopeInput.fields,
@@ -418,7 +554,10 @@ export const SaveInput = Schema.Struct({
   ...ScopeInput.fields,
   definition: Definition,
   expectedRevision: Schema.NullOr(Schema.Int),
+  /** Observed content of the authored source; an external edit since then conflicts. */
+  fingerprint: Schema.optional(fingerprint),
 });
+export type SaveInput = typeof SaveInput.Type;
 export const ScheduleInput = Schema.Struct({
   ...ScopeInput.fields,
   id: key,
@@ -440,7 +579,33 @@ export const rpcs = {
     success: CatalogEntry,
     error,
   }),
-  save: Rpc.make("plugins.workflows.save", { payload: SaveInput, success: CatalogEntry, error }),
+  save: Rpc.make("plugins.workflows.save", { payload: SaveInput, success: AuthoringEntry, error }),
+  library: Rpc.make("plugins.workflows.library", {
+    payload: LibraryInput,
+    success: LibraryPage,
+    error,
+  }),
+  read: Rpc.make("plugins.workflows.read", { payload: ReadInput, success: AuthoringEntry, error }),
+  replace: Rpc.make("plugins.workflows.replace", {
+    payload: ReplaceInput,
+    success: AuthoringEntry,
+    error,
+  }),
+  capabilities: Rpc.make("plugins.workflows.capabilities", {
+    payload: ScopeInput,
+    success: Capabilities,
+    error,
+  }),
+  skills: Rpc.make("plugins.workflows.skills", {
+    payload: SkillsInput,
+    success: Schema.Array(Skill),
+    error,
+  }),
+  projects: Rpc.make("plugins.workflows.projects", {
+    payload: Schema.Struct({ environmentId: EnvironmentId }),
+    success: Schema.Array(ProjectSummary),
+    error,
+  }),
   start: Rpc.make("plugins.workflows.start", { payload: StartInput, success: Run, error }),
   get: Rpc.make("plugins.workflows.get", { payload: RunInput, success: Run, error }),
   list: Rpc.make("plugins.workflows.list", {
@@ -474,6 +639,12 @@ export const apiScopes = {
   [rpcs.catalog._tag]: AuthOrchestrationReadScope,
   [rpcs.validate._tag]: AuthOrchestrationReadScope,
   [rpcs.save._tag]: AuthOrchestrationOperateScope,
+  [rpcs.library._tag]: AuthOrchestrationReadScope,
+  [rpcs.read._tag]: AuthOrchestrationReadScope,
+  [rpcs.replace._tag]: AuthOrchestrationOperateScope,
+  [rpcs.capabilities._tag]: AuthOrchestrationReadScope,
+  [rpcs.skills._tag]: AuthOrchestrationReadScope,
+  [rpcs.projects._tag]: AuthOrchestrationReadScope,
   [rpcs.start._tag]: AuthOrchestrationOperateScope,
   [rpcs.get._tag]: AuthOrchestrationReadScope,
   [rpcs.list._tag]: AuthOrchestrationReadScope,
@@ -503,11 +674,45 @@ export const manifest = {
     "client-api",
     "schedules",
     "attention",
+    "pages",
+    "navigation",
+    "project-actions",
   ],
   server: {
     tools: ["plugin_workflows_report"],
     api: Object.values(rpcs).map((rpc) => rpc._tag),
     scheduleTargets: ["workflows.start"],
   },
-  web: { pages: [], navigation: [], projectActions: [], threadContext: [] },
+  web: {
+    pages: ["workflows.library", "workflows.editor"],
+    navigation: ["workflows.navigation"],
+    projectActions: ["workflows.project"],
+    threadContext: [],
+  },
 } satisfies PluginManifest;
+
+export interface WorkflowPermissions {
+  readonly save: boolean;
+  readonly replace: boolean;
+}
+type Scoped<I> = Omit<I, "environmentId">;
+/** Environment-bound client the host supplies to workflow pages; rejections carry `_tag`/`message`. */
+export interface WorkflowClient {
+  readonly subscribePermissions: (
+    onPermissions: (permissions: WorkflowPermissions) => void,
+  ) => () => void;
+  readonly projects: () => Promise<ReadonlyArray<ProjectSummary>>;
+  readonly library: (input: Scoped<LibraryInput>) => Promise<LibraryPage>;
+  readonly read: (input: Scoped<ReadInput>) => Promise<AuthoringEntry>;
+  readonly validate: (input: {
+    readonly projectId: ProjectId;
+    readonly definition: Definition;
+  }) => Promise<CatalogEntry>;
+  readonly save: (input: Scoped<SaveInput>) => Promise<AuthoringEntry>;
+  readonly replace: (input: Scoped<ReplaceInput>) => Promise<AuthoringEntry>;
+  readonly capabilities: (projectId: ProjectId) => Promise<Capabilities>;
+  readonly skills: (input: {
+    readonly projectId: ProjectId;
+    readonly providerInstanceId: ProviderInstanceId;
+  }) => Promise<ReadonlyArray<Skill>>;
+}

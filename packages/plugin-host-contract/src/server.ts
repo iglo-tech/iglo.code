@@ -24,6 +24,7 @@ import type {
   PluginLifecycleItem,
   PluginLifecycleScope,
   PluginManifest,
+  PluginProvider,
   PluginSchedule,
   PluginScheduleInput,
   PluginTarget,
@@ -89,17 +90,7 @@ export class Host extends Context.Service<
     readonly reconcile: (
       input: PluginLifecycleScope,
     ) => Effect.Effect<Extract<PluginLifecycleItem, { kind: "snapshot" }>, PluginError>;
-    readonly providers: () => Effect.Effect<
-      ReadonlyArray<{
-        readonly instanceId: ProviderInstanceId;
-        readonly driver: string;
-        readonly toolsSupported: boolean;
-        readonly available?: boolean;
-        readonly reason: string | null;
-        readonly runtimeModes: ReadonlyArray<RuntimeMode>;
-      }>,
-      PluginError
-    >;
+    readonly providers: () => Effect.Effect<ReadonlyArray<PluginProvider>, PluginError>;
     readonly skills: (input: {
       readonly projectId: ProjectId;
       readonly providerInstanceId: ProviderInstanceId;
