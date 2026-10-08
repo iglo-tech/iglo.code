@@ -10,6 +10,7 @@ import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import {
+  CLI_ARCHIVE_PLATFORM_KEYS,
   CLI_RELEASE_CHECKSUMS_FILE,
   cliArchiveFileName,
   cliArchivePlatformKey,
@@ -26,8 +27,8 @@ import * as ProcessRunner from "../processRunner.ts";
  * web client, and the native packages beside it. The boot service points its
  * unit or launch agent at the executable, and server self-update installs the
  * target version here before switching over. The runtime never depends on a
- * Node or npm on the machine; the only npm involvement in T3 Code is the `t3`
- * package for people who prefer `npx t3` or `npm install -g t3`, and even a
+ * Node or npm on the machine; the only npm involvement in T3 Code is the fork launcher
+ * package for people who prefer `bunx @iglo-tech/iglo-code` or a global package install, and even a
  * CLI installed that way pins an archive when it sets up the service.
  */
 const PINNED_RUNTIME_DIR = "runtime";
@@ -167,7 +168,16 @@ const fetchReleaseAsset = Effect.fn("cloud.pinned_runtime.fetch_release_asset")(
         return bytes;
       }),
     ),
-    Effect.mapError((cause) => new PinnedRuntimeInstallError({ step, cause })),
+    Effect.mapError(
+      (cause) =>
+        new PinnedRuntimeInstallError({
+          step:
+            cause.reason._tag === "StatusCodeError" && cause.reason.response.status === 404
+              ? `${step} (fork release artifact unavailable at ${new URL(url).origin}, HTTP 404)`
+              : step,
+          cause,
+        }),
+    ),
     Effect.timeoutOrElse({
       duration: PINNED_RUNTIME_INSTALL_TIMEOUT,
       orElse: () => Effect.fail(new PinnedRuntimeInstallError({ step: `${step} (timed out)` })),
@@ -179,7 +189,7 @@ const fetchReleaseAsset = Effect.fn("cloud.pinned_runtime.fetch_release_asset")(
  * Downloads the release archive for this platform, verifies it against the
  * release's checksum file, and unpacks it so the executable sits directly in
  * the staging directory. Only `tar` is required on the host; every supported
- * OS ships one that reads gzip and zip.
+ * OS ships one that reads gzip.
  */
 const installFromArchive = Effect.fn("cloud.pinned_runtime.install_archive")(function* (
   input: PinnedRuntimeInstallInput,
@@ -189,7 +199,7 @@ const installFromArchive = Effect.fn("cloud.pinned_runtime.install_archive")(fun
   const platformKey = cliArchivePlatformKey(input.platform, input.arch);
   if (platformKey === undefined) {
     return yield* new PinnedRuntimeInstallError({
-      step: `selecting a t3 release archive for ${input.platform}-${input.arch}`,
+      step: `selecting an iglo.code archive for unsupported target ${input.platform}-${input.arch} (supported: ${CLI_ARCHIVE_PLATFORM_KEYS.join(", ")})`,
     });
   }
   const httpClient = input.httpClient;

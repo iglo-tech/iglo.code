@@ -16,7 +16,33 @@ vp run --filter t3 build
 ```
 
 The build puts the server bundle and bundled web client in `apps/server/dist`.
-Standalone archive and npm packaging tools remain available in `scripts/` for manual use.
+Use the pinned Bun version in `.bun-version` for development, executable compilation, and
+archive packaging. Vite+ and pnpm remain contributor tooling.
+
+## Build a standalone archive
+
+Build on the archive's target host: macOS arm64, Linux x64, or Linux arm64. For example,
+after the web/server build on Linux x64:
+
+```sh
+cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
+mkdir -p apps/server/dist/resource-monitor/linux-x64
+cp native/resource-monitor/target/release/t3-resource-monitor apps/server/dist/resource-monitor/linux-x64/
+bun apps/server/scripts/cli.ts build-exe --target linux-x64
+version=$(bun -p "require('./apps/server/package.json').version")
+bun scripts/build-cli-archive.ts --platform linux --arch x64 --version "$version" --output-dir /tmp/iglo-release
+bun scripts/smoke-cli-archive.ts --archive "/tmp/iglo-release/t3-$version-linux-x64.tar.gz" --expect-version "$version"
+```
+
+Use the matching platform and architecture for other targets. The archive carries the web client,
+native assets, disk-backed SDK dependencies, and a pinned interpreter at `runtime/bun` for helper
+scripts. Installed execution needs no system Node, npm, or Bun. Publish archives and `SHA256SUMS`
+to `iglo-tech/iglo.code`; installers and updates default to that fork and never fall back to upstream.
+An explicit `T3CODE_RELEASE_BASE_URL` can point at a mirror.
+
+Run the source/archive smoke and real-client checks locally on each target before publishing;
+see [development checks](./development.md#checks). npm packaging tools remain available in
+`scripts/` for manual use.
 
 ## T3 Connect relay deployment
 
@@ -151,17 +177,17 @@ Legacy cleanup, on the same disposable stage:
 ## Server self-update release invariant
 
 Connected servers update to the client's exact version, not to an npm dist-tag. Every released
-hosted client version must therefore have a matching `t3@<version>` package available on
+hosted client version must therefore have a matching `@iglo-tech/iglo-code@<version>` package available on
 npm before users can receive that client.
 
 When publishing manually, make the matching server package and CLI archives available before
 exposing the hosted client. Publishing a client first would leave the **Update server** action
 targeting a package version that does not exist yet.
 
-For a release smoke test, confirm `npm view t3@<version> version` returns the expected version, then
+For a release smoke test, confirm `npm view @iglo-tech/iglo-code@<version> version` returns the expected version, then
 connect the new client to a server on the previous version and verify that the update action
 reconnects to the matching server. When the release adds database migrations, verify that the
 remote update applies them and reconnects. A failed trial must restore the database snapshot and
 restart the previous server. If the installed launcher does not support the target protocol,
-verify that the update stops before restart and run `npx t3@<version> service update` once on the
+verify that the update stops before restart and run `bunx @iglo-tech/iglo-code@<version> service update` once on the
 server machine. Also test the manual update guidance when those environments are available.

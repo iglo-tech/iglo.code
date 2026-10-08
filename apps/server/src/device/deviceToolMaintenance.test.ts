@@ -12,6 +12,7 @@ import * as NodeUtil from "node:util";
 import { pruneLocalDeviceTools, deviceToolMaintenanceScript } from "./deviceToolMaintenance.ts";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
+const bunPath = process.env.T3_BUN_EXECUTABLE ?? "bun";
 
 describe.each([false, true])("device tool cleanup, flat=%s", (flat) => {
   it("keeps current, previous, active and incomplete installs, pruning unused completed versions", async () => {
@@ -38,11 +39,7 @@ describe.each([false, true])("device tool cleanup, flat=%s", (flat) => {
   const root = ${JSON.stringify(root)};
   await pruneTools(root, [['${name}', '0.6.0']], ${flat});
 })().catch(error => { console.error(error); process.exitCode = 1; });`;
-      await exec(process.execPath, [
-        "-e",
-        script,
-        NodePath.join(directory("0.2.0"), "active-helper.cjs"),
-      ]);
+      await exec(bunPath, ["-e", script, NodePath.join(directory("0.2.0"), "active-helper.cjs")]);
       await expect(NodeFSP.stat(directory("0.1.0"))).rejects.toThrow();
       await expect(NodeFSP.stat(directory("0.3.0"))).rejects.toThrow();
       for (const version of ["0.2.0", "0.4.0", "0.5.0", "0.6.0"])
@@ -62,7 +59,7 @@ describe.each([false, true])("device tool cleanup, flat=%s", (flat) => {
         await NodeFSP.mkdir(dir, { recursive: true });
         await NodeFSP.writeFile(NodePath.join(dir, ".install-complete"), version);
       }
-      await exec(process.execPath, [
+      await exec(bunPath, [
         "-e",
         deviceToolMaintenanceScript +
           `
@@ -85,7 +82,7 @@ describe.each([false, true])("device tool cleanup, flat=%s", (flat) => {
         : NodePath.join(root, "expo-device-hub/0.1.0");
       await NodeFSP.mkdir(dir, { recursive: true });
       await NodeFSP.writeFile(NodePath.join(dir, ".install-complete"), "0.1.0");
-      await exec(process.execPath, [
+      await exec(bunPath, [
         "-e",
         deviceToolMaintenanceScript +
           `pruneTools(${JSON.stringify(root)}, [['expo-device-hub','0.6.0']], ${flat}).catch(() => process.exitCode = 1);`,
@@ -150,7 +147,7 @@ it("serializes competing maintenance processes after reclaiming a stale lock", a
     maintenanceFs.unlinkSync(marker);
   });
 })().catch(error => { console.error(error); process.exitCode = 1; });`;
-    await Promise.all(Array.from({ length: 6 }, () => exec(process.execPath, ["-e", script])));
+    await Promise.all(Array.from({ length: 6 }, () => exec(bunPath, ["-e", script])));
     await expect(NodeFSP.stat(lock)).rejects.toThrow();
     expect(await NodeFSP.readdir(root)).toEqual([]);
   } finally {

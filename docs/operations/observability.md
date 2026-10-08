@@ -139,15 +139,11 @@ You do not need any extra env vars. Just run the app normally and inspect `serve
 Examples:
 
 ```bash
-npx t3
+t3
 ```
 
 ```bash
-node --run dev
-```
-
-```bash
-node --run dev
+vp run dev
 ```
 
 ### Option 2: Run With A Local LGTM Stack
@@ -191,24 +187,14 @@ export T3CODE_TRACE_TIMING_ENABLED=true
 CLI:
 
 ```bash
-npx t3
+t3
 ```
 
 Monorepo web/server dev:
 
 ```bash
-node --run dev
+vp run dev
 ```
-
-Monorepo desktop dev:
-
-```bash
-node --run dev
-```
-
-Packaged desktop app:
-
-Launch the actual app executable from the same shell so the desktop app and embedded backend inherit `T3CODE_OTLP_*`.
 
 macOS app bundle example:
 
@@ -643,8 +629,8 @@ Current high-value span and metric boundaries include:
 
 ## Heap Snapshots
 
-To see what a long-running server holds in memory, send it `SIGUSR2`. The server writes a V8 heap
-snapshot to its logs dir and logs the path. This works for `npx t3` and service installs
+To see what a long-running server holds in memory, send it `SIGUSR2`. The server writes a V8-format
+heap snapshot of Bun's JavaScriptCore heap to its logs dir and logs the path. This works for `t3` and service installs
 on macOS and Linux. Windows has no `SIGUSR2`.
 
 Send the signal to the server pid in `server-runtime.json`, which sits in the server's state dir

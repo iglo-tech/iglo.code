@@ -5,24 +5,13 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+const CLI_RELEASE_REPOSITORY = "iglo-tech/iglo.code";
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
 
-/**
- * The archive platforms published by the upstream release repository. Keep
- * these aligned with its assets so installers only offer available downloads.
- */
-// No darwin-x64: Node single-executables are unsupported on x64 macOS (the
-// SEA docs list macOS as arm64 only) and the binary segfaults on start.
-export const CLI_ARCHIVE_PLATFORM_KEYS = [
-  "darwin-arm64",
-  "linux-arm64",
-  "linux-x64",
-  "win32-arm64",
-  "win32-x64",
-] as const;
+/** Release targets supported by the web-only fork. */
+export const CLI_ARCHIVE_PLATFORM_KEYS = ["darwin-arm64", "linux-arm64", "linux-x64"] as const;
 export type CliArchivePlatformKey = (typeof CLI_ARCHIVE_PLATFORM_KEYS)[number];
 
 export function cliArchivePlatformKey(
@@ -48,7 +37,7 @@ export function cliArchiveTarCommand(
 }
 
 export function cliArchiveFileName(version: string, platformKey: CliArchivePlatformKey): string {
-  return `t3-${version}-${platformKey}.${platformKey.startsWith("win32") ? "zip" : "tar.gz"}`;
+  return `t3-${version}-${platformKey}.tar.gz`;
 }
 
 const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;

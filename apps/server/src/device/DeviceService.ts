@@ -36,7 +36,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import * as FileSystem from "effect/FileSystem";
-import { resolveNodeExecutable, nodeRuntimeUnavailableMessage } from "@t3tools/shared/nodeRuntime";
+import { resolveBunExecutable, bunRuntimeUnavailableMessage } from "@t3tools/shared/bunRuntime";
 import * as Path from "effect/Path";
 import { ensureAgentDevice, ensureDeviceHub } from "./DeviceToolchain.ts";
 import * as ServerConfig from "../config.ts";
@@ -46,6 +46,7 @@ import {
   writeAgentDeviceConfig,
 } from "./AgentDeviceTarget.ts";
 import * as Context from "effect/Context";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -278,8 +279,8 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
               new DeviceHostUnavailableError({
                 hostId: host.id,
                 reason:
-                  error._tag === "NodeRuntimeUnavailableError"
-                    ? nodeRuntimeUnavailableMessage("Local device support")
+                  error._tag === "BunRuntimeUnavailableError"
+                    ? bunRuntimeUnavailableMessage("Local device support")
                     : error.step === "probe"
                       ? "Could not connect to this host over SSH."
                       : `Device support failed during ${error.step}.`,
@@ -333,8 +334,8 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
               new DeviceHostUnavailableError({
                 hostId: host.id,
                 reason:
-                  error._tag === "NodeRuntimeUnavailableError"
-                    ? nodeRuntimeUnavailableMessage("Local device support")
+                  error._tag === "BunRuntimeUnavailableError"
+                    ? bunRuntimeUnavailableMessage("Local device support")
                     : error._tag === "DeviceHostTimeoutError"
                       ? `Agent tools did not start within ${error.timeoutMs} ms.`
                       : error.step === "probe"
@@ -995,6 +996,7 @@ export const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const runner = yield* ProcessRunner.ProcessRunner;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const settings = yield* ServerSettings.ServerSettingsService;
   const scope = yield* Scope.Scope;
   const hosts = new Map<DeviceHostId, DeviceHost.DeviceHost["Service"]>([
@@ -1050,6 +1052,7 @@ export const make = Effect.gen(function* () {
         Effect.provideService(FileSystem.FileSystem, fs),
         Effect.provideService(Path.Path, path),
         Effect.provideService(ProcessRunner.ProcessRunner, runner),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.mapError(
           (cause) =>
             new DeviceOperationError({
@@ -1146,17 +1149,18 @@ export const make = Effect.gen(function* () {
   );
   return {
     ...service,
-    agentCli: resolveNodeExecutable("Device automation").pipe(
+    agentCli: resolveBunExecutable("Device automation").pipe(
       Effect.andThen(ensureAgentDevice(config.baseDir)),
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.provideService(Path.Path, path),
       Effect.provideService(ProcessRunner.ProcessRunner, runner),
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.map((tool) => tool.entryPath),
       Effect.mapError((error) =>
-        error._tag === "NodeRuntimeUnavailableError"
+        error._tag === "BunRuntimeUnavailableError"
           ? new DeviceHostUnavailableError({
               hostId: LOCAL_DEVICE_HOST_ID,
-              reason: nodeRuntimeUnavailableMessage("Device automation"),
+              reason: bunRuntimeUnavailableMessage("Device automation"),
               cause: error,
             })
           : new DeviceOperationError({

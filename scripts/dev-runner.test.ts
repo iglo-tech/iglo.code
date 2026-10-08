@@ -79,9 +79,13 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const path = yield* Path.Path;
       const output = yield* spawner.string(
-        ChildProcess.make(process.execPath, ["scripts/dev-runner.ts", "dev", "--dry-run"], {
-          cwd: path.resolve(import.meta.dirname, ".."),
-        }),
+        ChildProcess.make(
+          process.env.T3_BUN_EXECUTABLE ?? "bun",
+          ["scripts/dev-runner.ts", "dev", "--dry-run"],
+          {
+            cwd: path.resolve(import.meta.dirname, ".."),
+          },
+        ),
       );
 
       assert.include(output, "[dev-runner] mode=dev");

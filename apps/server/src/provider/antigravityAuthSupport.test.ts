@@ -562,14 +562,14 @@ describe("Antigravity stderr compatibility", () => {
 });
 
 it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
-  it.effect("runs the browser helper with installed Node in standalone builds", () =>
+  it.effect("runs the browser helper with the Bun interpreter in standalone builds", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const directory = yield* fs.makeTempDirectoryScoped();
       const profile = yield* prepareAntigravityProfile({
         profileDirectory: path.join(directory, "profile"),
-        baseEnv: { PATH: path.dirname(process.execPath) },
+        baseEnv: { PATH: "", T3_BUN_EXECUTABLE: process.env.T3_BUN_EXECUTABLE ?? "bun" },
       });
       expect(profile.browserCommand).not.toContain("/packaged/t3");
       expect(yield* fs.exists(profile.acpDirectory)).toBe(true);
@@ -579,7 +579,7 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
     ),
   );
 
-  it.effect("reports missing Node before creating the standalone sign-in profile", () =>
+  it.effect("reports missing Bun before creating the standalone sign-in profile", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -593,9 +593,9 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
       if (Result.isFailure(result)) {
         expect(result.failure).toMatchObject({
           _tag: "AcpTransportError",
-          detail: expect.stringContaining("Install Node.js"),
+          detail: expect.stringContaining("Install Bun"),
           cause: {
-            _tag: "NodeRuntimeUnavailableError",
+            _tag: "BunRuntimeUnavailableError",
             cause: { _tag: "CommandResolutionError" },
           },
         });

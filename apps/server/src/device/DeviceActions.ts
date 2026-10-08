@@ -327,7 +327,7 @@ const serveSimPermissions = (
         reason: "helper_missing",
       });
     yield* ready
-      .run(ready.nodePath, [
+      .run(ready.bunPath, [
         cli,
         "permissions",
         input.decision,

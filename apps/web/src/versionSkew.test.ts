@@ -1,5 +1,9 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentId } from "@t3tools/contracts";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
+import * as Effect from "effect/Effect";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 // Pinned so the direction cases below read as fixed versions instead of
@@ -27,20 +31,33 @@ const MISMATCH_HINT =
   "Version mismatch. Try syncing the client and server to the same T3 Code version.";
 
 describe("versionSkew", () => {
-  it("updates only the proven npm prefix and safely quotes its path", () => {
+  it("updates legacy and unknown installations only through the fork installer", () => {
+    const command =
+      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.45' sh";
+    expect(manualServerUpdateCommand("0.0.45")).toBe(command);
     expect(manualServerUpdateCommand("0.0.45", { kind: "npm-global", prefix: "/opt/node" })).toBe(
-      "npm install --global --prefix '/opt/node' t3@0.0.45",
+      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.45' T3CODE_INSTALL_BIN_DIR='/opt/node/bin' sh",
     );
-    expect(
-      manualServerUpdateCommand("0.0.45", { kind: "npm-global", prefix: "/opt/maria's node" }),
-    ).toBe("npm install --global --prefix '/opt/maria'\\''s node' t3@0.0.45");
+    expect(manualServerUpdateCommand("0.0.45", { kind: "npx" })).toBe(command);
+    expect(manualServerUpdateCommand("0.0.45", { kind: "pnpm-dlx" })).toBe(command);
+    expect(manualServerUpdateCommand("0.0.45", { kind: "bunx" })).toBe(command);
   });
 
-  it("keeps runner and unknown commands as relaunches", () => {
-    expect(manualServerUpdateCommand("0.0.45")).toBe("npx t3@0.0.45");
-    expect(manualServerUpdateCommand("0.0.45", { kind: "npx" })).toBe("npx t3@0.0.45");
-    expect(manualServerUpdateCommand("0.0.45", { kind: "pnpm-dlx" })).toBe("pnpm dlx t3@0.0.45");
-    expect(manualServerUpdateCommand("0.0.45", { kind: "bunx" })).toBe("bunx t3@0.0.45");
+  it("passes version and the active global bin directory literally to the POSIX installer", async () => {
+    const targetVersion = "0.0.45'; printf injected; #";
+    const prefix = "/opt/My tools'$(printf injected)/";
+    const command = manualServerUpdateCommand(targetVersion, { kind: "npm-global", prefix });
+    // Serve a harmless installer body from the shell function; never fetch or install a release.
+    const output = await Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      return yield* spawner.string(
+        ChildProcess.make("/bin/sh", [
+          "-c",
+          `curl() { printf '%s\\n' 'printf "%s\\n" "$T3CODE_VERSION" "$T3CODE_INSTALL_BIN_DIR"'; }\n${command}`,
+        ]),
+      );
+    }).pipe(Effect.provide(NodeServices.layer), Effect.runPromise);
+    expect(output).toBe("0.0.45'; printf injected; #\n/opt/My tools'$(printf injected)/bin\n");
   });
   beforeEach(() => {
     branding.APP_VERSION = "0.0.34";

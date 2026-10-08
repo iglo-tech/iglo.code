@@ -36,6 +36,11 @@ jobs:
             exit 1
           fi
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:

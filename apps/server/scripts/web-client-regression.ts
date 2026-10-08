@@ -1,0 +1,788 @@
+// @effect-diagnostics nodeBuiltinImport:off
+// Acceptance entry point: isolated processes and a real web client, outside Effect services.
+import * as NodeAssert from "node:assert/strict";
+import * as NodeCrypto from "node:crypto";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeHttp from "node:http";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
+import * as NodeUtil from "node:util";
+import * as Effect from "effect/Effect";
+import * as Cause from "effect/Cause";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import { chromium, type Locator, type Page } from "playwright-core";
+import {
+  AuthPairingCredentialResult,
+  AuthGrantScope,
+  ExecutionEnvironmentDescriptor,
+  OrchestrationV2Command,
+  ORCHESTRATION_PROTOCOL_HEADER,
+  ORCHESTRATION_PROTOCOL_VERSION_TEXT,
+  ORCHESTRATION_V2_WS_METHODS,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ThreadId,
+  WS_METHODS,
+  type TerminalAttachStreamEvent,
+} from "@t3tools/contracts";
+import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "@t3tools/shared/remote";
+import {
+  createEnvironmentFixture,
+  redactEnvironmentLog,
+  type EnvironmentFixture,
+  type EnvironmentSmokeInput,
+} from "../../../scripts/lib/environment-smoke.ts";
+import {
+  installBrowser,
+  prepareWebDependencies,
+  releaseProvider,
+  type WebDependencies,
+} from "./web-fixtures/prepare.ts";
+import { requestRpc, withRegressionRpc, type RegressionRpcClient } from "./web-fixtures/rpc.ts";
+
+const repoRoot = NodeURL.fileURLToPath(new URL("../../../", import.meta.url));
+const visible = (locator: Locator) => locator.waitFor({ state: "visible", timeout: 30_000 });
+const decodeCommand = Schema.decodeUnknownSync(OrchestrationV2Command);
+const decodeDescriptor = Schema.decodeUnknownSync(
+  Schema.toCodecJson(ExecutionEnvironmentDescriptor),
+);
+const decodePairingCredential = Schema.decodeUnknownSync(
+  Schema.toCodecJson(AuthPairingCredentialResult),
+);
+const providerId = ProviderInstanceId.make("codex");
+const authProviderId = ProviderInstanceId.make("fixture_signin");
+
+async function milestone(name: string, run: () => Promise<void>) {
+  process.stdout.write(`${JSON.stringify({ case: name, status: "started" })}\n`);
+  await run();
+  process.stdout.write(`${JSON.stringify({ case: name, status: "passed" })}\n`);
+}
+
+async function pairingUrl(fixture: EnvironmentFixture) {
+  const credential = decodePairingCredential(
+    await (
+      await fixture.request("/api/auth/pairing-token", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "web regression", scopes: AuthGrantScope.literals }),
+      })
+    ).json(),
+  );
+  return setPairingTokenOnUrl(new URL("/pair", fixture.origin), credential.credential).href;
+}
+
+async function configure(fixture: EnvironmentFixture, dependencies: WebDependencies) {
+  await fixture.pair();
+  const descriptor = decodeDescriptor(
+    await (await fixture.request("/.well-known/t3/environment")).json(),
+  );
+  const projectId = NodeCrypto.randomUUID();
+  await fixture.request("/api/projects/mutate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "project.create",
+      commandId: NodeCrypto.randomUUID(),
+      projectId,
+      title: `Project ${dependencies.owner}`,
+      workspaceRoot: fixture.workspace,
+    }),
+  });
+  const threadId = ThreadId.make(NodeCrypto.randomUUID());
+  await withRegressionRpc(fixture, async (client) => {
+    const provider = (signin: boolean) => ({
+      driver: ProviderDriverKind.make(signin ? "acpRegistry" : "codex"),
+      displayName: signin ? "Fixture sign-in" : "Fixture Codex",
+      enabled: true,
+      config: signin
+        ? {
+            source: "local",
+            commandPath: dependencies.authProvider,
+            commandArgs: [],
+            authMethodId: "browser",
+          }
+        : {
+            setupMode: "existing",
+            enabled: true,
+            binaryPath: dependencies.provider,
+            customModels: ["gpt-5.6-sol"],
+          },
+      environment: [
+        { name: "T3_FAKE_CONTROL", value: dependencies.control, sensitive: false },
+        { name: "T3_FAKE_OWNER", value: dependencies.owner, sensitive: false },
+        { name: "T3_FAKE_AUTH", value: signin ? "signin" : "ready", sensitive: false },
+      ],
+    });
+    await requestRpc(
+      client[WS_METHODS.serverUpdateSettings]({
+        patch: {
+          enableProviderUpdateChecks: false,
+          defaultModelSelection: { instanceId: providerId, model: "gpt-5.6-sol" },
+          providerInstances: { [providerId]: provider(false), [authProviderId]: provider(true) },
+          responseStreamingMode: "paragraph",
+          enableDeviceSupport: false,
+          enableAgentDeviceAccess: false,
+          deviceOnboardingCompleted: false,
+        },
+      }),
+    );
+    await requestRpc(
+      client[WS_METHODS.serverRefreshProviders]({
+        instanceId: providerId,
+        cwd: fixture.workspace,
+        fresh: true,
+      }),
+    );
+    await requestRpc(
+      client[WS_METHODS.serverRefreshProviders]({
+        instanceId: authProviderId,
+        cwd: fixture.workspace,
+        fresh: true,
+      }),
+    );
+    await requestRpc(
+      client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand](
+        decodeCommand({
+          type: "thread.create",
+          commandId: NodeCrypto.randomUUID(),
+          threadId,
+          projectId,
+          title: `Thread ${dependencies.owner}`,
+          modelSelection: { instanceId: providerId, model: "gpt-5.6-sol" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
+        }),
+      ),
+    );
+  });
+  return { descriptor, threadId, projectId, route: `/${descriptor.environmentId}/${threadId}` };
+}
+
+async function sendMessage(page: Page, text: string) {
+  const editor = page.getByTestId("composer-editor");
+  await visible(editor);
+  await editor.fill(text);
+  await page.getByRole("button", { name: "Submit message", exact: true }).click();
+}
+
+async function addSurface(page: Page, name: "Terminal" | "Browser" | "Device") {
+  const add = page.getByRole("button", { name: "Add panel surface", exact: true });
+  const launcher = page.getByLabel("Open a surface", { exact: true });
+  if (!(await add.isVisible()) && !(await launcher.isVisible())) {
+    await page.getByRole("button", { name: "Toggle right panel", exact: true }).click();
+  }
+  if (await add.isVisible()) {
+    await add.click();
+    await page.getByRole("menuitem", { name: new RegExp(`^${name}(?:\\s|$)`) }).click();
+  } else {
+    await launcher.getByRole("button", { name, exact: true }).click();
+  }
+}
+
+async function terminalMilestone(
+  client: RegressionRpcClient,
+  threadId: ThreadId,
+  predicate: (event: TerminalAttachStreamEvent, output: string) => boolean,
+) {
+  let output = "";
+  const result = await requestRpc(
+    client[WS_METHODS.terminalObserve]({ threadId, terminalId: "term-1" }).pipe(
+      Stream.filter((event) => {
+        // PTY chunks may split a line or escape sequence at any byte.
+        if (event.type === "snapshot") output = event.snapshot.history;
+        else if (event.type === "output") output += event.data;
+        return predicate(event, NodeUtil.stripVTControlCharacters(output).replace(/\r+\n/g, "\n"));
+      }),
+      Stream.take(1),
+      Stream.runHead,
+    ),
+  ).catch((error: unknown) => {
+    throw new Error(
+      `Terminal milestone ${predicate.toString()}: ${String(error)}; output=${JSON.stringify(output)}`,
+    );
+  });
+  NodeAssert.ok(Option.isSome(result), "The terminal stream must expose the requested milestone.");
+  return result.value;
+}
+
+function terminalText(event: TerminalAttachStreamEvent) {
+  const output =
+    event.type === "snapshot" ? event.snapshot.history : event.type === "output" ? event.data : "";
+  return NodeUtil.stripVTControlCharacters(output).replace(/\r+\n/g, "\n");
+}
+
+/** Required behavior is asserted in every run; missing dependencies fail explicitly. */
+export async function runWebClientRegression(
+  input: EnvironmentSmokeInput,
+  browserExecutable: string,
+) {
+  NodeAssert.ok(
+    browserExecutable,
+    "Set T3_WEB_REGRESSION_BROWSER to the pinned chrome-headless-shell executable before running the web regression suite.",
+  );
+  const artifacts =
+    process.env.T3_WEB_REGRESSION_ARTIFACTS ??
+    (await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-web-regression-evidence-")));
+  await NodeFSP.mkdir(artifacts, { recursive: true });
+  const fixtures: Array<EnvironmentFixture> = [];
+  let primaryDependencies: WebDependencies | undefined;
+  let secondaryDependencies: WebDependencies | undefined;
+  const website = NodeHttp.createServer((_request, response) => {
+    response.setHeader("content-type", "text/html");
+    response.end(
+      '<!doctype html><title>Browser fixture ready</title><body style="margin:0;background:rgb(220,20,60);color:white"><h1>Browser fixture ready</h1><input aria-label="Fixture input"></body>',
+    );
+  });
+  await new Promise<void>((resolve, reject) => {
+    website.once("error", reject);
+    website.listen(0, "127.0.0.1", resolve);
+  });
+  const address = website.address();
+  NodeAssert.ok(address && typeof address !== "string");
+  const websiteUrl = `http://127.0.0.1:${address.port}/`;
+  const browser = await chromium
+    .launch({
+      executablePath: browserExecutable,
+      headless: true,
+      chromiumSandbox: false,
+    })
+    .catch(async (error: unknown) => {
+      await new Promise<void>((resolve) => website.close(() => resolve()));
+      throw error;
+    });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1100 },
+    permissions: ["clipboard-read", "clipboard-write"],
+  });
+  context.setDefaultTimeout(30_000);
+  context.setDefaultNavigationTimeout(30_000);
+  // Network snapshots contain cookies and socket tickets. Keep only rendered
+  // screenshots and action metadata, and pause even those around pairing input.
+  let tracing = false;
+  let traceIndex = 0;
+  const startTrace = async () => {
+    await context.tracing.start({ screenshots: true, snapshots: false, sources: false });
+    tracing = true;
+  };
+  const stopTrace = async () => {
+    if (!tracing) return;
+    await context.tracing.stop({ path: NodePath.join(artifacts, `trace-${++traceIndex}.zip`) });
+    tracing = false;
+  };
+  const page = await context.newPage();
+  const browserErrors: Array<string> = [];
+  const consoleMessages: Array<string> = [];
+  let failure: Error | undefined;
+  let pairingActive = false;
+  const redact = (text: string) =>
+    redactEnvironmentLog(text).replace(/(wsTicket=)[^\s"'<>]+/g, "$1<redacted>");
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("console", (message) =>
+    consoleMessages.push(redact(`${message.type()}: ${message.text()}`)),
+  );
+  try {
+    const primary = await createEnvironmentFixture(input, {
+      prepare: async (paths) => {
+        primaryDependencies = await prepareWebDependencies(
+          paths,
+          "environment-a",
+          input.kind === "source"
+            ? `${NodePath.join(input.repoRoot, "node_modules/.bin")}${NodePath.delimiter}${process.env.PATH ?? ""}`
+            : "",
+        );
+        return primaryDependencies.env;
+      },
+    });
+    fixtures.push(primary);
+    NodeAssert.ok(primaryDependencies);
+    const dependencies = primaryDependencies;
+    const seeded = await configure(primary, dependencies);
+    const primaryPairing = await pairingUrl(primary);
+    const secondary = await createEnvironmentFixture(input, {
+      prepare: async (paths) => {
+        secondaryDependencies = await prepareWebDependencies(
+          paths,
+          "environment-b",
+          input.kind === "source"
+            ? `${NodePath.join(input.repoRoot, "node_modules/.bin")}${NodePath.delimiter}${process.env.PATH ?? ""}`
+            : "",
+        );
+        return { ...secondaryDependencies.env, T3CODE_DEV_ALLOWED_ORIGINS: primary.origin };
+      },
+    });
+    fixtures.push(secondary);
+    NodeAssert.ok(secondaryDependencies);
+    const remoteDependencies = secondaryDependencies;
+    const remote = await configure(secondary, remoteDependencies);
+    NodeAssert.notEqual(primary.origin, secondary.origin);
+    NodeAssert.notEqual(seeded.descriptor.environmentId, remote.descriptor.environmentId);
+
+    await milestone("fresh browser pairing and reload persistence", async () => {
+      pairingActive = true;
+      const paired = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/auth/browser-session" &&
+          response.request().method() === "POST",
+      );
+      await page.goto(primaryPairing);
+      NodeAssert.equal((await paired).status(), 200);
+      await page.waitForURL((url) => url.pathname !== "/pair");
+      pairingActive = getPairingTokenFromUrl(new URL(page.url())) !== null;
+      await visible(page.getByText("Project environment-a", { exact: true }).first());
+      await page.goto(new URL(seeded.route, primary.origin).href);
+      await visible(page.getByTestId("composer-editor"));
+      pairingActive = false;
+      NodeAssert.equal(
+        getPairingTokenFromUrl(new URL(page.url())),
+        null,
+        "Pairing credentials must leave the visible URL.",
+      );
+      await page.reload();
+      await visible(page.getByTestId("composer-editor"));
+      await visible(page.getByText("Project environment-a", { exact: true }).first());
+      await visible(page.getByText("Thread environment-a", { exact: true }).first());
+    });
+    await startTrace();
+
+    await milestone("streamed text, tool activity, completion and cancellation", async () => {
+      await sendMessage(page, "Run the controlled streaming turn");
+      await visible(page.getByText("Streaming from environment-a", { exact: true }));
+      await visible(
+        page
+          .getByRole("button", {
+            name: /^(?:printf fixture-tool|Running printf|Ran printf|Ran 1 command)$/,
+          })
+          .first(),
+      );
+      await visible(page.getByRole("button", { name: "Stop generation", exact: true }));
+      await releaseProvider(dependencies);
+      await visible(page.getByText("Finished from environment-a.", { exact: true }));
+      await visible(
+        page
+          .getByRole("button", { name: /^(?:printf fixture-tool|Ran printf|Ran 1 command)$/ })
+          .first(),
+      );
+      await page
+        .getByRole("button", { name: "Stop generation", exact: true })
+        .waitFor({ state: "hidden" });
+      await sendMessage(page, "Cancel this controlled turn");
+      await visible(page.getByText("Streaming from environment-a", { exact: true }).nth(1));
+      await visible(page.getByRole("button", { name: "Stop generation", exact: true }));
+      await page.getByRole("button", { name: "Stop generation", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Stop generation", exact: true })
+        .waitFor({ state: "hidden" });
+      const row = page.getByTestId("sidebar-row-card").filter({ hasText: "Thread environment-a" });
+      await row.hover();
+      await row.getByRole("button", { name: "Settle thread", exact: true }).click();
+      const settledShelf = page.getByTestId("sidebar-settled-shelf-toggle");
+      await visible(settledShelf);
+      if ((await settledShelf.getAttribute("aria-expanded")) === "false")
+        await settledShelf.click();
+      const settledRow = page
+        .getByTestId("sidebar-row-slim")
+        .filter({ hasText: "Thread environment-a" });
+      await settledRow.hover();
+      await settledRow.getByRole("button", { name: "Un-settle thread", exact: true }).click();
+      await page.goto(new URL(seeded.route, primary.origin).href);
+      await visible(page.getByTestId("composer-editor"));
+    });
+
+    await milestone("terminal input, output, resize, error and exit", async () => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await addSurface(page, "Terminal");
+      const inputField = page.getByLabel("Terminal input").first();
+      await visible(inputField);
+      // The textarea appears before fonts/WASM finish loading. Wait for the
+      // public canvas to paint the shell prompt before sending real keystrokes.
+      await page.waitForFunction(`() => {
+        const input = document.querySelector('textarea[aria-label="Terminal input"]');
+        const canvas = input?.parentElement?.querySelector('canvas');
+        if (!canvas || !canvas.width || !canvas.height
+          || canvas.width !== Math.round(canvas.clientWidth * devicePixelRatio)
+          || canvas.height !== Math.round(canvas.clientHeight * devicePixelRatio)) return false;
+        const pixels = canvas.getContext("2d")?.getImageData(
+          0, 0, Math.min(canvas.width, 300), Math.min(canvas.height, 100)
+        ).data;
+        if (!pixels) return false;
+        let ink = 0;
+        for (let i = 4; i < pixels.length; i += 4) {
+          if (Math.abs(pixels[i] - pixels[0]) > 40
+            || Math.abs(pixels[i + 1] - pixels[1]) > 40
+            || Math.abs(pixels[i + 2] - pixels[2]) > 40) ink += 1;
+        }
+        return ink >= 20;
+      }`);
+      await page.screenshot({ path: NodePath.join(artifacts, "terminal-ready.png") });
+      await withRegressionRpc(primary, async (client) => {
+        await terminalMilestone(
+          client,
+          seeded.threadId,
+          (event) => event.type === "snapshot" && event.snapshot.status === "running",
+        );
+        await inputField.locator("..").locator("canvas").click();
+        NodeAssert.equal(await inputField.getAttribute("readonly"), null);
+        await inputField.fill("printf 'terminal-io-fixture\\n'");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          output.includes("printf 'terminal-io-fixture\\n'"),
+        );
+        await inputField.press("Enter");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          /\nterminal-io-fixture\n/.test(output),
+        );
+        await inputField.fill("trap '/bin/stty size' WINCH; printf 'resize-watcher-ready\\n'");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          output.includes("resize-watcher-ready"),
+        );
+        await inputField.press("Enter");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          /\nresize-watcher-ready\n/.test(output),
+        );
+        const resized = terminalMilestone(client, seeded.threadId, (_event, output) =>
+          /27\s+91/.test(output),
+        );
+        await requestRpc(
+          client[WS_METHODS.terminalResize]({
+            threadId: seeded.threadId,
+            terminalId: "term-1",
+            cols: 91,
+            rows: 27,
+          }),
+        );
+        await resized;
+        await inputField.fill("printf 'terminal-error-fixture\\n' >&2; exit 7");
+        await terminalMilestone(client, seeded.threadId, (_event, output) =>
+          output.includes("terminal-error-fixture"),
+        );
+        await inputField.press("Enter");
+        const exited = await terminalMilestone(
+          client,
+          seeded.threadId,
+          (event) =>
+            event.type === "exited" ||
+            (event.type === "snapshot" && event.snapshot.status === "exited"),
+        );
+        NodeAssert.equal(
+          exited.type === "snapshot"
+            ? exited.snapshot.exitCode
+            : exited.type === "exited"
+              ? exited.exitCode
+              : null,
+          7,
+        );
+        const snapshot = await terminalMilestone(
+          client,
+          seeded.threadId,
+          (event) => event.type === "snapshot",
+        );
+        NodeAssert.match(terminalText(snapshot), /\r?\nterminal-error-fixture\r?\n/);
+        const missingTerminal = await Effect.runPromiseExit(
+          client[WS_METHODS.terminalWrite]({
+            threadId: seeded.threadId,
+            terminalId: "missing-terminal",
+            data: "should fail\r",
+          }),
+        );
+        NodeAssert.equal(
+          missingTerminal._tag,
+          "Failure",
+          "A write to a missing terminal must report an error.",
+        );
+        if (missingTerminal._tag === "Failure")
+          NodeAssert.match(Cause.pretty(missingTerminal.cause), /missing-terminal/);
+      });
+      await page.screenshot({ path: NodePath.join(artifacts, "terminal-exited.png") });
+    });
+
+    await milestone("settings persist and controlled provider sign-in URL/error", async () => {
+      await page.goto(
+        new URL(`/settings/general?machine=${seeded.descriptor.environmentId}`, primary.origin)
+          .href,
+      );
+      const updateChecks = page.getByRole("switch", {
+        name: "Check provider versions",
+        exact: true,
+      });
+      await visible(updateChecks);
+      await page.waitForFunction(
+        (element) => element?.getAttribute("aria-checked") === "false",
+        await updateChecks.elementHandle(),
+      );
+      await withRegressionRpc(primary, async (client) => {
+        const subscribed = Promise.withResolvers<void>();
+        const saved = requestRpc(
+          client[WS_METHODS.subscribeServerConfig]({}).pipe(
+            Stream.filter((event) => {
+              if (event.type === "snapshot") subscribed.resolve();
+              return event.type === "settingsUpdated"
+                ? event.payload.settings.enableProviderUpdateChecks
+                : event.type === "snapshot" && event.config.settings.enableProviderUpdateChecks;
+            }),
+            Stream.take(1),
+            Stream.runHead,
+          ),
+        ).catch((error: unknown) => {
+          throw new Error(`Settings persistence milestone: ${String(error)}`);
+        });
+        await Promise.race([subscribed.promise, saved]);
+        await updateChecks.click();
+        NodeAssert.ok(
+          Option.isSome(await saved),
+          "The settings stream must confirm the save before reload.",
+        );
+      });
+      await page.reload();
+      NodeAssert.equal(await updateChecks.getAttribute("aria-checked"), "true");
+      await updateChecks.click();
+      await page.goto(
+        new URL(`/settings/providers?machine=${seeded.descriptor.environmentId}`, primary.origin)
+          .href,
+      );
+      await page.getByRole("button", { name: "Select Fixture sign-in", exact: true }).click();
+      await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
+      await visible(page.getByRole("button", { name: "Copy sign-in link", exact: true }));
+      await page.getByRole("button", { name: "Copy sign-in link", exact: true }).click();
+      NodeAssert.match(
+        await page.evaluate<string>("navigator.clipboard.readText()"),
+        /^https:\/\/auth\.fixture\.invalid\/authorize\?/,
+      );
+      await page.getByRole("button", { name: "Cancel sign-in", exact: true }).last().click();
+      await withRegressionRpc(primary, async (client) => {
+        await requestRpc(
+          client[WS_METHODS.serverRefreshProviders]({
+            instanceId: authProviderId,
+            cwd: primary.workspace,
+            fresh: true,
+          }),
+        );
+      });
+      const signIn = page.getByRole("button", { name: /^(?:Retry sign-in|Sign in)$/ }).last();
+      await visible(signIn);
+      await NodeFSP.writeFile(NodePath.join(dependencies.control, "auth-error"), "fail");
+      await signIn.click();
+      await visible(
+        page.getByText("The ACP agent could not complete sign-in.", { exact: true }).first(),
+      );
+      await NodeFSP.rm(NodePath.join(dependencies.control, "auth-error"));
+    });
+
+    await milestone("Browser unavailable state", async () => {
+      await page.goto(new URL(seeded.route, primary.origin).href);
+      await addSurface(page, "Browser");
+      await visible(page.getByRole("button", { name: "Try again", exact: true }).first());
+      await page.screenshot({ path: NodePath.join(artifacts, "browser-unavailable.png") });
+      // End this fixture surface before restarting with Chromium available.
+      const closeBrowser = page.getByRole("button", { name: "Close Browser", exact: true });
+      await closeBrowser.click();
+      await closeBrowser.waitFor({ state: "hidden" });
+    });
+
+    await installBrowser(dependencies, browserExecutable);
+    await milestone("disconnect, server restart, reconnect and history deduplication", async () => {
+      await visible(page.getByTestId("composer-editor"));
+      await primary.stop();
+      const unavailable = page.getByText(/\bis (?:offline|reconnecting)$/i).first();
+      await visible(unavailable);
+      // Vite reloads after its dev server returns; wait for that navigation
+      // before interacting with panel state that the reload would discard.
+      const reloaded = input.kind === "source" ? page.waitForEvent("load") : undefined;
+      await primary.restart();
+      await reloaded;
+      // The composer and cached history stay visible while disconnected.
+      await unavailable.waitFor({ state: "hidden" });
+      await visible(page.getByTestId("composer-editor"));
+      NodeAssert.equal(
+        await page.getByText("Finished from environment-a.", { exact: true }).count(),
+        1,
+      );
+      NodeAssert.equal(
+        await page.getByText("Run the controlled streaming turn", { exact: true }).count(),
+        1,
+      );
+    });
+
+    await milestone("Browser ready frame and navigation error", async () => {
+      await addSurface(page, "Browser");
+      const url = page.getByPlaceholder("Search or enter URL").first();
+      await visible(url);
+      await url.fill(websiteUrl);
+      await url.press("Enter");
+      await visible(page.getByLabel("Browser page", { exact: true }));
+      // Inspect the rendered public canvas: the fixture site has a known red background.
+      await page.waitForFunction(`() => {
+        const canvas = document.querySelector('canvas[aria-label="Browser page"]');
+        if (!canvas || !canvas.width || !canvas.height) return false;
+        const rgba = canvas
+          .getContext("2d")
+          ?.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+        // The stream uses JPEG, so permit its small color quantization error.
+        return rgba && Math.abs(rgba[0] - 220) <= 8
+          && Math.abs(rgba[1] - 20) <= 8 && Math.abs(rgba[2] - 60) <= 8;
+      }`);
+      await page.screenshot({ path: NodePath.join(artifacts, "browser-ready.png") });
+      await url.fill("http://127.0.0.1:1/");
+      await url.press("Enter");
+      await visible(page.getByRole("heading", { name: /This site can[’']t be reached/ }));
+    });
+
+    await milestone("Device unavailable, ready inventory and controlled error", async () => {
+      await addSurface(page, "Device");
+      await visible(page.getByRole("switch", { name: "Enable device hub", exact: true }));
+      NodeAssert.equal(
+        await page
+          .getByRole("switch", { name: "Enable device hub", exact: true })
+          .getAttribute("aria-checked"),
+        "false",
+      );
+      await page.getByRole("switch", { name: "Enable device hub", exact: true }).click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await visible(page.getByRole("button", { name: "Start Fixture Android", exact: true }));
+      await page.getByRole("button", { name: "Start Fixture Android", exact: true }).click();
+      await visible(
+        page.getByRole("alert").filter({ hasText: "Device fixture-emulator failed to boot" }),
+      );
+      await page.getByRole("button", { name: "Dismiss device error", exact: true }).click();
+      await withRegressionRpc(primary, async (client) => {
+        const state = await requestRpc(client[WS_METHODS.deviceList]({}));
+        NodeAssert.equal(
+          state.agentAccessEnabled,
+          false,
+          "Manual device testing must leave agent access disabled.",
+        );
+      });
+      await page.screenshot({ path: NodePath.join(artifacts, "device-ready.png") });
+    });
+
+    await milestone("distinct origin and multiple environment destination ownership", async () => {
+      await stopTrace();
+      pairingActive = true;
+      const remotePairing = await pairingUrl(secondary);
+      await page.goto(new URL("/settings/connections", primary.origin).href);
+      await page.getByRole("button", { name: "Add environment", exact: true }).first().click();
+      const dialog = page.getByRole("dialog", { name: "Add Environment", exact: true });
+      await dialog.getByLabel("Host", { exact: true }).fill(remotePairing);
+      await dialog.getByRole("button", { name: "Add environment", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      pairingActive = false;
+      await startTrace();
+      await page.goto(new URL(remote.route, primary.origin).href);
+      await visible(page.getByText("Project environment-b", { exact: true }).first());
+      await sendMessage(page, "Execute only in environment-b");
+      await visible(page.getByText("Streaming from environment-b", { exact: true }));
+      await releaseProvider(remoteDependencies);
+      await visible(page.getByText("Finished from environment-b.", { exact: true }));
+      const localHistory = await (
+        await primary.request(`/api/orchestration/threads/${seeded.threadId}`, {
+          headers: { [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT },
+        })
+      ).text();
+      NodeAssert.doesNotMatch(
+        localHistory,
+        /Execute only in environment-b|Streaming from environment-b/,
+      );
+      const remoteHistory = await (
+        await secondary.request(`/api/orchestration/threads/${remote.threadId}`, {
+          headers: { [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT },
+        })
+      ).text();
+      NodeAssert.match(remoteHistory, /Execute only in environment-b/);
+      const remoteContext = await browser.newContext();
+      remoteContext.setDefaultTimeout(30_000);
+      remoteContext.setDefaultNavigationTimeout(30_000);
+      try {
+        const remotePage = await remoteContext.newPage();
+        const paired = remotePage.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/api/auth/browser-session" &&
+            response.request().method() === "POST",
+        );
+        await remotePage.goto(await pairingUrl(secondary));
+        NodeAssert.equal((await paired).status(), 200);
+        await remotePage.waitForURL((url) => url.pathname !== "/pair");
+        await visible(remotePage.getByText("Project environment-b", { exact: true }).first());
+        await remotePage.goto(new URL(remote.route, secondary.origin).href);
+        await visible(remotePage.getByText("Finished from environment-b.", { exact: true }));
+        NodeAssert.equal(new URL(remotePage.url()).origin, secondary.origin);
+      } finally {
+        await remoteContext.close();
+      }
+    });
+    NodeAssert.deepEqual(
+      browserErrors,
+      [],
+      "The real client must not throw unhandled page errors.",
+    );
+  } catch (error) {
+    await NodeFSP.writeFile(
+      NodePath.join(artifacts, "page-errors.log"),
+      browserErrors.map(redact).join("\n"),
+    );
+    if (!pairingActive)
+      await NodeFSP.writeFile(
+        NodePath.join(artifacts, "page.txt"),
+        redact(
+          await page
+            .locator("body")
+            .innerText()
+            .catch(() => "Page unavailable"),
+        ),
+      );
+    if (!pairingActive)
+      await page
+        .screenshot({ path: NodePath.join(artifacts, "failure.png") })
+        .catch(() => undefined);
+    await NodeFSP.writeFile(NodePath.join(artifacts, "browser.log"), consoleMessages.join("\n"));
+    await NodeFSP.writeFile(
+      NodePath.join(artifacts, "server.log"),
+      fixtures.map((fixture) => fixture.log).join("\n"),
+    );
+    process.stderr.write(`Web regression failed; evidence: ${artifacts}\n`);
+    failure = new Error(redact(error instanceof Error ? error.message : String(error)));
+  } finally {
+    const cleanup = await Promise.allSettled([
+      (async () => {
+        try {
+          await stopTrace();
+        } finally {
+          await browser.close();
+        }
+      })(),
+      new Promise<void>((resolve, reject) =>
+        website.close((error) => (error ? reject(error) : resolve())),
+      ),
+      ...fixtures.map((fixture) => fixture.dispose()),
+    ]);
+    for (const result of cleanup) {
+      if (result.status === "rejected" && failure === undefined) {
+        failure = new Error(`Acceptance fixture cleanup failed: ${redact(String(result.reason))}`);
+      }
+    }
+  }
+  if (failure !== undefined) throw failure;
+  process.stdout.write(`${JSON.stringify({ status: "passed", artifacts })}\n`);
+}
+
+if (
+  process.argv[1] &&
+  NodePath.resolve(process.argv[1]) === NodeURL.fileURLToPath(import.meta.url)
+) {
+  const [mode, archive, expectVersion] = process.argv.slice(2);
+  NodeAssert.ok(
+    mode === "source" || (mode === "archive" && archive && expectVersion),
+    "Usage: bun apps/server/scripts/web-client-regression.ts source | archive <tar.gz> <version>",
+  );
+  const input: EnvironmentSmokeInput =
+    mode === "source"
+      ? { kind: "source", repoRoot, bun: process.execPath }
+      : { kind: "archive", archive: NodePath.resolve(archive!), expectVersion: expectVersion! };
+  await runWebClientRegression(input, process.env.T3_WEB_REGRESSION_BROWSER ?? "");
+}

@@ -25,6 +25,10 @@ const workspaceFiles = [
   "packages/tailscale/package.json",
   "packages/effect-acp/package.json",
   "packages/effect-codex-app-server/package.json",
+  "packages/plugin-fixture/package.json",
+  "packages/plugin-host-adapter/package.json",
+  "packages/plugin-host-contract/package.json",
+  "packages/plugin-workflows/package.json",
   "scripts/package.json",
 ] as const;
 

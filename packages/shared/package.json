@@ -299,9 +299,9 @@
       "types": "./src/chatList.ts",
       "import": "./src/chatList.ts"
     },
-    "./nodeRuntime": {
-      "types": "./src/nodeRuntime.ts",
-      "import": "./src/nodeRuntime.ts"
+    "./bunRuntime": {
+      "types": "./src/bunRuntime.ts",
+      "import": "./src/bunRuntime.ts"
     },
     "./hostProcess": {
       "types": "./src/hostProcess.ts",

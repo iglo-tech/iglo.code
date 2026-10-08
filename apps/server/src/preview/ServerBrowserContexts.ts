@@ -1,3 +1,4 @@
+import { resolveHostModuleUrl } from "@t3tools/shared/hostProcess";
 // @effect-diagnostics nodeBuiltinImport:off - Owns Playwright resources outside the Effect runtime.
 import { INCOGNITO_BROWSER_PROFILE_ID } from "@t3tools/contracts";
 import { constVoid } from "effect/Function";
@@ -8,8 +9,8 @@ import type { Browser, BrowserContext } from "playwright-core";
 
 import { sandboxDisabled } from "./PreviewBrowserHost.ts";
 
-// Playwright needs its files on disk. createRequire also resolves it from a Node SEA executable.
-const requirePlaywright = NodeModule.createRequire(import.meta.url);
+// Playwright loads its files from disk beside the compiled CLI.
+const requirePlaywright = NodeModule.createRequire(resolveHostModuleUrl(import.meta.url));
 const loadPlaywright = () =>
   requirePlaywright("playwright-core") as typeof import("playwright-core");
 

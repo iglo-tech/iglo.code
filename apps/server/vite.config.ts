@@ -6,14 +6,8 @@ import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
 import packageJson from "./package.json" with { type: "json" };
 import { WeightedShardSequencer } from "./src/testUtils/weightedShardSequencer.ts";
 
-// The bundle used to inline only workspace packages, leaving every third-party
-// runtime dep external. External deps must exist on the real filesystem (the WSL
-// backend runs plain `wsl.exe -- node`, which cannot read inside an asar), so the
-// desktop build unpacked `**\/node_modules\/**` wholesale: 13,875 loose files to
-// support 20 native binaries. NSIS install time tracks file count, not bytes.
-//
-// Inverted here — bundle everything except the packages that genuinely cannot be
-// inlined. See scripts/lib/cli-external-packages.ts for what earns an exemption.
+// Inline the JavaScript graph while preserving native loaders, SDK chunks,
+// and browser package assets on disk. The archive carries these externals.
 import {
   isExternalCliDependency,
   shouldBundleCliDependency,
@@ -26,42 +20,9 @@ const cliBuildChannel = /^[^-+]+-(?:nightly|preview)\./.test(packageJson.version
   ? "nightly"
   : "latest";
 
-// `build:exe` wraps the same bundle in a Node single-executable. tsdown's exe
-// step refuses multi-chunk output and counts the sourcemap as a chunk, and the
-// executable needs a host Node that supports `--build-sea` (25.7+), so this is
-// a separate mode rather than a second entry in the default build.
+// Emit one module graph before Bun compiles it. Keeping Effect in this bundle
+// preserves its shared HTTP/auth context across source and executable builds.
 const packExecutable = process.env.T3CODE_PACK_EXE === "1";
-// `<platform>-<arch>` in nodejs.org naming (darwin-x64, linux-arm64, win-x64).
-// When set, tsdown injects the bundle into a downloaded Node of that target
-// instead of the host Node, which is how the arm64 macOS runner produces the
-// x64 archive. Cross-building is safe because the code cache is off.
-//
-// The Node inside the executable is pinned here rather than taken from the
-// build host, so every archive of a release embeds the same runtime no matter
-// which Node happens to run the build.
-const SEA_NODE_VERSION = "26.8.2";
-const SEA_TARGETS = {
-  "darwin-arm64": { platform: "darwin", arch: "arm64" },
-  "darwin-x64": { platform: "darwin", arch: "x64" },
-  "linux-arm64": { platform: "linux", arch: "arm64" },
-  "linux-x64": { platform: "linux", arch: "x64" },
-  "win-arm64": { platform: "win", arch: "arm64" },
-  "win-x64": { platform: "win", arch: "x64" },
-} as const;
-const packExecutableTarget = process.env.T3CODE_PACK_EXE_TARGET?.trim();
-if (packExecutableTarget && !Object.hasOwn(SEA_TARGETS, packExecutableTarget)) {
-  throw new Error(
-    `T3CODE_PACK_EXE_TARGET must be one of ${Object.keys(SEA_TARGETS).join(", ")}, got "${packExecutableTarget}".`,
-  );
-}
-const packExecutableTargets = packExecutableTarget
-  ? [
-      {
-        ...SEA_TARGETS[packExecutableTarget as keyof typeof SEA_TARGETS],
-        nodeVersion: SEA_NODE_VERSION,
-      },
-    ]
-  : undefined;
 
 export default mergeConfig(
   baseConfig,
@@ -69,7 +30,7 @@ export default mergeConfig(
     run: {
       tasks: {
         build: {
-          command: "node scripts/cli.ts build",
+          command: "bun scripts/cli.ts build",
           dependsOn: ["@t3tools/web#build"],
           cache: false,
         },
@@ -82,20 +43,6 @@ export default mergeConfig(
       outDir: packExecutable ? "dist-exe" : "dist",
       sourcemap: !packExecutable,
       clean: true,
-      ...(packExecutable
-        ? {
-            exe: {
-              fileName: "t3",
-              outDir: "dist-exe",
-              ...(packExecutableTargets ? { targets: packExecutableTargets } : {}),
-              // Node's SEA docs: `import()` does not work when useCodeCache is
-              // true, and the server reaches several modules that way. The
-              // cache is also platform-bound, so leaving it off keeps the
-              // build correct on any host.
-              seaConfig: { useCodeCache: false },
-            },
-          }
-        : {}),
       deps: {
         // Both halves are required. `alwaysBundle` forces the JS dependencies in
         // (declared deps are external by default, which is what this change is
@@ -108,7 +55,7 @@ export default mergeConfig(
         onlyBundle: false,
       },
       banner: {
-        js: "#!/usr/bin/env node\n",
+        js: "#!/usr/bin/env bun\n",
       },
       define: {
         __T3CODE_BUILD_CHANNEL__: JSON.stringify(cliBuildChannel),

@@ -83,7 +83,7 @@ export const layer = Layer.effect(Foo, make);
   imports it. Knip reports unused exports. Don't write `make = Effect.succeed(...)` to force
   `Layer.effect`; use the constructor that fits, like `Layer.succeed` or `Layer.sync`.
 - **Names.** A module named for its implementation uses plain `make` and `layer`
-  ([`NodePtyAdapter.ts`](../../apps/server/src/terminal/NodePtyAdapter.ts)). A port module that also
+  ([`BunPtyAdapter.ts`](../../apps/server/src/terminal/BunPtyAdapter.ts)). A port module that also
   holds implementations names them, like `makeCloudflaredRelayClient` and `layerCloudflared`.
 - **Moves.** Moving a service deletes the old files and updates every consumer, including
   orchestration, MCP, tests, and integration harnesses. No re-export shims.
@@ -96,6 +96,9 @@ export const layer = Layer.effect(Foo, make);
 boundaries: React, native callbacks, the CLI, HTTP adapters. Never in a domain service, repository,
 persistence code, or service constructor. A named adapter may bridge a service into a Promise API,
 but no Effect service depends on it.
+
+For platform adapter changes in this fork, read [Bun runtime boundaries](./bun-runtime.md).
+It records retained compatibility APIs, native Bun candidates, and the behavior each must preserve.
 
 Compose a shared resource once in an application-owned layer and provide its context to integration
 runtimes. Don't create a managed or Atom runtime per feature to hand it out. When acquisition can

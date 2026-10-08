@@ -1,21 +1,20 @@
 /**
- * The single source of truth for packages the server CLI bundle must NOT inline.
+ * The shared dependency boundary for CLI bundling and archive staging.
  *
- * Two consumers derive from this list, and they must never disagree:
+ * The bundler and archive staging share these predicates:
  *
  * - apps/server/vite.config.ts decides what stays external to the bundle.
- * - scripts/build-cli-archive.ts selects runtime dependency roots for the CLI archive.
+ * - scripts/build-cli-archive.ts selects file-backed runtime dependency roots for the archive.
  *
- * A runtime package that is external but absent from the archive fails as soon
- * as Node resolves it from the emitted bundle. Keeping both consumers on one
- * list prevents packaging from drifting away from the bundle boundary.
+ * File-backed externals must be staged beside the executable. Bun's built-in
+ * compatibility modules stay external without requiring a staged package.
  *
  * Entries are matched as prefixes (`id.startsWith(prefix)`), so they also cover
  * a package's platform-specific siblings — `node-gyp-build` covers
  * `node-gyp-build-optional-packages`, `@yuuang/` covers every `ffi-rs-*` binding.
  */
 /**
- * External because Node actually loads them from disk at runtime.
+ * External because the runtime loads them from disk at runtime.
  *
  * Native addons (.node), the JS wrappers that dlopen them by real path, and —
  * critically — the ordinary JS packages those wrappers require. An external
@@ -29,7 +28,6 @@ export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   "@cursor/sdk",
   // Playwright reads package.json and browsers.json beside its runtime modules.
   "playwright-core",
-  "node-pty",
   "ffi-rs",
   "@yuuang/",
   "@ff-labs/",
@@ -77,11 +75,13 @@ export function isRuntimeExternalCliDependency(id: string): boolean {
  * `alwaysBundle`. `alwaysBundle` only forces packages IN — returning false from
  * it means "no opinion", and the default then applies: a declared dependency
  * stays external, but a transitive one gets bundled. That is how a native
- * loader such as node-gyp-build ended up inlined while node-pty (a declared
- * dependency) stayed external.
+ * loader such as node-gyp-build ended up inlined while a declared native
+ * dependency stayed external.
  */
 export function isExternalCliDependency(id: string): boolean {
-  return isRuntimeExternalCliDependency(id);
+  // Bun's ws shim marks Node HTTP requests as upgraded. Inlining npm's ws
+  // bypasses it and lets Bun append an HTTP response to the WebSocket frames.
+  return id === "ws" || isRuntimeExternalCliDependency(id);
 }
 
 /** True when the CLI bundle should inline `id` rather than leave it external. */

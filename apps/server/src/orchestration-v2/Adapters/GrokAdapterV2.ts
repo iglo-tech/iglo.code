@@ -5,7 +5,7 @@ import {
   xAiRateLimitedErrorCode,
 } from "../../provider/acp/XAiAcpExtension.ts";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveSelfInvocation, type SelfInvocation } from "@t3tools/shared/nodeRuntime";
+import { resolveSelfInvocation, type SelfInvocation } from "@t3tools/shared/bunRuntime";
 import {
   defaultInstanceIdForDriver,
   GrokSettings,

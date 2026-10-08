@@ -7,6 +7,7 @@
  * CLI module graph (seconds of evaluation) loads; everything else defers to
  * the real CLI in ./binCli.ts.
  */
+import { BUN_VERSION, isSupportedBunVersion } from "@t3tools/shared/bunRuntime";
 import { isEntrypoint } from "./entrypoint.ts";
 
 if (
@@ -16,6 +17,10 @@ if (
     runtimeMain: import.meta.main,
   })
 ) {
+  if (!isSupportedBunVersion(process.versions.bun)) {
+    process.stderr.write(`T3 Code requires Bun ${BUN_VERSION} or newer. Run this CLI with Bun.\n`);
+    process.exit(1);
+  }
   const command = process.argv[2];
   if (command === "acp-mcp-bridge" || command === "acp-mcp-call") {
     const { runAcpMcpCliFastPath } = await import("./mcp/AcpMcpStdioBridge.ts");

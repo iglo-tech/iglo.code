@@ -64,7 +64,7 @@ it.effect("preserves installed status after probes and cleans failed agent activ
           modes.push(mode);
           owners.push(/const owner = "([^"]+)"/.exec(script)?.[1] ?? "");
           output = JSON.stringify({
-            nodePath: "/node",
+            bunPath: "/bun",
             platforms: [{ platform: "ios", available: true }],
             hubPort: 1234,
             helpers: { serveSimAxSettings: null, serveSimCli: null },

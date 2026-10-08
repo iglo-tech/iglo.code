@@ -37,15 +37,12 @@ export interface SqliteClientConfig {
   readonly transformQueryNames?: ((str: string) => string) | undefined;
 }
 
-export class UnsupportedNodeSqliteVersionError extends Schema.TaggedError<UnsupportedNodeSqliteVersionError>()(
-  "UnsupportedNodeSqliteVersionError",
-  {
-    nodeVersion: Schema.String,
-    requirement: Schema.String,
-  },
+export class UnsupportedSqliteCapabilitiesError extends Schema.TaggedError<UnsupportedSqliteCapabilitiesError>()(
+  "UnsupportedSqliteCapabilitiesError",
+  { missingCapabilities: Schema.Array(Schema.String) },
 ) {
   override get message(): string {
-    return `Node.js ${this.nodeVersion} is missing required node:sqlite APIs. Upgrade to ${this.requirement}.`;
+    return `The application runtime is missing required node:sqlite APIs: ${this.missingCapabilities.join(", ")}. Use the supported Bun runtime.`;
   }
 }
 
@@ -57,30 +54,6 @@ export class UnsupportedNodeSqliteOperationError extends Schema.TaggedError<Unsu
     return "Node SQLite does not support executeStream.";
   }
 }
-
-/**
- * Verify that the current Node.js version includes the `node:sqlite` APIs
- * used by `NodeSqliteClient` — specifically `StatementSync.columns()` (added
- * in Node 22.16.0 / 23.11.0).
- *
- * @see https://github.com/nodejs/node/pull/57490
- */
-const checkNodeSqliteCompat = () => {
-  const parts = process.versions.node.split(".").map(Number);
-  const major = parts[0] ?? 0;
-  const minor = parts[1] ?? 0;
-  const supported = (major === 22 && minor >= 16) || (major === 23 && minor >= 11) || major >= 24;
-
-  if (!supported) {
-    return Effect.die(
-      new UnsupportedNodeSqliteVersionError({
-        nodeVersion: process.versions.node,
-        requirement: "Node.js >=22.16, >=23.11, or >=24",
-      }),
-    );
-  }
-  return Effect.void;
-};
 
 /**
  * `node:sqlite` reports the SQLite result code as `errcode`, while
@@ -101,7 +74,11 @@ const classifyError = (cause: unknown, message: string, operation: string) => {
 const make = Effect.fn("makeWithDatabase")(function* (
   options: SqliteClientConfig,
 ): Effect.fn.Return<Client.SqlClient, SqlError, Scope.Scope | Reactivity.Reactivity> {
-  yield* checkNodeSqliteCompat();
+  const missingCapabilities = ["columns", "setReturnArrays", "setReadBigInts"].filter(
+    (name) => typeof Reflect.get(NodeSqlite.StatementSync.prototype, name) !== "function",
+  );
+  if (missingCapabilities.length > 0)
+    return yield* Effect.die(new UnsupportedSqliteCapabilitiesError({ missingCapabilities }));
 
   const compiler = Statement.makeCompilerSqlite(options.transformQueryNames);
   const transformRows = options.transformResultNames
@@ -133,6 +110,10 @@ const make = Effect.fn("makeWithDatabase")(function* (
     );
 
     const statementReaderCache = new WeakMap<NodeSqlite.StatementSync, boolean>();
+    // Node accepts booleans as SQLite integers; Bun's node:sqlite binding rejects
+    // them. Normalize here so every execution/result mode has the same semantics.
+    const bindParameters = (params: ReadonlyArray<unknown>) =>
+      params.map((value) => (typeof value === "boolean" ? Number(value) : value));
     const hasRows = (statement: NodeSqlite.StatementSync): boolean => {
       const cached = statementReaderCache.get(statement);
       if (cached !== undefined) {
@@ -168,9 +149,9 @@ const make = Effect.fn("makeWithDatabase")(function* (
         try {
           statement.setReadBigInts(Boolean(Context.get(fiber.context, Client.SafeIntegers)));
           if (hasRows(statement)) {
-            return Effect.succeed(statement.all(...(params as any)));
+            return Effect.succeed(statement.all(...(bindParameters(params) as any)));
           }
-          const result = statement.run(...(params as any));
+          const result = statement.run(...(bindParameters(params) as any));
           return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
         } catch (cause) {
           return Effect.fail(
@@ -188,42 +169,45 @@ const make = Effect.fn("makeWithDatabase")(function* (
       statement: NodeSqlite.StatementSync,
       params: ReadonlyArray<unknown>,
     ) =>
-      Effect.acquireUseRelease(
-        Effect.succeed(statement),
-        (statement) =>
-          Effect.try({
-            try: () => {
-              if (hasRows(statement)) {
-                statement.setReturnArrays(true);
-                // Safe to cast to array after we've setReturnArrays(true)
-                return statement.all(...(params as any)) as unknown as ReadonlyArray<
-                  ReadonlyArray<unknown>
-                >;
-              }
-              statement.run(...(params as any));
-              return [];
-            },
-            catch: (cause) =>
-              new SqlError({
-                reason: classifyError(cause, "Failed to execute statement", "execute"),
-              }),
-          }),
-        (statement) =>
-          Effect.try({
-            try: () => {
-              if (hasRows(statement)) {
-                statement.setReturnArrays(false);
-              }
-            },
-            catch: (cause) =>
-              new SqlError({
-                reason: classifyError(
-                  cause,
-                  "Failed to reset statement result mode",
-                  "resetResultMode",
-                ),
-              }),
-          }).pipe(Effect.orDie),
+      Effect.withFiber((fiber) =>
+        Effect.acquireUseRelease(
+          Effect.succeed(statement),
+          (statement) =>
+            Effect.try({
+              try: () => {
+                statement.setReadBigInts(Boolean(Context.get(fiber.context, Client.SafeIntegers)));
+                if (hasRows(statement)) {
+                  statement.setReturnArrays(true);
+                  // Safe to cast to array after we've setReturnArrays(true)
+                  return statement.all(
+                    ...(bindParameters(params) as any),
+                  ) as unknown as ReadonlyArray<ReadonlyArray<unknown>>;
+                }
+                statement.run(...(bindParameters(params) as any));
+                return [];
+              },
+              catch: (cause) =>
+                new SqlError({
+                  reason: classifyError(cause, "Failed to execute statement", "execute"),
+                }),
+            }),
+          (statement) =>
+            Effect.try({
+              try: () => {
+                if (hasRows(statement)) {
+                  statement.setReturnArrays(false);
+                }
+              },
+              catch: (cause) =>
+                new SqlError({
+                  reason: classifyError(
+                    cause,
+                    "Failed to reset statement result mode",
+                    "resetResultMode",
+                  ),
+                }),
+            }).pipe(Effect.orDie),
+        ),
       );
 
     const runValues = (sql: string, params: ReadonlyArray<unknown>) =>

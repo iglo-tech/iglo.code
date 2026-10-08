@@ -113,3 +113,68 @@ describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("installer termi
     },
   );
 });
+
+describe("installer release selection", () => {
+  it.each([
+    ["Darwin", "x86_64"],
+    ["FreeBSD", "x86_64"],
+    ["Linux", "i686"],
+  ])("rejects unsupported hosts before downloading (%s/%s)", async (platform, arch) => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-platform-"));
+    try {
+      await NodeFSP.writeFile(
+        NodePath.join(root, "uname"),
+        `#!/bin/sh\ncase "$1" in -s) echo '${platform}';; -m) echo '${arch}';; esac\n`,
+        { mode: 0o755 },
+      );
+      const result = NodeChildProcess.spawnSync(
+        "/bin/sh",
+        [NodePath.join(import.meta.dirname, "install.sh")],
+        {
+          env: { ...process.env, PATH: root, T3CODE_HOME: NodePath.join(root, "home") },
+          encoding: "utf8",
+        },
+      );
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("supported targets: darwin-arm64, linux-x64, linux-arm64");
+      expect(await NodeFSP.readdir(root)).toEqual(["uname"]);
+    } finally {
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports missing fork artifacts without proposing an upstream npm install", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-fork-"));
+    try {
+      await NodeFSP.writeFile(
+        NodePath.join(root, "curl"),
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$T3_INSTALL_REQUEST_LOG"\nprintf 404\n',
+        { mode: 0o755 },
+      );
+      const requestLog = NodePath.join(root, "request");
+      const result = NodeChildProcess.spawnSync(
+        "/bin/sh",
+        [NodePath.join(import.meta.dirname, "install.sh")],
+        {
+          env: {
+            ...process.env,
+            PATH: `${root}:/usr/bin:/bin`,
+            T3CODE_HOME: NodePath.join(root, "home"),
+            T3CODE_VERSION: "1.2.3",
+            T3CODE_RELEASE_BASE_URL: "",
+            T3_INSTALL_REQUEST_LOG: requestLog,
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(result.status).toBe(1);
+      expect(await NodeFSP.readFile(requestLog, "utf8")).toContain(
+        "https://github.com/iglo-tech/iglo.code/releases/download/v1.2.3/SHA256SUMS",
+      );
+      expect(result.stderr).toContain("choose an available fork release");
+      expect(result.stderr).not.toContain("npm install");
+    } finally {
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -6,6 +6,7 @@ import * as NodeModule from "node:module";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { assert, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 import { build } from "vite-plus/pack";
@@ -31,8 +32,8 @@ const decodeManifest = Schema.decodeUnknownSync(
 const repoRoot = NodeURL.fileURLToPath(new URL("../..", import.meta.url));
 
 // Copy the installed production JS dependency graph, with no pnpm symlinks back
-// into the checkout. Optional platform executables are covered by desktop staging
-// tests; this probe never creates a local agent or contacts Cursor.
+// into the checkout. Platform executables are carried by archive staging; this probe never
+// creates a local agent or contacts Cursor.
 async function stagePackage(name: string, from: string, destination: string): Promise<void> {
   const require = NodeModule.createRequire(from);
   let source = NodePath.dirname(require.resolve(name));
@@ -116,21 +117,26 @@ it("loads packaged Cursor catalog chunks without credentials or checkout depende
     }
     const probe = NodePath.join(output, "probe.mjs");
     assert.deepEqual(findEsmImportsOfExternalPackages(await NodeFSP.readFile(probe, "utf8")), []);
-    const stdout = NodeChildProcess.execFileSync(
-      process.execPath,
-      ["--no-global-search-paths", probe],
+    const executable = NodePath.join(output, "cursor-probe");
+    const bun = process.env.T3_BUN_EXECUTABLE ?? "bun";
+    NodeChildProcess.execFileSync(
+      bun,
+      ["build", "--compile", "--compile-autoload-package-json", probe, "--outfile", executable],
       {
         cwd: output,
-        env: {
-          HOME: scratch,
-          USERPROFILE: scratch,
-          PATH: "",
-          SystemRoot: process.env.SystemRoot ?? "",
-        },
-        encoding: "utf8",
+        stdio: "pipe",
         timeout: 30_000,
       },
     );
+    if (HostProcessPlatform.defaultValue() === "darwin") {
+      NodeChildProcess.execFileSync("codesign", ["--force", "--sign", "-", executable]);
+    }
+    const stdout = NodeChildProcess.execFileSync(executable, [], {
+      cwd: scratch,
+      env: { HOME: scratch, USERPROFILE: scratch, PATH: "" },
+      encoding: "utf8",
+      timeout: 30_000,
+    });
     assert.include(stdout, "Cursor catalog chunks loaded; empty keys rejected locally");
   } finally {
     await NodeFSP.rm(scratch, { recursive: true, force: true });

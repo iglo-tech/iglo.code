@@ -36,9 +36,48 @@ it.effect("failed installation cleans staging and exposes only a safe failure me
       Effect.flip,
     );
     expect(error.message).toBe(
-      "Installing expo-device-hub failed while running npm install (exit code 1).",
+      "Installing expo-device-hub failed while running Bun install (exit code 1).",
     );
     expect(error.cause).toBe(result);
+    expect(yield* isDeviceHubInstalled(baseDir)).toBe(false);
+    expect(yield* fs.readDirectory(path.join(baseDir, "tools", "expo-device-hub"))).toEqual([]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("does not publish a hub whose native streaming install failed", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-device-native-install-" });
+    const output = {
+      code: ChildProcessSpawner.ExitCode(0),
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      stdoutInvalidUtf8: false,
+      stderrInvalidUtf8: false,
+    };
+    const error = yield* ensureDeviceHub(baseDir).pipe(
+      Effect.provideService(ProcessRunner.ProcessRunner, {
+        run: (input) =>
+          Effect.gen(function* () {
+            const staging = input.args[input.args.indexOf("--cwd") + 1];
+            if (input.args.includes("install") && staging) {
+              const directory = path.join(staging, "node_modules/expo-device-hub/dist/server");
+              yield* fs.makeDirectory(directory, { recursive: true });
+              yield* fs.writeFileString(path.join(directory, "cli.mjs"), "");
+              return output;
+            }
+            return { ...output, code: ChildProcessSpawner.ExitCode(1) };
+          }).pipe(Effect.orDie),
+      }),
+      Effect.flip,
+    );
+    expect(error.message).toBe(
+      "Installing expo-device-hub failed while installing native Device streaming support (exit code 1).",
+    );
     expect(yield* isDeviceHubInstalled(baseDir)).toBe(false);
     expect(yield* fs.readDirectory(path.join(baseDir, "tools", "expo-device-hub"))).toEqual([]);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),

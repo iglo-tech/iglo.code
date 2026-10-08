@@ -3,15 +3,9 @@ import * as NodeModule from "node:module";
 import ts from "typescript-legacy";
 
 /**
- * Scan an emitted bundle chunk for ESM imports of packages that are not Node
- * built-ins.
- *
- * Inside a Node single-executable, `import` statements and `import()` can only
- * resolve built-in modules; any file-backed specifier throws at module
- * evaluation (static) or at first use (dynamic). External packages therefore
- * have to be reached through `createRequire`, which reads the real filesystem
- * in every runtime. The bundler cannot enforce this, so the check reads what it
- * produced.
+ * Finds file-backed ESM imports left outside the emitted executable graph.
+ * Native packages and disk-backed SDKs load through a require rooted beside
+ * the installed executable. Runtime built-ins belong to Bun itself.
  */
 export function findEsmImportsOfExternalPackages(source: string): ReadonlyArray<string> {
   const specifiers = new Set<string>();
@@ -33,11 +27,7 @@ export function findEsmImportsOfExternalPackages(source: string): ReadonlyArray<
           : undefined;
     if (specifierNode && ts.isStringLiteralLike(specifierNode)) {
       const specifier = specifierNode.text;
-      // Multi-runtime SDKs can retain optional Bun imports. Those are runtime
-      // built-ins, not packages to stage beside the executable. Static imports
-      // still fail here because Node would evaluate them unconditionally.
-      const runtimeBuiltin =
-        NodeModule.isBuiltin(specifier) || (dynamic && specifier.startsWith("bun:"));
+      const runtimeBuiltin = NodeModule.isBuiltin(specifier) || specifier.startsWith("bun:");
       if (!runtimeBuiltin && !specifier.startsWith("./") && !specifier.startsWith("../")) {
         specifiers.add(specifier);
       }

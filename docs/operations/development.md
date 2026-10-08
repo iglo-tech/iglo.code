@@ -2,19 +2,16 @@
 
 ## First checkout
 
-The checkout requires Node 24 and Vite+ (`vp`); Bun is optional. Set up a coding agent
+The application runs on Bun 1.4.2 or newer on macOS arm64, Linux x64, and Linux
+arm64. Development and packaging use the version pinned in `.bun-version`.
+The retained Vite+/pnpm contributor toolchain uses Node 24 independently of the
+application runtime. Install Bun and Vite+ (`vp`) before starting the server. Set up a coding agent
 using the [provider guide](../user/install.md#providers).
 
 Install `vp` on macOS or Linux:
 
 ```sh
 curl -fsSL https://vite.plus | bash
-```
-
-On Windows, use PowerShell:
-
-```powershell
-irm https://vite.plus/ps1 | iex
 ```
 
 Clone the fork and start it:
@@ -137,6 +134,12 @@ It checks formatting, lint, types, a small smoke-test set, and the web/server bu
 New runs cancel older queued and running checks for the same source repository and branch.
 Run focused tests for changed behavior locally; CI does not run the full suite.
 See [ci.yml](../../.github/workflows/ci.yml) for the current checks.
+
+Run `bun scripts/smoke-cli-archive.ts --source` locally for the source transport/persistence
+check, or pass `--archive <path> --expect-version <version>` for an archive.
+Run `bun apps/server/scripts/web-client-regression.ts source` for the real development client,
+or pass `archive <path> <version>` for the shipped client. These checks use disposable environments;
+set `T3_WEB_REGRESSION_BROWSER` to the Chromium executable when testing the client.
 
 ### Unused code
 
