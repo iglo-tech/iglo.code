@@ -55,7 +55,8 @@ jobs:
           vp run lint
 
       - name: Typecheck web, server, and dependencies
-        run: vp run --filter 't3...' --concurrency-limit 2 typecheck
+        # No-emit checks read source directly; the plugin contract/fixture dependencies form a cycle.
+        run: vp run --parallel --filter 't3...' --concurrency-limit 2 typecheck
 
       - name: Run smoke tests
         run: >-
