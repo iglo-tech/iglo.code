@@ -12,7 +12,7 @@ import {
   attentionAtom,
   catalogAtom,
   pluginConnectedAtom,
-  pluginSupportedAtom,
+  pluginSupportAtom,
 } from "./runtime";
 import { compiledWebPlugins } from "./compiled";
 import { createPluginWebContext } from "./context";
@@ -26,7 +26,7 @@ export function usePluginContributions(
 ) {
   const current = useAtomValue(availableCatalogAtom(environmentId));
   const connected = useAtomValue(pluginConnectedAtom(environmentId));
-  const supported = useAtomValue(pluginSupportedAtom(environmentId));
+  const support = useAtomValue(pluginSupportAtom(environmentId));
   const catalogFailed = AsyncResult.isFailure(useAtomValue(catalogAtom(environmentId)));
   const retryCatalog = useAtomRefresh(catalogAtom(environmentId));
   const environment = useEnvironment(environmentId);
@@ -46,7 +46,7 @@ export function usePluginContributions(
     current,
     page.retainWhileDisconnected ?? false,
   );
-  const status = pageStatus({ connected, supported, catalogFailed, current });
+  const status = pageStatus({ connected, support, catalogFailed, current });
   const connection: PluginWebContext["connection"] =
     status === "connected" ? "connected" : "disconnected";
   const label = environment?.label ?? environmentId;

@@ -42,6 +42,7 @@ export function createPluginDraftStore(
     write: (key, value) => {
       if (!storage || !valid(key) || value.length > PLUGIN_DRAFT_LIMITS.characters) return false;
       const others = readIndex().filter((item) => item !== key);
+      const previous = storage.getItem(entryKey(key));
       // Write first so a failure never costs other drafts; free space only when the
       // browser quota rejects it, oldest first and never the draft being written.
       const removed: Array<readonly [string, string]> = [];
@@ -78,12 +79,28 @@ export function createPluginDraftStore(
         total -= size(oldest);
         storage.removeItem(entryKey(oldest));
       }
-      try {
-        storage.setItem(indexKey, JSON.stringify([...others, key]));
-      } catch {
-        // The index is advisory; entries remain readable by key.
+      // The index lists drafts; a draft missing from it could never be reopened, so it goes
+      // through the same evict-and-retry path, and is rolled back when nothing else can go.
+      for (;;) {
+        try {
+          storage.setItem(indexKey, JSON.stringify([...others, key]));
+          return true;
+        } catch {
+          const oldest = others.shift();
+          if (oldest === undefined) {
+            if (previous === null) storage.removeItem(entryKey(key));
+            else {
+              try {
+                storage.setItem(entryKey(key), previous);
+              } catch {
+                storage.removeItem(entryKey(key));
+              }
+            }
+            return false;
+          }
+          storage.removeItem(entryKey(oldest));
+        }
       }
-      return true;
     },
     remove: (key) => {
       if (!storage || !valid(key)) return;
