@@ -26,6 +26,7 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import { createPluginAtoms } from "./atoms";
+import type { PluginSupport } from "./pageConnection";
 import { Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -39,10 +40,17 @@ export const pluginConnectedAtom = Atom.family((environmentId: EnvironmentId) =>
     Option.isSome(get(environmentSession.preparedConnectionValueAtom(environmentId))),
   ),
 );
-export const pluginSupportedAtom = Atom.family((environmentId: EnvironmentId) =>
+const pluginSupportedAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get) =>
     supportsPlugins(get(environmentSession.initialConfigValueAtom(environmentId))),
   ),
+);
+/** Tri-state support: a session without configuration yet (reconnecting) is not "unsupported". */
+export const pluginSupportAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make((get): PluginSupport => {
+    const config = get(environmentSession.initialConfigValueAtom(environmentId));
+    return config === null ? "unknown" : supportsPlugins(config) ? "supported" : "unsupported";
+  }),
 );
 const models = createPluginAtoms(connectionAtomRuntime, {
   connected: pluginConnectedAtom,

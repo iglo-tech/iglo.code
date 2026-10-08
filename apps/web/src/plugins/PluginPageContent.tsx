@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import type { bind } from "./contributions";
-import type { PluginPageStatus } from "./pageConnection";
+import { missingPageMessage, type PluginPageStatus } from "./pageConnection";
 const statusText: Record<Exclude<PluginPageStatus, "connected">, string> = {
   disconnected:
     "Disconnected from this environment. Showing the last loaded state; changes wait until it reconnects.",
@@ -40,10 +40,11 @@ export function PluginPageContent({
     (item) => item.id === pageId && plugin.context.descriptor.manifest.web.pages.includes(item.id),
   );
   const descriptor = catalog?.plugins.find((item) => item.manifest.id === pluginId);
+  const missing = missingPageMessage({ status, descriptor });
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <WorkspacePageHeader electron={electron}>
-        <span className="text-sm font-medium">{page?.title ?? "Plugin unavailable"}</span>
+        <span className="text-sm font-medium">{page?.title ?? missing.title}</span>
       </WorkspacePageHeader>
       {page === undefined || status === "connected" ? null : (
         <div
@@ -63,13 +64,17 @@ export function PluginPageContent({
           page.render(plugin.context)
         ) : (
           <div className="mx-auto max-w-xl px-6 py-12">
-            <h1 className="text-lg font-semibold">Plugin unavailable</h1>
-            <p className="mt-3 text-sm text-muted-foreground">
-              {descriptor?.reason ??
-                (descriptor?.status === "available"
-                  ? "This page is not included in this client build."
-                  : "Connect to the selected environment with a compatible plugin build.")}
+            <h1 className="text-lg font-semibold">{missing.title}</h1>
+            <p role="status" className="mt-3 text-sm text-muted-foreground">
+              {missing.text}
             </p>
+            {missing.retry && onRetryCatalog !== undefined ? (
+              <div className="mt-4">
+                <Button size="sm" variant="outline" onClick={onRetryCatalog}>
+                  Retry
+                </Button>
+              </div>
+            ) : null}
           </div>
         )}
       </main>

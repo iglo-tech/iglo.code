@@ -84,6 +84,41 @@ describe("plugin drafts under a browser quota", () => {
   });
 });
 
+describe("plugin draft index at the quota edge", () => {
+  const limited = (quota: number) => {
+    const base = memory();
+    return {
+      ...base,
+      setItem: (key: string, value: string) => {
+        const used = [...base.values].reduce(
+          (sum, [item, stored]) => sum + (item === key ? 0 : stored.length),
+          0,
+        );
+        if (used + value.length > quota) throw new Error("QuotaExceededError");
+        base.setItem(key, value);
+      },
+    };
+  };
+
+  it("evicts older drafts so a new draft is always listed", () => {
+    const store = createPluginDraftStore(limited(35), EnvironmentId.make("one"), "workflows");
+    expect(store.write("a", "a".repeat(10))).toBe(true);
+    // The entry fits, but its index update only fits after the oldest draft goes.
+    expect(store.write("b", "b".repeat(18))).toBe(true);
+    expect(store.keys()).toEqual(["b"]);
+    expect(store.read("a")).toBeNull();
+  });
+
+  it("rolls back a draft whose index cannot be written instead of hiding it", () => {
+    const storage = limited(30);
+    storage.values.set("other-app-state", "z".repeat(10));
+    const store = createPluginDraftStore(storage, EnvironmentId.make("one"), "workflows");
+    expect(store.write("x", "x".repeat(18))).toBe(false);
+    expect(store.read("x")).toBeNull();
+    expect(store.keys()).toEqual([]);
+  });
+});
+
 describe("plugin page links", () => {
   it("keeps bounded page state and drops invalid state without losing the target", () => {
     expect(
