@@ -1,24 +1,23 @@
 // @effect-diagnostics nodeBuiltinImport:off - only node:perf_hooks exposes the event loop delay histogram.
 import * as NodePerfHooks from "node:perf_hooks";
 
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 
-// Node's delay histogram wakes a native timer every RESOLUTION_MS and records the
-// gap between wakeups, so an idle loop reads about RESOLUTION_MS and a stall of S
-// reads between S and S + RESOLUTION_MS. We subtract the resolution, so a delay can
-// undercount a stall by up to RESOLUTION_MS. With these values every stall over 3 s
-// is caught, at 1 wakeup per second that never enters JS.
+// Bun's native histogram records timer lateness, already excluding the resolution.
+// It can undercount a stall by up to RESOLUTION_MS. Every stall over 3 s is caught
+// with these values, at one native wakeup per second that never enters JS.
 const RESOLUTION_MS = 1000;
 const STALL_THRESHOLD_MS = 2000;
 const SAMPLE_INTERVAL = "30 seconds";
 
-/** One sample interval as Node reports it. Delay in ns, active time in ms, CPU in µs. */
+/** One sample interval: timer lateness in ns, host suspension in ms, CPU in µs. */
 export interface EventLoopReadings {
   readonly delayMaxNs: number;
-  readonly activeMs: number;
-  readonly utilization: number;
+  readonly suspendedMs: number;
   readonly usage: Pick<
     NodeJS.ResourceUsage,
     | "userCPUTime"
@@ -31,9 +30,11 @@ export interface EventLoopReadings {
 }
 
 // Enables the delay histogram for the layer's lifetime. Each read returns the
-// readings since the previous read and resets the histogram. Node skips the first
-// gap after a reset, so a stall right at a sample boundary can be missed.
-const makeNodeSampler = Effect.gen(function* () {
+// readings since the previous read and resets the histogram. Bun does not implement
+// eventLoopUtilization, so its zero counters cannot distinguish stalls from sleep.
+const makeBunSampler = Effect.gen(function* () {
+  const platform = yield* HostProcessPlatform;
+  const clock = yield* Clock.Clock;
   const histogram = yield* Effect.acquireRelease(
     Effect.sync(() => {
       const histogram = NodePerfHooks.monitorEventLoopDelay({ resolution: RESOLUTION_MS });
@@ -42,18 +43,25 @@ const makeNodeSampler = Effect.gen(function* () {
     }),
     (histogram) => Effect.sync(() => histogram.disable()),
   );
-  let elu = NodePerfHooks.performance.eventLoopUtilization();
+  let awakeTime = NodePerfHooks.performance.now();
+  let wallTime = clock.currentTimeMillisUnsafe();
   let usage = process.resourceUsage();
 
   // @effect-diagnostics-next-line returnEffectInGen:off - the read effect is the result.
   return Effect.sync(() => {
-    const nextElu = NodePerfHooks.performance.eventLoopUtilization();
+    const nextAwakeTime = NodePerfHooks.performance.now();
+    const nextWallTime = clock.currentTimeMillisUnsafe();
     const nextUsage = process.resourceUsage();
-    const loop = NodePerfHooks.performance.eventLoopUtilization(nextElu, elu);
+    // On macOS Bun's histogram clock includes sleep, but performance.now uses
+    // Rust's CLOCK_UPTIME_RAW. Their elapsed-time difference excludes sleep (and
+    // forward wall-clock adjustments) from warnings. Linux's histogram clock
+    // already excludes host suspension.
     const readings: EventLoopReadings = {
       delayMaxNs: histogram.max,
-      activeMs: loop.active,
-      utilization: loop.utilization,
+      suspendedMs:
+        platform === "darwin"
+          ? Math.max(0, nextWallTime - wallTime - (nextAwakeTime - awakeTime))
+          : 0,
       usage: {
         userCPUTime: nextUsage.userCPUTime - usage.userCPUTime,
         systemCPUTime: nextUsage.systemCPUTime - usage.systemCPUTime,
@@ -65,7 +73,8 @@ const makeNodeSampler = Effect.gen(function* () {
       rssBytes: process.memoryUsage.rss(),
     };
     histogram.reset();
-    elu = nextElu;
+    awakeTime = nextAwakeTime;
+    wallTime = nextWallTime;
     usage = nextUsage;
     return readings;
   });
@@ -74,12 +83,9 @@ const makeNodeSampler = Effect.gen(function* () {
 /**
  * Returns the stall to report for one sample in ms, or undefined when there was none.
  */
-export const stallMs = ({ delayMaxNs, activeMs }: EventLoopReadings) => {
-  const delayMs = Math.round(delayMaxNs / 1e6) - RESOLUTION_MS;
-  // A stall is time the loop spent running code, so it counts as active time. libuv's
-  // clock keeps running while the system sleeps on macOS and Windows, so a sleep also
-  // reads as delay, but the loop spent it idle in poll.
-  if (delayMs <= STALL_THRESHOLD_MS || activeMs < delayMs) return undefined;
+export const stallMs = ({ delayMaxNs, suspendedMs }: EventLoopReadings) => {
+  const delayMs = Math.round(delayMaxNs / 1e6 - suspendedMs);
+  if (delayMs <= STALL_THRESHOLD_MS) return undefined;
   return delayMs;
 };
 
@@ -99,7 +105,7 @@ export const layerWith = (
         const readings = yield* sample;
         const delayMaxMs = stallMs(readings);
         if (delayMaxMs === undefined) return;
-        const { utilization, usage, rssBytes } = readings;
+        const { usage, rssBytes } = readings;
         // Root, as the stall has no caller to attach to. Warn level keeps it when
         // T3CODE_TRACE_MIN_LEVEL is raised to cut trace noise.
         yield* Effect.logWarning(`event loop stalled for ${delayMaxMs} ms`).pipe(
@@ -108,7 +114,6 @@ export const layerWith = (
             level: "Warn",
             attributes: {
               delayMaxMs,
-              utilization: Math.round(utilization * 100) / 100,
               cpuUserMs: Math.round(usage.userCPUTime / 1000),
               cpuSystemMs: Math.round(usage.systemCPUTime / 1000),
               majorPageFaults: usage.majorPageFault,
@@ -132,4 +137,4 @@ export const layerWith = (
     }),
   );
 
-export const layer = layerWith(makeNodeSampler);
+export const layer = layerWith(makeBunSampler);

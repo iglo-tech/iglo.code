@@ -8,11 +8,9 @@ import * as EventLoopMonitor from "./EventLoopMonitor.ts";
 
 const ms = (value: number) => value * 1e6;
 
-// Node reports a stall of S as a gap of up to S + 1 s, the histogram resolution.
 const stalled: EventLoopMonitor.EventLoopReadings = {
-  delayMaxNs: ms(5_950),
-  activeMs: 6_200,
-  utilization: 0.176,
+  delayMaxNs: ms(4_950),
+  suspendedMs: 0,
   usage: {
     userCPUTime: 310_400,
     systemCPUTime: 95_600,
@@ -22,8 +20,7 @@ const stalled: EventLoopMonitor.EventLoopReadings = {
   },
   rssBytes: 1536 * 1024 * 1024,
 };
-// Over the threshold as read, but not once the resolution is subtracted.
-const quiet: EventLoopMonitor.EventLoopReadings = { ...stalled, delayMaxNs: ms(2_950) };
+const quiet: EventLoopMonitor.EventLoopReadings = { ...stalled, delayMaxNs: ms(1_950) };
 
 describe("EventLoopMonitor", () => {
   it.effect("records a warning span only for samples that saw a stall", () =>
@@ -55,7 +52,6 @@ describe("EventLoopMonitor", () => {
       const [span] = spans;
       assert.deepStrictEqual(Object.fromEntries(span!.attributes), {
         delayMaxMs: 4_950,
-        utilization: 0.18,
         cpuUserMs: 310,
         cpuSystemMs: 96,
         majorPageFaults: 8_412,
@@ -70,14 +66,18 @@ describe("EventLoopMonitor", () => {
     }),
   );
 
-  it("ignores delay the loop spent idle, such as a system sleep", () => {
-    // Waking from sleep reads as a long gap, but the loop was idle in poll for it.
+  it("reports Bun timer lateness without subtracting its resolution twice", () => {
+    assert.strictEqual(EventLoopMonitor.stallMs({ ...stalled, delayMaxNs: ms(2_400) }), 2_400);
+    assert.isUndefined(EventLoopMonitor.stallMs({ ...stalled, delayMaxNs: ms(2_000) }));
+  });
+
+  it("filters host sleep while retaining delay beyond the sleep gap", () => {
     const asleep: EventLoopMonitor.EventLoopReadings = {
       ...stalled,
       delayMaxNs: ms(600_000),
-      activeMs: 900,
+      suspendedMs: 600_000,
     };
     assert.isUndefined(EventLoopMonitor.stallMs(asleep));
-    assert.strictEqual(EventLoopMonitor.stallMs({ ...asleep, activeMs: 600_000 }), 599_000);
+    assert.strictEqual(EventLoopMonitor.stallMs({ ...asleep, delayMaxNs: ms(603_500) }), 3_500);
   });
 });
