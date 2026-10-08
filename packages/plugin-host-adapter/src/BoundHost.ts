@@ -98,11 +98,34 @@ export const make = (pluginId: string) =>
         ...(cause === undefined ? {} : { cause }),
       });
     yield* sql`CREATE TABLE IF NOT EXISTS host_commands (id TEXT PRIMARY KEY, request TEXT NOT NULL, intent TEXT NOT NULL, result TEXT)`;
+    // Owner cancellation is final; stopped preparation permits an explicit resume.
+    yield* sql`CREATE TABLE IF NOT EXISTS host_canceled_commands (id TEXT PRIMARY KEY)`;
+    yield* sql`CREATE INDEX IF NOT EXISTS host_commands_thread ON host_commands (json_extract(intent, '$.input.threadId'))`;
     yield* sql`CREATE TABLE IF NOT EXISTS host_cancelled_launches (id TEXT PRIMARY KEY)`;
     // Pending intents written by older hosts must retain their original core receipt identity.
     const coreId = (intent: typeof Intent.Type) =>
       intent.coreCommandId ?? CommandId.make(`plugin:${pluginId}:${intent.input.commandId}`);
     const dispatch = Effect.fn("PluginHost.dispatchIntent")(function* (intent: typeof Intent.Type) {
+      const [canceled] =
+        yield* sql`SELECT id FROM host_canceled_commands WHERE id = ${intent.input.commandId}`;
+      if (canceled) {
+        // Preserve a core commit whose acknowledgement was lost, but never replay uncommitted work.
+        const committed = yield* core.receipt(coreId(intent));
+        const receipt = committed
+          ? { ...committed, commandId: intent.input.commandId }
+          : intent.input.threadId
+            ? {
+                commandId: intent.input.commandId,
+                threadId: intent.input.threadId,
+                cursor: 0,
+                status: "rejected" as const,
+                error: "Canceled by the owner before dispatch.",
+              }
+            : null;
+        const encoded = yield* encodeReceipt(receipt);
+        yield* sql`UPDATE host_commands SET result = ${encoded} WHERE id = ${intent.input.commandId}`;
+        return receipt;
+      }
       if (intent.kind === "interrupt" && intent.input.runId === undefined)
         return yield* new PluginError({
           pluginId,
@@ -344,15 +367,91 @@ export const make = (pluginId: string) =>
       result === null
         ? Effect.fail(error("receipt", "The committed command has no receipt."))
         : Effect.succeed(result);
+    const settled = (id: CommandId) =>
+      lock.activeKeys.pipe(
+        Effect.flatMap((active) =>
+          active.includes(id)
+            ? Effect.fail(
+                new PluginError({
+                  pluginId,
+                  code: "service",
+                  operation: "receipt",
+                  message: "This host command is still dispatching. Reconcile its receipt again.",
+                }),
+              )
+            : Effect.void,
+        ),
+      );
     const service = Host.of({
       ...core,
       launch: (input) => execute({ kind: "launch", input }).pipe(Effect.flatMap(required)),
       retryPreparation: (input) =>
         execute({ kind: "retry-preparation", input }).pipe(Effect.flatMap(required)),
       send: (input) => execute({ kind: "send", input }).pipe(Effect.flatMap(required)),
+      inspect: (target) =>
+        Effect.gen(function* () {
+          const state = yield* core.inspect(target);
+          const rows = yield* sql<{
+            id: CommandId;
+            coreCommandId: CommandId | null;
+          }>`SELECT id, json_extract(intent, '$.coreCommandId') AS coreCommandId FROM host_commands
+            WHERE json_extract(intent, '$.input.projectId') = ${target.projectId}
+              AND json_extract(intent, '$.input.threadId') = ${target.threadId}`;
+          const aliases = new Map(
+            rows.map((row) => [
+              row.coreCommandId ?? CommandId.make(`plugin:${pluginId}:${row.id}`),
+              row.id,
+            ]),
+          );
+          return {
+            ...state,
+            runs: state.runs.map((run) =>
+              run.admissionCommandId === undefined
+                ? run
+                : {
+                    ...run,
+                    admissionCommandId:
+                      aliases.get(run.admissionCommandId) ?? run.admissionCommandId,
+                  },
+            ),
+          };
+        }).pipe(
+          Effect.mapError((cause) =>
+            isPluginError(cause)
+              ? cause
+              : error("inspect", "Could not reconcile the owned execution identity.", cause),
+          ),
+        ),
       interrupt: (input) => execute({ kind: "interrupt", input }),
+      cancelPending: (target) =>
+        Effect.gen(function* () {
+          if (target.environmentId !== core.environmentId)
+            return yield* new PluginError({
+              pluginId,
+              code: "unavailable",
+              operation: "cancelPending",
+              message: "The requested environment is not this server.",
+            });
+          // Only existing work intents lose authority. New resume commands on the same thread remain valid.
+          // SQL serializes this write with replay. Taking the dispatch lock here would invert
+          // its order with an owner's transaction; already dispatched work needs interruption.
+          yield* sql`INSERT OR IGNORE INTO host_canceled_commands (id)
+            SELECT id FROM host_commands WHERE result IS NULL
+              AND json_extract(intent, '$.kind') IN ('launch', 'send')
+              AND json_extract(intent, '$.input.environmentId') = ${target.environmentId}
+              AND json_extract(intent, '$.input.projectId') = ${target.projectId}
+              AND json_extract(intent, '$.input.threadId') = ${target.threadId}`;
+        }).pipe(
+          Effect.mapError((cause) =>
+            isPluginError(cause)
+              ? cause
+              : error("cancelPending", "Could not cancel pending host work.", cause),
+          ),
+        ),
       receipt: (id) =>
         Effect.gen(function* () {
+          // Absence is only authoritative once a dispatched operation can no longer commit.
+          yield* settled(id);
           const [row] = yield* sql<{
             result: string | null;
             intent: string;
@@ -362,6 +461,7 @@ export const make = (pluginId: string) =>
           const result = yield* core.receipt(coreId(yield* decodeIntent(row.intent)));
           return result === null ? null : { ...result, commandId: id };
         }).pipe(
+          Effect.tap(() => settled(id)),
           Effect.mapError((cause) =>
             isPluginError(cause)
               ? cause
@@ -372,7 +472,9 @@ export const make = (pluginId: string) =>
     const recover = Effect.gen(function* () {
       const pending = yield* sql<{
         request: string;
-      }>`SELECT request FROM host_commands WHERE result IS NULL ORDER BY rowid`;
+      }>`SELECT request FROM host_commands WHERE result IS NULL
+        AND NOT EXISTS (SELECT 1 FROM host_canceled_commands WHERE id = host_commands.id)
+        ORDER BY rowid`;
       yield* Effect.forEach(
         pending,
         (row) =>

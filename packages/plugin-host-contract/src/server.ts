@@ -9,6 +9,9 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
+import type * as FileSystem from "effect/FileSystem";
+import type * as Crypto from "effect/Crypto";
+import type * as Path from "effect/Path";
 import type * as Stream from "effect/Stream";
 import type * as SqlClient from "effect/sql/SqlClient";
 import type * as Rpc from "effect/rpc/Rpc";
@@ -43,6 +46,11 @@ export class Host extends Context.Service<
   Host,
   {
     readonly environmentId: EnvironmentId;
+    readonly redact: (input: {
+      readonly text: string;
+      readonly threadIds: ReadonlyArray<PluginTarget["threadId"]>;
+      readonly format?: "json";
+    }) => Effect.Effect<string, PluginError>;
     readonly projects: () => Effect.Effect<
       ReadonlyArray<Pick<Project, "id" | "title" | "workspaceRoot">>,
       PluginError
@@ -52,9 +60,12 @@ export class Host extends Context.Service<
     readonly retryPreparation: (
       input: PluginTarget & { readonly commandId: CommandId; readonly runId: string },
     ) => Effect.Effect<PluginCommandReceipt, PluginError>;
+    /** In-flight dispatch returns a retryable service error; null means settled without a core receipt. */
     readonly receipt: (
       commandId: CommandId,
     ) => Effect.Effect<PluginCommandReceipt | null, PluginError>;
+    /** Cancel pending launch/send intents in the owner's private SQL transaction. Native work still needs interruption. */
+    readonly cancelPending: (target: PluginTarget) => Effect.Effect<void, PluginError>;
     readonly inspect: (target: PluginTarget) => Effect.Effect<PluginThreadState, PluginError>;
     /** Unreleased preparation returns unavailable; retry its run with retryPreparation, or a preparation-only launch with launch. */
     readonly send: (
@@ -83,6 +94,7 @@ export class Host extends Context.Service<
         readonly instanceId: ProviderInstanceId;
         readonly driver: string;
         readonly toolsSupported: boolean;
+        readonly available?: boolean;
         readonly reason: string | null;
         readonly runtimeModes: ReadonlyArray<RuntimeMode>;
       }>,
@@ -99,6 +111,33 @@ export class Host extends Context.Service<
       PluginError
     >;
     readonly resolveRef: (projectId: ProjectId, ref: string) => Effect.Effect<string, PluginError>;
+    readonly prepareWorkspace: (input: {
+      readonly projectId: ProjectId;
+      readonly key: string;
+      readonly ref: string;
+    }) => Effect.Effect<
+      { readonly path: string; readonly branch: string; readonly head: string },
+      PluginError
+    >;
+    readonly verifyWorkspace: (input: {
+      readonly projectId: ProjectId;
+      readonly path: string;
+    }) => Effect.Effect<{ readonly head: string; readonly clean: boolean }, PluginError>;
+    readonly execute: (input: {
+      readonly projectId: ProjectId;
+      readonly path: string;
+      readonly command: string;
+      readonly args: ReadonlyArray<string>;
+      readonly timeoutMs: number;
+    }) => Effect.Effect<
+      {
+        readonly exitCode: number | null;
+        readonly timedOut: boolean;
+        readonly stdout: string;
+        readonly stderr: string;
+      },
+      PluginError
+    >;
     readonly verifyPullRequestHead: (
       input: import("./schema.ts").PluginPullRequestRef,
     ) => Effect.Effect<{ readonly head: string; readonly branch: string }, PluginError>;
@@ -200,6 +239,6 @@ export interface ServerPlugin {
   readonly acquire: Effect.Effect<
     PluginServices,
     PluginError,
-    Host | Storage | Schedules | Scope.Scope
+    Host | Storage | Schedules | Scope.Scope | FileSystem.FileSystem | Path.Path | Crypto.Crypto
   >;
 }

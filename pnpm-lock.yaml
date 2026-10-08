@@ -227,6 +227,9 @@ importers:
       '@t3tools/plugin-host-contract':
         specifier: workspace:*
         version: link:../../packages/plugin-host-contract
+      '@t3tools/plugin-workflows':
+        specifier: workspace:*
+        version: link:../../packages/plugin-workflows
       '@t3tools/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -612,6 +615,9 @@ importers:
       '@t3tools/plugin-fixture':
         specifier: workspace:*
         version: link:../plugin-fixture
+      '@t3tools/plugin-workflows':
+        specifier: workspace:*
+        version: link:../plugin-workflows
       effect:
         specifier: 4.0.1
         version: 4.0.1(patch_hash=a33cba07c41f32374c2aaa86ea4a84d3ab9a872a78c94b65e929b19f8361856f)
@@ -729,6 +735,22 @@ importers:
       '@types/react':
         specifier: ~19.3.0
         version: 19.3.0
+      vite-plus:
+        specifier: 1.0.0
+        version: 1.0.0(@types/node@24.12.4)(@vitest/ui@5.0.1)(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(msw@2.12.11(@types/node@24.12.4)(typescript@7.0.2))(terser@5.48.0)(typescript@7.0.2)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
+
+  packages/plugin-workflows:
+    dependencies:
+      '@t3tools/plugin-host-contract':
+        specifier: workspace:*
+        version: link:../plugin-host-contract
+      effect:
+        specifier: 4.0.1
+        version: 4.0.1(patch_hash=a33cba07c41f32374c2aaa86ea4a84d3ab9a872a78c94b65e929b19f8361856f)
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+    devDependencies:
       vite-plus:
         specifier: 1.0.0
         version: 1.0.0(@types/node@24.12.4)(@vitest/ui@5.0.1)(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(msw@2.12.11(@types/node@24.12.4)(typescript@7.0.2))(terser@5.48.0)(typescript@7.0.2)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)

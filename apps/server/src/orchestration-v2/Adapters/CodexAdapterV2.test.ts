@@ -1873,6 +1873,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     onEvent: (event: ProviderAdapterV2Event) => Effect.Effect<unknown> = () => Effect.void,
     onRequest: (method: string, params: unknown) => Effect.Effect<void> = () => Effect.void,
     readChildMetadata?: Parameters<typeof withCodexReplayChildMetadata>[2],
+    appThreadId?: ThreadId,
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -1926,7 +1927,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             }),
         },
       });
-      const threadId = ThreadId.make(`thread-${transcript.scenario}`);
+      const threadId = appThreadId ?? ThreadId.make(`thread-${transcript.scenario}`);
       const runtime = yield* adapter.openSession({
         threadId,
         providerSessionId: ProviderSessionId.make(`provider-session-${transcript.scenario}`),
@@ -1988,8 +1989,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const scenario = "plugin-reporting";
-          const threadId = ThreadId.make(`thread-${scenario}`);
-          const fixture = yield* makePluginToolFixture("codex", threadId);
+          const fixture = yield* makePluginToolFixture(
+            "codex",
+            ThreadId.make(`thread-${scenario}`),
+            { workflow: true },
+          );
+          const threadId = fixture.threadId;
           const first = yield* fixture.issue;
           const refreshed = yield* fixture.issue;
           McpProviderSession.setMcpProviderSession(first);
@@ -2012,7 +2017,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                     "t3-code": {
                       url: first.endpoint,
                       http_headers: { Authorization: first.authorizationHeader },
-                      tools: { plugin_fixture_report: { approval_mode: "approve" } },
+                      tools: {
+                        plugin_fixture_report: { approval_mode: "approve" },
+                        plugin_workflows_report: { approval_mode: "approve" },
+                      },
                     },
                   },
                 },
@@ -2035,7 +2043,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                     "t3-code": {
                       url: refreshed.endpoint,
                       http_headers: { Authorization: refreshed.authorizationHeader },
-                      tools: { plugin_fixture_report: { approval_mode: "approve" } },
+                      tools: {
+                        plugin_fixture_report: { approval_mode: "approve" },
+                        plugin_workflows_report: { approval_mode: "approve" },
+                      },
                     },
                   },
                 },
@@ -2051,6 +2062,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           });
           const harness = yield* makeCodexReplayHarness(
             makeCodexReplayTranscript({ scenario, entries }),
+            undefined,
+            undefined,
+            undefined,
+            threadId,
           );
           yield* fixture.report(
             { url: first.endpoint, headers: { Authorization: first.authorizationHeader } },

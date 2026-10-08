@@ -188,7 +188,7 @@ const withInstructions = (
 
 const openCode2ReplayRuntimeWithInstructions = (
   entries: ReadonlyArray<ProviderReplayEntry>,
-  options?: { readonly external?: boolean },
+  options?: { readonly external?: boolean; readonly threadId?: ThreadId },
 ) => openCode2ReplayRuntime(withInstructions(entries), options);
 
 /** What every session sends when it opens: the event stream, then the model list. */
@@ -234,7 +234,7 @@ const turnInput = (
   runtimeMode: "full-access" | "approval-required" = "full-access",
 ) => ({
   appThread: {} as OrchestrationV2AppThread,
-  threadId,
+  threadId: thread.appThreadId ?? threadId,
   runId: RunId.make("run:opencode2-adapter"),
   runOrdinal: 1,
   providerTurnOrdinal: 1,
@@ -2733,7 +2733,12 @@ describe("OpenCode2 adapter", () => {
     (runtimeMode) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const server = "t3-code-thread_opencode2-adapter";
+          const fixture = yield* makePluginToolFixture("opencode", threadId, {
+            workflow: true,
+            runtimeMode: policy(runtimeMode).runtimeMode,
+          });
+          const workflowThreadId = fixture.threadId;
+          const server = yield* t3McpServerName(workflowThreadId);
           const pluginRule = {
             action: `${server}_plugin_fixture_report`,
             resource: "*",
@@ -2744,10 +2749,13 @@ describe("OpenCode2 adapter", () => {
               ? []
               : [out("agent.list", "<any>"), reply("agent.list", agentList)];
           const permissions = [
-            ...(runtimeMode === "full-access" ? t3Rules : supervisedRules),
+            ...(runtimeMode === "full-access" ? t3Rules : supervisedRules).map((rule) => ({
+              ...rule,
+              action: rule.action.replace("t3-code-thread_opencode2-adapter", server),
+            })),
             pluginRule,
+            { action: `${server}_plugin_workflows_report`, resource: "*", effect: "allow" },
           ];
-          const fixture = yield* makePluginToolFixture("opencode", threadId);
           const firstCredential = yield* fixture.issue;
           const injection = (credential: McpProviderSession.McpProviderSessionConfig) => [
             out("mcp.add", {
@@ -2767,19 +2775,27 @@ describe("OpenCode2 adapter", () => {
             out("mcp.remove", { server, "location[directory]": WORK }),
             reply("mcp.remove", null),
           ];
-          const first = yield* openCode2ReplayRuntimeWithInstructions([
-            ...opening,
-            ...paths,
-            out("session.create", {
-              location: { directory: WORK },
-              model: { providerID: "opencode", id: "big-pickle" },
-              permissions,
-            }),
-            replyData("session.create", sessionInfo({ permissions })),
-            ...injection(firstCredential),
-          ]);
+          const first = yield* openCode2ReplayRuntimeWithInstructions(
+            [
+              ...opening,
+              ...paths,
+              out("session.create", {
+                id: null,
+                parentID: null,
+                title: null,
+                agent: null,
+                location: { directory: WORK },
+                model: { providerID: "opencode", id: "big-pickle" },
+                metadata: null,
+                permissions,
+              }),
+              replyData("session.create", sessionInfo({ permissions })),
+              ...injection(firstCredential),
+            ],
+            { threadId: workflowThreadId },
+          );
           const created = yield* first.ensureThread({
-            threadId,
+            threadId: workflowThreadId,
             modelSelection: bigPickle,
             runtimePolicy: policy(runtimeMode),
           });
@@ -2795,17 +2811,20 @@ describe("OpenCode2 adapter", () => {
           );
           const freshCredential = yield* fixture.issue;
           assert.notEqual(firstCredential.authorizationHeader, freshCredential.authorizationHeader);
-          const second = yield* openCode2ReplayRuntimeWithInstructions([
-            ...opening,
-            out("session.get", { sessionID: SESSION }),
-            replyData("session.get", sessionInfo({ permissions })),
-            ...noOpenRequests,
-            ...paths,
-            ...injection(freshCredential),
-          ]);
+          const second = yield* openCode2ReplayRuntimeWithInstructions(
+            [
+              ...opening,
+              out("session.get", { sessionID: SESSION }),
+              replyData("session.get", sessionInfo({ permissions })),
+              ...noOpenRequests,
+              ...paths,
+              ...injection(freshCredential),
+            ],
+            { threadId: workflowThreadId },
+          );
           const resumedThread = yield* second.resumeThread({
             providerThread: created,
-            threadId,
+            threadId: workflowThreadId,
             modelSelection: bigPickle,
             runtimePolicy: policy(runtimeMode),
           });

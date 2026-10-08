@@ -146,19 +146,47 @@ export const PluginThreadState = Schema.Struct({
   projectId: ProjectId,
   threadId: ThreadId,
   title: Schema.String,
+  runtimeMode: Schema.optional(RuntimeMode),
   workspacePath: Schema.String,
   branch: Schema.NullOr(Schema.String),
   preparationId: Schema.optional(Schema.String),
-  runs: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
+  nativeSession: Schema.optional(
+    Schema.NullOr(Schema.Struct({ id: Schema.String, canResume: Schema.Boolean })),
+  ),
+  /** Native execution order; held submissions can execute after newer runs. */
+  runs: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      status: Schema.String,
+      startedAt: Schema.optional(Schema.NullOr(Schema.Number)),
+      queueHeld: Schema.optional(Schema.Boolean),
+      interruptRequested: Schema.optional(Schema.Boolean),
+      /** Monitor-only executions do not determine an owned operation's result. */
+      resultRelevant: Schema.optional(Schema.Boolean),
+      /** Correlates launch/send receipts with the execution they admitted. */
+      admissionCommandId: Schema.optional(CommandId),
+    }),
+  ),
+  resultRunId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Latest persisted completion among the native work represented by a settled result. */
+  settledAt: Schema.optional(Schema.NullOr(Schema.Number)),
   outstandingWork: Schema.Array(Schema.Struct({ id: Schema.String, status: Schema.String })),
   requests: Schema.Array(
-    Schema.Struct({ id: Schema.String, status: Schema.String, kind: Schema.String }),
+    Schema.Struct({
+      id: Schema.String,
+      status: Schema.String,
+      kind: Schema.String,
+      createdAt: Schema.Number,
+      resolvedAt: Schema.NullOr(Schema.Number),
+    }),
   ),
   checkpoints: Schema.Array(
     Schema.Struct({
       id: Schema.String,
       status: Schema.String,
       commit: Schema.NullOr(Schema.String),
+      /** Unknown ownership remains relevant; explicit ownership scopes recovery. */
+      runId: Schema.optional(Schema.NullOr(Schema.String)),
     }),
   ),
 });
@@ -198,11 +226,20 @@ export const PluginLaunchInput = Schema.Struct({
   environmentId: EnvironmentId,
   projectId: ProjectId,
   commandId: CommandId,
+  threadId: Schema.optional(ThreadId),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
+  interactionMode: Schema.optional(Schema.Literals(["default", "plan"])),
   workspace: Schema.Union([
     Schema.Struct({ type: Schema.Literal("current") }),
+    Schema.Struct({
+      type: Schema.Literal("existing"),
+      path: TrimmedNonEmptyString,
+      branch: Schema.NullOr(Schema.String),
+      // Require this commit and clean input before the first launch commits, including recovery.
+      frozenHead: Schema.optional(TrimmedNonEmptyString),
+    }),
     Schema.Struct({
       type: Schema.Literal("exact-ref"),
       ref: TrimmedNonEmptyString,

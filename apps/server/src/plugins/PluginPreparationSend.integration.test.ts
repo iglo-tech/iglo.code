@@ -143,10 +143,10 @@ it.live.each([false, true])(
           ),
           Stream.runHead,
         );
+        // Lose the caller's pending reply, then read the receipt once its dispatch fence clears.
+        yield* Fiber.interrupt(launching);
         const receipt = yield* host.receipt(commandId);
         expect(receipt?.status).toBe("accepted");
-        // Lose the caller's pending reply, not the server-owned preparation.
-        yield* Fiber.interrupt(launching);
         const before = yield* tracker.get(threadId);
         expect(before?.phase).toBe("running");
         expect(before?.stages.find((x) => x.id === "agent")?.status).toBe("pending");

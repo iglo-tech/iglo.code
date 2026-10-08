@@ -4,6 +4,7 @@ import {
   RunId,
   type OrchestrationV2DomainEvent,
   type ProjectId,
+  type VcsRef,
 } from "@t3tools/contracts";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import {
@@ -15,9 +16,12 @@ import {
   type PluginThreadState,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -40,8 +44,13 @@ import {
   exceededDispatchModeLimit,
 } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
-import { latestUnheldRun } from "@t3tools/shared/orchestrationV2ThreadError";
+import { delegatedTaskProgress } from "../../../apps/server/src/orchestration-v2/SubagentProjection.ts";
+import * as ProcessRunner from "../../../apps/server/src/processRunner.ts";
+import * as McpSessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
+import { latestUnheldRun, runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 
+const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Json));
 const fail = (operation: string, message: string, cause?: unknown) =>
   new PluginError({
     pluginId: "host",
@@ -71,6 +80,7 @@ const normalizedEvent = (
     case "subagent.updated":
       return "work-changed";
     case "turn-item.updated":
+      if (event.payload.type === "run_interrupt_request") return "provider-interrupted";
       return ["command_execution", "dynamic_tool", "subagent"].includes(event.payload.type)
         ? "work-changed"
         : null;
@@ -92,6 +102,8 @@ const make = Effect.gen(function* () {
   const settings = yield* Settings.ServerSettingsService;
   const git = yield* Git.GitVcsDriver;
   const pullRequests = yield* PullRequests.PullRequestService;
+  const processRunner = yield* ProcessRunner.ProcessRunner;
+  const fs = yield* FileSystem.FileSystem;
   const environment = (id: string) =>
     id === environmentId
       ? Effect.void
@@ -161,22 +173,43 @@ const make = Effect.gen(function* () {
     yield* environment(target.environmentId);
     const workspace = yield* project(target.projectId);
     const records = yield* threads
-      .getProjectThreadRecords(target, [
-        "runs",
-        "nodes",
-        "providerThreads",
-        "turnItems",
-        "runtimeRequests",
-        "checkpoints",
-      ])
+      .getProjectThreadRecords(
+        target,
+        [
+          "runs",
+          "nodes",
+          "messages",
+          "subagents",
+          "providerThreads",
+          "turnItems",
+          "runtimeRequests",
+          "checkpoints",
+        ],
+        { messageRoles: ["user"] },
+      )
       .pipe(
-        Effect.mapError((cause) =>
-          fail("inspect", "The thread is unavailable in this project.", cause),
+        Effect.mapError(
+          (cause) =>
+            new PluginError({
+              pluginId: "host",
+              operation: "inspect",
+              code:
+                cause._tag === "ThreadManagementThreadNotFoundError" ? "unavailable" : "service",
+              message: "The thread is unavailable in this project.",
+              cause,
+            }),
         ),
       );
-    const runs = records.runs.toSorted((left, right) => left.ordinal - right.ordinal);
-    const abandoned = new Set(
-      runs.filter((run) => run.status === "rolled_back").map((run) => run.id),
+    const runs = records.runs.toSorted((left, right) =>
+      runRanAfter(left, right) ? 1 : runRanAfter(right, left) ? -1 : 0,
+    );
+    const inactiveRuns = new Set(
+      runs
+        .filter(
+          (run) =>
+            run.status === "rolled_back" || (run.status === "queued" && run.queueHeld === true),
+        )
+        .map((run) => run.id),
     );
     const background = derivePendingBackgroundWork({
       latestRun: latestUnheldRun(runs),
@@ -192,33 +225,131 @@ const make = Effect.gen(function* () {
       !preparation.stages.some((stage) => stage.id === "agent" && stage.status !== "pending")
         ? preparation.preparationId
         : undefined;
+    // Aggregate readiness uses the same live-work view as the normalized roster.
+    const progress = delegatedTaskProgress({
+      ...records,
+      runs: runs.filter((run) => !inactiveRuns.has(run.id)),
+      subagents: records.subagents.filter(
+        (task) => task.runId === null || !inactiveRuns.has(task.runId),
+      ),
+      providerThreads: [{ pendingBackgroundTasks: background }],
+    });
+    const monitorRuns = new Set(
+      records.messages
+        .filter((message) => message.notification?.source.kind === "monitor")
+        .map((message) => message.runId),
+    );
+    // A stopped follow-up or rollback still invalidates an earlier result.
+    const failedFollowUp = records.runs
+      .filter(
+        (run) =>
+          !monitorRuns.has(run.id) &&
+          ["failed", "cancelled", "interrupted", "rolled_back"].includes(run.status),
+      )
+      .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+    const resultRun =
+      failedFollowUp && failedFollowUp.ordinal > (progress.resultRun?.ordinal ?? 0)
+        ? failedFollowUp
+        : progress.resultRun;
+    const outstandingWork = [
+      ...(preparationId === undefined ? [] : [{ id: preparationId, status: "running" }]),
+      ...(progress.state !== "result_available" &&
+      runs.some((run) => !monitorRuns.has(run.id) && !inactiveRuns.has(run.id))
+        ? [{ id: `${target.threadId}:core-work`, status: progress.state }]
+        : []),
+      ...records.nodes
+        .filter(
+          (node) =>
+            (node.runId === null || !inactiveRuns.has(node.runId)) &&
+            ["pending", "running", "waiting"].includes(node.status),
+        )
+        .map((node) => ({ id: node.id, status: node.status })),
+      ...background.map((task) => ({ id: task.taskId, status: "running" })),
+    ];
+    const completedAt = [
+      ...runs
+        .filter((run) => !monitorRuns.has(run.id) && !inactiveRuns.has(run.id))
+        .map((run) => run.completedAt),
+      ...records.nodes
+        .filter(
+          (node) =>
+            node.runId === null || (!monitorRuns.has(node.runId) && !inactiveRuns.has(node.runId)),
+        )
+        .map((node) => node.completedAt),
+      ...records.turnItems
+        .filter(
+          (item) =>
+            item.runId === null || (!monitorRuns.has(item.runId) && !inactiveRuns.has(item.runId)),
+        )
+        .map((item) => item.completedAt),
+      ...records.subagents
+        .filter(
+          (task) =>
+            task.runId === null || (!monitorRuns.has(task.runId) && !inactiveRuns.has(task.runId)),
+        )
+        .map((task) => task.completedAt),
+      ...records.checkpoints
+        .filter(
+          (checkpoint) =>
+            checkpoint.runId === null ||
+            (!monitorRuns.has(checkpoint.runId) && !inactiveRuns.has(checkpoint.runId)),
+        )
+        .map((checkpoint) => checkpoint.capturedAt),
+    ]
+      .filter((time) => time !== null)
+      .map(DateTime.toEpochMillis);
+    const stoppedRuns = new Set(
+      records.turnItems
+        .filter((item) => item.type === "run_interrupt_request")
+        .map((item) => item.runId),
+    );
     return {
       ...target,
+      settledAt:
+        outstandingWork.length === 0 && resultRun?.completedAt != null && completedAt.length > 0
+          ? Math.max(...completedAt)
+          : null,
+      resultRunId: resultRun?.id ?? null,
       title: records.thread.title,
+      runtimeMode: records.thread.runtimeMode,
       workspacePath: records.thread.worktreePath ?? workspace.workspaceRoot,
       branch: records.thread.branch,
       ...(preparationId === undefined ? {} : { preparationId }),
-      runs: runs.map((run) => ({ id: run.id, status: run.status })),
-      outstandingWork: [
-        ...(preparationId === undefined ? [] : [{ id: preparationId, status: "running" }]),
-        ...records.nodes
-          .filter(
-            (node) =>
-              (node.runId === null || !abandoned.has(node.runId)) &&
-              ["pending", "running", "waiting"].includes(node.status),
-          )
-          .map((node) => ({ id: node.id, status: node.status })),
-        ...background.map((task) => ({ id: task.taskId, status: "running" })),
-      ],
+      runs: runs.map((run) => ({
+        id: run.id,
+        status: run.status,
+        startedAt: run.startedAt === null ? null : DateTime.toEpochMillis(run.startedAt),
+        queueHeld: run.queueHeld,
+        resultRelevant: !monitorRuns.has(run.id),
+        ...(run.userMessageId.length > ":message".length && run.userMessageId.endsWith(":message")
+          ? { admissionCommandId: CommandId.make(run.userMessageId.slice(0, -":message".length)) }
+          : {}),
+        ...(stoppedRuns.has(run.id) ? { interruptRequested: true } : {}),
+      })),
+      nativeSession: (() => {
+        const current = records.providerThreads.find(
+          (thread) => thread.id === records.thread.activeProviderThreadId,
+        );
+        return current?.nativeThreadRef?.nativeId
+          ? {
+              id: current.nativeThreadRef.nativeId,
+              canResume: !["closed", "archived", "error"].includes(current.status),
+            }
+          : null;
+      })(),
+      outstandingWork,
       requests: records.runtimeRequests.map((request) => ({
         id: request.id,
         status: request.status,
         kind: request.kind,
+        createdAt: DateTime.toEpochMillis(request.createdAt),
+        resolvedAt: request.resolvedAt === null ? null : DateTime.toEpochMillis(request.resolvedAt),
       })),
       checkpoints: records.checkpoints.map((checkpoint) => ({
         id: checkpoint.id,
         status: checkpoint.status,
         commit: checkpoint.ref,
+        runId: checkpoint.runId,
       })),
     };
   });
@@ -341,7 +472,24 @@ const make = Effect.gen(function* () {
           instanceId: provider.instanceId,
           driver,
           toolsSupported: capability.supported,
-          reason: capability.reason,
+          available:
+            provider.enabled &&
+            provider.installed &&
+            provider.availability !== "unavailable" &&
+            !["error", "disabled"].includes(provider.status) &&
+            provider.auth.status !== "unauthenticated",
+          reason:
+            capability.reason ??
+            (!provider.enabled
+              ? "The provider is disabled."
+              : !provider.installed
+                ? "The provider is not installed."
+                : provider.availability === "unavailable"
+                  ? (provider.unavailableReason ?? "The provider driver is unavailable.")
+                  : ["error", "disabled"].includes(provider.status) ||
+                      provider.auth.status === "unauthenticated"
+                    ? (provider.message ?? "The provider is not ready.")
+                    : null),
           runtimeModes: provider.supportedRuntimeModes ?? [
             "approval-required",
             "auto-accept-edits",
@@ -360,8 +508,90 @@ const make = Effect.gen(function* () {
         fail("prepare", "The requested exact ref could not be resolved.", cause),
       ),
     );
+  const findWorkspaceRef = Effect.fnUntraced(function* (
+    cwd: string,
+    matches: (ref: VcsRef) => boolean,
+    query?: string,
+  ) {
+    let cursor: number | undefined;
+    do {
+      const page = yield* git.listRefs({
+        cwd,
+        refKind: "local",
+        ...(query ? { query } : {}),
+        ...(cursor === undefined ? { refresh: true } : { cursor }),
+      });
+      const found = page.refs.find(matches);
+      if (found) return found;
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    return null;
+  });
+  const ownedWorkspace = Effect.fnUntraced(function* (input: {
+    projectId: ProjectId;
+    path: string;
+  }) {
+    const workspace = yield* project(input.projectId);
+    const path = yield* fs.realPath(input.path);
+    if (path === (yield* fs.realPath(workspace.workspaceRoot))) return;
+    const owned = yield* findWorkspaceRef(
+      workspace.workspaceRoot,
+      (ref) => ref.worktreePath === path,
+    );
+    if (!owned) return yield* fail("workspace", "The workspace does not belong to this project.");
+  });
+  const verifyWorkspace = Effect.fnUntraced(
+    function* (input: { projectId: ProjectId; path: string }) {
+      yield* ownedWorkspace(input);
+      const head = yield* git.resolveCommit({ cwd: input.path, revision: "HEAD" });
+      const status = yield* git.status({ cwd: input.path });
+      return { head: head.commitSha, clean: !status.hasWorkingTreeChanges };
+    },
+    Effect.mapError((cause) => fail("workspace", "Could not verify the workspace.", cause)),
+  );
   return Host.of({
     environmentId,
+    // Durable plugin intents belong to BoundHost, not the core adapter.
+    cancelPending: () => Effect.void,
+    redact: (input) =>
+      Effect.gen(function* () {
+        const configuration = yield* settings.getSettings;
+        const secrets = new Set<string>();
+        // Follow the settings redactor's actual secret fields, including host-keyed maps.
+        const collect = (value: unknown, visible: unknown) => {
+          if (typeof value === "string" && typeof visible === "string") {
+            if (value.length > 0 && value !== visible) secrets.add(value);
+          } else if (value && typeof value === "object" && visible && typeof visible === "object") {
+            const fields = new Map(Object.entries(visible));
+            for (const [name, item] of Object.entries(value)) collect(item, fields.get(name));
+          }
+        };
+        collect(configuration, Settings.redactServerSettingsForClient(configuration));
+        for (const threadId of input.threadIds) {
+          const session = McpSessions.readMcpProviderSession(threadId);
+          if (session) {
+            secrets.add(session.authorizationHeader);
+            secrets.add(session.authorizationHeader.replace(/^Bearer /, ""));
+          }
+        }
+        const redactText = (value: string) => {
+          for (const secret of secrets) value = value.replaceAll(secret, "[redacted]");
+          return value;
+        };
+        const redactJson = (value: Schema.Json): Schema.Json =>
+          typeof value === "string"
+            ? redactText(value)
+            : Array.isArray(value)
+              ? value.map(redactJson)
+              : value && typeof value === "object"
+                ? Object.fromEntries(
+                    Object.entries(value).map(([key, item]) => [key, redactJson(item)]),
+                  )
+                : value;
+        return input.format === "json"
+          ? encodeJson(redactJson(decodeJson(input.text)))
+          : redactText(input.text);
+      }).pipe(Effect.mapError((cause) => fail("redact", "Could not redact known secrets.", cause))),
     receipt,
     inspect,
     reconcile,
@@ -424,6 +654,52 @@ const make = Effect.gen(function* () {
       project(projectId).pipe(
         Effect.flatMap((project) => resolveWorkspaceRef(project.workspaceRoot, ref)),
       ),
+    prepareWorkspace: (input) =>
+      Effect.gen(function* () {
+        const workspace = yield* project(input.projectId);
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(input.key))
+          return yield* fail("prepare", "Invalid workspace identity.");
+        const branch = `t3code/plugin-${input.key}`;
+        const existing = yield* findWorkspaceRef(
+          workspace.workspaceRoot,
+          (ref) => ref.name === branch && ref.worktreePath !== null,
+          branch,
+        );
+        const path =
+          existing?.worktreePath ??
+          (yield* git.createWorktree({
+            cwd: workspace.workspaceRoot,
+            refName: input.ref,
+            newRefName: branch,
+            path: null,
+          })).worktree.path;
+        const head = yield* git.resolveCommit({ cwd: path, revision: "HEAD" });
+        return { path: yield* fs.realPath(path), branch, head: head.commitSha };
+      }).pipe(
+        Effect.mapError((cause) =>
+          fail("prepare", "Could not prepare the owned workspace.", cause),
+        ),
+      ),
+    verifyWorkspace,
+    execute: (input) =>
+      Effect.gen(function* () {
+        yield* ownedWorkspace(input);
+        const result = yield* processRunner.run({
+          command: input.command,
+          args: input.args,
+          cwd: input.path,
+          timeout: input.timeoutMs,
+          timeoutBehavior: "timedOutResult",
+          maxOutputBytes: 16_384,
+          outputMode: "truncate",
+        });
+        return {
+          exitCode: result.code,
+          timedOut: result.timedOut,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        };
+      }).pipe(Effect.mapError((cause) => fail("execute", "Could not execute the command.", cause))),
     verifyPullRequestHead: (input) =>
       pullRequests
         .verifyHead(input)
@@ -486,6 +762,23 @@ const make = Effect.gen(function* () {
           }
         }
         const workspace = yield* project(input.projectId);
+        if (
+          existing === null &&
+          input.workspace.type === "existing" &&
+          input.workspace.frozenHead !== undefined
+        ) {
+          const evidence = yield* verifyWorkspace({
+            projectId: input.projectId,
+            path: input.workspace.path,
+          });
+          if (evidence.head !== input.workspace.frozenHead || !evidence.clean)
+            return yield* new PluginError({
+              pluginId: "host",
+              operation: "launch",
+              code: "conflict",
+              message: "The checkout differs from its frozen launch input.",
+            });
+        }
         const ref =
           input.workspace.type === "exact-ref"
             ? yield* resolveWorkspaceRef(workspace.workspaceRoot, input.workspace.ref)
@@ -494,21 +787,33 @@ const make = Effect.gen(function* () {
         const launched = yield* launch
           .launch({
             commandId: input.commandId,
+            ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
             projectId: input.projectId,
             title: input.title,
             modelSelection: input.modelSelection,
             runtimeMode: input.runtimeMode,
-            interactionMode: limit?.interactionMode ?? "default",
+            interactionMode:
+              input.interactionMode === "plan" || limit?.interactionMode === "plan"
+                ? "plan"
+                : "default",
             workspaceStrategy:
               input.workspace.type === "current"
                 ? { type: "root" }
-                : {
-                    type: "worktree",
-                    baseRef: ref!,
-                    ...(input.workspace.branch === undefined
-                      ? {}
-                      : { branch: input.workspace.branch }),
-                  },
+                : input.workspace.type === "existing"
+                  ? {
+                      type: "existing_worktree",
+                      worktreePath: input.workspace.path,
+                      ...(input.workspace.branch === null
+                        ? {}
+                        : { branch: input.workspace.branch }),
+                    }
+                  : {
+                      type: "worktree",
+                      baseRef: ref!,
+                      ...(input.workspace.branch === undefined
+                        ? {}
+                        : { branch: input.workspace.branch }),
+                    },
             ...(input.instruction === undefined
               ? {}
               : {
@@ -804,4 +1109,4 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(Host, make);
+export const layer = Layer.effect(Host, make).pipe(Layer.provide(ProcessRunner.layer));
