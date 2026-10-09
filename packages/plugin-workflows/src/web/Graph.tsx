@@ -55,12 +55,22 @@ import {
   type RepeatLoop,
 } from "./flowGraph.ts";
 import { stepButtonId } from "./Flow.tsx";
-import { KindIcon } from "./kinds.tsx";
+import { KindIcon, statusIcons, statusTone } from "./kinds.tsx";
+import type { StepState, StepStatus } from "./run.ts";
+
+/** A run painted onto its definition: box states, recorded routes and the current step. */
+export interface RunOverlay {
+  /** Keyed by box id: a step id, or `step/branch` for a reviewer lane. */
+  readonly steps: ReadonlyMap<string, StepState>;
+  /** Recorded routing decisions as `from` step → `to` step. */
+  readonly routes: ReadonlyArray<{ readonly from: string; readonly to: string }>;
+  readonly current: string | null;
+}
 
 interface GraphActions {
   readonly removable: (stepId: string) => boolean;
   readonly movable: (stepId: string, offset: -1 | 1) => boolean;
-  readonly onSelect: (stepId: string | null) => void;
+  readonly onSelect: (stepId: string | null, boxId?: string) => void;
   readonly onMove: (stepId: string, offset: -1 | 1) => void;
   readonly onRemove: (stepId: string) => void;
   readonly Tooltip: PluginDesign["Tooltip"] | undefined;
@@ -72,6 +82,8 @@ type StepData = {
   readonly selected: boolean;
   readonly errors: number;
   readonly warnings: number;
+  /** Present on a run's graph; a box without a recorded visit is pending. */
+  readonly run: { readonly state: StepState | null; readonly current: boolean } | null;
 };
 type StepNode =
   | FlowCanvasNode<StepData, "step">
@@ -85,6 +97,8 @@ type RouteData = {
   readonly label: Point | null;
   /** For repeat back edges: the loop's vertical run and detours, clear of every box. */
   readonly loop: RepeatLoop | null;
+  /** On a run's graph, whether a recorded routing decision took this edge. */
+  readonly taken: boolean | null;
 };
 type RouteEdge = Edge<RouteData, "route">;
 
@@ -121,6 +135,14 @@ function WithTooltip({
   const Tooltip = use(GraphActionsContext)?.Tooltip;
   return Tooltip === undefined || !needed ? children : <Tooltip label={label}>{children}</Tooltip>;
 }
+const statusBorder: Record<StepStatus, string> = {
+  pending: "border-dashed border-border",
+  running: "border-info/64",
+  reported: "border-info/48",
+  completed: "border-success/40",
+  failed: "border-destructive/56",
+  stopped: "border-warning/56",
+};
 
 function StepCard({
   data,
@@ -152,23 +174,30 @@ function StepCard({
       zoom,
     });
   };
-  const { node, selected, errors, warnings } = data;
+  const { node, selected, errors, warnings, run } = data;
   const removable = actions?.removable(node.id) ?? false;
   const moveUp = actions?.movable(node.id, -1) ?? false;
   const moveDown = actions?.movable(node.id, 1) ?? false;
+  const status = run === null ? null : (run.state?.status ?? "pending");
+  const StatusIcon = status === null ? null : statusIcons[status];
   return (
     <div
       style={{ width, height }}
       className={[
         "relative rounded-xl border bg-card text-card-foreground shadow-xs/5 transition-[border-color,box-shadow]",
         node.kind === "missing" ? "border-dashed border-destructive/60 bg-transparent" : "",
+        status === "pending" ? "opacity-72" : "",
         selected
           ? "border-primary ring-3 ring-primary/24"
-          : errors > 0
-            ? "border-destructive/56"
-            : node.kind === "missing"
-              ? ""
-              : "border-border",
+          : run?.current
+            ? "border-info ring-3 ring-info/20"
+            : status !== null
+              ? statusBorder[status]
+              : errors > 0
+                ? "border-destructive/56"
+                : node.kind === "missing"
+                  ? ""
+                  : "border-border",
       ].join(" ")}
     >
       <Handle
@@ -191,7 +220,11 @@ function StepCard({
         <button
           type="button"
           id={stepButtonId(node.id)}
-          aria-label={`${kindText(node.kind)}: ${node.title}`}
+          aria-label={`${kindText(node.kind)}: ${node.title}${
+            run === null
+              ? ""
+              : `, ${run.state?.label ?? "Not visited"}${run.state && run.state.visits > 1 ? `, ${run.state.visits} visits` : ""}`
+          }`}
           aria-pressed={selected}
           onFocus={reveal}
           aria-keyshortcuts={
@@ -240,11 +273,22 @@ function StepCard({
             </span>
             <span className="block truncate text-xs leading-4 text-muted-foreground">
               {kindText(node.kind)}
-              {node.detail === null ? "" : ` · ${node.detail}`}
+              {run === null
+                ? node.detail === null
+                  ? ""
+                  : ` · ${node.detail}`
+                : run.state === null
+                  ? ""
+                  : ` · ${run.state.word}`}
             </span>
           </span>
-          {node.entry || node.runLimit ? (
+          {run?.current || node.entry || node.runLimit ? (
             <span className="flex shrink-0 flex-col items-end gap-0.5">
+              {run?.current ? (
+                <span className="rounded-full border border-info/32 px-1.5 text-[10px] font-medium leading-4 text-info">
+                  Current
+                </span>
+              ) : null}
               {node.entry ? (
                 <span className="rounded-full border border-primary/24 px-1.5 text-[10px] font-medium leading-4 text-primary">
                   Start
@@ -257,6 +301,17 @@ function StepCard({
               ) : null}
             </span>
           ) : null}
+          {StatusIcon === null || status === null ? null : (
+            <span
+              aria-hidden
+              className={`flex shrink-0 items-center gap-0.5 text-xs tabular-nums ${statusTone[status]}`}
+            >
+              {run?.state && run.state.visits > 1 ? (
+                <span className="text-muted-foreground">×{run.state.visits}</span>
+              ) : null}
+              <StatusIcon className="size-4" />
+            </span>
+          )}
         </button>
       </WithTooltip>
       <Handle
@@ -291,6 +346,8 @@ const labelTone: Partial<Record<FlowEdge["kind"], string>> = {
   repeat: "border-info/32 text-info",
   atLimit: "border-warning/40 text-warning-foreground",
 };
+
+const takenStroke = "var(--primary)";
 
 function RouteLine({
   id,
@@ -336,8 +393,10 @@ function RouteLine({
         path={path}
         {...(markerEnd === undefined ? {} : { markerEnd })}
         style={{
-          stroke: strokes[data.edge.kind] ?? defaultStroke,
-          strokeWidth: 1.5,
+          stroke: data.taken ? takenStroke : (strokes[data.edge.kind] ?? defaultStroke),
+          strokeWidth: data.taken ? 2.25 : 1.5,
+          // A run's graph keeps untaken routes readable but behind the path the run took.
+          ...(data.taken === false ? { opacity: 0.48 } : {}),
           ...(data.edge.kind === "atLimit" ? { strokeDasharray: "5 4" } : {}),
         }}
       />
@@ -352,7 +411,7 @@ function RouteLine({
                   ? `translate(${label.x + 6}px, ${label.y}px) translateY(-50%)`
                   : `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`,
               }}
-              className={`nopan pointer-events-auto absolute truncate rounded-md border bg-background px-1.5 text-center text-[11px] font-medium leading-[18px] ${labelTone[data.edge.kind] ?? "border-border text-muted-foreground"}`}
+              className={`nopan pointer-events-auto absolute truncate rounded-md border bg-background px-1.5 text-center text-[11px] font-medium leading-[18px] ${data.taken ? "border-primary/40 text-primary" : (labelTone[data.edge.kind] ?? "border-border text-muted-foreground")} ${data.taken === false ? "opacity-64" : ""}`}
             >
               {data.labelText}
             </div>
@@ -423,9 +482,11 @@ function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: s
 }
 
 /**
- * The workflow as a top-to-bottom graph. Selecting a box selects its step; `readOnly` drops
- * mutations so the same canvas can present a run's definition snapshot. Alt+Arrow changes
- * the steps' reading order; the inspector offers the same action without a shortcut.
+ * The workflow as a top-to-bottom graph. Selecting a box selects its step (and names the box,
+ * for reviewer lanes); `readOnly` drops mutations so the same canvas can present a run's
+ * definition snapshot, with `run` painting its recorded state. Alt+Arrow changes the steps'
+ * reading order; the inspector offers the same action without a shortcut. Run state never
+ * relays out.
  */
 export function Graph({
   definition,
@@ -436,16 +497,18 @@ export function Graph({
   onMove,
   onRemove,
   Tooltip,
+  run = null,
 }: {
   readonly definition: Definition;
   readonly selected: string | null;
   readonly problems: ReadonlyArray<Problem>;
   readonly readOnly: boolean;
-  readonly onSelect: (stepId: string | null) => void;
+  readonly onSelect: (stepId: string | null, boxId?: string) => void;
   readonly onMove?: (stepId: string, offset: -1 | 1) => void;
   readonly onRemove?: (stepId: string) => void;
   /** The host tooltip, for titles and route labels shortened to fit. */
   readonly Tooltip?: PluginDesign["Tooltip"];
+  readonly run?: RunOverlay | null;
 }) {
   const graph = useMemo(() => flowGraph(definition), [definition]);
   // Layout is keyed on structure, not on the definition object: edits that only change text
@@ -495,6 +558,10 @@ export function Graph({
             selected: selected === node.id,
             errors: count?.errors ?? 0,
             warnings: count?.warnings ?? 0,
+            run:
+              run === null
+                ? null
+                : { state: run.steps.get(node.id) ?? null, current: run.current === node.id },
           },
         };
       }),
@@ -513,13 +580,27 @@ export function Graph({
         data: {},
       })),
     ],
-    [graph, layout, bounds, counts, selected],
+    [graph, layout, bounds, counts, selected, run],
   );
   const edges = useMemo<RouteEdge[]>(() => {
-    const titles = new Map(graph.nodes.map((node) => [node.id, node.title]));
+    const boxes = new Map(graph.nodes.map((node) => [node.id, node]));
+    const taken = (edge: FlowEdge) => {
+      if (run === null) return null;
+      // Reviewer lanes have no routing record: a lane that was launched took its fork and,
+      // once settled, its join.
+      if (edge.kind === "fork") return run.steps.has(edge.target);
+      if (edge.kind === "join") {
+        const status = run.steps.get(edge.source)?.status;
+        return status === "completed" || status === "reported";
+      }
+      const from = boxes.get(edge.source)?.stepId;
+      const to = boxes.get(edge.target)?.stepId;
+      return run.routes.some((route) => route.from === from && route.to === to);
+    };
     return graph.edges.map((edge) => {
       const route = layout.routes.get(edge.id);
-      const color = markerColors[edge.kind] ?? "var(--muted-foreground)";
+      const isTaken = taken(edge);
+      const color = isTaken ? takenStroke : (markerColors[edge.kind] ?? "var(--muted-foreground)");
       return {
         id: edge.id,
         type: "route",
@@ -527,7 +608,7 @@ export function Graph({
         target: edge.target,
         sourceHandle: edge.back ? "back-out" : "out",
         targetHandle: edge.back ? "back-in" : "in",
-        ariaLabel: `${edge.fullLabel || "Route"} from ${titles.get(edge.source) ?? edge.source} to ${titles.get(edge.target) ?? edge.target}`,
+        ariaLabel: `${edge.fullLabel || "Route"} from ${boxes.get(edge.source)?.title ?? edge.source} to ${boxes.get(edge.target)?.title ?? edge.target}`,
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
         data: {
           edge,
@@ -536,10 +617,11 @@ export function Graph({
           fullLabel: route?.stub?.fullLabel ?? edge.fullLabel,
           label: route?.label ?? null,
           loop: loops.get(edge.id) ?? null,
+          taken: isTaken,
         },
       };
     });
-  }, [graph, layout, loops]);
+  }, [graph, layout, loops, run]);
   const removableIds = useMemo(
     () =>
       new Set(
@@ -599,8 +681,9 @@ export function Graph({
           panOnScroll
           onPaneClick={() => onSelect(null)}
           onNodeClick={(_, node) => {
-            // A reviewer lane selects itself, not its group; steps use their own id.
-            if (node.type === "step") onSelect(node.data.node.id);
+            // The editor selects a reviewer lane itself; runs also need its owning step.
+            if (node.type === "step")
+              onSelect(run === null ? node.data.node.id : node.data.node.stepId, node.data.node.id);
           }}
           attributionPosition="bottom-right"
         >

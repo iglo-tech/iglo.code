@@ -48,6 +48,15 @@ const redact = <A>(
   });
 
 const title = (value: string, text: Text, limit = 4_000) => text(value, limit).trim();
+const source = (value: Run["source"], text: Text) =>
+  value === undefined
+    ? {}
+    : {
+        source: {
+          ...value,
+          catalogSource: value.catalogSource === null ? null : text(value.catalogSource, Infinity),
+        },
+      };
 const threadIds = (run: Run) =>
   run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : []));
 
@@ -142,12 +151,22 @@ export const projectDefinition = (value: Definition, text: Text): Definition => 
   }),
 });
 
+const traceItem = (item: Run["trace"][number], text: Text) => ({
+  ...item,
+  reason: text(item.reason, Infinity),
+  considered: item.considered.map((choice) => ({
+    ...choice,
+    predicate: predicate(choice.predicate, text),
+  })),
+});
+
 export const displayRun = (host: Host["Service"], run: Run) =>
   redact(host, threadIds(run), (text) => ({
     ...run,
     definition: projectDefinition(run.definition, text),
     input: data(run.input, text),
     reason: run.reason === null ? null : text(run.reason, Infinity),
+    ...source(run.source, text),
     workspace: workspace(run.workspace, text),
     workspacePath: run.workspacePath === null ? null : text(run.workspacePath, Infinity),
     branch: run.branch === null ? null : text(run.branch, Infinity),
@@ -191,14 +210,10 @@ export const displayRun = (host: Host["Service"], run: Run) =>
               stderr: text(attempt.check.stderr, Infinity),
             },
     })),
-    trace: run.trace.map((item) => ({
-      ...item,
-      reason: text(item.reason, Infinity),
-      considered: item.considered.map((choice) => ({
-        ...choice,
-        predicate: predicate(choice.predicate, text),
-      })),
-    })),
+    trace: run.trace.map((item) => traceItem(item, text)),
+    ...(run.relatedTrace === undefined
+      ? {}
+      : { relatedTrace: run.relatedTrace.map((item) => traceItem(item, text)) }),
     reviews: run.reviews.map((review) => ({
       ...review,
       pullRequest: pullRequest(review.pullRequest, text),
@@ -210,6 +225,7 @@ export const displaySummary = (host: Host["Service"], run: Run, summary: RunSumm
     ...summary,
     definition: { ...summary.definition, title: title(summary.definition.title, text, 240) },
     reason: summary.reason === null ? null : text(summary.reason, 500),
+    ...source(summary.source, text),
     attempts: summary.attempts.map((attempt) => ({
       ...attempt,
       reason: attempt.reason === null ? null : text(attempt.reason, 500),
@@ -222,10 +238,14 @@ export const displaySummary = (host: Host["Service"], run: Run, summary: RunSumm
   }));
 
 /** Redact independent display texts in one host call, preserving order. */
-export const displayTexts = (host: Host["Service"], texts: ReadonlyArray<string>) =>
+export const displayTexts = (
+  host: Host["Service"],
+  texts: ReadonlyArray<string>,
+  threadIds: ReadonlyArray<PluginTarget["threadId"]> = [],
+) =>
   texts.length === 0
     ? Effect.succeed<ReadonlyArray<string>>([])
-    : redact(host, [], (text) => texts.map((value) => text(value, Infinity)));
+    : redact(host, threadIds, (text) => texts.map((value) => text(value, Infinity)));
 
 export const displayCatalog = (host: Host["Service"], entries: ReadonlyArray<CatalogEntry>) =>
   protect(

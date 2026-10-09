@@ -17,6 +17,7 @@ import type {
 } from "../contracts.ts";
 import {
   ProjectsAlert,
+  noPermissions,
   draftKey,
   projectCrumb,
   unusedWorkflowId,
@@ -114,11 +115,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
   const [capabilitiesAttempt, setCapabilitiesAttempt] = useState(0);
-  const [permissions, setPermissions] = useState<WorkflowPermissions>({
-    save: false,
-    replace: false,
-    remove: false,
-  });
+  const [permissions, setPermissions] = useState<WorkflowPermissions>(noPermissions);
   const [view, setView] = useState<View>(() =>
     pageState.import === "1" || pageState.view === "yaml" ? "yaml" : "graph",
   );

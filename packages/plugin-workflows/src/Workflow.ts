@@ -29,6 +29,10 @@ import {
   RunSummary,
   RunListInput,
   StartInput,
+  StartSavedInput,
+  ThreadInput,
+  type StartSource,
+  type ThreadLink,
   ReportInput,
   ReportReceipt,
   CommandInput,
@@ -68,6 +72,12 @@ export class Workflow extends Context.Service<
   {
     readonly attention: Stream.Stream<ReadonlyArray<PluginAttentionItem>, PluginError>;
     readonly start: (input: StartInput) => Effect.Effect<Run, PluginError>;
+    /** Start the catalog's saved snapshot; the receipt is consulted before the catalog. */
+    readonly startSaved: (input: StartSavedInput) => Effect.Effect<Run, PluginError>;
+    /** One run's display snapshot, re-emitted whenever its revision changes. */
+    readonly watch: (input: typeof RunInput.Type) => Stream.Stream<Run, PluginError>;
+    /** The run and attempt a native thread was launched for, if any. */
+    readonly thread: (input: ThreadInput) => Stream.Stream<ThreadLink | null, PluginError>;
     readonly get: (input: typeof RunInput.Type) => Effect.Effect<Run, PluginError>;
     readonly list: (
       input: typeof RunListInput.Type,
@@ -103,6 +113,7 @@ const encodeReceipt = Schema.encodeEffect(Schema.fromJsonString(ReportReceipt));
 const decodeDisplay = Schema.decodeUnknownEffect(Run);
 const decodeSummary = Schema.decodeUnknownEffect(RunSummary);
 const decodeStart = Schema.decodeUnknownEffect(StartInput);
+const decodeStartSaved = Schema.decodeUnknownEffect(StartSavedInput);
 const activeRun = (state: PluginThreadState) =>
   state.runs.findLast(
     (run) =>
@@ -156,6 +167,9 @@ const make = Effect.gen(function* () {
   let reconcileAfter = 0;
   let outboxAfter = 0;
   const projectVersions = new Map<string, number>();
+  // Committed run revisions and new thread bindings, so watchers skip unrelated commits.
+  const runVersions = new Map<string, number>();
+  let bindingVersion = 0;
   yield* Effect.addFinalizer(() => PubSub.shutdown(changes));
   const checks = new Map<string, Fiber.Fiber<void, PluginError>>();
   const environment = (environmentId: string) =>
@@ -212,6 +226,8 @@ const make = Effect.gen(function* () {
         yield* enqueue(run, interruptId(attempt), "interrupt", attempt.id);
     }
     mutation++;
+    runVersions.set(run.id, run.revision);
+    if (run.attempts.some((attempt) => attempt.phase === "launching")) bindingVersion++;
     projectVersions.set(run.projectId, (projectVersions.get(run.projectId) ?? 0) + 1);
     return run;
   });
@@ -237,15 +253,98 @@ const make = Effect.gen(function* () {
       }),
     );
   // Queries page durable history; routing always reads the complete private snapshot.
-  const display = Effect.fnUntraced(function* (run: Run, offset = 0, limit = 50, tail = false) {
+  // Without an explicit offset the newest page is shown. The overview is computed from the
+  // complete snapshot so it never depends on which history page is loaded.
+  const display = Effect.fnUntraced(function* (
+    run: Run,
+    request: Pick<RunInput, "historyOffset" | "attemptId" | "traceOffset"> = {},
+  ) {
+    const limit = 50;
+    const newest = Math.max(0, run.attempts.length - limit);
+    // A requested attempt opens the page that contains it.
+    const located = request.attemptId
+      ? run.attempts.findIndex((attempt) => attempt.id === request.attemptId)
+      : -1;
+    const offset =
+      request.historyOffset ??
+      (located >= 0 && located < newest ? Math.floor(located / limit) * limit : newest);
+    const tail = request.historyOffset === undefined && offset === newest;
+    const attempts = run.attempts.slice(offset, offset + limit);
+    // Route history pages independently: it grows at its own rate.
+    const traceOffset = request.traceOffset ?? Math.max(0, run.trace.length - limit);
+    const trace = run.trace.slice(traceOffset, traceOffset + limit);
+    const pageIds = new Set(
+      attempts.flatMap((attempt) => [
+        attempt.id,
+        `${attempt.id}:report`,
+        ...(attempt.reviewId ? [attempt.reviewId] : []),
+      ]),
+    );
+    const shown = new Set(trace.map((item) => item.id));
+    // Routing records of this page's visits stay reachable wherever route history is paged.
+    const relatedTrace = run.trace
+      .filter(
+        (item) =>
+          !shown.has(item.id) &&
+          ((item.attemptId !== null && pageIds.has(item.attemptId)) ||
+            item.sourceIds.some((id) => pageIds.has(id))),
+      )
+      .slice(-limits.relatedTrace);
+    const reviewIds = new Set([
+      ...attempts.flatMap((attempt) => (attempt.reviewId ? [attempt.reviewId] : [])),
+      ...(run.gate?.reviewId ? [run.gate.reviewId] : []),
+    ]);
+    const reviews = run.reviews.filter(
+      (review, index) => index >= run.reviews.length - limit || reviewIds.has(review.id),
+    );
+    const review = run.reviews.at(-1);
+    const branches = review
+      ? review.branches.map((branch) =>
+          run.attempts.find((attempt) => attempt.id === branch.attemptId),
+        )
+      : [];
     const page = {
       ...run,
-      attempts: tail ? run.attempts.slice(-limit) : run.attempts.slice(offset, offset + limit),
-      trace: tail ? run.trace.slice(-limit) : run.trace.slice(offset, offset + limit),
-      reviews: tail ? run.reviews.slice(-limit) : run.reviews.slice(offset, offset + limit),
+      // Recovery targets come from the same rules that admit Retry and Resume.
+      recovery: {
+        retryNodeId: run.allowedActions.includes("retry") ? (recoveryNode(run) ?? null) : null,
+        resumeAttemptId: run.allowedActions.includes("resume")
+          ? (latestAttempt(run, run.currentNode)?.id ?? null)
+          : null,
+      },
+      overview: {
+        visits: run.attempts.length,
+        completedVisits: run.attempts.filter((attempt) => attempt.phase === "completed").length,
+        activeAttempts: run.attempts
+          .filter((attempt) => !terminalAttempt(attempt))
+          .slice(-limits.activeAttempts)
+          .map(({ id, nodeId, branchId, generation, threadId, phase }) => ({
+            id,
+            nodeId,
+            branchId,
+            generation,
+            threadId,
+            phase,
+          })),
+        review: review
+          ? {
+              id: review.id,
+              required: review.branches.length,
+              reported: branches.filter((attempt) => attempt?.report).length,
+              settled: branches.filter((attempt) => attempt && terminalAttempt(attempt)).length,
+              result: review.result,
+            }
+          : null,
+      },
+      attempts,
+      trace,
+      relatedTrace,
+      reviews,
       history: {
         offset,
         tail,
+        traceOffset,
+        traceTail: traceOffset + limit >= run.trace.length,
         limit,
         attempts: run.attempts.length,
         trace: run.trace.length,
@@ -278,6 +377,7 @@ const make = Effect.gen(function* () {
       gate: run.gate,
       allowedActions: run.allowedActions,
       createdAt: run.createdAt,
+      ...(run.source === undefined ? {} : { source: run.source }),
       attempts: run.attempts.slice(-5).map((attempt) => ({
         id: attempt.id,
         nodeId: attempt.nodeId,
@@ -333,6 +433,109 @@ const make = Effect.gen(function* () {
         );
       }),
     );
+  const watch = (input: typeof RunInput.Type) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        yield* environment(input.environmentId);
+        // Subscribe before the first read so no committed revision is missed.
+        const subscription = yield* PubSub.subscribe(changes);
+        let observed: number | null = null;
+        const next = protect(
+          "watch",
+          Effect.gen(function* () {
+            if (observed !== null && (runVersions.get(input.runId) ?? observed) === observed)
+              return [];
+            const run = yield* get(input);
+            observed = run.revision;
+            return [yield* display(run, input)];
+          }),
+        );
+        return Stream.concat(
+          Stream.fromEffect(next),
+          Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => next)),
+        ).pipe(Stream.flatMap((runs) => Stream.fromIterable(runs)));
+      }),
+    );
+  const threadLink = Effect.fnUntraced(function* (input: ThreadInput) {
+    const [binding] = yield* sql<{
+      run_id: string;
+      attempt_id: string;
+    }>`SELECT run_id, attempt_id FROM workflow_bindings WHERE thread_id = ${input.threadId}`;
+    if (!binding) return null;
+    const run = yield* load(binding.run_id);
+    const attempt = run.attempts.find((attempt) => attempt.id === binding.attempt_id);
+    if (run.projectId !== input.projectId || !attempt) return null;
+    const node = run.definition.nodes.find((node) => node.id === attempt.nodeId);
+    const branch =
+      node?.kind === "parallel"
+        ? node.branches.find((branch) => branch.id === attempt.branchId)
+        : undefined;
+    const [workflowTitle, nodeTitle] = yield* Display.displayTexts(
+      host,
+      [
+        run.definition.title,
+        branch && node ? `${node.title} · ${branch.title}` : (node?.title ?? attempt.nodeId),
+      ],
+      [input.threadId],
+    );
+    return {
+      revision: run.revision,
+      link: {
+        runId: run.id,
+        attemptId: attempt.id,
+        nodeId: attempt.nodeId,
+        branchId: attempt.branchId,
+        generation: attempt.generation,
+        workflowTitle: workflowTitle!.slice(0, 240).trim(),
+        nodeTitle: nodeTitle!.slice(0, 240).trim(),
+        runState: run.state,
+        phase: attempt.phase,
+        reportAccepted: attempt.report !== null,
+      } satisfies ThreadLink,
+    };
+  });
+  /** A thread's owning run and attempt, re-emitted when that run commits a new revision. */
+  const thread = (input: ThreadInput) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        yield* environment(input.environmentId);
+        const subscription = yield* PubSub.subscribe(changes);
+        let observed: { readonly runId: string; readonly revision: number } | null = null;
+        let observedBindings = bindingVersion;
+        let sent: string | null = null;
+        const read = protect(
+          "thread",
+          Effect.gen(function* () {
+            observedBindings = bindingVersion;
+            const found = yield* threadLink(input);
+            if (found !== null) observed = { runId: found.link.runId, revision: found.revision };
+            return found?.link ?? null;
+          }),
+        );
+        // A new run revision often leaves this attempt's link unchanged; send only changes.
+        const fresh = (link: ThreadLink | null) => {
+          const encoded = canonical(link);
+          if (encoded === sent) return [];
+          sent = encoded;
+          return [link];
+        };
+        // Unowned threads are re-checked only when new bindings commit.
+        const changed = () =>
+          observed === null
+            ? observedBindings !== bindingVersion
+            : (runVersions.get(observed.runId) ?? observed.revision) !== observed.revision;
+        return Stream.concat(
+          Stream.fromEffect(read.pipe(Effect.map(fresh))),
+          Stream.fromSubscription(subscription).pipe(
+            Stream.mapEffect(() =>
+              changed()
+                ? read.pipe(Effect.map((link) => (link === null ? [] : fresh(link))))
+                : Effect.succeed([]),
+            ),
+          ),
+        ).pipe(Stream.flatMap((links) => Stream.fromIterable(links)));
+      }),
+    );
   const attentionItems = protect(
     "attention",
     Effect.gen(function* () {
@@ -365,6 +568,7 @@ const make = Effect.gen(function* () {
             link: {
               pageId: "workflows.runs",
               projectId: run.projectId,
+              state: { run: run.id },
               ...(relatedThread ? { threadId: relatedThread } : {}),
             },
           };
@@ -492,11 +696,18 @@ const make = Effect.gen(function* () {
         "unsupported",
       );
   });
-  const start = Effect.fn("Workflows.start")(function* (requested: StartInput) {
+  const runIdentity = (input: { readonly projectId: string; readonly clientRequestId: string }) =>
+    hash([host.environmentId, input.projectId, input.clientRequestId]).pipe(
+      Effect.map((value) => `workflow-${value.slice(0, 32)}`),
+    );
+  const start = Effect.fn("Workflows.start")(function* (
+    requested: StartInput,
+    options: { readonly digest?: string; readonly source?: StartSource } = {},
+  ) {
     const input = yield* decodeStart(requested);
     yield* environment(input.environmentId);
-    const id = `workflow-${(yield* hash([input.environmentId, input.projectId, input.clientRequestId])).slice(0, 32)}`;
-    const requestDigest = yield* hash(input);
+    const id = yield* runIdentity(input);
+    const requestDigest = options.digest ?? (yield* hash(input));
     const [previous] = yield* sql<{
       digest: string;
       result: string;
@@ -580,6 +791,7 @@ const make = Effect.gen(function* () {
           gate: null,
           allowedActions: [],
           createdAt: now,
+          source: options.source ?? { trigger: "manual", catalogSource: null },
         };
         yield* sql`INSERT INTO workflow_runs (id, project_id, data, state) VALUES (${run.id}, ${run.projectId}, ${yield* encodeRun(run)}, ${run.state})`;
         if (resolvedWorkspace.type === "exact-ref")
@@ -589,6 +801,47 @@ const make = Effect.gen(function* () {
         yield* sql`INSERT INTO workflow_commands (id, digest, result) VALUES (${id}, ${requestDigest}, ${yield* encodeRun(run)})`;
         return run;
       }),
+    );
+  });
+  const startSaved = Effect.fn("Workflows.startSaved")(function* (requested: StartSavedInput) {
+    const input = yield* decodeStartSaved(requested);
+    yield* environment(input.environmentId);
+    const id = yield* runIdentity(input);
+    const requestDigest = yield* hash(["saved", input]);
+    // A committed intent returns its run even if the catalog changed after it started.
+    const [previous] = yield* sql<{
+      digest: string;
+      result: string;
+    }>`SELECT digest, result FROM workflow_commands WHERE id = ${id}`;
+    if (previous) {
+      if (previous.digest !== requestDigest)
+        return yield* error("start", "This retry identity belongs to different input.", "conflict");
+      return yield* decodeRun(previous.result);
+    }
+    const entry = yield* catalog.resolve(input, input.definitionId);
+    if (!entry?.definition)
+      return yield* error(
+        "start",
+        "This workflow is no longer in the project catalog.",
+        "unavailable",
+      );
+    if (entry.definition.revision !== input.revision)
+      return yield* error(
+        "start",
+        `The saved workflow changed to revision ${entry.definition.revision} after you reviewed revision ${input.revision}. Review it and start again.`,
+        "conflict",
+      );
+    if (!entry.runnable) return yield* error("start", entry.reasons.join(" "), "unsupported");
+    return yield* start(
+      {
+        environmentId: input.environmentId,
+        projectId: input.projectId,
+        clientRequestId: input.clientRequestId,
+        definition: entry.definition,
+        input: input.task.trim() === "" ? {} : { task: input.task },
+        ...(input.workspace === "current" ? { workspace: { type: "current" as const } } : {}),
+      },
+      { digest: requestDigest, source: { trigger: "manual", catalogSource: entry.source } },
     );
   });
   const report = Effect.fn("Workflows.report")(function* (
@@ -1909,19 +2162,25 @@ const make = Effect.gen(function* () {
         "The scheduled workflow is unavailable or invalid.",
         "unavailable",
       );
-    return yield* start({
-      environmentId: host.environmentId,
-      projectId: input.projectId,
-      clientRequestId,
-      definition: entry.definition,
-      input: input.input,
-    });
+    return yield* start(
+      {
+        environmentId: host.environmentId,
+        projectId: input.projectId,
+        clientRequestId,
+        definition: entry.definition,
+        input: input.input,
+      },
+      { source: { trigger: "schedule", catalogSource: entry.source } },
+    );
   });
   return Workflow.of({
     attention,
     start: (input) => protect("start", start(input).pipe(Effect.flatMap((run) => display(run)))),
-    get: (input) =>
-      protect("get", get(input).pipe(Effect.flatMap((run) => display(run, input.historyOffset)))),
+    startSaved: (input) =>
+      protect("start", startSaved(input).pipe(Effect.flatMap((run) => display(run)))),
+    watch,
+    thread,
+    get: (input) => protect("get", get(input).pipe(Effect.flatMap((run) => display(run, input)))),
     list,
     subscribe,
     reconcile,

@@ -6,6 +6,8 @@ import {
   FilePenLineIcon,
   FolderIcon,
   Trash2Icon,
+  HistoryIcon,
+  PlayIcon,
   PlusIcon,
   UploadIcon,
   WorkflowIcon,
@@ -16,6 +18,7 @@ import type { Definition, LibraryEntry, LibraryPage, WorkflowPermissions } from 
 import {
   draftKey,
   ProjectsAlert,
+  noPermissions,
   projectCrumb,
   projectDrafts,
   readDraft,
@@ -63,11 +66,7 @@ function Library(props: PageProps) {
   const [importText, setImportText] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<LibraryEntry | null>(null);
-  const [permissions, setPermissions] = useState<WorkflowPermissions>({
-    save: false,
-    replace: false,
-    remove: false,
-  });
+  const [permissions, setPermissions] = useState<WorkflowPermissions>(noPermissions);
   useEffect(() => client.subscribePermissions(setPermissions), [client]);
   const offline = connection === "disconnected";
   const [localDrafts, setLocalDrafts] = useState(() =>
@@ -197,6 +196,14 @@ function Library(props: PageProps) {
     <PageHeader breadcrumb={[projectCrumb(props, projects.projects), { label: "Workflows" }]}>
       {projectId === null ? null : (
         <>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => props.navigate({ pageId: "workflows.runs", projectId })}
+          >
+            <HistoryIcon />
+            Runs
+          </Button>
           <Menu
             ariaLabel="More workflow actions"
             items={[{ label: "Import YAML", icon: <UploadIcon />, onSelect: startImport }]}
@@ -471,51 +478,71 @@ function Library(props: PageProps) {
                       .filter((part) => part !== null)
                       .join(" · ")}
                     actions={
-                      <Menu
-                        ariaLabel={`Actions for ${label}`}
-                        disabled={offline}
-                        items={[
-                          ...(invalid
-                            ? [
-                                {
-                                  label: "Repair",
-                                  icon: <WrenchIcon />,
-                                  onSelect: () => open(entry, { repair: "1" }),
-                                },
-                                {
-                                  label: "Import replacement",
-                                  icon: <UploadIcon />,
-                                  onSelect: () => open(entry, { repair: "1", import: "1" }),
-                                },
-                              ]
-                            : []),
-                          ...(entry.packaged
-                            ? [
-                                {
-                                  label: "Clone to edit",
-                                  icon: <CopyIcon />,
-                                  onSelect: () => clone(entry),
-                                },
-                              ]
-                            : []),
-                          {
-                            label: "Export YAML",
-                            icon: <FileCodeIcon />,
-                            onSelect: () => open(entry, { view: "yaml" }),
-                          },
-                          ...(entry.packaged
-                            ? []
-                            : [
-                                {
-                                  label: "Delete",
-                                  icon: <Trash2Icon />,
-                                  destructive: true,
-                                  disabled: !permissions.remove,
-                                  onSelect: () => setRemoving(entry),
-                                },
-                              ]),
-                        ]}
-                      />
+                      <>
+                        {invalid ? null : (
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            ariaLabel={`Run ${label}`}
+                            tooltip="Run workflow"
+                            disabled={offline}
+                            onClick={() =>
+                              props.navigate({
+                                pageId: "workflows.runs",
+                                projectId,
+                                state: { start: "1", workflow: entry.definitionId! },
+                              })
+                            }
+                          >
+                            <PlayIcon />
+                          </Button>
+                        )}
+                        <Menu
+                          ariaLabel={`Actions for ${label}`}
+                          disabled={offline}
+                          items={[
+                            ...(invalid
+                              ? [
+                                  {
+                                    label: "Repair",
+                                    icon: <WrenchIcon />,
+                                    onSelect: () => open(entry, { repair: "1" }),
+                                  },
+                                  {
+                                    label: "Import replacement",
+                                    icon: <UploadIcon />,
+                                    onSelect: () => open(entry, { repair: "1", import: "1" }),
+                                  },
+                                ]
+                              : []),
+                            ...(entry.packaged
+                              ? [
+                                  {
+                                    label: "Clone to edit",
+                                    icon: <CopyIcon />,
+                                    onSelect: () => clone(entry),
+                                  },
+                                ]
+                              : []),
+                            {
+                              label: "Export YAML",
+                              icon: <FileCodeIcon />,
+                              onSelect: () => open(entry, { view: "yaml" }),
+                            },
+                            ...(entry.packaged
+                              ? []
+                              : [
+                                  {
+                                    label: "Delete",
+                                    icon: <Trash2Icon />,
+                                    destructive: true,
+                                    disabled: !permissions.remove,
+                                    onSelect: () => setRemoving(entry),
+                                  },
+                                ]),
+                          ]}
+                        />
+                      </>
                     }
                   >
                     {entry.reasons.length === 0 ? null : (

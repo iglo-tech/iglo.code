@@ -50,6 +50,9 @@ type RpcMethod<TTag extends EnvironmentRpcTag> = WsRpcProtocolClient[TTag];
 export type EnvironmentSubscriptionRpcTag =
   | "plugins.attention"
   | "plugins.fixture.subscribe"
+  | "plugins.workflows.subscribe"
+  | "plugins.workflows.watch"
+  | "plugins.workflows.thread"
   | typeof WS_METHODS.codexAuthCallbackSubscribe
   | typeof WS_METHODS.providerAuthSubscribe
   | typeof WS_METHODS.providerInstallSubscribe
