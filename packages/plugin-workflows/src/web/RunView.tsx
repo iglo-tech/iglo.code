@@ -15,7 +15,7 @@ import {
   RotateCcwIcon,
   StepForwardIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Attempt, Run, WorkflowPermissions } from "../contracts.ts";
 import { errorMessage, rejected, useNarrow, type PageProps } from "./common.tsx";
 import { RouteList, stepButtonId } from "./Flow.tsx";
@@ -41,6 +41,7 @@ import {
   short,
   sourceText,
   stepStates,
+  takenEdges,
   workspaceText,
 } from "./run.ts";
 
@@ -132,28 +133,38 @@ export function RunView({
       setLoadError,
     );
   }, [client, projectId, runId, historyOffset, locate, traceOffset, offline, subscription]);
-  // "View route" from a thread focuses that step's box once the run is shown.
-  const routeFocused = useRef(false);
-  useEffect(() => {
-    if (run === null || pageState.focus !== "route" || routeFocused.current) return;
-    routeFocused.current = true;
-    if (typeof document !== "undefined" && pageState.node !== undefined)
-      document.getElementById(stepButtonId(pageState.node))?.focus();
-  }, [run, pageState.focus, pageState.node]);
-  const overlay = useMemo<RunOverlay | null>(
-    () =>
-      run === null
-        ? null
-        : {
-            steps: stepStates(run),
-            routes: [...(run.relatedTrace ?? []), ...run.trace].map((item) => ({
-              from: item.nodeId,
-              to: item.chosen,
-            })),
-            current: run.currentNode,
-          },
-    [run],
+  // "View route" from a thread focuses that step's box once it exists: the graph reports it
+  // after its boxes are measured; the list views focus it once rendered.
+  const [routeFocus, setRouteFocus] = useState<string | null>(() =>
+    pageState.focus === "route" ? (pageState.node ?? null) : null,
   );
+  const routeFocused = useCallback(() => setRouteFocus(null), []);
+  useEffect(() => {
+    if (run === null || routeFocus === null || view === "graph") return;
+    const box =
+      typeof document === "undefined" ? null : document.getElementById(stepButtonId(routeFocus));
+    if (box === null) return;
+    box.focus();
+    setRouteFocus(null);
+  }, [run, routeFocus, view]);
+  const overlay = useMemo<RunOverlay | null>(() => {
+    if (run === null) return null;
+    const history = run.history;
+    // Visits and routing are paged; a partial page cannot say a step was never visited.
+    const complete =
+      history === undefined ||
+      (history.offset === 0 &&
+        history.tail &&
+        (history.traceOffset ?? 0) === 0 &&
+        history.traceTail !== false);
+    return {
+      steps: stepStates(run),
+      taken: takenEdges(run.definition, [...(run.relatedTrace ?? []), ...run.trace]),
+      current: run.state === "running" || run.state === "awaiting-review" ? run.currentNode : null,
+      complete,
+      unseen: complete ? "Not visited" : "Not on this history page",
+    };
+  }, [run]);
 
   if (run === null || overlay === null)
     return (
@@ -332,6 +343,7 @@ export function RunView({
     gateNode !== undefined &&
     (allowed("approve") || allowed("request-changes"));
   const limit = definition.maxVisits ?? 100;
+  const next = nextAction(run, active);
   const alerts = [
     projectsAlert,
     stale && !offline ? (
@@ -470,7 +482,7 @@ export function RunView({
       nodeId={selectedNode}
       box={selectedBox}
       attempt={selectedAttempt ?? null}
-      states={overlay.steps}
+      overlay={overlay}
       firstVisit={firstVisit}
       onSelectAttempt={(attempt) =>
         select({ node: attempt.nodeId, attempt: attempt.id, branch: attempt.branchId })
@@ -538,7 +550,8 @@ export function RunView({
         {overview === undefined ? null : (
           <Fact props={props} label="Progress">
             {[
-              `${overview.visits} ${overview.visits === 1 ? "visit" : "visits"}`,
+              // The same server visit count the run list shows.
+              `${run.visits} ${run.visits === 1 ? "visit" : "visits"}`,
               // The whole-run visit bound only matters once it is close.
               run.visits >= limit * 0.8 ? `${run.visits}/${limit} allowed` : null,
               overview.review
@@ -558,9 +571,9 @@ export function RunView({
               .join(", ")}
           </Fact>
         )}
-        {decisionShown || recoverable ? null : (
+        {decisionShown || recoverable || next === null ? null : (
           <Fact props={props} label="Next">
-            {nextAction(run, active)}
+            {next}
           </Fact>
         )}
       </dl>
@@ -656,6 +669,8 @@ export function RunView({
                 problems={[]}
                 readOnly
                 run={overlay}
+                focus={routeFocus}
+                onFocused={routeFocused}
                 onSelect={(stepId, boxId) =>
                   select(
                     stepId === null
@@ -688,8 +703,10 @@ export function RunView({
                     <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
                       <StatusIcon status={state?.status ?? "pending"} className="size-3.5" />
                       <span className="truncate">
-                        {state?.label ?? "Not visited"}
-                        {state && state.visits > 1 ? ` · ${state.visits} visits` : ""}
+                        {state?.label ?? overlay.unseen}
+                        {overlay.complete && state && state.visits > 1
+                          ? ` · ${state.visits} visits`
+                          : ""}
                       </span>
                     </span>
                   );
@@ -761,7 +778,7 @@ function Inspector({
   nodeId,
   box,
   attempt,
-  states,
+  overlay,
   firstVisit,
   onSelectAttempt,
   onTraceOffset,
@@ -773,7 +790,7 @@ function Inspector({
   readonly nodeId: string | null;
   readonly box: string | null;
   readonly attempt: Attempt | null;
-  readonly states: RunOverlay["steps"];
+  readonly overlay: RunOverlay;
   readonly firstVisit: number;
   readonly onSelectAttempt: (attempt: Attempt) => void;
   readonly onTraceOffset: (offset: number | undefined) => void;
@@ -844,7 +861,7 @@ function Inspector({
       </section>
     );
   }
-  const state = box === null ? undefined : states.get(box);
+  const state = box === null ? undefined : overlay.steps.get(box);
   const lane =
     node?.kind === "parallel" && box !== null && box.startsWith(`${node.id}/`)
       ? node.branches.find((branch) => branch.id === box.slice(node.id.length + 1))
@@ -872,7 +889,8 @@ function Inspector({
     )
     .toSorted((left, right) => left.at - right.at);
   const inputs = [...new Set(routing.flatMap((item) => item.sourceIds))];
-  const tail = (output: string) => output.split("\n").slice(-40).join("\n");
+  // Per-step numbers are only true when the page starts at the run's first visit.
+  const perStep = firstVisit === 0;
   return (
     <section className="flex min-w-0 flex-col gap-4 text-sm">
       <div className="flex min-w-0 flex-col gap-1">
@@ -890,9 +908,9 @@ function Inspector({
         </h2>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <StatusIcon status={state?.status ?? "pending"} className="size-3.5" />
-          {state?.label ?? "Not visited"}
+          {state?.label ?? overlay.unseen}
           {state && state.visits > 0
-            ? ` · ${state.visits} ${state.visits === 1 ? "visit" : "visits"}`
+            ? ` · ${state.visits} ${state.visits === 1 ? "visit" : "visits"}${overlay.complete ? "" : " on this page"}`
             : ""}
         </span>
       </div>
@@ -904,13 +922,17 @@ function Inspector({
                 size="row"
                 variant={attempt?.id === item.id ? "outline" : "ghost"}
                 ariaPressed={attempt?.id === item.id}
-                ariaLabel={`Visit ${index + 1} of this step, ${phaseLabels[item.phase]}`}
+                ariaLabel={`${perStep ? `Visit ${index + 1} of this step` : `Run visit ${overall}`}, ${phaseLabels[item.phase]}`}
                 onClick={() => onSelectAttempt(item)}
               >
                 <StatusIcon status={phaseStatus(item.phase)} className="size-3.5" />
-                <span className="tabular-nums">Visit {index + 1}</span>
+                <span className="tabular-nums">
+                  {perStep ? `Visit ${index + 1}` : `Run visit ${overall}`}
+                </span>
                 <span className="text-muted-foreground">{phaseLabels[item.phase]}</span>
-                <span className="ml-auto tabular-nums text-muted-foreground">#{overall}</span>
+                {perStep ? (
+                  <span className="ml-auto tabular-nums text-muted-foreground">#{overall}</span>
+                ) : null}
               </Button>
             </li>
           ))}
@@ -1034,7 +1056,7 @@ function Inspector({
                   aria-label="Standard output"
                   className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2"
                 >
-                  {tail(attempt.check.stdout)}
+                  {attempt.check.stdout}
                 </pre>
               ) : null}
               {attempt.check.stderr ? (
@@ -1042,7 +1064,7 @@ function Inspector({
                   aria-label="Standard error"
                   className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2"
                 >
-                  {tail(attempt.check.stderr)}
+                  {attempt.check.stderr}
                 </pre>
               ) : null}
             </section>
