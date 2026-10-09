@@ -12,7 +12,7 @@ import { startEnvironment, origin } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
-import * as ProviderSessions from "../mcp/McpProviderSession.ts";
+import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
 import * as PluginRegistry from "@t3tools/plugin-host-adapter/registry";
 import * as Sessions from "../mcp/McpSessionRegistry.ts";
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));

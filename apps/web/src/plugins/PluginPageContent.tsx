@@ -28,7 +28,7 @@ export function PluginPageContent({
       <WorkspacePageHeader electron={electron}>
         <span className="text-sm font-medium">{page?.title ?? "Plugin unavailable"}</span>
       </WorkspacePageHeader>
-      <main className="min-h-0 flex-1 overflow-y-auto">
+      <main className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
         {page !== undefined && plugin !== undefined ? (
           page.render(plugin.context)
         ) : (

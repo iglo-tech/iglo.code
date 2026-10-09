@@ -26,15 +26,15 @@ import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderRepl
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Codex from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
-import { ProviderAdapterOpenSessionError } from "../orchestration-v2/ProviderAdapter.ts";
+import { ProviderAdapterOpenSessionError } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as Manager from "../orchestration-v2/ProviderSessionManager.ts";
 import * as Registry from "../orchestration-v2/ProviderAdapterRegistry.ts";
-import * as Ids from "../orchestration-v2/IdAllocator.ts";
+import * as Ids from "@t3tools/provider-core/server/IdAllocator";
 import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as Ingestor from "../orchestration-v2/ProviderEventIngestor.ts";
 import * as Executor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
-import * as Sessions from "../mcp/McpProviderSession.ts";
+import * as Sessions from "@t3tools/provider-core/server/mcpSession";
 import packageJson from "../../package.json" with { type: "json" };
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const settings = Schema.decodeSync(CodexSettings)({});
@@ -156,6 +156,11 @@ it.live("denies mutation before a native Codex turn applies the requested permis
                           },
                           capabilities: {
                             experimentalApi: true,
+                            extensions: {
+                              "io.modelcontextprotocol/ui": {
+                                mimeTypes: ["text/html;profile=mcp-app"],
+                              },
+                            },
                             optOutNotificationMethods: ["turn/diff/updated"],
                           },
                         },

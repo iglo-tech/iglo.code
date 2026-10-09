@@ -18,7 +18,7 @@ import {
   resolveHostModuleUrl,
 } from "@t3tools/shared/hostProcess";
 import * as BunPtyAdapter from "../../src/terminal/BunPtyAdapter.ts";
-import type { PtyExitEvent, PtyProcess } from "../../src/terminal/PtyAdapter.ts";
+import type { PtyExitEvent, PtyProcess } from "@t3tools/shared/PtyAdapter";
 import * as WorkspaceSearchIndex from "../../src/workspace/WorkspaceSearchIndex.ts";
 import {
   ANTIGRAVITY_AUTH_BROWSER_MARKER,

@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as BunPtyAdapter from "./BunPtyAdapter.ts";
-import * as PtyAdapter from "./PtyAdapter.ts";
+import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 
 const input = { shell: "/bin/sh", cwd: "/workspace", cols: 80, rows: 24, env: {} };
 

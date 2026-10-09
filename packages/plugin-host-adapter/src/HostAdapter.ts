@@ -44,9 +44,9 @@ import {
   exceededDispatchModeLimit,
 } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
-import { delegatedTaskProgress } from "../../../apps/server/src/orchestration-v2/SubagentProjection.ts";
+import { delegatedTaskProgress } from "@t3tools/provider-core/server/subagentProjection";
 import * as ProcessRunner from "../../../apps/server/src/processRunner.ts";
-import * as McpSessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
+import * as McpSessions from "@t3tools/provider-core/server/mcpSession";
 import { latestUnheldRun, runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));

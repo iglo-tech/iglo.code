@@ -19,7 +19,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpBody from "effect/http/HttpBody";
-import * as ProviderSessions from "../mcp/McpProviderSession.ts";
+import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
 import * as McpSessions from "../mcp/McpSessionRegistry.ts";
 import { Run, RunSummary } from "@t3tools/plugin-workflows/contracts";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";

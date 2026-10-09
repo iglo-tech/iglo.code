@@ -151,8 +151,18 @@ def prune(root):
         .replace("preprocessor through a CLI option; native verification and\n      // worktree setup", "preprocessor through a CLI option; worktree setup"),
         flags=re.M | re.S,
     ))
-    for path in ("scripts/release-smoke.ts", ".github/ISSUE_TEMPLATE/bug_report.yml"):
-        edit(path, lambda text: re.sub(r"^.*apps/mobile.*\n", "", text, flags=re.M))
+    def release_smoke(text):
+        # Remove the complete copy block before dropping its path declaration.
+        text = re.sub(
+            r"^  if \(NodeFS\.existsSync\(mobileDependencies\)\) \{\n.*?^  \}\n\n",
+            "", text, flags=re.M | re.S,
+        )
+        return re.sub(r"^.*apps/mobile.*\n", "", text, flags=re.M)
+
+    edit("scripts/release-smoke.ts", release_smoke)
+    edit(".github/ISSUE_TEMPLATE/bug_report.yml", lambda text: re.sub(
+        r"^.*apps/mobile.*\n", "", text, flags=re.M,
+    ))
     def license_tests(text):
         text = re.sub(r'^  it\("keeps the GhosttyKit notice.*?^  \}\);\n\n', "", text, flags=re.M | re.S)
         if text.count("REPOSITORY_ROOT") == 1:

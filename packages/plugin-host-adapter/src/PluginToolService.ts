@@ -4,7 +4,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type { McpInvocationScope } from "../../../apps/server/src/mcp/McpInvocationContext.ts";
-import * as Sessions from "../../../apps/server/src/mcp/McpProviderSession.ts";
+import * as Sessions from "@t3tools/provider-core/server/mcpSession";
 import * as Threads from "../../../apps/server/src/orchestration-v2/ThreadManagementService.ts";
 import { exceededDispatchModeLimit } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import * as CommandAccess from "./PluginCommandAccess.ts";

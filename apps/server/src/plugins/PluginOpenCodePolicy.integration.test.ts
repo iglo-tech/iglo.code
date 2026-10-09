@@ -30,13 +30,14 @@ import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Manager from "../orchestration-v2/ProviderSessionManager.ts";
 import * as Registry from "../orchestration-v2/ProviderAdapterRegistry.ts";
-import * as Ids from "../orchestration-v2/IdAllocator.ts";
+import * as Ids from "@t3tools/provider-core/server/IdAllocator";
 import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as Ingestor from "../orchestration-v2/ProviderEventIngestor.ts";
 import * as Executor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
-import * as Sessions from "../mcp/McpProviderSession.ts";
+import * as Sessions from "@t3tools/provider-core/server/mcpSession";
+import { layerTestProviderHost } from "@t3tools/provider-testing/host";
 import { makeReplayAdapter } from "../orchestration-v2/Adapters/OpenCode2AdapterV2.testkit.ts";
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const SESSION = "ses_f148ca2deffeJcwCnRQtb0YFNX";
@@ -263,7 +264,7 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
           version: "2.0.18",
           scenario: "compaction-policy",
           entries,
-        }).pipe(Effect.provide(ctx));
+        }).pipe(Effect.provide(layerTestProviderHost()), Effect.provide(ctx));
         const managerContext = yield* Layer.build(
           Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
             Layer.provide(Registry.layerFromAdapters([adapter])),
