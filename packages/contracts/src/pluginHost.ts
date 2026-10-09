@@ -319,6 +319,8 @@ export type PluginSchedule = typeof PluginSchedule.Type;
 export const PluginScheduleOccurrence = Schema.Struct({
   /** The identity the target received; stable across redelivery. */
   id: Schema.String,
+  /** The project recorded with the occurrence, which a later schedule edit does not change. */
+  projectId: ProjectId,
   startedAt: Schema.String,
   status: Schema.Literals(["pending", "succeeded", "failed"]),
   error: Schema.NullOr(Schema.String),

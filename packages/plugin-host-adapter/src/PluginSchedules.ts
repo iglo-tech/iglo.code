@@ -154,18 +154,10 @@ export const make = Effect.gen(function* () {
         }).pipe(
           Effect.mapError((cause) => (isPluginError(cause) ? cause : error("runNow", cause))),
         ),
+      // Receipts are read under this plugin's own schedule namespace only.
       occurrences: (value, limit) =>
         service().pipe(
-          // Receipts are read only for a schedule this plugin still owns.
-          Effect.flatMap((core) =>
-            list().pipe(
-              Effect.flatMap((owned) =>
-                owned.some((schedule) => schedule.id === value)
-                  ? core.occurrences(id(value), Math.max(1, Math.min(limit, 100)))
-                  : Effect.succeed([]),
-              ),
-            ),
-          ),
+          Effect.flatMap((core) => core.occurrences(id(value), Math.max(1, Math.min(limit, 100)))),
           Effect.mapError((cause) => (isPluginError(cause) ? cause : error("occurrences", cause))),
         ),
       registerDueWork: (run) => scheduler.register(`plugin:${pluginId}`, run),

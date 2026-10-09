@@ -614,10 +614,48 @@ it.live(
             expect(history.occurrences[0]).toMatchObject({ dispatch: "failed", run: null });
             expect(history.occurrences[0]!.error).toContain("unavailable");
             expect(history.occurrences.slice(1).map((item) => item.run?.id)).toContain(firstRunId);
+            // Moving the schedule to another project keeps earlier occurrences linked to the
+            // runs they started in the project recorded with each occurrence.
+            const moved = ProjectId.make("moved-project");
+            const movedRoot = `${first.config.baseDir}/moved`;
+            yield* fs.makeDirectory(`${movedRoot}/.t3code/workflows`, { recursive: true });
+            yield* fs.writeFileString(
+              `${movedRoot}/.t3code/workflows/sequence.yaml`,
+              Yaml.stringify(sequence(1, "Moved sequence")),
+            );
+            yield* Context.get(reinstalled.context, Projects.ProjectService).create({
+              commandId: CommandId.make("moved-project"),
+              projectId: moved,
+              title: "Moved",
+              workspaceRoot: movedRoot,
+            });
+            yield* a.writer["plugins.workflows.schedule"]({
+              environmentId: a.environmentId,
+              projectId: moved,
+              ...request,
+              enabled: false,
+            });
+            const relocated = yield* a.reader["plugins.workflows.schedule-history"]({
+              environmentId: a.environmentId,
+              projectId: moved,
+              scheduleId: "nightly",
+            });
+            expect(relocated.current?.title).toBe("Moved sequence");
+            expect(relocated.occurrences.map((item) => item.run?.id ?? null)).toEqual(
+              history.occurrences.map((item) => item.run?.id ?? null),
+            );
+            expect(
+              relocated.occurrences.flatMap((item) => (item.run ? [item.run.projectId] : [])),
+            ).toEqual(history.occurrences.flatMap((item) => (item.run ? [projectId] : [])));
             // Delete is the host's ordinary control; runs stay in the workflow run history.
             yield* a.writer["scheduledTasks.delete"]({ id: scheduleId });
             expect((yield* a.history("nightly")).schedule).toBeNull();
             expect((yield* a.runs).map((run) => run.id)).toContain(firstRunId);
+            // A schedule recreated under the same identity starts with its own history.
+            yield* a.writer["plugins.workflows.schedule"]({ ...a.scope, ...request });
+            const recreated = yield* a.history("nightly");
+            expect(recreated.schedule?.id).toBe("nightly");
+            expect(recreated.occurrences).toEqual([]);
           }),
         );
       }),
