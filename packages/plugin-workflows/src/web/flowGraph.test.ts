@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { developmentReview, examples } from "../examples.ts";
-import { flowGraph, layoutFlow, repeatLoops } from "./flowGraph.ts";
+import { flowGraph, layoutFlow, layoutSignature, repeatLoops } from "./flowGraph.ts";
+import { stepButtonId } from "./Flow.tsx";
 
 const edge = (graph: ReturnType<typeof flowGraph>, source: string, target: string) =>
   graph.edges.filter((item) => item.source === source && item.target === target);
@@ -86,5 +87,27 @@ describe("workflow graph", () => {
       stepId: "done",
     });
     expect(edge(graph, "review", "missing:done")).toMatchObject([{ kind: "approve" }]);
+  });
+
+  it("relays out only for structural edits", () => {
+    const key = layoutSignature(flowGraph(developmentReview));
+    const renamed = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.id === "implement" ? { ...node, title: "Renamed" } : node,
+      ),
+    };
+    expect(layoutSignature(flowGraph(renamed))).toBe(key);
+    const shorter = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.filter((node) => node.id !== "unresolved"),
+    };
+    expect(layoutSignature(flowGraph(shorter))).not.toBe(key);
+  });
+
+  it("gives every box a distinct focus id", () => {
+    expect(stepButtonId("agent-1")).toBe("wf-step-agent-1");
+    expect(stepButtonId("reviews/code")).not.toBe(stepButtonId("reviews-code"));
+    expect(stepButtonId("a_x002f")).not.toBe(stepButtonId("a/"));
   });
 });

@@ -3,7 +3,7 @@ import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
-import { useThreadShell } from "../state/entities";
+import { useThreadProjectId } from "../state/entities";
 
 export interface RouteProject {
   readonly environmentId: EnvironmentId;
@@ -30,27 +30,37 @@ export function useRouteProject(): RouteProject | null {
         : null,
     [environmentId, threadId],
   );
-  const thread = useThreadShell(threadRef);
-  const draft = useComposerDraftStore((store) =>
-    draftId === undefined ? null : store.getDraftSession(DraftId.make(draftId)),
+  const threadProjectId = useThreadProjectId(threadRef);
+  const draftEnvironmentId = useComposerDraftStore((store) =>
+    draftId === undefined
+      ? null
+      : (store.getDraftSession(DraftId.make(draftId))?.environmentId ?? null),
+  );
+  const draftProjectId = useComposerDraftStore((store) =>
+    draftId === undefined
+      ? null
+      : (store.getDraftSession(DraftId.make(draftId))?.projectId ?? null),
   );
   const pluginProjectId =
     "pluginProjectId" in search && typeof search.pluginProjectId === "string"
       ? search.pluginProjectId
       : undefined;
-  const current: RouteProject | null =
-    thread !== null
-      ? { environmentId: thread.environmentId, projectId: thread.projectId }
-      : draft !== null
-        ? { environmentId: draft.environmentId, projectId: draft.projectId }
+  // Primitive selections, so a running thread's shell updates do not re-render navigation.
+  const [environment, project] =
+    threadProjectId !== null && environmentId !== undefined
+      ? [EnvironmentId.make(environmentId), threadProjectId]
+      : draftEnvironmentId !== null && draftProjectId !== null
+        ? [draftEnvironmentId, draftProjectId]
         : environmentId !== undefined && pluginProjectId !== undefined
-          ? {
-              environmentId: EnvironmentId.make(environmentId),
-              projectId: ProjectId.make(pluginProjectId),
-            }
-          : null;
-  const environment = current?.environmentId;
-  const project = current?.projectId;
+          ? [EnvironmentId.make(environmentId), ProjectId.make(pluginProjectId)]
+          : [undefined, undefined];
+  const current = useMemo<RouteProject | null>(
+    () =>
+      environment === undefined || project === undefined
+        ? null
+        : { environmentId: environment, projectId: project },
+    [environment, project],
+  );
   useEffect(() => {
     if (environment !== undefined && project !== undefined) lastProjects.set(environment, project);
   }, [environment, project]);

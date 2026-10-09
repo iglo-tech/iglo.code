@@ -16,6 +16,7 @@ import type {
   WorkflowPermissions,
 } from "../contracts.ts";
 import {
+  ProjectsAlert,
   draftKey,
   projectCrumb,
   unusedWorkflowId,
@@ -275,6 +276,15 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     if (readOnly) return;
     setDraft(next);
   };
+  // Stable so the graph's memoized handlers survive edits.
+  const removeSelected = useCallback(
+    (id: string) => {
+      if (readOnly) return;
+      setDraft((current) => (current === null ? current : removeStep(current, id)));
+      setSelected((current) => (current === id ? null : current));
+    },
+    [readOnly],
+  );
   const select = useCallback(
     (id: string | null) => {
       setSelected(id);
@@ -447,19 +457,27 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const saveAllowed = base?.mode === "replace" ? permissions.replace : permissions.save;
   const errors = problems.filter((problem) => problem.severity === "error").length;
   const warnings = problems.length - errors;
+  // Narrow headers keep the title readable: passive states hide and warnings shorten.
   const statusBadge =
     statusKind.kind === "saving" ? (
       <Badge variant="secondary">Saving…</Badge>
     ) : readOnly ? (
-      <Badge variant="secondary">Packaged · read-only</Badge>
+      <span className="max-sm:hidden">
+        <Badge variant="secondary">Packaged · read-only</Badge>
+      </span>
     ) : dirty ? (
       <Badge variant="warning">
-        {offline ? "Unsaved · kept on this device" : "Unsaved changes"}
+        <span className="max-sm:hidden">
+          {offline ? "Unsaved · kept on this device" : "Unsaved changes"}
+        </span>
+        <span className="sm:hidden">Unsaved</span>
       </Badge>
-    ) : base?.revision != null ? (
-      <Badge variant="outline">Saved revision {base.revision}</Badge>
     ) : (
-      <Badge variant="outline">Not saved yet</Badge>
+      <span className="max-sm:hidden">
+        <Badge variant="outline">
+          {base?.revision != null ? `Saved revision ${base.revision}` : "Not saved yet"}
+        </Badge>
+      </span>
     );
   const outdated =
     server !== null &&
@@ -467,11 +485,6 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     base.source === server.source &&
     base.fingerprint !== null &&
     base.fingerprint !== server.fingerprint;
-  const removeSelected = (id: string) => {
-    if (draft === null) return;
-    change(removeStep(draft, id));
-    if (selected === id) setSelected(null);
-  };
   const showProblems = () => {
     setSelected(null);
     if (narrow) setInspectorOpen(true);
@@ -547,6 +560,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       />
     );
   const alerts = [
+    projects.error === null ? null : (
+      <ProjectsAlert key="projects" props={props} projects={projects} />
+    ),
     storageFailed ? (
       <Alert key="storage" variant="error" title="Draft not kept on this device">
         Save to avoid losing changes.
@@ -824,7 +840,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           !authoritative &&
           !offline &&
           validationUnavailable === null ? (
-            <Badge variant="outline">Checking…</Badge>
+            <span className="max-sm:hidden">
+              <Badge variant="outline">Checking…</Badge>
+            </span>
           ) : null}
           {!offline && !saveAllowed && !readOnly ? (
             <Badge variant="secondary">View only</Badge>

@@ -96,7 +96,11 @@ const crumbButtonClass =
   "inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
 
 function Crumb({ item, current }: { item: PluginBreadcrumbItem; current: boolean }) {
-  const text = <WorkspaceBreadcrumbText className="max-w-60">{item.label}</WorkspaceBreadcrumbText>;
+  const text = (
+    <WorkspaceBreadcrumbText className={current ? "max-w-60" : "max-w-28 sm:max-w-60"}>
+      {item.label}
+    </WorkspaceBreadcrumbText>
+  );
   if (item.options !== undefined && item.onChange !== undefined) {
     const onChange = item.onChange;
     return (
@@ -178,13 +182,20 @@ function PageHeader({ breadcrumb, children }: ComponentProps<PluginDesign["PageH
         >
           {items.map((item, index) => {
             const current = index === items.length - 1;
+            // Narrow screens keep the parent and current page (the way back and where you
+            // are); earlier context such as environment or project folds away.
+            const leading = index < items.length - 2 ? "max-sm:hidden" : "";
             return (
               <Fragment key={index}>
-                <WorkspaceBreadcrumbItem current={current} className={current ? "min-w-10" : ""}>
+                <WorkspaceBreadcrumbItem
+                  current={current}
+                  // The current page keeps its width first; parents truncate before it does.
+                  className={current ? "min-w-10 shrink" : `min-w-6 shrink-[8] ${leading}`}
+                >
                   <Crumb item={item} current={current} />
                 </WorkspaceBreadcrumbItem>
                 {current ? null : (
-                  <WorkspaceBreadcrumbSeparator>
+                  <WorkspaceBreadcrumbSeparator className={leading}>
                     <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
                   </WorkspaceBreadcrumbSeparator>
                 )}

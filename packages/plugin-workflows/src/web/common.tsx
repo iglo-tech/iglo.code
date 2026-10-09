@@ -88,6 +88,30 @@ export function projectCrumb(
   };
 }
 
+/** A failed project list, with Retry; shown even when the page already has a project. */
+export function ProjectsAlert({
+  props,
+  projects,
+}: {
+  readonly props: PageProps;
+  readonly projects: ReturnType<typeof useProjects>;
+}) {
+  if (projects.error === null) return null;
+  return (
+    <props.Alert
+      variant="error"
+      title="Could not load projects"
+      actions={
+        <props.Button size="xs" variant="outline" onClick={projects.retry}>
+          Retry
+        </props.Button>
+      }
+    >
+      {projects.error}
+    </props.Alert>
+  );
+}
+
 export function useProjects(props: PageProps) {
   const [projects, setProjects] = useState<ReadonlyArray<ProjectSummary> | null>(null);
   const [error, setError] = useState<string | null>(null);

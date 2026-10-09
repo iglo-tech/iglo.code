@@ -194,6 +194,17 @@ export const nodeSize = (node: FlowNode) =>
       ? { width: 176, height: 44 }
       : { width: 232, height: 60 };
 
+/**
+ * Everything the layout reads: box identities and kinds (sizes) and each edge's ends, label and
+ * direction. Titles, details and markers are not in it, so typing a name never relays out.
+ */
+export function layoutSignature(graph: FlowGraph): string {
+  return JSON.stringify([
+    graph.nodes.map((node) => [node.id, node.kind]),
+    graph.edges.map((edge) => [edge.id, edge.source, edge.target, edge.label, edge.back]),
+  ]);
+}
+
 /** Approximate drawn width of an edge label (11px medium text plus padding). */
 export const labelWidth = (label: string) => label.length * 6.5 + 16;
 
