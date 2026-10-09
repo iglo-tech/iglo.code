@@ -54,6 +54,52 @@ class NativeRemovalTest(unittest.TestCase):
         })
         self.assertEqual(prune(self.root), [])
 
+    def test_removes_devcontainer_and_references_without_changing_web_dev(self):
+        removed = [
+            ".devcontainer/devcontainer.json", ".devcontainer/on-create.sh",
+            ".devcontainer/update-content.sh", "docs/internals/devcontainer.md",
+        ]
+        for path in removed:
+            self.write(path, "container setup\n")
+        web_config = 'export default { server: { host: "localhost", port: 5733 } };\n'
+        self.write("apps/web/vite.config.ts", web_config)
+        self.write("vite.config.ts", """
+            export default {
+              fmt: {
+                overrides: [
+                  {
+                    files: [".devcontainer/devcontainer.json"],
+                    options: { trailingComma: "none" },
+                  },
+                ],
+              },
+              lint: {
+                overrides: [
+                  {
+                    files: ["apps/web/src/**"],
+                    rules: { "web-rule": "error" },
+                  },
+                ],
+              },
+            };
+        """)
+        self.write("docs/operations/development.md",
+                   "# Development\n\n"
+                   "Prefer a container? See [Dev container](../internals/devcontainer.md) for VS Code and Codespaces setup.\n\n"
+                   "Use `vp run dev` for server and web.\n")
+        prune(self.root)
+        for path in removed:
+            self.assertFalse((self.root / path).exists(), path)
+        self.assertFalse((self.root / ".devcontainer").exists())
+        vite = (self.root / "vite.config.ts").read_text()
+        self.assertNotIn("devcontainer", vite)
+        self.assertNotIn("overrides: [\n    ],", vite)
+        self.assertIn('"web-rule": "error"', vite)
+        self.assertEqual((self.root / "apps/web/vite.config.ts").read_text(), web_config)
+        self.assertEqual((self.root / "docs/operations/development.md").read_text(),
+                         "# Development\n\nUse `vp run dev` for server and web.\n")
+        self.assertEqual(prune(self.root), [])
+
     def test_prunes_dependency_config_and_obsolete_importers(self):
         self.write("pnpm-workspace.yaml", """
             packages:
