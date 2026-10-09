@@ -1099,7 +1099,10 @@ it.live(
         yield* promise(() => tracked.settle("gate"));
         yield* promise(() => tracked.run((run) => run.state === "completed"));
         expect(toasts).toContain("Approve applied");
-        expect(page()).toContain("NextNone");
+        // A finished run has no next action, so the overview names none.
+        expect(
+          root().findAll((node) => node.type === "dt" && textOf(node) === "Next"),
+        ).toHaveLength(0);
         expect(page()).not.toContain("Cancel run");
 
         // Run again from the project: a new intent whose response is lost reconciles by itself
@@ -1204,7 +1207,16 @@ it.live(
         yield* promise(() => tracked.run((run) => run.state === "completed"));
         expect(page()).toContain("Cancel run not applied");
         expect(page()).toContain("The run revision changed. Reload before deciding.");
-        expect(page()).toContain("Completed");
+        // The run's own end step shows the outcome, not only the header badge.
+        const endStep = root().find(
+          (node) =>
+            node.type === "li" &&
+            node.findAll(
+              (child) =>
+                child.type === pluginDesign.Button && child.props.ariaLabel === "End: Done",
+            ).length === 1,
+        );
+        expect(textOf(endStep)).toContain("Completed");
         expect(buttons("Cancel run")).toHaveLength(0);
 
         // A gate decision on a frozen review whose pull request head moved is not applied.

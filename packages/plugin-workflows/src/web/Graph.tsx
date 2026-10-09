@@ -12,6 +12,7 @@ import {
   ReactFlowProvider,
   getViewportForBounds,
   getSmoothStepPath,
+  useNodesInitialized,
   useReactFlow,
   useStore,
   useStoreApi,
@@ -62,9 +63,14 @@ import type { StepState, StepStatus } from "./run.ts";
 export interface RunOverlay {
   /** Keyed by box id: a step id, or `step/branch` for a reviewer lane. */
   readonly steps: ReadonlyMap<string, StepState>;
-  /** Recorded routing decisions as `from` step → `to` step. */
-  readonly routes: ReadonlyArray<{ readonly from: string; readonly to: string }>;
+  /** Edge ids that recorded routing decisions took (see `takenEdges`). */
+  readonly taken: ReadonlySet<string>;
+  /** The step an unfinished run is at; null once it finished. */
   readonly current: string | null;
+  /** Visit counts cover the whole run only when every visit is loaded. */
+  readonly complete: boolean;
+  /** Status of a box with no loaded visit: not visited, or not on this history page. */
+  readonly unseen: string;
 }
 
 interface GraphActions {
@@ -83,7 +89,12 @@ type StepData = {
   readonly errors: number;
   readonly warnings: number;
   /** Present on a run's graph; a box without a recorded visit is pending. */
-  readonly run: { readonly state: StepState | null; readonly current: boolean } | null;
+  readonly run: {
+    readonly state: StepState | null;
+    readonly current: boolean;
+    readonly complete: boolean;
+    readonly unseen: string;
+  } | null;
 };
 type StepNode =
   | FlowCanvasNode<StepData, "step">
@@ -223,7 +234,7 @@ function StepCard({
           aria-label={`${kindText(node.kind)}: ${node.title}${
             run === null
               ? ""
-              : `, ${run.state?.label ?? "Not visited"}${run.state && run.state.visits > 1 ? `, ${run.state.visits} visits` : ""}`
+              : `, ${run.state?.label ?? run.unseen}${run.complete && run.state && run.state.visits > 1 ? `, ${run.state.visits} visits` : ""}`
           }`}
           aria-pressed={selected}
           onFocus={reveal}
@@ -306,7 +317,7 @@ function StepCard({
               aria-hidden
               className={`flex shrink-0 items-center gap-0.5 text-xs tabular-nums ${statusTone[status]}`}
             >
-              {run?.state && run.state.visits > 1 ? (
+              {run?.complete && run.state && run.state.visits > 1 ? (
                 <span className="text-muted-foreground">×{run.state.visits}</span>
               ) : null}
               <StatusIcon className="size-4" />
@@ -481,6 +492,25 @@ function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: s
   return null;
 }
 
+/** Focuses a step's box once the canvas has mounted and measured it. */
+function FocusStep({
+  stepId,
+  onFocused,
+}: {
+  readonly stepId: string;
+  readonly onFocused: () => void;
+}) {
+  const initialized = useNodesInitialized();
+  useEffect(() => {
+    if (!initialized || typeof document === "undefined") return;
+    const box = document.getElementById(stepButtonId(stepId));
+    if (box === null) return;
+    box.focus();
+    onFocused();
+  }, [initialized, stepId, onFocused]);
+  return null;
+}
+
 /**
  * The workflow as a top-to-bottom graph. Selecting a box selects its step (and names the box,
  * for reviewer lanes); `readOnly` drops mutations so the same canvas can present a run's
@@ -498,6 +528,8 @@ export function Graph({
   onRemove,
   Tooltip,
   run = null,
+  focus = null,
+  onFocused,
 }: {
   readonly definition: Definition;
   readonly selected: string | null;
@@ -509,6 +541,9 @@ export function Graph({
   /** The host tooltip, for titles and route labels shortened to fit. */
   readonly Tooltip?: PluginDesign["Tooltip"];
   readonly run?: RunOverlay | null;
+  /** A step whose box takes keyboard focus once it exists; `onFocused` reports it. */
+  readonly focus?: string | null;
+  readonly onFocused?: () => void;
 }) {
   const graph = useMemo(() => flowGraph(definition), [definition]);
   // Layout is keyed on structure, not on the definition object: edits that only change text
@@ -561,7 +596,12 @@ export function Graph({
             run:
               run === null
                 ? null
-                : { state: run.steps.get(node.id) ?? null, current: run.current === node.id },
+                : {
+                    state: run.steps.get(node.id) ?? null,
+                    current: run.current === node.id,
+                    complete: run.complete,
+                    unseen: run.unseen,
+                  },
           },
         };
       }),
@@ -583,7 +623,7 @@ export function Graph({
     [graph, layout, bounds, counts, selected, run],
   );
   const edges = useMemo<RouteEdge[]>(() => {
-    const boxes = new Map(graph.nodes.map((node) => [node.id, node]));
+    const titles = new Map(graph.nodes.map((node) => [node.id, node.title]));
     const taken = (edge: FlowEdge) => {
       if (run === null) return null;
       // Reviewer lanes have no routing record: a lane that was launched took its fork and,
@@ -593,9 +633,7 @@ export function Graph({
         const status = run.steps.get(edge.source)?.status;
         return status === "completed" || status === "reported";
       }
-      const from = boxes.get(edge.source)?.stepId;
-      const to = boxes.get(edge.target)?.stepId;
-      return run.routes.some((route) => route.from === from && route.to === to);
+      return run.taken.has(edge.id);
     };
     return graph.edges.map((edge) => {
       const route = layout.routes.get(edge.id);
@@ -608,7 +646,7 @@ export function Graph({
         target: edge.target,
         sourceHandle: edge.back ? "back-out" : "out",
         targetHandle: edge.back ? "back-in" : "in",
-        ariaLabel: `${edge.fullLabel || "Route"} from ${boxes.get(edge.source)?.title ?? edge.source} to ${boxes.get(edge.target)?.title ?? edge.target}`,
+        ariaLabel: `${edge.fullLabel || "Route"} from ${titles.get(edge.source) ?? edge.source} to ${titles.get(edge.target) ?? edge.target}`,
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
         data: {
           edge,
@@ -690,6 +728,9 @@ export function Graph({
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Controls showInteractive={false} position="bottom-left" fitViewOptions={manualFit} />
           <Refit bounds={bounds} fitKey={fitKey} />
+          {focus === null || onFocused === undefined ? null : (
+            <FocusStep stepId={focus} onFocused={onFocused} />
+          )}
         </ReactFlow>
       </ReactFlowProvider>
     </GraphActionsContext>

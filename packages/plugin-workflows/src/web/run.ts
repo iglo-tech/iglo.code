@@ -1,4 +1,5 @@
 import type { Attempt, Definition, Node, Predicate, Run, RunSummary, Value } from "../contracts.ts";
+import { routeControls } from "../definition.ts";
 
 /** Presentation of server-owned run state. Nothing here evaluates routes or recovery rules. */
 export const runStateLabels: Record<Run["state"], string> = {
@@ -131,7 +132,7 @@ function routesOf(node: Node) {
 export function nextAction(
   run: Run | RunSummary,
   active: ReadonlyArray<Pick<Attempt, "phase">> = run.attempts,
-): string {
+): string | null {
   const actions = run.allowedActions;
   if (run.state === "awaiting-review")
     return actions.includes("approve") || actions.includes("request-changes")
@@ -147,8 +148,8 @@ export function nextAction(
   if (run.state === "running")
     return active.some((attempt) => attempt.phase === "waiting-input")
       ? "Answer the request in the step's thread"
-      : "None while steps run";
-  return "None";
+      : null;
+  return null;
 }
 
 /** How a step or reviewer lane is painted on a run's graph. */
@@ -201,9 +202,15 @@ const statusRank: Record<StepStatus, number> = {
  * loaded visits and route history. Presentation only: the latest recorded visit wins, and
  * routing steps count the routing records the server persisted.
  */
-export function stepStates(run: Run): ReadonlyMap<string, StepState> {
+export function stepStates(run: {
+  readonly definition: Definition;
+  readonly state: Run["state"];
+  readonly currentNode: string;
+  readonly attempts: ReadonlyArray<Pick<Attempt, "nodeId" | "branchId" | "phase" | "generation">>;
+  readonly trace: ReadonlyArray<Pick<Run["trace"][number], "nodeId">>;
+}): ReadonlyMap<string, StepState> {
   const states = new Map<string, StepState>();
-  const latest = new Map<string, Attempt>();
+  const latest = new Map<string, (typeof run.attempts)[number]>();
   const visits = new Map<string, number>();
   for (const attempt of run.attempts) {
     const box =
@@ -261,10 +268,53 @@ export function stepStates(run: Run): ReadonlyMap<string, StepState> {
         label: run.state === "awaiting-review" ? "Waiting for decision" : "Current",
         visits: routed + 1,
       });
-    else if (routed > 0)
+    // A run that stopped here (unresolved or canceled at a gate) shows where and how it stopped.
+    else if (current) {
+      const status: StepStatus = run.state === "failed" ? "failed" : "stopped";
+      states.set(node.id, {
+        status,
+        word: statusWords[status],
+        label: runStateLabels[run.state],
+        visits: routed + 1,
+      });
+    } else if (routed > 0)
       states.set(node.id, { status: "completed", word: "Done", label: "Routed", visits: routed });
   }
   return states;
+}
+
+/**
+ * The drawn edges (by `flowGraph` edge id) that recorded routing decisions took. The trace
+ * names the step and destination; a decision's rule is identified by the first matching
+ * condition it recorded (rules are evaluated in order), so two rules to the same step stay
+ * distinct. Other steps' routes are told apart by destination, as that is all the trace keeps.
+ */
+export function takenEdges(
+  definition: Definition,
+  trace: ReadonlyArray<Pick<Run["trace"][number], "nodeId" | "chosen" | "considered">>,
+): ReadonlySet<string> {
+  const taken = new Set<string>();
+  for (const item of trace) {
+    const node = definition.nodes.find((candidate) => candidate.id === item.nodeId);
+    if (node === undefined) continue;
+    let controls = routeControls(node);
+    if ((node.kind === "decision" || node.kind === "join") && item.considered.length > 0) {
+      const matched = item.considered.findIndex((choice) => choice.matched);
+      const control =
+        matched >= 0
+          ? `rules.${matched}`
+          : item.considered.length === node.rules.length
+            ? "otherwise"
+            : null;
+      controls = controls.filter((candidate) => candidate.control === control);
+    }
+    for (const { control, route } of controls) {
+      if (route.to === item.chosen) taken.add(`${node.id}:${control}`);
+      // An exhausted repeat records its At limit destination.
+      else if (route.repeat?.atLimit === item.chosen) taken.add(`${node.id}:${control}.repeat`);
+    }
+  }
+  return taken;
 }
 
 /** "just now", "5 min ago", "3 h ago", then the date. */

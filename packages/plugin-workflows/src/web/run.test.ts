@@ -1,0 +1,143 @@
+import { describe, expect, it } from "vite-plus/test";
+import type { Attempt, Definition, Run } from "../contracts.ts";
+import { developmentReview } from "../examples.ts";
+import { flowGraph } from "./flowGraph.ts";
+import { stepStates, takenEdges } from "./run.ts";
+
+type Visit = Pick<Attempt, "nodeId" | "branchId" | "phase" | "generation">;
+type Routed = Pick<Run["trace"][number], "nodeId" | "chosen" | "considered">;
+const visit = (nodeId: string, phase: Attempt["phase"], branchId: string | null = null): Visit => ({
+  nodeId,
+  branchId,
+  phase,
+  generation: 1,
+});
+const routed = (nodeId: string, chosen: string, matched: ReadonlyArray<boolean> = []): Routed => ({
+  nodeId,
+  chosen,
+  considered: matched.map((value) => ({
+    predicate: { op: "present", path: "x" },
+    matched: value,
+  })),
+});
+const states = (
+  state: Run["state"],
+  currentNode: string,
+  attempts: ReadonlyArray<Visit>,
+  trace: ReadonlyArray<Routed>,
+  definition: Definition = developmentReview,
+) => stepStates({ definition, state, currentNode, attempts, trace });
+
+// Implementation and checks passed; the check result routed to the human gate.
+const toGate = {
+  attempts: [visit("implement", "completed"), visit("checks", "completed")],
+  trace: [
+    routed("implement", "checks"),
+    routed("checks", "check-result"),
+    routed("check-result", "human", [false]),
+  ],
+};
+
+describe("run step states", () => {
+  it("shows a gate waiting for a decision as the running step", () => {
+    const gate = states("awaiting-review", "human", toGate.attempts, toGate.trace).get("human");
+    expect(gate).toMatchObject({ status: "running", word: "Waiting", visits: 1 });
+    expect(states("awaiting-review", "human", toGate.attempts, toGate.trace).get("done")).toBe(
+      undefined,
+    );
+  });
+
+  it("shows a run that stopped at a gate as stopped there, with the run's state", () => {
+    expect(states("unresolved", "human", toGate.attempts, toGate.trace).get("human")).toMatchObject(
+      { status: "stopped", label: "Unresolved" },
+    );
+    expect(states("canceled", "human", toGate.attempts, toGate.trace).get("human")).toMatchObject({
+      status: "stopped",
+      label: "Canceled",
+    });
+  });
+
+  it("counts repeat visits and keeps the latest visit's status", () => {
+    const result = states(
+      "running",
+      "implement",
+      [
+        visit("implement", "completed"),
+        visit("checks", "completed"),
+        visit("implement", "running"),
+      ],
+      [],
+    );
+    expect(result.get("implement")).toMatchObject({ status: "running", visits: 2 });
+    expect(result.get("checks")).toMatchObject({ status: "completed", visits: 1 });
+  });
+
+  it("aggregates reviewer lanes into their group by the least settled lane", () => {
+    const result = states(
+      "running",
+      "reviews",
+      [
+        visit("reviews", "completed", "code"),
+        visit("reviews", "reported", "security"),
+        visit("reviews", "completed", "ux"),
+      ],
+      [],
+    );
+    expect(result.get("reviews/security")).toMatchObject({ status: "reported" });
+    expect(result.get("reviews")).toMatchObject({ status: "reported", label: "2 of 3 settled" });
+  });
+
+  it("shows the end a run finished at with the run's outcome", () => {
+    const trace = [...toGate.trace, routed("human", "done")];
+    expect(states("completed", "done", toGate.attempts, trace).get("done")).toMatchObject({
+      status: "completed",
+      label: "Completed",
+    });
+    expect(states("completed", "done", toGate.attempts, trace).get("unresolved")).toBe(undefined);
+  });
+});
+
+describe("taken routes", () => {
+  const drawn = (definition: Definition) => new Set(flowGraph(definition).edges.map((e) => e.id));
+
+  it("lights the edges the recorded routing took, including an exhausted repeat's At limit", () => {
+    const taken = takenEdges(developmentReview, [
+      ...toGate.trace,
+      routed("rework", "implement"),
+      routed("rework", "human"),
+    ]);
+    expect([...taken].sort()).toEqual(
+      [
+        "check-result:otherwise",
+        "checks:next",
+        "implement:next",
+        "rework:otherwise",
+        "rework:otherwise.repeat",
+      ].sort(),
+    );
+    for (const id of taken) expect(drawn(developmentReview).has(id)).toBe(true);
+  });
+
+  it("tells two rules to the same step apart by the recorded first match", () => {
+    const definition: Definition = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.id === "check-result" && node.kind === "decision"
+          ? {
+              ...node,
+              rules: [
+                { when: { op: "eq", path: "exitCode", value: 0 }, route: { to: "reviews" } },
+                { when: { op: "eq", path: "exitCode", value: 1 }, route: { to: "reviews" } },
+              ],
+            }
+          : node,
+      ),
+    };
+    expect([...takenEdges(definition, [routed("check-result", "reviews", [false, true])])]).toEqual(
+      ["check-result:rules.1"],
+    );
+    expect([...takenEdges(definition, [routed("check-result", "reviews", [true])])]).toEqual([
+      "check-result:rules.0",
+    ]);
+  });
+});
