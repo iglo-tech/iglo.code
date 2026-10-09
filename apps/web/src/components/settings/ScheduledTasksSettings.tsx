@@ -69,7 +69,9 @@ import {
   newPluginScheduleId,
   pluginScheduleOwner,
   scheduleRevision,
+  pluginScheduleSubmission,
   unavailableTargetText,
+  webhookAvailable,
 } from "../../plugins/scheduleTargetLogic";
 import {
   WEBHOOK_SIGNATURE_DEFAULTS,
@@ -940,25 +942,18 @@ function ScheduledTaskEditorDialog({
     )
       return;
     if (activeTarget !== null) {
-      const schedule = scheduleFromDraft(draft);
-      if (
-        !draft.title.trim() ||
-        !projects.some((project) => project.id === selectedProjectId) ||
-        targetPayload === null
-      ) {
-        reportFailure("Scheduled task is incomplete", "Add a title, project, and what to run.");
-        return;
-      }
-      if (schedule === null || schedule.type === "webhook") {
-        reportFailure("Choose a schedule", "Run this at a time or on an interval.");
-        return;
-      }
-      if (
-        schedule.type === "interval" &&
-        (!Number.isSafeInteger(schedule.everyMs) ||
-          schedule.everyMs < MIN_SCHEDULED_TASK_INTERVAL_MS)
-      ) {
-        reportFailure("Invalid interval", "Enter an interval of at least one minute.");
+      const submission = pluginScheduleSubmission({
+        scheduleId: pluginScheduleId,
+        title: draft.title,
+        projectId: projects.some((project) => project.id === selectedProjectId)
+          ? (selectedProjectId as ProjectId)
+          : null,
+        schedule: scheduleFromDraft(draft),
+        enabled: draft.enabled,
+        payload: targetPayload,
+      });
+      if (!submission.ok) {
+        reportFailure(submission.title, submission.description);
         return;
       }
       submissionPending.current = true;
@@ -966,14 +961,7 @@ function ScheduledTaskEditorDialog({
       try {
         // Saved through the plugin so its server validates the target; the id makes a retry
         // after a lost response edit the same schedule instead of creating another.
-        await activeTarget.save({
-          id: pluginScheduleId,
-          title: draft.title.trim(),
-          projectId: selectedProjectId as ProjectId,
-          schedule,
-          enabled: draft.enabled,
-          payload: targetPayload,
-        });
+        await activeTarget.save(submission.input);
       } catch (error) {
         submissionPending.current = false;
         setSaving(false);
@@ -1045,7 +1033,7 @@ function ScheduledTaskEditorDialog({
       ...(draft.editingId ? { id: draft.editingId as ScheduledTaskId, requireExisting: true } : {}),
       title: draft.title.trim(),
       prompt: draft.prompt.trim(),
-      ...(task?.dispatchTarget === undefined ? {} : { dispatchTarget: task.dispatchTarget }),
+      // A plugin schedule edited here keeps its saved target: the server retains it.
       enabled: draft.enabled,
       schedule,
       projectId: selectedProjectId as ProjectId,
@@ -1189,7 +1177,7 @@ function ScheduledTaskEditorDialog({
                     setTargetId(next);
                     setTargetPayload(null);
                     // Plugin targets run at a time or on an interval, not from a webhook.
-                    if (next !== null)
+                    if (!webhookAvailable(next))
                       setDraft((current) =>
                         current.scheduleMode === "webhook"
                           ? { ...current, scheduleMode: "fixed" }
@@ -1359,7 +1347,7 @@ function ScheduledTaskEditorDialog({
                 >
                   <Toggle value="fixed">At a time</Toggle>
                   <Toggle value="interval">Every interval</Toggle>
-                  {targetId === null ? <Toggle value="webhook">On webhook</Toggle> : null}
+                  {webhookAvailable(targetId) ? <Toggle value="webhook">On webhook</Toggle> : null}
                 </ToggleGroup>
               </div>
 

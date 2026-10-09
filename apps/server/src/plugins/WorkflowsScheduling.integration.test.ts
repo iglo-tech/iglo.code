@@ -602,6 +602,24 @@ it.live(
               (yield* writer["scheduledTasks.setEnabled"]({ id: scheduleId, enabled: false })).task
                 .enabled,
             ).toBe(false);
+            // Editing its timing through the host form, which sends no target, keeps the
+            // saved workflow target and payload.
+            const edited = yield* writer["scheduledTasks.upsert"]({
+              id: scheduleId,
+              requireExisting: true,
+              title: retained.title,
+              prompt: retained.prompt,
+              enabled: false,
+              schedule: { type: "fixed_time", timeOfDay: "18:30" },
+              projectId: retained.projectId,
+              workspaceStrategy: retained.workspaceStrategy,
+              modelSelection: retained.modelSelection,
+              runtimeMode: retained.runtimeMode,
+              interactionMode: retained.interactionMode,
+              creationSource: "web",
+            });
+            expect(edited.task.schedule).toMatchObject({ type: "fixed_time", timeOfDay: "18:30" });
+            expect(edited.task.dispatchTarget).toEqual(retained.dispatchTarget);
           }),
         );
         yield* Fiber.interrupt(removed.fiber);
@@ -614,6 +632,14 @@ it.live(
             expect(history.occurrences[0]).toMatchObject({ dispatch: "failed", run: null });
             expect(history.occurrences[0]!.error).toContain("unavailable");
             expect(history.occurrences.slice(1).map((item) => item.run?.id)).toContain(firstRunId);
+            // Once reinstalled, the retained target starts a workflow run again.
+            yield* a.writer["scheduledTasks.runNow"]({ id: scheduleId });
+            const resumed = yield* a.history("nightly");
+            expect(resumed.occurrences[0]).toMatchObject({
+              dispatch: "succeeded",
+              run: { state: "running", projectId },
+            });
+            expect(resumed.occurrences.slice(1)).toEqual(history.occurrences);
             // Moving the schedule to another project keeps earlier occurrences linked to the
             // runs they started in the project recorded with each occurrence.
             const moved = ProjectId.make("moved-project");
@@ -642,11 +668,11 @@ it.live(
             });
             expect(relocated.current?.title).toBe("Moved sequence");
             expect(relocated.occurrences.map((item) => item.run?.id ?? null)).toEqual(
-              history.occurrences.map((item) => item.run?.id ?? null),
+              resumed.occurrences.map((item) => item.run?.id ?? null),
             );
             expect(
               relocated.occurrences.flatMap((item) => (item.run ? [item.run.projectId] : [])),
-            ).toEqual(history.occurrences.flatMap((item) => (item.run ? [projectId] : [])));
+            ).toEqual(resumed.occurrences.flatMap((item) => (item.run ? [projectId] : [])));
             // Delete is the host's ordinary control; runs stay in the workflow run history.
             yield* a.writer["scheduledTasks.delete"]({ id: scheduleId });
             expect((yield* a.history("nightly")).schedule).toBeNull();

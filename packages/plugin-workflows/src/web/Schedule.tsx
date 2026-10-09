@@ -306,6 +306,24 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const shown = useRef<ScheduleHistory | null>(null);
+  // Runs open in their own project; one that was removed cannot be opened.
+  // "unknown" when the list could not be read: the run page then explains its own state.
+  const [projects, setProjects] = useState<ReadonlySet<string> | "unknown" | null>(null);
+  useEffect(() => {
+    if (offline) return;
+    let active = true;
+    client.projects().then(
+      (list) => {
+        if (active) setProjects(new Set(list.map((project) => project.id)));
+      },
+      () => {
+        if (active) setProjects("unknown");
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [client, offline, revision]);
   useEffect(() => {
     if (offline) return;
     let active = true;
@@ -449,10 +467,18 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
                             : "No run is recorded for this occurrence."}
                     </span>
                   </div>
-                  {item.run === null ? null : (
+                  {item.run === null ? null : projects !== null &&
+                    projects !== "unknown" &&
+                    !projects.has(item.run.projectId) ? (
+                    <span className="text-xs text-muted-foreground">
+                      Its project is no longer in this environment.
+                    </span>
+                  ) : (
                     <Button
                       size="sm"
                       variant="outline"
+                      // Waits for the environment's projects, so a removed project is never opened.
+                      disabled={projects === null}
                       ariaLabel={`Open the run from ${formatTime(Date.parse(item.startedAt))}`}
                       onClick={() =>
                         props.navigate({

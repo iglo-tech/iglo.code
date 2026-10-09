@@ -2526,7 +2526,7 @@ const make = Effect.gen(function* () {
               createdAt: row.created_at,
             }),
           );
-        return {
+        const history: ScheduleHistory = {
           schedule: {
             id: owned.id,
             title: owned.title,
@@ -2555,6 +2555,42 @@ const make = Effect.gen(function* () {
             };
           }),
           more: receipts.length > limit,
+        };
+        // Authored and server-worded texts pass the host's redaction in one call, like every
+        // other workflow read; run titles keep the run list's 240-character cap.
+        const visible = yield* Display.displayTexts(host, [
+          ...(history.current === null ? [] : [history.current.title, ...history.current.reasons]),
+          ...history.occurrences.flatMap((item) => [
+            ...(item.error === null ? [] : [item.error]),
+            ...(item.run === null ? [] : [item.run.definition.title]),
+          ]),
+        ]);
+        let index = 0;
+        const next = () => visible[index++]!;
+        return {
+          ...history,
+          current:
+            history.current === null
+              ? null
+              : {
+                  ...history.current,
+                  title: next(),
+                  reasons: history.current.reasons.map(next),
+                },
+          occurrences: history.occurrences.map((item) => ({
+            ...item,
+            error: item.error === null ? null : next(),
+            run:
+              item.run === null
+                ? null
+                : {
+                    ...item.run,
+                    definition: {
+                      ...item.run.definition,
+                      title: next().slice(0, 240).trim(),
+                    },
+                  },
+          })),
         } satisfies ScheduleHistory;
       }),
     );
