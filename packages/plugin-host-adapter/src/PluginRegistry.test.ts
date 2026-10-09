@@ -66,6 +66,35 @@ it.effect("keeps core boot usable with no compiled plugins", () =>
     }),
   ),
 );
+it.effect("opens the catalog in WAL mode even without compiled plugins", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-plugin-catalog-" });
+      yield* Effect.gen(function* () {
+        const registry = yield* PluginRegistry.PluginRegistry;
+        yield* registry.start;
+        expect(yield* fs.exists(`${directory}/catalog.sqlite-wal`)).toBe(true);
+      }).pipe(
+        Effect.provide(
+          PluginRegistry.layer({
+            environmentId: EnvironmentId.make("test"),
+            directory,
+            plugins: [],
+          }),
+        ),
+      );
+    }),
+  ).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        Scheduler.layer,
+        Layer.mock(Host)({ environmentId: EnvironmentId.make("test") }),
+      ),
+    ),
+  ),
+);
 it.effect("rejects both duplicate identities before publishing contributions", () =>
   program([plugin, plugin]).pipe(
     Effect.map((catalog) => {

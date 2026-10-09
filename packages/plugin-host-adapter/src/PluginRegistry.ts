@@ -135,6 +135,9 @@ const make = Effect.gen(function* () {
       NodeSqlite.layer({ filename: path.join(options.directory, "catalog.sqlite") }),
     ).pipe(Scope.provide(lifetime));
     const catalogSql = Context.get(catalogContext, SqlClient.SqlClient);
+    yield* catalogSql`PRAGMA busy_timeout = 5000`;
+    yield* catalogSql`PRAGMA foreign_keys = ON`;
+    yield* catalogSql`PRAGMA journal_mode = WAL`;
     yield* catalogSql`CREATE TABLE IF NOT EXISTS manifests (id TEXT PRIMARY KEY, data TEXT NOT NULL)`;
     const previous = yield* catalogSql<{ data: string }>`SELECT data FROM manifests ORDER BY id`;
     const candidates = yield* Effect.forEach(options.plugins, (plugin, index) =>
