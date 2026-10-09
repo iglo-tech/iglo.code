@@ -20,6 +20,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   "plugins.workflows.retry": AuthOrchestrationOperateScope,
   "plugins.workflows.resume": AuthOrchestrationOperateScope,
   "plugins.workflows.gate": AuthOrchestrationOperateScope,
+  "plugins.workflows.schedule": AuthOrchestrationOperateScope,
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsUpdate]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsComment]: AuthSourceControlWriteScope,

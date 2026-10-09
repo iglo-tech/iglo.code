@@ -23,6 +23,7 @@ export const noPermissions: WorkflowPermissions = {
   retry: false,
   resume: false,
   gate: false,
+  schedule: false,
 };
 
 export function errorMessage(cause: unknown): string {

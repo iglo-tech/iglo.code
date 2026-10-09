@@ -14,6 +14,7 @@ import {
   StartPreview,
   ThreadLink,
   AttentionPage,
+  ScheduleHistory,
 } from "@t3tools/plugin-workflows/contracts";
 import { Host, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
@@ -214,6 +215,9 @@ export const handlers = (registry: Registry.PluginRegistry["Service"]) => ({
     request(registry, workflowRpcs.gate._tag, input, WorkflowRun),
   [workflowRpcs.schedule._tag]: (input: typeof workflowRpcs.schedule.payloadSchema.Type) =>
     request(registry, workflowRpcs.schedule._tag, input, Schema.Void),
+  [workflowRpcs.scheduleHistory._tag]: (
+    input: typeof workflowRpcs.scheduleHistory.payloadSchema.Type,
+  ) => request(registry, workflowRpcs.scheduleHistory._tag, input, ScheduleHistory),
   [workflowRpcs.subscribe._tag]: (input: typeof workflowRpcs.subscribe.payloadSchema.Type) =>
     Stream.unwrap(
       registry.api(workflowRpcs.subscribe._tag).pipe(

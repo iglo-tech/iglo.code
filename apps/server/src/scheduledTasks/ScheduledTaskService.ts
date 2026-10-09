@@ -237,6 +237,19 @@ export class ScheduledTaskService extends Context.Service<
     readonly lastOccurrence: (
       id: ScheduledTaskId,
     ) => Effect.Effect<string | null, ScheduledTaskError>;
+    /** Newest plugin dispatch receipts of one schedule, at most `limit`. */
+    readonly occurrences: (
+      id: ScheduledTaskId,
+      limit: number,
+    ) => Effect.Effect<
+      ReadonlyArray<{
+        readonly id: string;
+        readonly startedAt: string;
+        readonly status: "pending" | "succeeded" | "failed";
+        readonly error: string | null;
+      }>,
+      ScheduledTaskError
+    >;
     /** Emits the full task list on subscribe and again after every change (CRUD, run transitions, reschedules). */
     readonly subscribeList: () => Stream.Stream<ScheduledTaskListResult, ScheduledTaskError>;
     readonly upsert: (
@@ -1934,6 +1947,30 @@ export const layer = Layer.effect(
           Effect.map((rows) => rows[0]?.id ?? null),
           Effect.mapError((cause) =>
             taskError("Could not read the schedule occurrence receipt.", { taskId: id, cause }),
+          ),
+        ),
+      occurrences: (id, limit) =>
+        sql<{
+          id: string;
+          started_at: string;
+          status: string;
+          error: string | null;
+        }>`SELECT id, started_at, status, error FROM scheduled_task_occurrences WHERE task_id = ${id} ORDER BY rowid DESC LIMIT ${limit}`.pipe(
+          Effect.map((rows) =>
+            rows.map((row) => ({
+              id: row.id,
+              startedAt: row.started_at,
+              status:
+                row.status === "succeeded"
+                  ? ("succeeded" as const)
+                  : row.status === "failed"
+                    ? ("failed" as const)
+                    : ("pending" as const),
+              error: row.error,
+            })),
+          ),
+          Effect.mapError((cause) =>
+            taskError("Could not read the schedule occurrence receipts.", { taskId: id, cause }),
           ),
         ),
       subscribeList,

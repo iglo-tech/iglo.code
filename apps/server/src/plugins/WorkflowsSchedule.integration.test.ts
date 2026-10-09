@@ -116,7 +116,9 @@ it.live.each(["short", "long-schedule", "long-scoped-manual", "legacy-receipt"] 
           id,
           title: "Schedule",
           definitionId: sequence.id,
-          input: {},
+          task: "",
+          workspace: "new-worktree",
+          enabled: true,
           schedule: { type: "interval", everyMs: 60000 },
         });
         const schedules = yield* Deferred.await(ready);
