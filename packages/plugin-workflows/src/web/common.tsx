@@ -1,4 +1,8 @@
-import type { PluginDraftStore, PluginWebContext } from "@t3tools/plugin-host-contract/web";
+import type {
+  PluginBreadcrumbItem,
+  PluginDraftStore,
+  PluginWebContext,
+} from "@t3tools/plugin-host-contract/web";
 import type { ProjectId } from "@t3tools/plugin-host-contract/schema";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Definition, ProjectSummary, WorkflowClient } from "../contracts.ts";
@@ -63,71 +67,25 @@ export function Labeled({
   );
 }
 
-/** Shows where work runs and lets the user switch project within this environment only. */
-export function TargetBar({
-  props,
-  projects,
-  projectsError,
-  onRetry,
-}: {
-  readonly props: PageProps;
-  readonly projects: ReadonlyArray<ProjectSummary> | null;
-  readonly projectsError: string | null;
-  readonly onRetry: () => void;
-}) {
-  const { Select, Button, Badge, environmentLabel, projectId, connection } = props;
+/**
+ * The project breadcrumb segment: switches projects within this environment only, and is the
+ * page's project picker when it was opened without one.
+ */
+export function projectCrumb(
+  props: PageProps,
+  projects: ReadonlyArray<ProjectSummary> | null,
+  pageId = "workflows.library",
+): PluginBreadcrumbItem {
+  const { projectId, connection } = props;
   const current = projects?.find((project) => project.id === projectId);
-  return (
-    <div className="flex flex-wrap items-end gap-3 text-sm" aria-label="Workflow target">
-      <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-muted-foreground">Environment</span>
-        <span className="flex items-center gap-2">
-          <span className="font-medium">{environmentLabel}</span>
-          {connection === "disconnected" ? <Badge variant="warning">Disconnected</Badge> : null}
-        </span>
-      </div>
-      <div className="flex min-w-48 flex-col gap-1">
-        <label htmlFor="workflow-project" className="text-xs font-medium text-muted-foreground">
-          Project
-        </label>
-        {projects === null ? (
-          <span className="text-muted-foreground">
-            {projectsError ?? (projectId === null ? "Loading projects…" : projectId)}
-          </span>
-        ) : (
-          <Select
-            id="workflow-project"
-            ariaLabel="Project"
-            disabled={connection === "disconnected"}
-            value={projectId ?? ""}
-            onChange={(value) =>
-              props.navigate({
-                pageId: "workflows.library",
-                ...(value === "" ? {} : { projectId: value as ProjectId }),
-              })
-            }
-            options={[
-              ...(projectId === null || current === undefined
-                ? [
-                    {
-                      value: projectId ?? "",
-                      label: projectId ?? "Choose a project",
-                      disabled: true,
-                    },
-                  ]
-                : []),
-              ...projects.map((project) => ({ value: project.id, label: project.title })),
-            ]}
-          />
-        )}
-      </div>
-      {projectsError === null ? null : (
-        <Button size="sm" variant="outline" onClick={onRetry}>
-          Retry
-        </Button>
-      )}
-    </div>
-  );
+  return {
+    label: current?.title ?? (projectId === null ? "Choose a project" : projectId),
+    ariaLabel: "Project",
+    value: projectId ?? "",
+    disabled: connection === "disconnected" || projects === null,
+    options: (projects ?? []).map((project) => ({ value: project.id, label: project.title })),
+    onChange: (value) => props.navigate({ pageId, projectId: value as ProjectId }),
+  };
 }
 
 export function useProjects(props: PageProps) {

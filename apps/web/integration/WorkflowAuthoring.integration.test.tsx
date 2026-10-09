@@ -475,6 +475,7 @@ it.live(
               pluginId={pluginId}
               pageId={pageId}
               status={connection}
+              showEnvironment
             />
           );
         }
@@ -509,15 +510,19 @@ it.live(
               node.type === pluginDesign.Button &&
               (node.props.ariaLabel === label || textOf(node) === label),
           );
-        const control = (type: unknown, key: string) =>
-          root().find(
+        const control = (type: unknown, key: string) => {
+          const found = root().findAll(
             (node) => node.type === type && (node.props.id === key || node.props.ariaLabel === key),
           );
+          if (found.length !== 1)
+            throw new Error(`Expected one control ${key}, found ${found.length}`);
+          return found[0]!;
+        };
         // TanStack history consults blockers only when a document exists, checked on push.
-        const clickLeaving = async (label: string) => {
+        const leaveToLibrary = async () => {
           await act(async () => {
             vi.stubGlobal("document", {});
-            buttons(label)[0]!.props.onClick();
+            crumb("Workflows").onSelect();
             vi.unstubAllGlobals();
             vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
           });
@@ -538,6 +543,40 @@ it.live(
           act(async () => control(pluginDesign.Textarea, key).props.onChange(value));
         const choose = (key: string, value: string) =>
           act(async () => control(pluginDesign.Select, key).props.onChange(value));
+        // Header breadcrumb segments and overflow-menu actions are host-rendered; drive them
+        // through the same handlers the host menu and links call.
+        const crumb = (label: string) =>
+          root()
+            .find((node) => node.type === pluginDesign.PageHeader)
+            .props.breadcrumb.find(
+              (item: { label: string; ariaLabel?: string }) =>
+                item.ariaLabel === label || item.label === label,
+            );
+        const menuItems = (label: string) =>
+          root()
+            .findAll((node) => node.type === pluginDesign.Menu)
+            .flatMap((node) =>
+              (node.props.items as Array<{ label: string; onSelect: () => void }>).filter(
+                (item) => item.label === label,
+              ),
+            );
+        const select = (label: string) => act(async () => menuItems(label)[0]!.onSelect());
+        const openRow = (label: string) =>
+          act(async () =>
+            root()
+              .find((node) => node.type === "button" && node.props["aria-label"] === label)
+              .props.onClick(),
+          );
+        const toLibrary = () => act(async () => crumb("Workflows").onSelect());
+        const routesOf = (nodeId: string) =>
+          textOf(
+            root().find(
+              (node) =>
+                node.type === "li" &&
+                typeof node.props.onKeyDown === "function" &&
+                node.findAll((child) => child.props.id === `wf-step-${nodeId}`).length > 0,
+            ),
+          );
         const keyDown = (nodeId: string, init: { key: string; altKey?: boolean }) =>
           act(async () =>
             root()
@@ -557,7 +596,8 @@ it.live(
         expect(page()).toContain("Loading workflows…");
         yield* promise(() => tracked.settle("projects"));
         yield* promise(() => tracked.settle("library"));
-        expect(page()).toContain("Could not load workflows: The project is unavailable.");
+        expect(page()).toContain("Could not load workflows");
+        expect(page()).toContain("The project is unavailable.");
         const lateRoot = yield* fs.makeTempDirectoryScoped({ prefix: "workflow-late-" });
         yield* first.projects.create({
           commandId: CommandId.make("late-project"),
@@ -574,20 +614,20 @@ it.live(
         expect(page()).toContain("No workflows match this search.");
 
         // Library: explicit target, full-catalog paging, invalid entries with their reason.
-        yield* promise(() => choose("Project", projectId));
+        yield* promise(() => act(async () => crumb("Project").onChange(projectId)));
         yield* promise(flush);
         yield* promise(() => tracked.settle("projects"));
         yield* promise(() => tracked.settle("library"));
         expect(page()).toContain("Workstation");
-        expect(control(pluginDesign.Select, "Project").props.value).toBe(projectId);
-        expect(page()).toContain("Showing 1–20 of 26");
+        expect(crumb("Project").value).toBe(projectId);
+        expect(page()).toContain("1–20 of 26");
         yield* promise(() => click("Next"));
         yield* promise(() => tracked.settle("library"));
-        expect(page()).toContain("Showing 21–26 of 26");
+        expect(page()).toContain("21–26 of 26");
         expect(page()).toContain("zz-broken.yaml");
         expect(page()).toContain("Invalid file");
         expect(page()).toContain("Invalid workflow YAML.");
-        expect(buttons("Repair")).toHaveLength(1);
+        expect(menuItems("Repair")).toHaveLength(1);
         yield* promise(() => type("Search workflows", "workflow 1"));
         yield* promise(() => tracked.settle("library"));
         expect(page()).toContain("Workflow 10");
@@ -605,7 +645,8 @@ it.live(
         });
         yield* promise(() => tracked.settle("capabilities"));
         expect(page()).toContain("Unsaved changes");
-        expect(page()).toContain("Route list");
+        // Without layout measurement (this test renderer) the editor opens the Routes view.
+        expect(control(pluginDesign.SegmentedControl, "Workflow view").props.value).toBe("routes");
         yield* promise(() => click("Agent step"));
         yield* promise(() => tracked.settle("skills"));
         expect(page()).toContain(
@@ -642,9 +683,10 @@ it.live(
           .map((node) => node.props.id);
         expect(steps).toEqual(["wf-step-agent-2", "wf-step-agent-1", "wf-step-done"]);
         yield* promise(() => tracked.settleLatest("validate"));
-        expect(page()).toContain("No problems. Ready to save.");
-        expect(page()).toContain("Agent step 1 — Next → Agent step 2");
-        expect(page()).toContain("Agent step 2 — Next → Done");
+        expect(page()).not.toContain("to fix");
+        expect(page()).not.toContain("Checking…");
+        expect(routesOf("agent-1")).toContain("Next → Agent step 2");
+        expect(routesOf("agent-2")).toContain("Next → Done");
 
         // The draft survives a reload, keyed by environment, project and workflow.
         const draftKeys = [...storage.values.keys()].filter((key) =>
@@ -665,16 +707,15 @@ it.live(
         replay.projectsFail = true;
         yield* promise(() => write("wf-agent-2-instruction", "Review the notes carefully"));
         yield* promise(() => tracked.settleLatest("validate"));
-        expect(page()).toContain("Validation is unavailable:");
-        expect(page()).toContain("validation unavailable");
+        expect(page()).toContain("Validation unavailable");
         replay.projectsFail = false;
         yield* promise(() => click("Retry validation"));
         yield* promise(() => tracked.settleLatest("validate"));
-        expect(page()).not.toContain("Validation is unavailable");
-        expect(page()).toContain("No problems. Ready to save.");
+        expect(page()).not.toContain("Validation unavailable");
+        expect(page()).not.toContain("to fix");
 
         // Authorization: a read-only pairing cannot save until operate access is granted.
-        expect(page()).toContain("not allowed to save");
+        expect(page()).toContain("View only");
         expect(button("Save").props.disabled).toBe(true);
         const granted = tracked.permissions((value) => value.save && value.replace);
         yield* first.grantWrite;
@@ -692,7 +733,8 @@ it.live(
             ),
           ),
         );
-        expect(page()).toContain("Unsaved changes · disconnected, kept on this device");
+        expect(page()).toContain("Unsaved · kept on this device");
+        expect(page()).toContain("Disconnected");
         expect(button("Save").props.disabled).toBe(true);
         connections.delete(first.environmentId);
         yield* promise(() =>
@@ -766,10 +808,10 @@ it.live(
           "Edited elsewhere",
         );
         // A failed import leaves the current draft untouched.
-        yield* promise(() => click("Import YAML"));
+        yield* promise(() => select("Import YAML"));
         yield* promise(() => write("wf-import", "nodes: ["));
         yield* promise(() => click("Load candidate"));
-        expect(page()).toContain("Your current draft is unchanged.");
+        expect(page()).toContain("Not imported · current draft unchanged");
         expect(control(pluginDesign.Input, "wf-workflow-title").props.value).toBe(
           "Release notes v2",
         );
@@ -817,7 +859,7 @@ it.live(
         // Repair the invalid file through its observed fingerprint.
         yield* promise(() => type("Search workflows", "zz-broken"));
         yield* promise(() => tracked.settle("library"));
-        yield* promise(() => click("Repair"));
+        yield* promise(() => select("Repair"));
         yield* promise(flush);
         expect(page()).toContain("Loading workflow…");
         yield* promise(() => tracked.settle("read"));
@@ -836,14 +878,14 @@ it.live(
         expect(yield* fs.readFileString(`${first.directory}/w00.yaml`)).toBe(unrelated);
 
         // Packaged examples are read-only and clone under a new identity.
-        yield* promise(() => click("Library"));
+        yield* promise(toLibrary);
         yield* promise(flush);
         yield* promise(() => tracked.settle("library"));
         yield* promise(() => type("Search workflows", "packaged:implementation"));
         yield* promise(() => tracked.settle("library"));
-        expect(page()).toContain("Packaged · read-only");
+        expect(page()).toContain("Packaged");
         const cloneImplementation = function* () {
-          yield* promise(() => click("Clone to edit"));
+          yield* promise(() => select("Clone to edit"));
           yield* promise(() => tracked.settle("read"));
           yield* promise(() => tracked.settle("library"));
           yield* promise(flush);
@@ -866,7 +908,7 @@ it.live(
         // A second clone gets an unused identity, skipping names taken by files (even invalid
         // ones); leaving keeps it listed as a local draft.
         yield* fs.writeFileString(`${first.directory}/implementation-copy-2.yaml`, "nodes: [");
-        yield* promise(() => click("Library"));
+        yield* promise(toLibrary);
         yield* promise(flush);
         yield* promise(() => tracked.settle("library"));
         yield* promise(() => type("Search workflows", "packaged:implementation"));
@@ -875,25 +917,25 @@ it.live(
         expect(control(pluginDesign.Input, "wf-workflow-id").props.value).toBe(
           "implementation-copy-3",
         );
-        yield* promise(() => clickLeaving("Library"));
+        yield* promise(leaveToLibrary);
         expect(page()).toContain("Leave with unsaved workflow changes?");
         yield* promise(() => press("Leave and keep draft"));
         yield* promise(flush);
         yield* promise(() => tracked.settle("library"));
         expect(router.state.location.pathname).toContain("workflows.library");
-        expect(page()).toContain("Unsaved drafts on this device");
+        expect(page()).toContain("Unsaved drafts");
         const cloneTitle = "Implementation and human review (copy)";
-        yield* promise(() => click(`Open draft ${cloneTitle}`));
+        yield* promise(() => openRow(`Open draft ${cloneTitle}`));
         yield* promise(flush);
         expect(control(pluginDesign.Input, "wf-workflow-id").props.value).toBe(
           "implementation-copy-3",
         );
-        yield* promise(() => clickLeaving("Library"));
+        yield* promise(leaveToLibrary);
         yield* promise(() => press("Leave and keep draft"));
         yield* promise(flush);
         yield* promise(() => tracked.settle("library"));
         yield* promise(() => click(`Discard draft ${cloneTitle}`));
-        expect(page()).not.toContain("Unsaved drafts on this device");
+        expect(page()).not.toContain("Unsaved drafts");
         expect(
           [...storage.values.keys()].filter((key) => key.includes(":workflows:entry:")),
         ).toEqual([]);
@@ -919,7 +961,7 @@ it.live(
         yield* promise(() => click("Open library"));
         yield* promise(flush);
         yield* promise(() => tracked.settle("library"));
-        yield* promise(() => click("Import YAML"));
+        yield* promise(() => select("Import YAML"));
         yield* promise(() =>
           write("Workflow YAML to import", Yaml.stringify(sequence("w0", "W0 again"))),
         );

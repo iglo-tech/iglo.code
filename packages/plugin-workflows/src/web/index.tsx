@@ -36,12 +36,18 @@ export const web: WebPlugin<WorkflowClient> = {
     { id: "workflows.editor", title: "Workflow editor", component: EditorPageView },
   ],
   navigation: [
-    { id: "workflows.navigation", title: "Workflows", link: { pageId: "workflows.library" } },
+    {
+      id: "workflows.navigation",
+      title: "Workflows",
+      icon: "workflow",
+      link: { pageId: "workflows.library" },
+    },
   ],
   projectActions: [
     {
       id: "workflows.project",
       title: "Workflows",
+      icon: "workflow",
       link: (projectId) => ({ pageId: "workflows.library", projectId }),
     },
   ],

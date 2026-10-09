@@ -1,20 +1,13 @@
 import type { PluginCatalog } from "@t3tools/contracts";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import type { bind } from "./contributions";
+import { PluginPageStatusStrip } from "./design";
+import { PluginPageChromeContext, type PluginPageChrome } from "./pageChrome";
 import { missingPageMessage, type PluginPageStatus } from "./pageConnection";
-const statusText: Record<Exclude<PluginPageStatus, "connected">, string> = {
-  disconnected:
-    "Disconnected from this environment. Showing the last loaded state; changes wait until it reconnects.",
-  reconciling:
-    "Reconnecting to this environment. Showing the last loaded state; changes wait until it reconciles.",
-  unsupported:
-    "This environment does not support plugins. Showing the last loaded state; changes are unavailable.",
-  "catalog-unavailable":
-    "This environment's plugin catalog could not be loaded. Showing the last loaded state; changes wait until it loads.",
-};
 
 export function PluginPageContent({
   catalog,
@@ -22,6 +15,7 @@ export function PluginPageContent({
   pluginId,
   pageId,
   electron = false,
+  showEnvironment = false,
   status = "connected",
   onRetryCatalog,
 }: {
@@ -32,6 +26,8 @@ export function PluginPageContent({
   readonly pluginId: string;
   readonly pageId: string;
   readonly electron?: boolean;
+  /** More than one environment is connected, so pages name theirs in the breadcrumb. */
+  readonly showEnvironment?: boolean;
   readonly status?: PluginPageStatus;
   readonly onRetryCatalog?: () => void;
 }) {
@@ -41,43 +37,63 @@ export function PluginPageContent({
   );
   const descriptor = catalog?.plugins.find((item) => item.manifest.id === pluginId);
   const missing = missingPageMessage({ status, descriptor });
+  // A page that renders its own header (PageHeader) replaces the host title bar and scrolls
+  // its own content; until then (including while its module loads) the host shows the title.
+  const [headers, setHeaders] = useState(0);
+  const claimHeader = useCallback(() => {
+    setHeaders((count) => count + 1);
+    return () => setHeaders((count) => count - 1);
+  }, []);
+  const environmentLabel = plugin?.context.environmentLabel ?? "";
+  const chrome = useMemo<PluginPageChrome>(
+    () => ({
+      electron,
+      environmentLabel,
+      showEnvironment,
+      status,
+      claimHeader,
+      ...(onRetryCatalog === undefined ? {} : { onRetryCatalog }),
+    }),
+    [electron, environmentLabel, showEnvironment, status, claimHeader, onRetryCatalog],
+  );
+  const ownHeader = page !== undefined && headers > 0;
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
-      <WorkspacePageHeader electron={electron}>
-        <span className="text-sm font-medium">{page?.title ?? missing.title}</span>
-      </WorkspacePageHeader>
-      {page === undefined || status === "connected" ? null : (
-        <div
-          role="status"
-          className="flex flex-wrap items-center gap-3 border-b border-border bg-warning/8 px-6 py-2 text-sm"
-        >
-          <span>{statusText[status]}</span>
-          {status === "catalog-unavailable" && onRetryCatalog !== undefined ? (
-            <Button size="sm" variant="outline" onClick={onRetryCatalog}>
-              Retry
-            </Button>
-          ) : null}
-        </div>
-      )}
-      <main className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
-        {page !== undefined && plugin !== undefined ? (
-          page.render(plugin.context)
-        ) : (
-          <div className="mx-auto max-w-xl px-6 py-12">
-            <h1 className="text-lg font-semibold">{missing.title}</h1>
-            <p role="status" className="mt-3 text-sm text-muted-foreground">
-              {missing.text}
-            </p>
-            {missing.retry && onRetryCatalog !== undefined ? (
-              <div className="mt-4">
-                <Button size="sm" variant="outline" onClick={onRetryCatalog}>
-                  Retry
-                </Button>
-              </div>
-            ) : null}
-          </div>
+      <PluginPageChromeContext value={chrome}>
+        {ownHeader ? null : (
+          <>
+            <WorkspacePageHeader electron={electron}>
+              <span className="text-sm font-medium">{page?.title ?? missing.title}</span>
+            </WorkspacePageHeader>
+            {page === undefined ? null : <PluginPageStatusStrip chrome={chrome} />}
+          </>
         )}
-      </main>
+        <main
+          className={
+            ownHeader
+              ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+              : "scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto"
+          }
+        >
+          {page !== undefined && plugin !== undefined ? (
+            page.render(plugin.context)
+          ) : (
+            <div className="mx-auto max-w-xl px-6 py-12">
+              <h1 className="text-lg font-semibold">{missing.title}</h1>
+              <p role="status" className="mt-3 text-sm text-muted-foreground">
+                {missing.text}
+              </p>
+              {missing.retry && onRetryCatalog !== undefined ? (
+                <div className="mt-4">
+                  <Button size="sm" variant="outline" onClick={onRetryCatalog}>
+                    Retry
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </main>
+      </PluginPageChromeContext>
     </SidebarInset>
   );
 }

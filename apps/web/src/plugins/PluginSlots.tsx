@@ -1,11 +1,20 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import type { EnvironmentId, PluginPageState, PluginTarget, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
 import { useMemo, useState } from "react";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
 import { Button } from "../components/ui/button";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "../components/ui/sidebar";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
+import { PluginIcon } from "./pluginIcons";
+import { projectFor, useRouteProject, type RouteProject } from "./routeProject";
 import { useConnectedEnvironmentIds, useEnvironment } from "../state/environments";
 import {
   availableCatalogAtom,
@@ -87,74 +96,138 @@ const pageAvailable = (
   plugin.pages.some((page) => page.id === pageId) &&
   plugin.context.descriptor.manifest.web.pages.includes(pageId);
 
-function EnvironmentPluginNavigation({ environmentId }: { environmentId: EnvironmentId }) {
+function EnvironmentPluginItems({
+  environmentId,
+  labelEnvironment,
+  route,
+}: {
+  environmentId: EnvironmentId;
+  labelEnvironment: boolean;
+  route: RouteProject | null;
+}) {
+  const projectId = projectFor(route, environmentId);
   const { contributions } = usePluginContributions(environmentId);
   const environment = useEnvironment(environmentId);
-  const attention = useAtomValue(attentionAtom(environmentId));
-  const items = Option.getOrElse(AsyncResult.value(attention), () => []);
-  if (contributions.length === 0) return null;
-  return (
-    <div className="flex flex-col gap-1 px-2 pb-2">
-      <p className="px-2 text-xs text-muted-foreground">{environment?.label ?? environmentId}</p>
-      {contributions.flatMap((plugin) =>
-        plugin.navigation
-          .filter((item) => plugin.context.descriptor.manifest.web.navigation.includes(item.id))
-          .map((item) => (
-            <Button
-              key={item.id}
-              variant="ghost"
-              size="sm"
-              onClick={() => plugin.context.navigate(item.link)}
-            >
-              {item.title}
-            </Button>
-          )),
-      )}
-      {items.flatMap((summary) => {
-        const plugin = contributions.find((item) => item.manifest.id === summary.pluginId);
-        return plugin === undefined
-          ? []
-          : [
-              ...(summary.error === undefined
-                ? []
-                : [
-                    <p
-                      key={`${summary.pluginId}:error`}
-                      role="status"
-                      className="px-2 text-xs text-destructive"
-                    >
-                      {plugin.manifest.displayName}: {summary.error.message}
-                    </p>,
-                  ]),
-              ...summary.items.map((item) => {
-                const available = pageAvailable(plugin, item.link.pageId);
-                return (
-                  <Button
-                    key={`${summary.pluginId}:${item.id}`}
-                    variant="ghost"
-                    size="sm"
-                    disabled={!available}
-                    title={available ? item.reason : "This page is not available in this client."}
-                    onClick={() => plugin.context.navigate(item.link)}
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const { isMobile, setOpenMobile } = useSidebar();
+  return contributions.flatMap((plugin) =>
+    plugin.navigation
+      .filter((item) => plugin.context.descriptor.manifest.web.navigation.includes(item.id))
+      .map((item) => {
+        const label = labelEnvironment
+          ? `${item.title} · ${environment?.label ?? environmentId}`
+          : item.title;
+        const active = decodeURIComponent(pathname).startsWith(
+          `/plugins/${environmentId}/${plugin.manifest.id}/`,
+        );
+        return (
+          <SidebarMenuItem key={`${environmentId}:${item.id}`} className="shrink-0">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <SidebarMenuButton
+                    aria-label={label}
+                    size="icon"
+                    isActive={active}
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => {
+                      if (isMobile) setOpenMobile(false);
+                      // Like project actions, entries open in the project the user is in.
+                      plugin.context.navigate(
+                        item.link.projectId === undefined && projectId !== undefined
+                          ? { ...item.link, projectId }
+                          : item.link,
+                      );
+                    }}
                   >
-                    <span className="min-w-0 truncate">{item.summary}</span>
-                  </Button>
-                );
-              }),
-            ];
-      })}
-    </div>
+                    <PluginIcon name={item.icon} />
+                  </SidebarMenuButton>
+                }
+              />
+              <TooltipPopup side="top">{label}</TooltipPopup>
+            </Tooltip>
+          </SidebarMenuItem>
+        );
+      }),
   );
 }
 
-export function PluginNavigation() {
+/** Plugin navigation as icon entries beside the sidebar's Settings, Pull Requests and Usage. */
+export function PluginSidebarItems() {
+  const environmentIds = useConnectedEnvironmentIds();
+  const route = useRouteProject();
+  return environmentIds.map((environmentId) => (
+    <EnvironmentPluginItems
+      key={environmentId}
+      environmentId={environmentId}
+      labelEnvironment={environmentIds.length > 1}
+      route={route}
+    />
+  ));
+}
+
+function EnvironmentPluginAttention({
+  environmentId,
+  labelEnvironment,
+}: {
+  environmentId: EnvironmentId;
+  labelEnvironment: boolean;
+}) {
+  const { contributions } = usePluginContributions(environmentId);
+  const environment = useEnvironment(environmentId);
+  const attention = useAtomValue(attentionAtom(environmentId));
+  const summaries = Option.getOrElse(AsyncResult.value(attention), () => []);
+  return summaries.flatMap((summary) => {
+    const plugin = contributions.find((item) => item.manifest.id === summary.pluginId);
+    if (plugin === undefined) return [];
+    const prefix = labelEnvironment ? `${environment?.label ?? environmentId} · ` : "";
+    return [
+      ...(summary.error === undefined
+        ? []
+        : [
+            <SidebarMenuItem key={`${summary.pluginId}:error`}>
+              <p role="status" className="truncate px-2 text-xs text-destructive">
+                {prefix}
+                {plugin.manifest.displayName}: {summary.error.message}
+              </p>
+            </SidebarMenuItem>,
+          ]),
+      ...summary.items.map((item) => {
+        const available = pageAvailable(plugin, item.link.pageId);
+        return (
+          <SidebarMenuItem key={`${summary.pluginId}:${item.id}`}>
+            <SidebarMenuButton
+              size="sm"
+              disabled={!available}
+              title={available ? item.reason : "This page is not available in this client."}
+              onClick={() => plugin.context.navigate(item.link)}
+            >
+              <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />
+              <span className="min-w-0 truncate">
+                {prefix}
+                {item.summary}
+              </span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      }),
+    ];
+  });
+}
+
+/** Plugin attention rows above the sidebar footer; nothing renders when nothing needs action. */
+export function PluginSidebarAttention() {
   const environmentIds = useConnectedEnvironmentIds();
   return (
-    <div className="[app-region:no-drag] max-h-48 shrink-0 overflow-y-auto">
+    <SidebarMenu className="[app-region:no-drag] max-h-40 overflow-y-auto empty:hidden">
       {environmentIds.map((environmentId) => (
-        <EnvironmentPluginNavigation key={environmentId} environmentId={environmentId} />
+        <EnvironmentPluginAttention
+          key={environmentId}
+          environmentId={environmentId}
+          labelEnvironment={environmentIds.length > 1}
+        />
       ))}
-    </div>
+    </SidebarMenu>
   );
 }
 
@@ -167,19 +240,26 @@ export function PluginProjectActions({
 }) {
   const { contributions } = usePluginContributions(environmentId, projectId);
   return (
-    <div className="[app-region:no-drag] flex shrink-0 gap-1">
+    <div className="[app-region:no-drag] flex shrink-0 items-center gap-0.5">
       {contributions.flatMap((plugin) =>
         plugin.projectActions
           .filter((item) => plugin.context.descriptor.manifest.web.projectActions.includes(item.id))
           .map((item) => (
-            <Button
-              key={item.id}
-              variant="ghost"
-              size="sm"
-              onClick={() => plugin.context.navigate(item.link(projectId))}
-            >
-              {item.title}
-            </Button>
+            <Tooltip key={item.id}>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={item.title}
+                    onClick={() => plugin.context.navigate(item.link(projectId))}
+                  >
+                    <PluginIcon name={item.icon} />
+                  </Button>
+                }
+              />
+              <TooltipPopup side="bottom">{item.title}</TooltipPopup>
+            </Tooltip>
           )),
       )}
     </div>

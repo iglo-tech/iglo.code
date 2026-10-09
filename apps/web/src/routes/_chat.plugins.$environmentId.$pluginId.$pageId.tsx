@@ -3,6 +3,7 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { PluginPageContent } from "../plugins/PluginPageContent";
 import { isElectron } from "../env";
 import { usePluginContributions } from "../plugins/PluginSlots";
+import { useConnectedEnvironmentIds } from "../state/environments";
 import { validatePluginSearch } from "../plugins/pageLink";
 
 export const Route = createFileRoute("/_chat/plugins/$environmentId/$pluginId/$pageId")({
@@ -14,6 +15,7 @@ function PluginPage() {
   const params = Route.useParams();
   const search = Route.useSearch();
   const environmentId = EnvironmentId.make(params.environmentId);
+  const showEnvironment = useConnectedEnvironmentIds().length > 1;
   const { catalog, contributions, status, retryCatalog } = usePluginContributions(
     environmentId,
     search.pluginProjectId ?? null,
@@ -32,6 +34,7 @@ function PluginPage() {
       status={status}
       onRetryCatalog={retryCatalog}
       electron={isElectron}
+      showEnvironment={showEnvironment}
     />
   );
 }

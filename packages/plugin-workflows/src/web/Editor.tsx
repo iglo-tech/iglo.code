@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  CircleAlertIcon,
+  CopyIcon,
+  FileCodeIcon,
+  PanelRightIcon,
+  PlusIcon,
+  Undo2Icon,
+  UploadIcon,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AuthoringEntry,
   Capabilities,
@@ -7,8 +16,8 @@ import type {
   WorkflowPermissions,
 } from "../contracts.ts";
 import {
-  TargetBar,
   draftKey,
+  projectCrumb,
   unusedWorkflowId,
   errorCode,
   errorMessage,
@@ -31,8 +40,14 @@ import {
   slug,
   type EditableKind,
 } from "./editing.ts";
-import { Flow, Palette, RouteList, stepButtonId } from "./Flow.tsx";
+import { Palette, RouteList, stepButtonId } from "./Flow.tsx";
+import { Graph } from "./Graph.tsx";
 import { Inspector, controlId } from "./Inspector.tsx";
+
+type View = "graph" | "routes" | "yaml";
+/** React Flow needs layout measurement; without it (server rendering, tests) Routes is shown. */
+const canvasSupported = () => typeof ResizeObserver !== "undefined";
+const defaultView = (): View => (canvasSupported() ? "graph" : "routes");
 
 type Status =
   | { readonly kind: "idle" }
@@ -60,6 +75,7 @@ export function EditorPageView(props: PageProps) {
 
 function Editor(props: PageProps & { readonly workflow: string | null }) {
   const { client, projectId, connection, workflow, pageState, Button, Badge, Textarea } = props;
+  const { Alert, Empty, Menu, PageHeader, SegmentedControl } = props;
   const source = pageState.source ?? null;
   const storageKey = projectId !== null && workflow !== null ? draftKey(projectId, workflow) : null;
   const [stored] = useState(() =>
@@ -73,7 +89,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const [draft, setDraft] = useState<Definition | null>(stored?.definition ?? null);
   const [base, setBase] = useState<DraftBase | null>(stored?.base ?? null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [statusKind, setStatus] = useState<Status>({ kind: "idle" });
   const [checked, setChecked] = useState<{
     readonly json: string;
     readonly problems: ReadonlyArray<Problem>;
@@ -85,9 +101,10 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     save: false,
     replace: false,
   });
-  const [panel, setPanel] = useState<"import" | "export" | null>(
-    pageState.import === "1" ? "import" : null,
+  const [view, setView] = useState<View>(() =>
+    pageState.import === "1" || pageState.view === "yaml" ? "yaml" : defaultView(),
   );
+  const [importing, setImporting] = useState(pageState.import === "1");
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<Definition | null>(null);
@@ -112,7 +129,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         setDraft((current) => current ?? entry.definition);
         setBase((current) => current ?? baseOf(entry));
         if (entry.definition === null) {
-          setPanel("import");
+          setView("yaml");
+          setImporting(true);
           setImportText((current) => current || entry.text);
         }
       },
@@ -153,8 +171,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   // Local drafts survive reloads and disconnection; saving or discarding clears them. Writes
   // are coalesced while typing and flushed when the page closes.
   const exported = useMemo(
-    () => (panel === "export" && draft !== null ? exportYaml(draft) : null),
-    [panel, draft],
+    () => (view === "yaml" && !importing && draft !== null ? exportYaml(draft) : null),
+    [view, importing, draft],
   );
   const pendingWrite = useRef<(() => void) | null>(null);
   useEffect(() => {
@@ -257,10 +275,13 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     if (readOnly) return;
     setDraft(next);
   };
-  const select = (id: string | null) => {
-    setSelected(id);
-    if (narrow && id !== null) setInspectorOpen(true);
-  };
+  const select = useCallback(
+    (id: string | null) => {
+      setSelected(id);
+      if (narrow && id !== null) setInspectorOpen(true);
+    },
+    [narrow],
+  );
   const discard = () => {
     forget();
     setDraft(server?.definition ?? null);
@@ -355,7 +376,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       );
     setCandidate(null);
     setImportText("");
-    setPanel(null);
+    setImporting(false);
+    setView(defaultView());
     setSelected(null);
   };
   const clone = () => {
@@ -377,6 +399,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   };
   const goTo = (problem: Problem) => {
     setSelected(problem.nodeId ?? null);
+    if (view === "yaml" && problem.nodeId !== undefined) setView(defaultView());
     if (narrow) setInspectorOpen(true);
     const target = controlId(problem.nodeId ?? null, problem.control ?? "title");
     setFocus(
@@ -390,67 +413,124 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     );
   };
 
+  const libraryLink = () =>
+    projectId === null
+      ? props.navigate({ pageId: "workflows.library" })
+      : props.navigate({ pageId: "workflows.library", projectId });
+  const breadcrumb = (current: string) => [
+    projectCrumb(props, projects.projects),
+    { label: "Workflows", onSelect: libraryLink },
+    { label: current },
+  ];
   if (projectId === null || workflow === null)
     return (
-      <section className="mx-auto w-full max-w-3xl px-6 py-8 text-sm">
-        <p>Open a workflow from the Workflows library.</p>
-        <div className="mt-4">
-          <Button variant="outline" onClick={() => props.navigate({ pageId: "workflows.library" })}>
+      <>
+        <PageHeader breadcrumb={breadcrumb("Editor")} />
+        <Empty title="Open a workflow from the library">
+          <Button size="sm" variant="outline" onClick={libraryLink}>
             Open library
           </Button>
-        </div>
-      </section>
+        </Empty>
+      </>
     );
   if (source === null && draft === null)
     return (
-      <section className="mx-auto w-full max-w-3xl px-6 py-8 text-sm">
-        <h1 className="text-lg font-semibold">This draft is no longer on this device</h1>
-        <p className="mt-2 text-muted-foreground">
-          It was saved, discarded, or removed to make room for newer drafts.
-        </p>
-        <div className="mt-4">
-          <Button
-            variant="outline"
-            onClick={() => props.navigate({ pageId: "workflows.library", projectId })}
-          >
+      <>
+        <PageHeader breadcrumb={breadcrumb("Draft")} />
+        <Empty title="This draft is no longer on this device">
+          <Button size="sm" variant="outline" onClick={libraryLink}>
             Open library
           </Button>
-        </div>
-      </section>
+        </Empty>
+      </>
     );
   const saveAllowed = base?.mode === "replace" ? permissions.replace : permissions.save;
-  const statusText =
-    status.kind === "saving"
-      ? "Saving…"
-      : readOnly
-        ? "Packaged example · read-only"
-        : dirty
-          ? offline
-            ? "Unsaved changes · disconnected, kept on this device"
-            : "Unsaved changes"
-          : base?.revision != null
-            ? `Saved revision ${base.revision}`
-            : "Not saved yet";
+  const errors = problems.filter((problem) => problem.severity === "error").length;
+  const warnings = problems.length - errors;
+  const statusBadge =
+    statusKind.kind === "saving" ? (
+      <Badge variant="secondary">Saving…</Badge>
+    ) : readOnly ? (
+      <Badge variant="secondary">Packaged · read-only</Badge>
+    ) : dirty ? (
+      <Badge variant="warning">
+        {offline ? "Unsaved · kept on this device" : "Unsaved changes"}
+      </Badge>
+    ) : base?.revision != null ? (
+      <Badge variant="outline">Saved revision {base.revision}</Badge>
+    ) : (
+      <Badge variant="outline">Not saved yet</Badge>
+    );
   const outdated =
     server !== null &&
     base !== null &&
     base.source === server.source &&
     base.fingerprint !== null &&
     base.fingerprint !== server.fingerprint;
+  const removeSelected = (id: string) => {
+    if (draft === null) return;
+    change(removeStep(draft, id));
+    if (selected === id) setSelected(null);
+  };
+  const showProblems = () => {
+    setSelected(null);
+    if (narrow) setInspectorOpen(true);
+    setFocus("wf-problems");
+  };
+  const openImport = () => {
+    setCompare(null);
+    setImporting(true);
+    setView("yaml");
+  };
   const inspector =
     draft === null ? null : (
-      <Inspector
-        props={props}
-        definition={draft}
-        selected={selected}
-        capabilities={capabilities}
-        capabilitiesError={capabilitiesError}
-        onRetryCapabilities={() => setCapabilitiesAttempt((value) => value + 1)}
-        problems={problems}
-        readOnly={readOnly}
-        identityEditable={base?.mode !== "edit"}
-        onChange={change}
-      />
+      <div className="flex flex-col gap-5">
+        {selected === null && problems.length > 0 ? (
+          <section aria-labelledby="wf-problems-title" className="flex flex-col gap-2">
+            <h2 id="wf-problems-title" className="flex items-center gap-1.5 text-sm font-medium">
+              Problems to fix
+            </h2>
+            <ul
+              id="wf-problems"
+              tabIndex={-1}
+              aria-label="Problems to fix"
+              className="flex flex-col gap-1 outline-none"
+            >
+              {problems.map((problem, index) => (
+                <li key={index} className="flex items-start gap-2 text-xs">
+                  <CircleAlertIcon
+                    aria-hidden
+                    className={`mt-0.5 size-3.5 shrink-0 ${problem.severity === "error" ? "text-destructive" : "text-warning"}`}
+                  />
+                  <span className="min-w-0 flex-1 break-words">
+                    <span className="sr-only">
+                      {problem.severity === "error" ? "Blocks saving: " : "Warning: "}
+                    </span>
+                    {problem.message}
+                  </span>
+                  {problem.nodeId !== undefined || problem.control !== undefined ? (
+                    <Button size="xs" variant="ghost" onClick={() => goTo(problem)}>
+                      Show
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        <Inspector
+          props={props}
+          definition={draft}
+          selected={selected}
+          capabilities={capabilities}
+          capabilitiesError={capabilitiesError}
+          onRetryCapabilities={() => setCapabilitiesAttempt((value) => value + 1)}
+          problems={problems}
+          readOnly={readOnly}
+          identityEditable={base?.mode !== "edit"}
+          onChange={change}
+        />
+      </div>
     );
   const palette =
     draft === null ? null : (
@@ -466,130 +546,48 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         }}
       />
     );
-  return (
-    <section className="flex w-full flex-col gap-5 px-6 py-6">
-      <props.NavigationGuard
-        when={dirty}
-        title="Leave with unsaved workflow changes?"
-        description={
-          storageFailed
-            ? "This draft could not be kept on this device. Keep editing to save it, or discard it."
-            : "Your draft stays on this device and is listed in the library until you save or discard it."
-        }
-        onDiscard={forget}
-        {...(storageFailed ? {} : { keepLabel: "Leave and keep draft" })}
-        protectReload={storageFailed || base?.mode === "new"}
-      />
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="break-words text-xl font-semibold tracking-tight">
-            {draft?.title || server?.source || "Workflow"}
-          </h1>
-          <p role="status" aria-live="polite" className="mt-1 text-sm text-muted-foreground">
-            {statusText}
-            {problems.length > 0 && draft !== null
-              ? ` · ${problems.filter((problem) => problem.severity === "error").length} to fix`
-              : ""}
-            {draft !== null && locallyValid && !authoritative && !offline
-              ? validationUnavailable === null
-                ? " · checking with the server…"
-                : " · validation unavailable"
-              : ""}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => props.navigate({ pageId: "workflows.library", projectId })}
-          >
-            Library
-          </Button>
-          {readOnly ? (
-            <Button onClick={clone}>Clone to edit</Button>
-          ) : (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => setPanel((value) => (value === "import" ? null : "import"))}
-              >
-                Import YAML
-              </Button>
-              <Button
-                variant="outline"
-                disabled={draft === null}
-                onClick={() => setPanel((value) => (value === "export" ? null : "export"))}
-              >
-                Export YAML
-              </Button>
-              {dirty && base?.mode !== "new" ? (
-                <Button variant="ghost" onClick={discard}>
-                  Discard changes
-                </Button>
-              ) : null}
-              <Button
-                disabled={
-                  draft === null ||
-                  !dirty ||
-                  offline ||
-                  !saveAllowed ||
-                  blocking ||
-                  status.kind === "saving"
-                }
-                onClick={save}
-              >
-                {base?.mode === "replace" ? "Validate and replace file" : "Save"}
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-      <TargetBar
-        props={props}
-        projects={projects.projects}
-        projectsError={projects.error}
-        onRetry={projects.retry}
-      />
-      {server === null || server.packaged ? null : (
-        <p className="text-xs text-muted-foreground">Source: {server.source}</p>
-      )}
-      {!offline && !saveAllowed && !readOnly ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          This connection can view workflows but is not allowed to save them.
-        </p>
-      ) : null}
-      {offline ? (
-        <p role="status" className="text-sm text-warning-foreground">
-          Disconnected. Your draft stays on this device; saving resumes after this environment
-          reconnects.
-          {server !== null ? " The saved version shown may be out of date." : ""}
-        </p>
-      ) : null}
-      {storageFailed ? (
-        <p role="alert" className="text-sm text-destructive">
-          This draft is too large to keep on this device. Save it to avoid losing changes.
-        </p>
-      ) : null}
-      {readError === null ? null : (
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-destructive">
-          <span>Could not load this workflow: {readError}</span>
-          <Button size="sm" variant="outline" onClick={() => setReadAttempt((value) => value + 1)}>
+  const alerts = [
+    storageFailed ? (
+      <Alert key="storage" variant="error" title="Draft not kept on this device">
+        Save to avoid losing changes.
+      </Alert>
+    ) : null,
+    readError === null ? null : (
+      <Alert
+        key="read"
+        variant="error"
+        title="Could not load this workflow"
+        actions={
+          <Button size="xs" variant="outline" onClick={() => setReadAttempt((value) => value + 1)}>
             Retry
           </Button>
-        </div>
-      )}
-      {status.kind === "failed" ? (
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-destructive">
-          <span>Not saved: {status.message} Your edits are kept.</span>
-          <Button size="sm" variant="outline" disabled={offline || blocking} onClick={save}>
+        }
+      >
+        {readError}
+      </Alert>
+    ),
+    statusKind.kind === "failed" ? (
+      <Alert
+        key="failed"
+        variant="error"
+        title="Not saved · edits kept"
+        actions={
+          <Button size="xs" variant="outline" disabled={offline || blocking} onClick={save}>
             Retry save
           </Button>
-        </div>
-      ) : null}
-      {validationUnavailable === null || authoritative ? null : (
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-destructive">
-          <span>Validation is unavailable: {validationUnavailable.message}</span>
+        }
+      >
+        {statusKind.message}
+      </Alert>
+    ) : null,
+    validationUnavailable === null || authoritative ? null : (
+      <Alert
+        key="validation"
+        variant="warning"
+        title="Validation unavailable"
+        actions={
           <Button
-            size="sm"
+            size="xs"
             variant="outline"
             ariaLabel="Retry validation"
             disabled={offline}
@@ -597,13 +595,19 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           >
             Retry
           </Button>
-        </div>
-      )}
-      {status.kind === "conflict" && base?.mode === "new" ? (
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
-          <span>Not saved: {status.message} Your draft is kept.</span>
+        }
+      >
+        {validationUnavailable.message}
+      </Alert>
+    ),
+    statusKind.kind === "conflict" && base?.mode === "new" ? (
+      <Alert
+        key="identity"
+        variant="error"
+        title="Not saved · draft kept"
+        actions={
           <Button
-            size="sm"
+            size="xs"
             variant="outline"
             onClick={() => {
               setStatus({ kind: "idle" });
@@ -614,32 +618,56 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           >
             Change workflow ID
           </Button>
-        </div>
-      ) : status.kind === "conflict" || outdated ? (
-        <div
-          role="alert"
-          className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm"
-        >
-          <p>
-            {status.kind === "conflict"
-              ? `This workflow changed on the server: ${status.message}`
-              : "The saved workflow changed since this draft was started."}{" "}
-            Your edits are kept.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={offline} onClick={compareLatest}>
+        }
+      >
+        {statusKind.message}
+      </Alert>
+    ) : statusKind.kind === "conflict" || outdated ? (
+      <Alert
+        key="conflict"
+        variant="warning"
+        title="This workflow changed on the server"
+        actions={
+          <>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={offline}
+              onClick={() => {
+                compareLatest();
+                setView("yaml");
+                setImporting(false);
+              }}
+            >
               Compare
             </Button>
-            <Button size="sm" variant="outline" disabled={offline} onClick={reload}>
+            <Button size="xs" variant="outline" disabled={offline} onClick={reload}>
               Reload saved version
             </Button>
-            <Button size="sm" variant="ghost" disabled={offline} onClick={keepMine}>
-              Keep my draft for the next save
+            <Button size="xs" variant="ghost" disabled={offline} onClick={keepMine}>
+              Keep my draft
             </Button>
-          </div>
-        </div>
+          </>
+        }
+      >
+        {statusKind.kind === "conflict"
+          ? statusKind.message
+          : "Your draft is based on an older revision."}
+      </Alert>
+    ) : null,
+  ].filter((alert) => alert !== null);
+  const yaml = (
+    <div className="flex flex-col gap-3 p-4">
+      {server !== null && server.definition === null ? (
+        <Alert variant="error" title="This file is not a valid workflow">
+          <ul className="flex flex-col gap-0.5">
+            {server.reasons.map((reason, index) => (
+              <li key={index}>{reason}</li>
+            ))}
+          </ul>
+        </Alert>
       ) : null}
-      {compare === null || draft === null ? null : (
+      {compare !== null && draft !== null ? (
         <div className="grid gap-3 md:grid-cols-2" aria-label="Compare versions">
           <div className="flex flex-col gap-1.5">
             <label
@@ -647,7 +675,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
               className="text-xs font-medium text-muted-foreground"
             >
               Saved on server
-              {compare.definition ? ` (revision ${compare.definition.revision})` : ""}
+              {compare.definition ? ` · revision ${compare.definition.revision}` : ""}
             </label>
             <Textarea
               id="wf-compare-server"
@@ -675,33 +703,33 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             </Button>
           </div>
         </div>
-      )}
-      {panel === "import" ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-border p-4">
+      ) : importing ? (
+        <div className="flex flex-col gap-2">
           <label htmlFor="wf-import" className="text-xs font-medium text-muted-foreground">
-            {server?.definition === null
-              ? "Repair this file: edit its YAML, then load it as a candidate"
-              : "Workflow YAML"}
+            {server?.definition === null ? "Repair YAML" : "Import YAML"}
           </label>
           {server !== null && !server.lossless ? (
-            <p className="text-xs text-warning-foreground">
-              Protected values in this file are hidden. Re-enter them before replacing it.
-            </p>
+            <Badge variant="warning">Protected values hidden · re-enter before replacing</Badge>
           ) : null}
           <Textarea
             id="wf-import"
             ariaLabel="Workflow YAML to import"
-            rows={10}
+            rows={14}
             value={importText}
             onChange={setImportText}
           />
           {importError === null ? null : (
-            <p role="alert" className="text-sm text-destructive">
-              {importError} Your current draft is unchanged.
-            </p>
+            <Alert variant="error" title="Not imported · current draft unchanged">
+              {importError}
+            </Alert>
           )}
           {candidate === null ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              {draft === null ? null : (
+                <Button variant="ghost" onClick={() => setImporting(false)}>
+                  Cancel
+                </Button>
+              )}
               <Button
                 disabled={!importText.trim()}
                 onClick={() => {
@@ -717,88 +745,220 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
               >
                 Load candidate
               </Button>
-              <Button variant="ghost" onClick={() => setPanel(null)}>
-                Close
-              </Button>
             </div>
           ) : (
-            <div role="status" className="flex flex-col gap-2 text-sm">
-              <p>
-                Candidate “{candidate.title}” with {candidate.nodes.length} steps is ready.
-                {base?.mode === "edit" && draft !== null && candidate.id !== draft.id
-                  ? ` It keeps this workflow's identity ${draft.id}.`
-                  : ""}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => adopt(candidate)}>Replace draft with candidate</Button>
-                <Button variant="ghost" onClick={() => setCandidate(null)}>
-                  Keep current draft
-                </Button>
-              </div>
-            </div>
+            <Alert
+              variant="info"
+              title={`“${candidate.title}” · ${candidate.nodes.length} steps`}
+              actions={
+                <>
+                  <Button size="xs" variant="ghost" onClick={() => setCandidate(null)}>
+                    Keep current draft
+                  </Button>
+                  <Button size="xs" onClick={() => adopt(candidate)}>
+                    Replace draft with candidate
+                  </Button>
+                </>
+              }
+            >
+              {base?.mode === "edit" && draft !== null && candidate.id !== draft.id
+                ? `Keeps workflow ID ${draft.id}.`
+                : null}
+            </Alert>
           )}
         </div>
-      ) : null}
-      {panel === "export" && exported !== null ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-border p-4">
-          <label htmlFor="wf-export" className="text-xs font-medium text-muted-foreground">
-            Canonical YAML
-          </label>
+      ) : exported !== null ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="wf-export" className="text-xs font-medium text-muted-foreground">
+              Canonical YAML
+            </label>
+            {exported.protectedValues > 0 ? (
+              <Badge variant="warning">
+                {exported.protectedValues} protected{" "}
+                {exported.protectedValues === 1 ? "value" : "values"} · restored only in this
+                project
+              </Badge>
+            ) : null}
+            <span className="ml-auto flex gap-1">
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => void navigator.clipboard?.writeText(exported.text)}
+              >
+                <CopyIcon />
+                Copy
+              </Button>
+              {readOnly ? null : (
+                <Button size="xs" variant="ghost" onClick={openImport}>
+                  <UploadIcon />
+                  Import
+                </Button>
+              )}
+            </span>
+          </div>
           <Textarea
             id="wf-export"
             ariaLabel="Exported workflow YAML"
-            rows={12}
+            rows={18}
             readOnly
             value={exported.text}
             onChange={() => {}}
           />
-          {exported.protectedValues > 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {exported.protectedValues} protected value
-              {exported.protectedValues === 1 ? " appears" : "s appear"} as placeholders. The export
-              is not lossless: placeholders are restored only when saved back to this project while
-              the original file is unchanged.
-            </p>
-          ) : null}
         </div>
       ) : null}
-      {draft === null ? (
-        server === null ? (
-          readError === null && !offline ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              Loading workflow…
-            </p>
-          ) : null
-        ) : (
-          <div role="alert" className="flex flex-col gap-1 text-sm">
-            <p className="font-medium">This file is not a valid workflow.</p>
-            <ul className="text-destructive">
-              {server.reasons.map((reason, index) => (
-                <li key={index}>{reason}</li>
-              ))}
-            </ul>
-          </div>
-        )
-      ) : (
-        <>
-          {narrow && !readOnly ? (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setPaletteOpen(true)}>
-                Add a step
-              </Button>
-              <Button variant="outline" onClick={() => setInspectorOpen(true)}>
-                {selected === null ? "Workflow settings" : "Inspector"}
-              </Button>
-            </div>
+    </div>
+  );
+  const views = [
+    ...(canvasSupported() ? [{ value: "graph", label: "Graph" }] : []),
+    { value: "routes", label: "Routes" },
+    { value: "yaml", label: "YAML" },
+  ];
+  return (
+    <>
+      <PageHeader breadcrumb={breadcrumb(draft?.title || server?.source || "Workflow")}>
+        <span role="status" aria-live="polite" className="flex items-center gap-1.5">
+          {statusBadge}
+          {draft !== null &&
+          locallyValid &&
+          !authoritative &&
+          !offline &&
+          validationUnavailable === null ? (
+            <Badge variant="outline">Checking…</Badge>
           ) : null}
-          <div
-            className={
-              narrow ? "flex flex-col gap-6" : "grid grid-cols-[12rem_minmax(0,1fr)_22rem] gap-6"
+          {!offline && !saveAllowed && !readOnly ? (
+            <Badge variant="secondary">View only</Badge>
+          ) : null}
+        </span>
+        {draft !== null && problems.length > 0 ? (
+          <Button size="xs" variant="ghost" onClick={showProblems}>
+            <CircleAlertIcon />
+            {errors > 0
+              ? `${errors} to fix`
+              : `${warnings} ${warnings === 1 ? "warning" : "warnings"}`}
+          </Button>
+        ) : null}
+        <Menu
+          ariaLabel="More workflow actions"
+          items={[
+            ...(readOnly
+              ? []
+              : [{ label: "Import YAML", icon: <UploadIcon />, onSelect: openImport }]),
+            ...(draft === null
+              ? []
+              : [
+                  {
+                    label: "Export YAML",
+                    icon: <FileCodeIcon />,
+                    onSelect: () => {
+                      setImporting(false);
+                      setView("yaml");
+                    },
+                  },
+                ]),
+            ...(dirty && base?.mode !== "new"
+              ? [
+                  {
+                    label: "Discard changes",
+                    icon: <Undo2Icon />,
+                    destructive: true,
+                    onSelect: discard,
+                  },
+                ]
+              : []),
+          ]}
+        />
+        {readOnly ? (
+          <Button size="sm" disabled={offline} onClick={clone}>
+            Clone to edit
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            disabled={
+              draft === null ||
+              !dirty ||
+              offline ||
+              !saveAllowed ||
+              blocking ||
+              statusKind.kind === "saving"
             }
+            onClick={save}
           >
-            {narrow ? null : <div>{readOnly ? null : palette}</div>}
-            <div className="flex min-w-0 flex-col gap-6">
-              <Flow
+            {base?.mode === "replace" ? "Validate and replace file" : "Save"}
+          </Button>
+        )}
+      </PageHeader>
+      <props.NavigationGuard
+        when={dirty}
+        title="Leave with unsaved workflow changes?"
+        description={
+          storageFailed
+            ? "This draft could not be kept on this device."
+            : "The draft stays on this device until you save or discard it."
+        }
+        onDiscard={forget}
+        {...(storageFailed ? {} : { keepLabel: "Leave and keep draft" })}
+        protectReload={storageFailed || base?.mode === "new"}
+      />
+      <div className="flex min-h-0 flex-1">
+        {narrow || readOnly || draft === null ? null : (
+          <aside className="flex w-48 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border p-2">
+            <h2 className="px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">Add step</h2>
+            {palette}
+          </aside>
+        )}
+        <section aria-label="Flow" className="flex min-w-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
+            <SegmentedControl
+              ariaLabel="Workflow view"
+              value={view}
+              options={draft === null ? views.filter((item) => item.value === "yaml") : views}
+              onChange={(value) => setView(value as View)}
+            />
+            {narrow && draft !== null ? (
+              <span className="ml-auto flex gap-1">
+                {readOnly ? null : (
+                  <Button size="xs" variant="ghost" onClick={() => setPaletteOpen(true)}>
+                    <PlusIcon />
+                    Add a step
+                  </Button>
+                )}
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  ariaLabel={selected === null ? "Workflow settings" : "Inspector"}
+                  tooltip={selected === null ? "Workflow settings" : "Inspector"}
+                  onClick={() => setInspectorOpen(true)}
+                >
+                  <PanelRightIcon />
+                </Button>
+              </span>
+            ) : null}
+          </div>
+          {alerts.length === 0 ? null : (
+            <div className="flex shrink-0 flex-col gap-2 border-b border-border p-3">{alerts}</div>
+          )}
+          {draft === null && (view !== "yaml" || server === null) ? (
+            readError === null && !offline ? (
+              <p role="status" className="p-4 text-sm text-muted-foreground">
+                Loading workflow…
+              </p>
+            ) : null
+          ) : view === "graph" && draft !== null ? (
+            <div className="relative min-h-0 flex-1">
+              <Graph
+                definition={draft}
+                selected={selected}
+                problems={problems}
+                readOnly={readOnly}
+                onSelect={select}
+                onRemove={removeSelected}
+              />
+            </div>
+          ) : view === "routes" && draft !== null ? (
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              <RouteList
                 props={props}
                 definition={draft}
                 selected={selected}
@@ -806,58 +966,41 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                 readOnly={readOnly}
                 onSelect={(id) => select(selected === id ? null : id)}
                 onMove={(id, offset) => change(moveStep(draft, id, offset))}
-                onRemove={(id) => {
-                  change(removeStep(draft, id));
-                  if (selected === id) setSelected(null);
-                }}
+                onRemove={removeSelected}
               />
-              <RouteList definition={draft} />
-              <section aria-labelledby="wf-problems-title" className="flex flex-col gap-2">
-                <h2 id="wf-problems-title" className="text-sm font-medium">
-                  Problems to fix
-                </h2>
-                {problems.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    {authoritative ? "No problems. Ready to save." : "No problems found locally."}
-                  </p>
-                ) : (
-                  <ul aria-label="Problems to fix" className="flex flex-col gap-1">
-                    {problems.map((problem, index) => (
-                      <li key={index} className="flex flex-wrap items-center gap-2 text-sm">
-                        <Badge variant={problem.severity === "error" ? "error" : "warning"}>
-                          {problem.severity === "error" ? "Blocks saving" : "Warning"}
-                        </Badge>
-                        <span className="min-w-0 flex-1 break-words">{problem.message}</span>
-                        {problem.nodeId !== undefined || problem.control !== undefined ? (
-                          <Button size="sm" variant="ghost" onClick={() => goTo(problem)}>
-                            Show
-                          </Button>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
             </div>
-            {narrow ? null : <div>{inspector}</div>}
-          </div>
-          {narrow ? (
-            <>
-              <props.Sheet
-                open={paletteOpen}
-                onOpenChange={setPaletteOpen}
-                title="Add a step"
-                side="bottom"
-              >
-                {palette}
-              </props.Sheet>
-              <props.Sheet open={inspectorOpen} onOpenChange={setInspectorOpen} title="Inspector">
-                {inspector}
-              </props.Sheet>
-            </>
-          ) : null}
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto">{yaml}</div>
+          )}
+        </section>
+        {narrow || draft === null ? null : (
+          <aside
+            aria-labelledby="wf-inspector-title"
+            className="w-80 shrink-0 overflow-y-auto border-l border-border bg-card/40 p-4"
+          >
+            {inspector}
+          </aside>
+        )}
+      </div>
+      {narrow ? (
+        <>
+          <props.Sheet
+            open={paletteOpen}
+            onOpenChange={setPaletteOpen}
+            title="Add a step"
+            side="bottom"
+          >
+            {palette}
+          </props.Sheet>
+          <props.Sheet
+            open={inspectorOpen}
+            onOpenChange={setInspectorOpen}
+            title={selected === null ? "Workflow settings" : "Inspector"}
+          >
+            {inspector}
+          </props.Sheet>
         </>
-      )}
-    </section>
+      ) : null}
+    </>
   );
 }
