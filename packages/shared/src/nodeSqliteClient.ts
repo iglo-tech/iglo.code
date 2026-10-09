@@ -253,6 +253,7 @@ const make = Effect.fn("makeWithDatabase")(function* (
   return yield* Client.make({
     ...acquirers,
     compiler,
+    prepareTransactionControls: true,
     // A deferred BEGIN only takes the write lock at the first write. If another
     // process commits after this transaction's first read, that write fails at
     // once with SQLITE_BUSY_SNAPSHOT, which busy_timeout cannot wait out. Taking
