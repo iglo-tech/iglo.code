@@ -1,3 +1,4 @@
+import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -170,6 +171,8 @@ export const make = Effect.gen(function* () {
   );
 
   const resolveSecretPath = (name: string) => path.join(serverConfig.secretsDir, `${name}.bin`);
+  const cache = new Map<string, Uint8Array>();
+  const lock = yield* KeyedLock.make<string>();
 
   const get: ServerSecretStore["Service"]["get"] = (name) =>
     fileSystem.readFile(resolveSecretPath(name)).pipe(
@@ -186,6 +189,20 @@ export const make = Effect.gen(function* () {
       ),
       Effect.withSpan("ServerSecretStore.get"),
     );
+
+  // Unread create-only replay markers must not accumulate in memory. Invalidate
+  // before I/O too: a failed or interrupted write may already have changed disk.
+  const write = (name: string, value: Uint8Array, effect: Effect.Effect<void, SecretStoreError>) =>
+    Effect.suspend(() => {
+      const wasCached = cache.delete(name);
+      return effect.pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            if (wasCached) cache.set(name, Uint8Array.from(value));
+          }),
+        ),
+      );
+    });
 
   const set: ServerSecretStore["Service"]["set"] = (name, value) => {
     const secretPath = resolveSecretPath(name);
@@ -286,11 +303,16 @@ export const make = Effect.gen(function* () {
             ),
         }),
       ),
+      Effect.map((value) => {
+        cache.set(name, Uint8Array.from(value));
+        return value;
+      }),
       Effect.withSpan("ServerSecretStore.getOrCreateRandom"),
     );
 
   const remove: ServerSecretStore["Service"]["remove"] = (name) =>
-    fileSystem.remove(resolveSecretPath(name)).pipe(
+    Effect.sync(() => cache.delete(name)).pipe(
+      Effect.andThen(fileSystem.remove(resolveSecretPath(name))),
       Effect.catch((cause) =>
         cause.reason._tag === "NotFound"
           ? Effect.void
@@ -307,10 +329,24 @@ export const make = Effect.gen(function* () {
   return ServerSecretStore.of({
     directory: serverConfig.secretsDir,
     get,
-    set,
-    create,
-    getOrCreateRandom,
-    remove,
+    set: (name, value) => lock.withLock(name, write(name, value, set(name, value))),
+    create: (name, value) => lock.withLock(name, write(name, value, create(name, value))),
+    // Only process-owned random secrets are cached; plain get observes CLI writes.
+    getOrCreateRandom: (name, bytes) => {
+      const readCachedOrCreate = Effect.suspend(() => {
+        const cached = cache.get(name);
+        return cached === undefined
+          ? getOrCreateRandom(name, bytes)
+          : Effect.succeed(Uint8Array.from(cached));
+      });
+      return Effect.suspend(() => {
+        const cached = cache.get(name);
+        return cached === undefined
+          ? lock.withLock(name, readCachedOrCreate)
+          : Effect.succeed(Uint8Array.from(cached));
+      });
+    },
+    remove: (name) => lock.withLock(name, remove(name)),
   });
 });
 
