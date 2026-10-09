@@ -284,6 +284,25 @@ export const Trace = Schema.Struct({
   chosen: Id,
   reason: Schema.String,
   repeatCount: Schema.NullOr(Schema.Int),
+  /** Inspector control of the authored route that fired (`next`, `rules.0`, `changes`…). */
+  route: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+  /**
+   * The fired route's authored repeat bound and what happened to the repeat: admitted (the
+   * counter was spent), limit (exhausted, so the route went to its At limit), or diverted by
+   * the whole-run visit limit or stopped automation (the counter was not spent). Absent for
+   * ordinary routes and older records.
+   */
+  repeat: Schema.optional(
+    Schema.Struct({
+      max: Schema.Int,
+      atLimit: Id,
+      exhausted: Schema.Boolean,
+      /** Absent on records written before outcomes were kept; `exhausted` then decides. */
+      outcome: Schema.optional(
+        Schema.Literals(["admitted", "limit", "visit-limit", "automation-stopped"]),
+      ),
+    }),
+  ),
   at: Schema.Number,
 });
 export const ReviewSet = Schema.Struct({
@@ -351,6 +370,20 @@ export const Run = Schema.Struct({
   source: Schema.optional(StartSource),
   /** Read-time field; present on every displayed run. */
   recovery: Schema.optional(RecoveryTarget),
+  /**
+   * Read-time field: gate decisions left out of `allowedActions` because their authored route
+   * would be diverted, with the step it leads to and why.
+   */
+  withheld: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        action: Schema.Literals(["approve", "request-changes"]),
+        to: Id,
+        repeat: Schema.Boolean,
+        cause: Schema.Literals(["visit-limit", "automation-stopped"]),
+      }),
+    ).check(Schema.isMaxLength(2)),
+  ),
   /** Read-time totals over the complete snapshot, independent of the loaded history page. */
   overview: Schema.optional(
     Schema.Struct({

@@ -79,6 +79,8 @@ interface GraphActions {
   readonly onSelect: (stepId: string | null, boxId?: string) => void;
   readonly onMove: (stepId: string, offset: -1 | 1) => void;
   readonly onRemove: (stepId: string) => void;
+  /** Selecting a route's edge or label selects its owning step and route control. */
+  readonly onSelectRoute: (stepId: string, control: string) => void;
   readonly Tooltip: PluginDesign["Tooltip"] | undefined;
 }
 const GraphActionsContext = createContext<GraphActions | null>(null);
@@ -359,6 +361,7 @@ const labelTone: Partial<Record<FlowEdge["kind"], string>> = {
 };
 
 const takenStroke = "var(--primary)";
+const danglingStroke = "var(--destructive)";
 
 function RouteLine({
   id,
@@ -369,7 +372,9 @@ function RouteLine({
   data,
   markerEnd,
 }: EdgeProps<RouteEdge>) {
+  const actions = use(GraphActionsContext);
   if (data === undefined) return null;
+  const owner = data.edge.route;
   let path: string;
   let label: Point | null;
   let beside = false;
@@ -404,11 +409,15 @@ function RouteLine({
         path={path}
         {...(markerEnd === undefined ? {} : { markerEnd })}
         style={{
-          stroke: data.taken ? takenStroke : (strokes[data.edge.kind] ?? defaultStroke),
+          stroke: data.taken
+            ? takenStroke
+            : data.edge.dangling
+              ? danglingStroke
+              : (strokes[data.edge.kind] ?? defaultStroke),
           strokeWidth: data.taken ? 2.25 : 1.5,
           // A run's graph keeps untaken routes readable but behind the path the run took.
           ...(data.taken === false ? { opacity: 0.48 } : {}),
-          ...(data.edge.kind === "atLimit" ? { strokeDasharray: "5 4" } : {}),
+          ...(data.edge.kind === "atLimit" || data.edge.dangling ? { strokeDasharray: "5 4" } : {}),
         }}
       />
       {label === null ? null : (
@@ -422,9 +431,19 @@ function RouteLine({
                   ? `translate(${label.x + 6}px, ${label.y}px) translateY(-50%)`
                   : `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`,
               }}
-              className={`nopan pointer-events-auto absolute truncate rounded-md border bg-background px-1.5 text-center text-[11px] font-medium leading-[18px] ${data.taken ? "border-primary/40 text-primary" : (labelTone[data.edge.kind] ?? "border-border text-muted-foreground")} ${data.taken === false ? "opacity-64" : ""}`}
+              onClick={
+                owner === null || actions === null
+                  ? undefined
+                  : () => actions.onSelectRoute(owner.stepId, owner.control)
+              }
+              className={`nopan pointer-events-auto absolute rounded-md border bg-background px-1.5 text-center text-[11px] font-medium leading-[18px] ${owner === null ? "" : "nodrag cursor-pointer"} ${data.taken ? "border-primary/40 text-primary" : data.edge.dangling ? "border-destructive/40 text-destructive" : (labelTone[data.edge.kind] ?? "border-border text-muted-foreground")} ${data.taken === false ? "opacity-64" : ""}`}
             >
-              {data.labelText}
+              {/* Repeat labels have two lines; overlay stubs keep their shortened label. */}
+              {data.labelText.split("\n").map((line) => (
+                <span key={line} className="block truncate">
+                  {line}
+                </span>
+              ))}
             </div>
           </WithTooltip>
         </EdgeLabelRenderer>
@@ -526,6 +545,7 @@ export function Graph({
   onSelect,
   onMove,
   onRemove,
+  onSelectRoute,
   Tooltip,
   run = null,
   focus = null,
@@ -538,6 +558,8 @@ export function Graph({
   readonly onSelect: (stepId: string | null, boxId?: string) => void;
   readonly onMove?: (stepId: string, offset: -1 | 1) => void;
   readonly onRemove?: (stepId: string) => void;
+  /** A route's edge was chosen; without it, choosing an edge selects its owning step. */
+  readonly onSelectRoute?: (stepId: string, control: string) => void;
   /** The host tooltip, for titles and route labels shortened to fit. */
   readonly Tooltip?: PluginDesign["Tooltip"];
   readonly run?: RunOverlay | null;
@@ -638,7 +660,11 @@ export function Graph({
     return graph.edges.map((edge) => {
       const route = layout.routes.get(edge.id);
       const isTaken = taken(edge);
-      const color = isTaken ? takenStroke : (markerColors[edge.kind] ?? "var(--muted-foreground)");
+      const color = isTaken
+        ? takenStroke
+        : edge.dangling
+          ? danglingStroke
+          : (markerColors[edge.kind] ?? "var(--muted-foreground)");
       return {
         id: edge.id,
         type: "route",
@@ -691,9 +717,10 @@ export function Graph({
       onSelect,
       onMove: (id, offset) => onMove?.(id, offset),
       onRemove: (id) => onRemove?.(id),
+      onSelectRoute: onSelectRoute ?? ((stepId) => onSelect(stepId)),
       Tooltip,
     }),
-    [readOnly, removableIds, stepOrder, onSelect, onMove, onRemove, Tooltip],
+    [readOnly, removableIds, stepOrder, onSelect, onMove, onRemove, onSelectRoute, Tooltip],
   );
   return (
     <GraphActionsContext value={actions}>
@@ -722,6 +749,10 @@ export function Graph({
             // The editor selects a reviewer lane itself; runs also need its owning step.
             if (node.type === "step")
               onSelect(run === null ? node.data.node.id : node.data.node.stepId, node.data.node.id);
+          }}
+          onEdgeClick={(_, edge) => {
+            const owner = edge.data?.edge.route;
+            if (owner) actions.onSelectRoute(owner.stepId, owner.control);
           }}
           attributionPosition="bottom-right"
         >

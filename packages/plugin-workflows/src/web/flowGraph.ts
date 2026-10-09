@@ -2,7 +2,7 @@ import { getViewportForBounds } from "@xyflow/react";
 import dagre, { type EdgeLabel, type GraphLabel, type NodeLabel } from "@dagrejs/dagre";
 import type { Definition, Node } from "../contracts.ts";
 import { routeControls } from "../definition.ts";
-import { predicateSummary } from "./editing.ts";
+import { predicateSummary, repeatBadge } from "./editing.ts";
 
 /** A drawn box: a step, one reviewer lane of a parallel group, or a route target that is gone. */
 export interface FlowNode {
@@ -34,11 +34,16 @@ export interface FlowEdge {
   readonly source: string;
   readonly target: string;
   readonly kind: FlowEdgeKind;
+  /** Short drawn label; a repeat's has two lines (route, then bound). */
   readonly label: string;
-  /** The unshortened label, for its tooltip. */
+  /** The unshortened route text, for its tooltip. */
   readonly fullLabel: string;
   /** A repeat route back to an earlier step; drawn beside the flow instead of through it. */
   readonly back: boolean;
+  /** The step and inspector control that own the route; null for reviewer lane edges. */
+  readonly route: { readonly stepId: string; readonly control: string } | null;
+  /** Points at a step that no longer exists; drawn as an error until repaired. */
+  readonly dangling: boolean;
 }
 export interface FlowGraph {
   readonly nodes: ReadonlyArray<FlowNode>;
@@ -48,15 +53,20 @@ export interface FlowGraph {
 const clip = (text: string, length = 34) =>
   text.length > length ? `${text.slice(0, length - 1)}…` : text;
 
-function routeLabel(node: Node, control: string): { kind: FlowEdgeKind; label: string } {
-  if (control === "next") return { kind: "next", label: "next" };
-  if (control === "onUnresolved") return { kind: "unresolved", label: "unresolved" };
-  if (control === "otherwise") return { kind: "otherwise", label: "otherwise" };
-  if (control === "approve") return { kind: "approve", label: "approve" };
-  if (control === "changes") return { kind: "changes", label: "changes" };
+function routeLabel(
+  node: Node,
+  control: string,
+): { kind: FlowEdgeKind; label: string; title: string } {
+  if (control === "next") return { kind: "next", label: "next", title: "next" };
+  if (control === "onUnresolved")
+    return { kind: "unresolved", label: "unresolved", title: "unresolved" };
+  if (control === "otherwise") return { kind: "otherwise", label: "otherwise", title: "otherwise" };
+  if (control === "approve") return { kind: "approve", label: "approve", title: "approve" };
+  if (control === "changes") return { kind: "changes", label: "changes", title: "changes" };
   const index = Number(control.split(".")[1] ?? 0);
   const rule = node.kind === "decision" || node.kind === "join" ? node.rules[index] : undefined;
-  return { kind: "rule", label: rule === undefined ? control : predicateSummary(rule.when) };
+  const summary = rule === undefined ? control : predicateSummary(rule.when);
+  return { kind: "rule", label: clip(summary, 24), title: summary };
 }
 
 function detailOf(node: Node): string | null {
@@ -123,6 +133,8 @@ export function flowGraph(definition: Definition): FlowGraph {
           label: "",
           fullLabel: "",
           back: false,
+          route: null,
+          dangling: false,
         });
         edges.push({
           id: `${id}->${node.next}`,
@@ -132,42 +144,56 @@ export function flowGraph(definition: Definition): FlowGraph {
           label: "",
           fullLabel: "",
           back: false,
+          route: null,
+          dangling: !ids.has(node.next),
         });
       }
       if (node.branches.length > 0) continue;
     }
-    for (const { control, route } of routeControls(node)) {
-      const { kind, label } = routeLabel(node, control);
+    const controls = routeControls(node);
+    const repeats = controls.filter(({ route }) => route.repeat !== undefined).length;
+    for (const { control, route } of controls) {
+      const { kind, label, title } = routeLabel(node, control);
+      const owner = { stepId: node.id, control };
       if (route.repeat === undefined) {
         edges.push({
           id: `${node.id}:${control}`,
           source: node.id,
           target: target(route.to),
           kind,
-          label: clip(label),
-          fullLabel: label,
+          label,
+          fullLabel: title,
           back: false,
+          route: owner,
+          dangling: !ids.has(route.to),
         });
         continue;
       }
-      const repeatLabel = `${kind === "next" ? "repeat" : `${label} · repeat`} ×${route.repeat.max}`;
+      // The back edge names its direction and bound; its At limit is a separate dashed edge,
+      // prefixed with the route only when the step has more than one repeat to tell apart.
+      const prefix = kind === "next" ? "" : `${label} · `;
+      const bound = `↩ ×${route.repeat.max} · ${route.repeat.max + 1} visits`;
       edges.push({
         id: `${node.id}:${control}`,
         source: node.id,
         target: target(route.to),
         kind: "repeat",
-        label: kind === "rule" ? `${clip(label)} · repeat ×${route.repeat.max}` : repeatLabel,
-        fullLabel: repeatLabel,
+        label: kind === "next" ? bound : `${label}\n${bound}`,
+        fullLabel: `${kind === "next" ? "" : `${title} · `}↩ ${repeatBadge(route.repeat)}`,
         back: true,
+        route: owner,
+        dangling: !ids.has(route.to),
       });
       edges.push({
         id: `${node.id}:${control}.repeat`,
         source: node.id,
         target: target(route.repeat.atLimit),
         kind: "atLimit",
-        label: "at limit",
-        fullLabel: "at limit",
+        label: repeats > 1 ? `${prefix}at limit` : "at limit",
+        fullLabel: `${kind === "next" ? "" : `${title} · `}at limit after ${repeatBadge(route.repeat)}`,
         back: false,
+        route: { stepId: node.id, control: `${control}.repeat` },
+        dangling: !ids.has(route.repeat.atLimit),
       });
     }
   }
@@ -276,8 +302,11 @@ export function autoFitViewport(bounds: Bounds, width: number, height: number) {
   };
 }
 
-/** Approximate drawn width of an edge label (11px medium text plus padding). */
-export const labelWidth = (label: string) => label.length * 6.5 + 16;
+/** Approximate drawn width of an edge label (11px medium text plus padding), by its longest line. */
+export const labelWidth = (label: string) =>
+  Math.max(...label.split("\n").map((line) => line.length)) * 6.5 + 16;
+/** Approximate drawn height of an edge label: 18px per line plus its border. */
+export const labelHeight = (label: string) => label.split("\n").length * 18 + 2;
 
 /** How far a detoured leg runs outside its box: inside the gaps dagre leaves. */
 const detourGap = 14;
@@ -342,7 +371,12 @@ function layoutComponent(nodes: ReadonlyArray<FlowNode>, graph: FlowGraph) {
       edge.target,
       edge.label === ""
         ? { minlen: 1 }
-        : { minlen: 1, width: labelWidth(edge.label), height: 20, labelpos: "c" },
+        : {
+            minlen: 1,
+            width: labelWidth(edge.label),
+            height: labelHeight(edge.label),
+            labelpos: "c",
+          },
       edge.id,
     );
   }
@@ -616,16 +650,19 @@ export function graphBounds(
   for (const [id, route] of layout.routes) {
     for (const point of route.points) include(point.x, point.y);
     if (route.label !== null) {
-      const width = labelWidth(route.stub?.label ?? labels.get(id) ?? "");
-      include(route.label.x - width / 2, route.label.y - 10, width, 20);
+      const label = route.stub?.label ?? labels.get(id) ?? "";
+      const width = labelWidth(label);
+      const height = labelHeight(label);
+      include(route.label.x - width / 2, route.label.y - height / 2, width, height);
     }
   }
-  for (const loop of loops.values()) {
+  for (const [id, loop] of loops) {
     include(loop.x, Math.min(loop.source.y, loop.target.y));
     include(loop.x, Math.max(loop.source.y, loop.target.y));
     if (loop.sourceDetour !== null) include(loop.x, loop.sourceDetour);
     if (loop.targetDetour !== null) include(loop.x, loop.targetDetour);
-    include(loop.x + 6, loop.y - 10, loop.labelWidth, 20);
+    const height = labelHeight(labels.get(id) ?? "");
+    include(loop.x + 6, loop.y - height / 2, loop.labelWidth, height);
   }
   return left === Infinity
     ? { x: 0, y: 0, width: 1, height: 1 }

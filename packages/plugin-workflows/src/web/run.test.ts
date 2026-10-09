@@ -2,10 +2,13 @@ import { describe, expect, it } from "vite-plus/test";
 import type { Attempt, Definition, Run } from "../contracts.ts";
 import { developmentReview } from "../examples.ts";
 import { flowGraph } from "./flowGraph.ts";
-import { repeatLimit, stepStates, takenEdges } from "./run.ts";
+import { repeatEvidence, repeatLimit, stepStates, takenEdges } from "./run.ts";
 
 type Visit = Pick<Attempt, "nodeId" | "branchId" | "phase" | "generation">;
-type Routed = Pick<Run["trace"][number], "nodeId" | "chosen" | "considered" | "repeatCount">;
+type Routed = Pick<
+  Run["trace"][number],
+  "nodeId" | "chosen" | "considered" | "repeatCount" | "route" | "repeat"
+>;
 const visit = (nodeId: string, phase: Attempt["phase"], branchId: string | null = null): Visit => ({
   nodeId,
   branchId,
@@ -168,6 +171,44 @@ describe("taken routes", () => {
       "human:changes.repeat",
     ]);
   });
+  it("matches the recorded route exactly, even when two routes share a destination", () => {
+    // Approve and Request changes both go to Done; only the recorded control lights.
+    const definition: Definition = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.id === "human" && node.kind === "human"
+          ? { ...node, approve: { to: "done" }, changes: { to: "done" } }
+          : node,
+      ),
+    };
+    expect([...takenEdges(definition, [{ ...routed("human", "done"), route: "changes" }])]).toEqual(
+      ["human:changes"],
+    );
+  });
+
+  it("lights a repeat's At limit edge at its limit and nothing when the run bound diverted it", () => {
+    const repeat = (outcome: "admitted" | "limit" | "visit-limit", chosen: string) => ({
+      ...routed("rework", chosen, [], 1),
+      route: "otherwise",
+      repeat: { max: 1, atLimit: "human", exhausted: outcome === "limit", outcome },
+    });
+    expect([...takenEdges(developmentReview, [repeat("admitted", "implement")])]).toEqual([
+      "rework:otherwise",
+    ]);
+    expect([...takenEdges(developmentReview, [repeat("limit", "human")])]).toEqual([
+      "rework:otherwise.repeat",
+    ]);
+    expect([...takenEdges(developmentReview, [repeat("visit-limit", "human")])]).toEqual([]);
+    expect(repeatEvidence(developmentReview, repeat("admitted", "implement"))).toMatchObject({
+      label: "repeat 1/1",
+      limit: false,
+    });
+    expect(repeatEvidence(developmentReview, repeat("limit", "human"))).toMatchObject({
+      label: "at limit",
+      limit: true,
+      detail: "1/1 repeats used · at limit → Human review",
+    });
+  });
 });
 
 describe("recorded route evidence", () => {
@@ -262,5 +303,72 @@ describe("recorded route evidence", () => {
       ),
     };
     expect([...takenEdges(definition, [routed("human", "done")])]).toEqual([]);
+  });
+});
+
+describe("persisted route identity with legacy evidence", () => {
+  const definition: Definition = {
+    ...developmentReview,
+    atLimit: "human",
+    nodes: developmentReview.nodes.map((node) =>
+      node.id === "human" && node.kind === "human"
+        ? { ...node, changes: { to: "implement", repeat: { max: 1, atLimit: "human" } } }
+        : node,
+    ),
+  };
+
+  it("keeps ambiguous older rows at their raw counter without an invented bound", () => {
+    const item = routed("human", "human", [], 1);
+    expect(repeatEvidence(definition, item)).toEqual({
+      label: "repeat 1",
+      limit: false,
+      detail: "Repeat counter",
+    });
+    expect(repeatEvidence(definition, routed("human", "done"))).toBeNull();
+  });
+
+  it("keeps a distinct older repeat exit visible in both the row and graph", () => {
+    const distinct = { ...definition, atLimit: "unresolved" };
+    const item = routed("human", "human", [], 1);
+    expect(repeatEvidence(distinct, item)).toMatchObject({ label: "at limit", limit: true });
+    expect([...takenEdges(distinct, [item])]).toEqual(["human:changes.repeat"]);
+  });
+
+  it.each(["visit-limit", "automation-stopped"] as const)(
+    "uses the recorded %s outcome when the whole-run and repeat exits coincide",
+    (outcome) => {
+      const item: Routed = {
+        ...routed("human", "human", [], 0),
+        route: "changes",
+        repeat: { max: 1, atLimit: "human", exhausted: false, outcome },
+      };
+      expect([...takenEdges(definition, [item])]).toEqual([]);
+      expect(repeatEvidence(definition, item)).toMatchObject({
+        label: "not repeated",
+        limit: true,
+      });
+    },
+  );
+
+  it("distinguishes identical normal and limit destinations using the recorded outcome", () => {
+    const same: Definition = {
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node.kind === "human"
+          ? { ...node, changes: { to: "human", repeat: { max: 1, atLimit: "human" } } }
+          : node,
+      ),
+    };
+    const item: Routed = {
+      ...routed("human", "human", [], 1),
+      route: "changes",
+      repeat: { max: 1, atLimit: "human", exhausted: false, outcome: "admitted" },
+    };
+    expect([...takenEdges(same, [item])]).toEqual(["human:changes"]);
+    expect([
+      ...takenEdges(same, [
+        { ...item, repeat: { ...item.repeat!, exhausted: true, outcome: "limit" } },
+      ]),
+    ]).toEqual(["human:changes.repeat"]);
   });
 });

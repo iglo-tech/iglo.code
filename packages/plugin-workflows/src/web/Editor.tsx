@@ -348,6 +348,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     setImportError(null);
     setCandidate(null);
   };
+  // Choosing a route on the graph opens its step and focuses that route's control.
+  const selectRoute = useCallback(
+    (stepId: string, control: string) => {
+      select(stepId);
+      setFocus(controlId(stepId, control));
+    },
+    [select],
+  );
   const discard = () => {
     if (saving.current) return;
     editVersion.current++;
@@ -663,6 +671,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       <Palette
         props={props}
         capabilities={capabilities}
+        capabilitiesError={capabilitiesError}
+        onRetryCapabilities={() => setCapabilitiesAttempt((value) => value + 1)}
         disabled={mutationsDisabled}
         onAdd={(kind: EditableKind) => {
           if (saving.current) return;
@@ -1147,6 +1157,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                 onMove={moveSelected}
                 onRemove={removeSelected}
                 Tooltip={props.Tooltip}
+                onSelectRoute={selectRoute}
               />
             </div>
           ) : (

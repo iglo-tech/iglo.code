@@ -48,6 +48,8 @@ const detachedGraph: FlowGraph = {
     fullLabel: label!,
     kind: "next",
     back: false,
+    route: null,
+    dangling: false,
   })),
 };
 
@@ -64,13 +66,28 @@ describe("workflow graph", () => {
     expect(edge(graph, "join", "unresolved")).toMatchObject([
       { kind: "rule", label: "result ≠ all_completed" },
     ]);
-    expect(edge(graph, "join", "rework")[0]?.label).toBe("verdict ∈ changes, blocker or +2");
+    // Rule summaries are clipped on the canvas; the full text is the edge's hover title.
+    expect(edge(graph, "join", "rework")[0]).toMatchObject({
+      label: "verdict ∈ changes, bloc…",
+      fullLabel: "verdict ∈ changes, blocker or +2",
+    });
     // Bounded rework returns to implementation and names the limit destination separately.
     expect(edge(graph, "rework", "implement")).toMatchObject([
-      { kind: "repeat", label: "otherwise · repeat ×1", back: true },
+      {
+        kind: "repeat",
+        label: "otherwise\n↩ ×1 · 2 visits",
+        fullLabel: "otherwise · ↩ repeat ×1 (2 visits)",
+        back: true,
+        route: { stepId: "rework", control: "otherwise" },
+      },
     ]);
     expect(edge(graph, "rework", "human")).toMatchObject([
-      { kind: "atLimit", label: "at limit", back: false },
+      {
+        kind: "atLimit",
+        label: "at limit",
+        back: false,
+        route: { stepId: "rework", control: "otherwise.repeat" },
+      },
     ]);
     expect(edge(graph, "human", "done")).toMatchObject([{ kind: "approve", label: "approve" }]);
     expect(edge(graph, "human", "unresolved")).toMatchObject([
@@ -118,7 +135,7 @@ describe("workflow graph", () => {
   it("draws a human gate's repeat and its At limit self-route", () => {
     const graph = flowGraph(examples[0]!);
     expect(edge(graph, "review", "implement")).toMatchObject([
-      { kind: "repeat", label: "changes · repeat ×1", back: true },
+      { kind: "repeat", label: "changes\n↩ ×1 · 2 visits", back: true },
     ]);
     expect(edge(graph, "review", "review")).toMatchObject([{ kind: "atLimit", back: true }]);
     // The self-route is a loop beside the box, not a layered edge.
@@ -144,7 +161,9 @@ describe("workflow graph", () => {
       kind: "missing",
       stepId: "done",
     });
-    expect(edge(graph, "review", "missing:done")).toMatchObject([{ kind: "approve" }]);
+    expect(edge(graph, "review", "missing:done")).toMatchObject([
+      { kind: "approve", dangling: true },
+    ]);
   });
 
   it("relays out only for structural edits", () => {
@@ -257,6 +276,8 @@ describe("workflow graph", () => {
           label: "no",
           fullLabel: "no",
           back: false,
+          route: null,
+          dangling: false,
         },
       ],
     };
@@ -295,6 +316,8 @@ describe("workflow graph", () => {
         label: "repeat",
         fullLabel: "repeat",
         back: true,
+        route: null,
+        dangling: false,
       })),
     };
     const layout = layoutFlow(graph);
@@ -324,6 +347,8 @@ describe("workflow graph", () => {
           label: "next",
           fullLabel: "next",
           back: false,
+          route: null,
+          dangling: false,
         })),
         ...Array.from({ length: 5 }, (_, index) => ({
           id: `o:rule-${index}`,
@@ -333,6 +358,8 @@ describe("workflow graph", () => {
           label: `approved by reviewer ${index}`,
           fullLabel: `approved by reviewer ${index}`,
           back: false,
+          route: null,
+          dangling: false,
         })),
       ],
     };
@@ -429,6 +456,8 @@ describe("workflow graph", () => {
         label: "repeat",
         fullLabel: "repeat",
         back: true,
+        route: null,
+        dangling: false,
       })),
     };
     const layout = layoutFlow(graph);

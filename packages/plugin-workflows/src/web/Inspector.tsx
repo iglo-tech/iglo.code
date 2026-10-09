@@ -1,16 +1,7 @@
 import { ArrowDownIcon, ArrowUpIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import type { ProviderInstanceId, RuntimeMode } from "@t3tools/plugin-host-contract/schema";
-import type {
-  Agent,
-  Capabilities,
-  Definition,
-  Field,
-  Node,
-  Problem,
-  Route,
-  Skill,
-} from "../contracts.ts";
+import type { Field, Node, Skill } from "../contracts.ts";
 import { Labeled, errorMessage, type PageProps } from "./common.tsx";
 import {
   isProtected,
@@ -23,6 +14,19 @@ import {
   upstreamFields,
 } from "./editing.ts";
 import { KindIcon } from "./kinds.tsx";
+import {
+  Problems,
+  RouteEditor,
+  controlId,
+  matches,
+  minutes,
+  nodeOptions,
+  withCurrent,
+  type InspectorProps,
+} from "./Routes.tsx";
+import { CheckInspector, DecisionInspector, HumanInspector } from "./Steps.tsx";
+
+export { controlId };
 
 /**
  * A text field whose full value is a tooltip while the text is cut off and the field is not
@@ -69,34 +73,6 @@ const runtimeLabels: Record<RuntimeMode, string> = {
   auto: "Automatic",
   "full-access": "Full access",
 };
-export const controlId = (nodeId: string | null, control: string) =>
-  `wf-${nodeId ?? "workflow"}-${control.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-/** An empty control matches the node's own problems that name no specific control. */
-const matches = (problem: Problem, nodeId: string | null, control: string) =>
-  (problem.nodeId ?? null) === nodeId &&
-  (control === ""
-    ? problem.control === undefined
-    : problem.control !== undefined &&
-      (problem.control === control || problem.control.startsWith(`${control}.`)));
-const minutes = (value: number | undefined) =>
-  value === undefined ? "" : String(Math.round(value / 60_000));
-
-interface InspectorProps {
-  readonly props: PageProps;
-  readonly definition: Definition;
-  readonly selected: string | null;
-  readonly capabilities: Capabilities | null;
-  readonly capabilitiesError: string | null;
-  readonly onRetryCapabilities: () => void;
-  readonly problems: ReadonlyArray<Problem>;
-  readonly readOnly: boolean;
-  readonly identityEditable: boolean;
-  readonly onChange: (definition: Definition) => void;
-  /** Set when the selected step can be removed. */
-  readonly onRemove?: (stepId: string) => void;
-  /** The surrounding panel already titles the inspector (a sheet), so the heading is spoken only. */
-  readonly hideHeading?: boolean;
-}
 
 export function Inspector(input: InspectorProps) {
   const node = input.definition.nodes.find((item) => item.id === input.selected);
@@ -181,6 +157,12 @@ export function Inspector(input: InspectorProps) {
         <AgentInspector key={node.id} {...input} node={node} />
       ) : node.kind === "end" ? (
         <EndInspector key={node.id} {...input} node={node} />
+      ) : node.kind === "check" ? (
+        <CheckInspector key={node.id} {...input} node={node} />
+      ) : node.kind === "decision" ? (
+        <DecisionInspector key={node.id} {...input} node={node} />
+      ) : node.kind === "human" ? (
+        <HumanInspector key={node.id} {...input} node={node} />
       ) : (
         <ReadOnlyStep {...input} node={node} />
       )}
@@ -260,47 +242,6 @@ function ReviewerInspector({
     </div>
   );
 }
-function Problems({
-  problems,
-  nodeId,
-  control,
-}: {
-  readonly problems: ReadonlyArray<Problem>;
-  readonly nodeId: string | null;
-  readonly control: string;
-}) {
-  const found = problems.filter((problem) => matches(problem, nodeId, control));
-  if (found.length === 0) return null;
-  return (
-    <ul id={`${controlId(nodeId, control)}-problems`} className="text-xs">
-      {found.map((problem, index) => (
-        <li
-          key={index}
-          className={problem.severity === "error" ? "text-destructive" : "text-warning-foreground"}
-        >
-          {problemText(problem, null)}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function nodeOptions(definition: Definition, filter: (node: Node) => boolean = () => true) {
-  return definition.nodes.filter(filter).map((node) => ({
-    value: node.id,
-    label: `${node.title || node.id} (${kindLabels[node.kind]})`,
-  }));
-}
-function withCurrent(
-  options: ReadonlyArray<{ value: string; label: string; disabled?: boolean }>,
-  current: string,
-  label: string,
-) {
-  return current === "" || options.some((option) => option.value === current)
-    ? options
-    : [{ value: current, label }, ...options];
-}
-
 function WorkflowSettings({
   props,
   definition,
@@ -382,60 +323,6 @@ function WorkflowSettings({
       </Labeled>
       <Problems problems={problems} nodeId={null} control="atLimit" />
     </div>
-  );
-}
-
-function RouteSelect({
-  props,
-  definition,
-  node,
-  control,
-  label,
-  route,
-  optional,
-  readOnly,
-  problems,
-  onRoute,
-}: {
-  readonly props: PageProps;
-  readonly definition: Definition;
-  readonly node: Node;
-  readonly control: string;
-  readonly label: string;
-  readonly route: Route | undefined;
-  readonly optional: boolean;
-  readonly readOnly: boolean;
-  readonly problems: ReadonlyArray<Problem>;
-  readonly onRoute: (route: Route | undefined) => void;
-}) {
-  const id = controlId(node.id, control);
-  const target = (to: string) => definition.nodes.find((item) => item.id === to)?.title ?? to;
-  return (
-    <>
-      <Labeled
-        id={id}
-        label={label}
-        hint={
-          route?.repeat
-            ? `Repeat ×${route.repeat.max} · at limit → ${target(route.repeat.atLimit)}`
-            : null
-        }
-      >
-        <props.Select
-          id={id}
-          value={route?.to ?? ""}
-          disabled={readOnly || route?.repeat !== undefined}
-          invalid={problems.some((problem) => matches(problem, node.id, control))}
-          options={withCurrent(
-            [...(optional ? [{ value: "", label: "Not set" }] : []), ...nodeOptions(definition)],
-            route?.to ?? "",
-            `${route?.to ?? ""} (missing)`,
-          )}
-          onChange={(to) => onRoute(to === "" ? undefined : { to })}
-        />
-      </Labeled>
-      <Problems problems={problems} nodeId={node.id} control={control} />
-    </>
   );
 }
 
@@ -1097,19 +984,19 @@ function AgentInspector({
         </Labeled>
       </fieldset>
       <div className="flex flex-col gap-3 border-t border-border pt-4">
-        <RouteSelect
+        <RouteEditor
           props={props}
           definition={definition}
           node={node}
           control="next"
-          label="Next step"
+          label="Next"
           route={node.next}
           optional={false}
           readOnly={readOnly}
           problems={problems}
           onRoute={(route) => route && set((current) => ({ ...current, next: route }))}
         />
-        <RouteSelect
+        <RouteEditor
           props={props}
           definition={definition}
           node={node}

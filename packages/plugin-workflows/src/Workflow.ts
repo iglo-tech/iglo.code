@@ -64,6 +64,7 @@ import {
   commandId,
   allowedActions,
   recoveryNode,
+  withheldDecisions,
   type State,
 } from "./graph.ts";
 
@@ -312,6 +313,7 @@ const make = Effect.gen(function* () {
           ? (latestAttempt(run, run.currentNode)?.id ?? null)
           : null,
       },
+      withheld: withheldDecisions(run),
       overview: {
         visits: run.attempts.length,
         completedVisits: run.attempts.filter((attempt) => attempt.phase === "completed").length,
@@ -1044,6 +1046,7 @@ const make = Effect.gen(function* () {
         transition(run, node.id, input.decision === "approve" ? node.approve : node.changes, now, {
           sourceIds: review ? [review.id] : [],
           reason: `Human decision: ${input.decision}.`,
+          control: input.decision === "approve" ? "approve" : "changes",
         });
       }),
     );
@@ -1241,11 +1244,13 @@ const make = Effect.gen(function* () {
                 transition(run, node.id, node.next, now, {
                   attemptId,
                   sourceIds: [attempt.report!.receipt.id],
+                  control: "next",
                 });
               else if (node.onUnresolved)
                 transition(run, node.id, node.onUnresolved, now, {
                   attemptId,
                   reason: attempt.reason ?? "The agent reported unsuccessful execution.",
+                  control: "onUnresolved",
                 });
               else unresolved(run, attempt.reason ?? "The agent reported unsuccessful execution.");
             }
@@ -1402,11 +1407,13 @@ const make = Effect.gen(function* () {
             attemptId,
             sourceIds: [attempt.id],
             reason: "Recorded deterministic check result.",
+            control: "next",
           });
         else if (node.onUnresolved)
           transition(run, node.id, node.onUnresolved, now, {
             attemptId,
             reason: "The check was interrupted or timed out.",
+            control: "onUnresolved",
           });
         else unresolved(run, "The check result is unresolved. An explicit retry is required.");
         yield* persist(run);
