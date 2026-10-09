@@ -63,14 +63,14 @@ import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { readEnvironmentScope } from "~/state/session";
 import { useSettingsScope } from "./SettingsScopeContext";
+import { usePluginScheduleTargets } from "../../plugins/ScheduleTargets";
 import {
   type PluginSchedulePayload,
   newPluginScheduleId,
   pluginScheduleOwner,
   scheduleRevision,
   unavailableTargetText,
-  usePluginScheduleTargets,
-} from "../../plugins/ScheduleTargets";
+} from "../../plugins/scheduleTargetLogic";
 import {
   WEBHOOK_SIGNATURE_DEFAULTS,
   matchesScheduledTaskScope,

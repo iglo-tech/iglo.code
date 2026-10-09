@@ -901,6 +901,8 @@ export const ScheduleOccurrence = Schema.Struct({
   run: Schema.NullOr(
     Schema.Struct({
       id: Schema.String,
+      /** The project the run belongs to: the one recorded with its occurrence. */
+      projectId: ProjectId,
       state: Run.fields.state,
       definition: Schema.Struct({ id: Id, revision: Schema.Int, title: Schema.String }),
       createdAt: Schema.Number,

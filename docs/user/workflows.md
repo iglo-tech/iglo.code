@@ -48,8 +48,8 @@ Pause, resume, edit, **Run now** and delete work as for any scheduled task.
 
 Open the task's menu and choose **Run history** to see recent occurrences. Each shows whether
 the dispatch went out, separately from how its run is going, and **Open run** goes to that
-exact run. If the Workflows plugin is unavailable, the schedule stays saved but cannot run;
-you can still pause or delete it.
+exact run. If the Workflows plugin is unavailable, the schedule stays saved with its workflow
+and task but cannot run; you can still change its timing, pause it or delete it.
 
 ## Answer what needs you
 

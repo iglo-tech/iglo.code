@@ -244,6 +244,7 @@ export class ScheduledTaskService extends Context.Service<
     ) => Effect.Effect<
       ReadonlyArray<{
         readonly id: string;
+        readonly projectId: ProjectId;
         readonly startedAt: string;
         readonly status: "pending" | "succeeded" | "failed";
         readonly error: string | null;
@@ -1950,15 +1951,19 @@ export const layer = Layer.effect(
           ),
         ),
       occurrences: (id, limit) =>
+        // Only the current schedule's receipts: a schedule recreated under a reused id starts
+        // a fresh history. Each receipt keeps the project it was dispatched for.
         sql<{
           id: string;
+          project_id: string;
           started_at: string;
           status: string;
           error: string | null;
-        }>`SELECT id, started_at, status, error FROM scheduled_task_occurrences WHERE task_id = ${id} ORDER BY rowid DESC LIMIT ${limit}`.pipe(
+        }>`SELECT o.id, o.project_id, o.started_at, o.status, o.error FROM scheduled_task_occurrences o JOIN scheduled_tasks t ON t.task_id = o.task_id WHERE o.task_id = ${id} AND o.started_at >= t.created_at ORDER BY o.rowid DESC LIMIT ${limit}`.pipe(
           Effect.map((rows) =>
             rows.map((row) => ({
               id: row.id,
+              projectId: ProjectId.make(row.project_id),
               startedAt: row.started_at,
               status:
                 row.status === "succeeded"

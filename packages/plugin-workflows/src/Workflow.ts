@@ -42,6 +42,7 @@ import {
   ScheduleInput,
   SchedulePayload,
   LegacySchedulePayload,
+  ScheduleOccurrence,
   type ScheduleHistory,
   type ScheduleHistoryInput,
   limits,
@@ -139,6 +140,7 @@ const decodeStartSaved = Schema.decodeUnknownEffect(StartSavedInput);
 const decodeSchedulePayload = Schema.decodeUnknownEffect(
   Schema.Union([SchedulePayload, LegacySchedulePayload]),
 );
+const decodeOccurrenceRun = Schema.decodeUnknownEffect(ScheduleOccurrence.fields.run.members[0]);
 /** The registered target every workflow schedule dispatches to. */
 export const scheduleTarget = "workflows.start";
 const attentionLabels: Record<AttentionKind, string> = {
@@ -2493,19 +2495,37 @@ const make = Effect.gen(function* () {
           definitionId === null ? undefined : yield* catalog.resolve(input, definitionId);
         const receipts = yield* schedules.occurrences(input.scheduleId, limit + 1);
         const shown = receipts.slice(0, limit);
+        // Each receipt started its run in the project recorded with it, even if the
+        // schedule has since moved to another project.
         const identities = yield* Effect.forEach(shown, (receipt) =>
-          occurrenceRunIds(input.projectId, receipt.id),
+          occurrenceRunIds(receipt.projectId, receipt.id),
         );
         const candidates = identities.flatMap((item) => item.ids);
+        // Only the listed fields are read; the full run document is not decoded.
         const rows =
           candidates.length === 0
             ? []
             : yield* sql<{
                 id: string;
-                data: string;
-              }>`SELECT id, data FROM workflow_runs WHERE project_id = ${input.projectId} AND id IN ${sql.in(candidates)}`;
-        const runs = new Map<string, Run>();
-        for (const row of rows) runs.set(row.id, yield* decodeRun(row.data));
+                project_id: string;
+                state: string;
+                definition_id: string;
+                revision: number;
+                title: string;
+                created_at: number;
+              }>`SELECT id, project_id, state, json_extract(data, '$.definition.id') AS definition_id, json_extract(data, '$.definition.revision') AS revision, json_extract(data, '$.definition.title') AS title, json_extract(data, '$.createdAt') AS created_at FROM workflow_runs WHERE id IN ${sql.in(candidates)}`;
+        const runs = new Map<string, NonNullable<ScheduleHistory["occurrences"][number]["run"]>>();
+        for (const row of rows)
+          runs.set(
+            row.id,
+            yield* decodeOccurrenceRun({
+              id: row.id,
+              projectId: row.project_id,
+              state: row.state,
+              definition: { id: row.definition_id, revision: row.revision, title: row.title },
+              createdAt: row.created_at,
+            }),
+          );
         return {
           schedule: {
             id: owned.id,
@@ -2531,19 +2551,7 @@ const make = Effect.gen(function* () {
               startedAt: receipt.startedAt,
               dispatch: receipt.status,
               error: receipt.error,
-              run:
-                run === undefined
-                  ? null
-                  : {
-                      id: run.id,
-                      state: run.state,
-                      definition: {
-                        id: run.definition.id,
-                        revision: run.definition.revision,
-                        title: run.definition.title,
-                      },
-                      createdAt: run.createdAt,
-                    },
+              run: run ?? null,
             };
           }),
           more: receipts.length > limit,

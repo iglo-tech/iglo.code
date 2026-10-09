@@ -333,12 +333,12 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
         const current = shown.current;
         if (current === null) return;
         const states = new Map(runs.map((run) => [run.id, run.state]));
+        // Dispatch receipts change with the host's schedule row (the `revision` prop).
         const changed = current.occurrences.some(
           (item) =>
-            item.dispatch === "pending" ||
-            (item.run !== null &&
-              states.has(item.run.id) &&
-              states.get(item.run.id) !== item.run.state),
+            item.run !== null &&
+            states.has(item.run.id) &&
+            states.get(item.run.id) !== item.run.state,
         );
         if (changed) setAttempt((value) => value + 1);
       },
@@ -457,7 +457,7 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
                       onClick={() =>
                         props.navigate({
                           pageId: "workflows.runs",
-                          projectId,
+                          projectId: item.run!.projectId,
                           state: { run: item.run!.id },
                         })
                       }
