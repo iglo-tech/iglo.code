@@ -1,8 +1,10 @@
+import { Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ProviderInstanceId, RuntimeMode } from "@t3tools/plugin-host-contract/schema";
 import type { Capabilities, Definition, Field, Node, Problem, Route, Skill } from "../contracts.ts";
 import { Labeled, errorMessage, type PageProps } from "./common.tsx";
-import { isProtected, kindLabels, updateNode, upstreamFields } from "./editing.ts";
+import { isProtected, kindLabels, routeList, updateNode, upstreamFields } from "./editing.ts";
+import { KindIcon } from "./kinds.tsx";
 
 type AgentNode = Extract<Node, { kind: "agent" }>;
 const runtimeModes: ReadonlyArray<RuntimeMode> = [
@@ -46,8 +48,11 @@ export function Inspector(input: InspectorProps) {
   const node = input.definition.nodes.find((item) => item.id === input.selected);
   return (
     <section aria-labelledby="wf-inspector-title" className="flex min-w-0 flex-col gap-4">
-      <h2 id="wf-inspector-title" className="text-sm font-medium">
-        {node === undefined ? "Workflow settings" : `${kindLabels[node.kind]} inspector`}
+      <h2 id="wf-inspector-title" className="flex items-center gap-2 text-sm font-medium">
+        {node === undefined ? null : (
+          <KindIcon kind={node.kind} className="size-4 text-muted-foreground" />
+        )}
+        {node === undefined ? "Workflow settings" : kindLabels[node.kind]}
       </h2>
       {node === undefined ? (
         <WorkflowSettings {...input} />
@@ -126,11 +131,7 @@ function WorkflowSettings({
         />
       </Labeled>
       <Problems problems={problems} nodeId={null} control="title" />
-      <Labeled
-        id={controlId(null, "id")}
-        label="Workflow ID"
-        hint={identityEditable ? "Used for the file name; fixed after the first save." : null}
-      >
+      <Labeled id={controlId(null, "id")} label="Workflow ID">
         <Input
           id={controlId(null, "id")}
           value={definition.id}
@@ -155,14 +156,11 @@ function WorkflowSettings({
         />
       </Labeled>
       <Problems problems={problems} nodeId={null} control="entry" />
-      <Labeled
-        id={controlId(null, "maxVisits")}
-        label="Whole-run visit bound"
-        hint="Step visits allowed in one run before it goes to At limit. Empty uses 100."
-      >
+      <Labeled id={controlId(null, "maxVisits")} label="Run visit limit">
         <Input
           id={controlId(null, "maxVisits")}
           type="number"
+          placeholder="100"
           value={definition.maxVisits === undefined ? "" : String(definition.maxVisits)}
           readOnly={readOnly}
           onChange={(value) => {
@@ -172,11 +170,7 @@ function WorkflowSettings({
           }}
         />
       </Labeled>
-      <Labeled
-        id={controlId(null, "atLimit")}
-        label="At limit"
-        hint="Where the run goes when the visit bound is reached: an End or human gate."
-      >
+      <Labeled id={controlId(null, "atLimit")} label="At limit">
         <Select
           id={controlId(null, "atLimit")}
           value={definition.atLimit}
@@ -223,7 +217,7 @@ function RouteSelect({
         label={label}
         hint={
           route?.repeat
-            ? `Repeats at most ${route.repeat.max} times, then at limit → ${target(route.repeat.atLimit)}. Repeat routes become editable in a later update.`
+            ? `Repeat ×${route.repeat.max} · at limit → ${target(route.repeat.atLimit)}`
             : null
         }
       >
@@ -266,11 +260,7 @@ function EndInspector({
         />
       </Labeled>
       <Problems problems={problems} nodeId={node.id} control="title" />
-      <Labeled
-        id={controlId(node.id, "outcome")}
-        label="Outcome"
-        hint="Completed and failed finish the run; unresolved leaves it for recovery."
-      >
+      <Labeled id={controlId(node.id, "outcome")} label="Outcome">
         <props.Select
           id={controlId(node.id, "outcome")}
           value={node.outcome}
@@ -288,14 +278,33 @@ function EndInspector({
   );
 }
 
-function ReadOnlyStep({ node }: InspectorProps & { readonly node: Node }) {
+/** Kinds authored in later updates are shown with their routes and kept exactly on save. */
+function ReadOnlyStep({
+  props,
+  definition,
+  node,
+  problems,
+}: InspectorProps & { readonly node: Node }) {
+  const target = (id: string) => definition.nodes.find((item) => item.id === id)?.title ?? id;
   return (
-    <div className="flex flex-col gap-2 text-sm">
-      <p className="font-medium">{node.title}</p>
-      <p className="text-muted-foreground">
-        Editing {kindLabels[node.kind].toLowerCase()} steps arrives in a later update. This step and
-        its routes are kept exactly as they are when you save.
-      </p>
+    <div className="flex flex-col gap-3 text-sm">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 truncate font-medium">{node.title}</span>
+        <props.Badge variant="secondary">Read-only</props.Badge>
+      </div>
+      <ul aria-label="Routes" className="flex flex-col gap-1 text-xs text-muted-foreground">
+        {routeList(definition)
+          .filter((route) => route.from.id === node.id)
+          .map((route) => (
+            <li key={route.control}>
+              {route.label} → {target(route.to)}
+              {route.repeat
+                ? ` · repeat ×${route.repeat.max}, at limit → ${target(route.repeat.atLimit)}`
+                : ""}
+            </li>
+          ))}
+      </ul>
+      <Problems problems={problems} nodeId={node.id} control="" />
     </div>
   );
 }
@@ -370,9 +379,7 @@ function AgentInspector({
       };
     });
   const protectedNote = (value: string) =>
-    isProtected(value)
-      ? "This value is protected on the server and is kept when you save. Replace the whole value to change it."
-      : null;
+    isProtected(value) ? "Protected value · kept on save unless replaced" : null;
   const timeout = (key: "timeoutMs" | "humanTimeoutMs", value: string) =>
     set((current) => {
       const { [key]: _previous, ...rest } = current;
@@ -420,12 +427,12 @@ function AgentInspector({
         hint={
           provider === undefined
             ? capabilities === null
-              ? "Loading this environment's providers…"
-              : "This provider is not configured in this environment."
+              ? "Loading providers…"
+              : "Not configured in this environment. Choose another provider."
             : !provider.reporting
-              ? `This provider cannot submit workflow reports: ${provider.reason ?? "unsupported"}.`
+              ? `Cannot submit workflow reports: ${provider.reason ?? "unsupported"}.`
               : !provider.available
-                ? `This provider is not ready: ${provider.reason ?? "unavailable"}.`
+                ? `Not ready: ${provider.reason ?? "unavailable"}.`
                 : null
         }
       >
@@ -557,9 +564,9 @@ function AgentInspector({
             : node.skill !== undefined &&
                 skills !== null &&
                 !skills.some((skill) => skill.name === node.skill && skill.enabled)
-              ? `${node.skill} is not installed for this provider in this project. Choose an installed skill or No skill.`
+              ? `${node.skill} is not installed for this provider. Choose an installed skill.`
               : skills === null && connection === "connected"
-                ? "Loading installed skills…"
+                ? "Loading skills…"
                 : null
         }
       >
@@ -611,25 +618,18 @@ function AgentInspector({
       </Labeled>
       <Problems problems={problems} nodeId={node.id} control="instruction" />
       <div className="grid grid-cols-2 gap-3">
-        <Labeled
-          id={controlId(node.id, "timeoutMs")}
-          label="Deadline (minutes)"
-          hint="Empty uses 120."
-        >
+        <Labeled id={controlId(node.id, "timeoutMs")} label="Deadline (min)">
           <Input
             id={controlId(node.id, "timeoutMs")}
             type="number"
+            placeholder="120"
             value={minutes(node.timeoutMs)}
             readOnly={readOnly}
             invalid={invalid("timeoutMs")}
             onChange={(value) => timeout("timeoutMs", value)}
           />
         </Labeled>
-        <Labeled
-          id={controlId(node.id, "humanTimeoutMs")}
-          label="Input deadline (minutes)"
-          hint="While waiting for you."
-        >
+        <Labeled id={controlId(node.id, "humanTimeoutMs")} label="Input deadline (min)">
           <Input
             id={controlId(node.id, "humanTimeoutMs")}
             type="number"
@@ -639,10 +639,8 @@ function AgentInspector({
           />
         </Labeled>
       </div>
-      <fieldset className="flex flex-col gap-2">
-        <legend className="text-xs font-medium text-muted-foreground">
-          Inputs from earlier steps
-        </legend>
+      <fieldset className="flex flex-col gap-2 border-t border-border pt-4">
+        <legend className="pb-1 text-xs font-medium text-muted-foreground">Inputs</legend>
         {(node.bindings ?? []).map((binding, index) => {
           const id = controlId(node.id, `bindings.${index}`);
           const value = `${binding.node}\u0000${binding.path}`;
@@ -705,8 +703,9 @@ function AgentInspector({
                 </Labeled>
               </div>
               <Button
-                size="sm"
+                size="icon-sm"
                 variant="ghost"
+                tooltip="Remove input"
                 ariaLabel={`Remove input ${binding.name}`}
                 disabled={readOnly}
                 onClick={() =>
@@ -719,7 +718,7 @@ function AgentInspector({
                   })
                 }
               >
-                Remove
+                <Trash2Icon />
               </Button>
             </div>
           );
@@ -749,23 +748,14 @@ function AgentInspector({
           >
             Add input
           </Button>
-          {upstream.length === 0 ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Earlier steps have no declared report fields to bind yet.
-            </p>
-          ) : null}
         </div>
       </fieldset>
-      <fieldset className="flex flex-col gap-2">
-        <legend className="text-xs font-medium text-muted-foreground">Report fields</legend>
-        <p className="text-xs text-muted-foreground">
-          Every agent step submits a structured report with outcome and summary. Declare the data
-          later steps may rely on.
-        </p>
+      <fieldset className="flex flex-col gap-2 border-t border-border pt-4">
+        <legend className="pb-1 text-xs font-medium text-muted-foreground">Report fields</legend>
         {node.report.fields.map((item, index) => {
           const id = controlId(node.id, `report.fields.${index}`);
           return (
-            <div key={index} className="flex flex-col gap-2 rounded-md border border-border p-2">
+            <div key={index} className="flex flex-col gap-2 rounded-lg border border-border p-2">
               <div className="flex flex-wrap items-end gap-2">
                 <div className="min-w-32 flex-1">
                   <Labeled id={id} label={`Field ${index + 1} name`}>
@@ -809,8 +799,9 @@ function AgentInspector({
                   </Labeled>
                 </div>
                 <Button
-                  size="sm"
+                  size="icon-sm"
                   variant="ghost"
+                  tooltip="Remove field"
                   ariaLabel={`Remove report field ${item.name}`}
                   disabled={readOnly}
                   onClick={() =>
@@ -823,7 +814,7 @@ function AgentInspector({
                     }))
                   }
                 >
-                  Remove
+                  <Trash2Icon />
                 </Button>
               </div>
               {item.type === "enum" ? (
@@ -898,35 +889,37 @@ function AgentInspector({
           </div>
         </div>
       </fieldset>
-      <RouteSelect
-        props={props}
-        definition={definition}
-        node={node}
-        control="next"
-        label="Next step"
-        route={node.next}
-        optional={false}
-        readOnly={readOnly}
-        problems={problems}
-        onRoute={(route) => route && set((current) => ({ ...current, next: route }))}
-      />
-      <RouteSelect
-        props={props}
-        definition={definition}
-        node={node}
-        control="onUnresolved"
-        label="If unresolved"
-        route={node.onUnresolved}
-        optional
-        readOnly={readOnly}
-        problems={problems}
-        onRoute={(route) =>
-          set((current) => {
-            const { onUnresolved: _previous, ...rest } = current;
-            return route === undefined ? rest : { ...rest, onUnresolved: route };
-          })
-        }
-      />
+      <div className="flex flex-col gap-3 border-t border-border pt-4">
+        <RouteSelect
+          props={props}
+          definition={definition}
+          node={node}
+          control="next"
+          label="Next step"
+          route={node.next}
+          optional={false}
+          readOnly={readOnly}
+          problems={problems}
+          onRoute={(route) => route && set((current) => ({ ...current, next: route }))}
+        />
+        <RouteSelect
+          props={props}
+          definition={definition}
+          node={node}
+          control="onUnresolved"
+          label="If unresolved"
+          route={node.onUnresolved}
+          optional
+          readOnly={readOnly}
+          problems={problems}
+          onRoute={(route) =>
+            set((current) => {
+              const { onUnresolved: _previous, ...rest } = current;
+              return route === undefined ? rest : { ...rest, onUnresolved: route };
+            })
+          }
+        />
+      </div>
       <Problems problems={problems} nodeId={node.id} control="" />
     </div>
   );

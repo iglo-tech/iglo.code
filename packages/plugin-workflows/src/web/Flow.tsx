@@ -1,13 +1,16 @@
+import { ArrowDownIcon, ArrowUpIcon, CornerDownRightIcon, Trash2Icon } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import type { Capabilities, Definition, Node, Problem } from "../contracts.ts";
 import type { PageProps } from "./common.tsx";
 import { editableKinds, kindLabels, routeList, type EditableKind } from "./editing.ts";
+import { KindIcon } from "./kinds.tsx";
 
-export const stepButtonId = (nodeId: string) => `wf-step-${nodeId}`;
+export const stepButtonId = (nodeId: string) => `wf-step-${nodeId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 const title = (definition: Definition, id: string) =>
   definition.nodes.find((node) => node.id === id)?.title ?? `${id} (missing)`;
+const editable = (node: Node) => (editableKinds as ReadonlyArray<string>).includes(node.kind);
 
-/** Add a step: only kinds this client authors are enabled; others stay visibly read-only. */
+/** Add a step: kinds this client authors are enabled; the rest stay visible but unavailable. */
 export function Palette({
   props,
   capabilities,
@@ -22,57 +25,32 @@ export function Palette({
   const { Button } = props;
   const advertised = capabilities?.nodeKinds;
   return (
-    <section aria-labelledby="wf-palette-title" className="flex flex-col gap-2">
-      <h2 id="wf-palette-title" className="text-sm font-medium">
-        Add a step
-      </h2>
-      <p className="text-xs text-muted-foreground">
-        A new agent step is inserted after the selected step and keeps the sequence connected.
-      </p>
+    <nav aria-label="Add a step" className="flex flex-col gap-0.5">
       {(Object.keys(kindLabels) as Array<Node["kind"]>).map((kind) => {
         const supported = advertised === undefined || advertised.includes(kind);
-        const editable = (editableKinds as ReadonlyArray<string>).includes(kind);
+        const authored = (editableKinds as ReadonlyArray<string>).includes(kind);
         return (
-          <div key={kind} className="flex flex-col gap-0.5">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={disabled || !supported || !editable}
-              onClick={() => onAdd(kind as EditableKind)}
-            >
-              {kindLabels[kind]}
-            </Button>
-            {!supported ? (
-              <span className="text-xs text-muted-foreground">
-                Not supported by this environment
-              </span>
-            ) : !editable ? (
-              <span className="text-xs text-muted-foreground">
-                Authoring arrives in a later update
-              </span>
-            ) : null}
-          </div>
+          <Button
+            key={kind}
+            variant="ghost"
+            size="row"
+            disabled={disabled || !supported || !authored}
+            onClick={() => onAdd(kind as EditableKind)}
+          >
+            <KindIcon kind={kind} />
+            {kindLabels[kind]}
+          </Button>
         );
       })}
-    </section>
+    </nav>
   );
 }
 
-function routeSummary(definition: Definition, node: Node): ReadonlyArray<string> {
-  return routeList(definition)
-    .filter((route) => route.from.id === node.id)
-    .map(
-      (route) =>
-        `${route.label} → ${title(definition, route.to)}${
-          route.repeat
-            ? ` (repeat up to ${route.repeat.max}, at limit → ${title(definition, route.repeat.atLimit)})`
-            : ""
-        }`,
-    );
-}
-
-/** Code-native flow: steps in reading order with their outgoing routes spelled out. */
-export function Flow({
+/**
+ * The Routes view: steps in reading order, each with its outgoing routes on one line apiece.
+ * Alt+Arrow reorders the reading order and Delete removes a step, without dragging.
+ */
+export function RouteList({
   props,
   definition,
   selected,
@@ -91,7 +69,8 @@ export function Flow({
   readonly onMove: (id: string, offset: -1 | 1) => void;
   readonly onRemove: (id: string) => void;
 }) {
-  const { Button, Badge } = props;
+  const { Button, Badge, Menu } = props;
+  const routes = routeList(definition);
   const keys = (node: Node, index: number) => (event: KeyboardEvent<HTMLLIElement>) => {
     if (readOnly) return;
     if (event.altKey && event.key === "ArrowUp" && index > 0) {
@@ -102,7 +81,7 @@ export function Flow({
       onMove(node.id, 1);
     } else if (
       (event.key === "Delete" || event.key === "Backspace") &&
-      (editableKinds as ReadonlyArray<string>).includes(node.kind) &&
+      editable(node) &&
       definition.nodes.length > 1
     ) {
       event.preventDefault();
@@ -110,117 +89,86 @@ export function Flow({
     }
   };
   return (
-    <section aria-labelledby="wf-flow-title" className="flex min-w-0 flex-col gap-2">
-      <h2 id="wf-flow-title" className="text-sm font-medium">
-        Flow
-      </h2>
-      <p id="wf-flow-hint" className="text-xs text-muted-foreground">
-        Select a step to edit it. Alt+Arrow keys change the reading order; Delete removes a step.
-        Routes, not order, decide what runs next.
-      </p>
-      <ol aria-label="Steps" className="flex flex-col gap-2">
-        {definition.nodes.map((node, index) => {
-          const issues = problems.filter((problem) => problem.nodeId === node.id);
-          const editable = (editableKinds as ReadonlyArray<string>).includes(node.kind);
-          return (
-            <li
-              key={node.id}
-              onKeyDown={keys(node, index)}
-              className="flex flex-col gap-2 rounded-lg border border-border p-3"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs tabular-nums text-muted-foreground">{index + 1}.</span>
-                <Button
-                  id={stepButtonId(node.id)}
-                  variant={selected === node.id ? "default" : "ghost"}
-                  size="sm"
-                  ariaPressed={selected === node.id}
-                  ariaLabel={`${kindLabels[node.kind]}: ${node.title}`}
-                  onClick={() => onSelect(node.id)}
-                >
-                  {node.title || node.id}
-                </Button>
-                <Badge variant="outline">{kindLabels[node.kind]}</Badge>
-                {definition.entry === node.id ? <Badge variant="info">Entry</Badge> : null}
-                {definition.atLimit === node.id ? (
-                  <Badge variant="secondary">At limit</Badge>
-                ) : null}
-                {node.kind === "end" ? <Badge variant="secondary">{node.outcome}</Badge> : null}
-                {!editable ? <Badge variant="secondary">Read-only</Badge> : null}
-                {issues.some((problem) => problem.severity === "error") ? (
-                  <Badge variant="error">
-                    {issues.filter((problem) => problem.severity === "error").length} to fix
-                  </Badge>
-                ) : issues.length ? (
-                  <Badge variant="warning">Warning</Badge>
-                ) : null}
-              </div>
-              <ul className="flex flex-col gap-0.5 pl-6 text-xs text-muted-foreground">
-                {routeSummary(definition, node).map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
+    <ol aria-label="Route list" className="flex flex-col gap-px">
+      {definition.nodes.map((node, index) => {
+        const errors = problems.filter(
+          (problem) => problem.nodeId === node.id && problem.severity === "error",
+        ).length;
+        const warnings = problems.filter(
+          (problem) => problem.nodeId === node.id && problem.severity === "warning",
+        ).length;
+        return (
+          <li key={node.id} onKeyDown={keys(node, index)} className="flex flex-col py-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
+                <KindIcon kind={node.kind} className="size-4" />
+              </span>
+              <Button
+                id={stepButtonId(node.id)}
+                variant={selected === node.id ? "outline" : "ghost"}
+                size="sm"
+                ariaPressed={selected === node.id}
+                ariaLabel={`${kindLabels[node.kind]}: ${node.title}`}
+                {...(readOnly ? {} : { ariaKeyShortcuts: "Alt+ArrowUp Alt+ArrowDown Delete" })}
+                onClick={() => onSelect(node.id)}
+              >
+                {node.title || node.id}
+              </Button>
+              {definition.entry === node.id ? <Badge variant="info">Start</Badge> : null}
+              {definition.atLimit === node.id ? <Badge variant="warning">Run limit</Badge> : null}
+              {node.kind === "end" ? <Badge variant="outline">{node.outcome}</Badge> : null}
+              {errors > 0 ? (
+                <Badge variant="error">{errors} to fix</Badge>
+              ) : warnings > 0 ? (
+                <Badge variant="warning">Warning</Badge>
+              ) : null}
               {readOnly ? null : (
-                <div className="flex flex-wrap gap-1 pl-6">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    ariaLabel={`Move ${node.title} up`}
-                    disabled={index === 0}
-                    onClick={() => onMove(node.id, -1)}
-                  >
-                    Move up
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    ariaLabel={`Move ${node.title} down`}
-                    disabled={index === definition.nodes.length - 1}
-                    onClick={() => onMove(node.id, 1)}
-                  >
-                    Move down
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    ariaLabel={`Remove ${node.title}`}
-                    disabled={!editable || definition.nodes.length === 1}
-                    onClick={() => onRemove(node.id)}
-                  >
-                    Remove
-                  </Button>
-                </div>
+                <span className="ml-auto">
+                  <Menu
+                    ariaLabel={`Actions for ${node.title}`}
+                    items={[
+                      {
+                        label: "Move up",
+                        icon: <ArrowUpIcon />,
+                        disabled: index === 0,
+                        onSelect: () => onMove(node.id, -1),
+                      },
+                      {
+                        label: "Move down",
+                        icon: <ArrowDownIcon />,
+                        disabled: index === definition.nodes.length - 1,
+                        onSelect: () => onMove(node.id, 1),
+                      },
+                      {
+                        label: "Remove",
+                        icon: <Trash2Icon />,
+                        destructive: true,
+                        disabled: !editable(node) || definition.nodes.length === 1,
+                        onSelect: () => onRemove(node.id),
+                      },
+                    ]}
+                  />
+                </span>
               )}
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-  );
-}
-
-/** Always-available textual equivalent of the flow: every route, direction and limit. */
-export function RouteList({ definition }: { readonly definition: Definition }) {
-  return (
-    <section aria-labelledby="wf-routes-title" className="flex flex-col gap-2">
-      <h2 id="wf-routes-title" className="text-sm font-medium">
-        Route list
-      </h2>
-      <ol aria-label="Route list" className="flex flex-col gap-1 text-sm">
-        <li>Start at {title(definition, definition.entry)}</li>
-        {routeList(definition).map((route) => (
-          <li key={`${route.from.id}:${route.control}`}>
-            {route.from.title || route.from.id} — {route.label} → {title(definition, route.to)}
-            {route.repeat
-              ? `; repeats at most ${route.repeat.max} ${route.repeat.max === 1 ? "time" : "times"}, then at limit → ${title(definition, route.repeat.atLimit)}`
-              : ""}
+            </div>
+            <ul className="flex flex-col pl-9 text-xs text-muted-foreground">
+              {routes
+                .filter((route) => route.from.id === node.id)
+                .map((route) => (
+                  <li key={route.control} className="flex min-w-0 items-center gap-1.5 leading-5">
+                    <CornerDownRightIcon aria-hidden className="size-3 shrink-0 opacity-64" />
+                    <span className="truncate">
+                      {route.label} → {title(definition, route.to)}
+                      {route.repeat
+                        ? ` · repeat ×${route.repeat.max}, at limit → ${title(definition, route.repeat.atLimit)}`
+                        : ""}
+                    </span>
+                  </li>
+                ))}
+            </ul>
           </li>
-        ))}
-        <li>
-          After {definition.maxVisits ?? 100} visits in one run →{" "}
-          {title(definition, definition.atLimit)}
-        </li>
-      </ol>
-    </section>
+        );
+      })}
+    </ol>
   );
 }

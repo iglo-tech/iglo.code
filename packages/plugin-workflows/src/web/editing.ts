@@ -8,8 +8,10 @@ import {
   type Capabilities,
   type Field,
   type Node,
+  type Predicate,
   type Problem,
   type Route,
+  type Value,
 } from "../contracts.ts";
 import { definitionDiagnostics, routeControls, sourceFields } from "../definition.ts";
 
@@ -261,6 +263,40 @@ export function exportYaml(definition: Definition): {
   return { text, protectedValues: new Set(text.match(new RegExp(protectedPattern, "g"))).size };
 }
 
+const operators: Partial<Record<Predicate["op"], string>> = {
+  eq: "=",
+  ne: "≠",
+  gt: ">",
+  gte: "≥",
+  lt: "<",
+  lte: "≤",
+};
+const shortPath = (path: string | undefined) => (path ?? "").split(".").at(-1) ?? "";
+const valueText = (value: Value | undefined) =>
+  typeof value === "string" ? value : value === undefined ? "" : String(value);
+
+/** A compact reading of a rule's predicate for an edge label, e.g. `verdict = changes`. */
+export function predicateSummary(predicate: Predicate): string {
+  switch (predicate.op) {
+    case "all":
+    case "any": {
+      const terms = predicate.terms ?? [];
+      const first = terms[0] === undefined ? "" : predicateSummary(terms[0]);
+      return terms.length > 1
+        ? `${first} ${predicate.op === "all" ? "and" : "or"} +${terms.length - 1}`
+        : first;
+    }
+    case "in":
+      return `${shortPath(predicate.path)} ∈ ${(predicate.values ?? []).map(valueText).join(", ")}`;
+    case "present":
+      return `${shortPath(predicate.path)} present`;
+    case "absent":
+      return `${shortPath(predicate.path)} absent`;
+    default:
+      return `${shortPath(predicate.path)} ${operators[predicate.op] ?? predicate.op} ${valueText(predicate.value)}`;
+  }
+}
+
 /** A human-readable description of every route in reading order, for the Route list. */
 export function routeList(definition: Definition): ReadonlyArray<{
   readonly from: Node;
@@ -280,11 +316,17 @@ export function routeList(definition: Definition): ReadonlyArray<{
     routeControls(from).map(({ control, route }) => ({
       from,
       control,
-      label: labels[control] ?? `Rule ${Number(control.split(".")[1] ?? 0) + 1}`,
+      label: labels[control] ?? ruleLabel(from, control),
       to: route.to,
       repeat: route.repeat,
     })),
   );
+}
+
+function ruleLabel(node: Node, control: string): string {
+  const index = Number(control.split(".")[1] ?? 0);
+  const rule = node.kind === "decision" || node.kind === "join" ? node.rules[index] : undefined;
+  return `Rule ${index + 1}${rule === undefined ? "" : `: ${predicateSummary(rule.when)}`}`;
 }
 
 export const sameDefinition = (left: Definition | null, right: Definition | null) =>

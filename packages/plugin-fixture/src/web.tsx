@@ -140,11 +140,19 @@ function ReportsView({
 export const web: WebPlugin<FixtureClient> = {
   manifest,
   pages: [{ id: "fixture.reports", title: "Reports", component: ReportsPage }],
-  navigation: [{ id: "fixture.navigation", title: "Reports", link: { pageId: "fixture.reports" } }],
+  navigation: [
+    {
+      id: "fixture.navigation",
+      title: "Reports",
+      icon: "file-text",
+      link: { pageId: "fixture.reports" },
+    },
+  ],
   projectActions: [
     {
       id: "fixture.reports-action",
       title: "Reports",
+      icon: "file-text",
       link: (projectId) => ({ pageId: "fixture.reports", projectId }),
     },
   ],
@@ -154,7 +162,9 @@ export const web: WebPlugin<FixtureClient> = {
       render: (context) => (
         <context.Button
           variant="ghost"
-          size="sm"
+          size="icon-xs"
+          ariaLabel="Reports"
+          tooltip="Reports"
           onClick={() =>
             context.navigate({
               pageId: "fixture.reports",
@@ -163,7 +173,7 @@ export const web: WebPlugin<FixtureClient> = {
             })
           }
         >
-          Reports
+          <context.Icon name="file-text" />
         </context.Button>
       ),
     },
