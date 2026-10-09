@@ -18,18 +18,18 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import type * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
-import type { AcpSessionRuntimeStartResult } from "./acp/AcpSessionRuntime.ts";
-import type { ProviderWorkspaceSnapshot } from "./ProviderDriver.ts";
-import { makeManagedServerProvider } from "./makeManagedServerProvider.ts";
+import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
+import type { ProviderWorkspaceSnapshot } from "@t3tools/provider-core/server/driver";
 import {
   makeManualOnlyProviderMaintenanceCapabilities,
   type ProviderMaintenanceCapabilities,
-} from "./providerMaintenance.ts";
+} from "@t3tools/provider-core/server/maintenanceResolver";
 import {
   buildServerProvider,
   isCommandMissingCause,
   type ServerProviderDraft,
-} from "./providerSnapshot.ts";
+} from "@t3tools/provider-core/server/snapshotProbe";
 
 const EMPTY_MODEL_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
 const MAX_WORKSPACE_SNAPSHOTS = 32;
@@ -39,7 +39,7 @@ const AUTH_UNCHECKED_MESSAGE =
   "Antigravity is installed. Google account access is not checked yet.";
 
 type SessionSetupResult = Pick<
-  AcpSessionRuntimeStartResult["sessionSetupResult"],
+  AcpSessionRuntime.AcpSessionRuntimeStartResult["sessionSetupResult"],
   "configOptions" | "models"
 >;
 
@@ -263,7 +263,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   });
 
   const onSessionStarted = Effect.fn("AntigravityProvider.onSessionStarted")(function* (
-    started: AcpSessionRuntimeStartResult,
+    started: AcpSessionRuntime.AcpSessionRuntimeStartResult,
     cwd?: string,
   ) {
     const before = yield* SubscriptionRef.get(metadata);

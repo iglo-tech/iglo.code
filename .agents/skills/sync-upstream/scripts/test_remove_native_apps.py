@@ -199,6 +199,25 @@ class NativeRemovalTest(unittest.TestCase):
         self.assertIn("allowRawClientAccess: true", vite)
         self.assertEqual(prune(self.root), [])
 
+    def test_removes_complete_mobile_release_fixture_copy(self):
+        self.write("scripts/release-smoke.ts", """
+            function copyWorkspaceManifestFixture(targetRoot: string): void {
+              const mobileDependencies = NodePath.resolve(repoRoot, "apps/mobile/deps");
+              if (NodeFS.existsSync(mobileDependencies)) {
+                NodeFS.cpSync(mobileDependencies, NodePath.resolve(targetRoot, "apps/mobile/deps"), {
+                  recursive: true,
+                });
+              }
+
+              copyPatches(targetRoot);
+            }
+        """)
+        prune(self.root)
+        self.assertEqual((self.root / "scripts/release-smoke.ts").read_text(),
+                         "function copyWorkspaceManifestFixture(targetRoot: string): void {\n"
+                         "  copyPatches(targetRoot);\n}\n")
+        self.assertEqual(prune(self.root), [])
+
     def test_license_cleanup_keeps_web_device_notices_and_is_format_independent(self):
         self.write("third-party-licenses.config.json", json.dumps({
             "customNotices": [

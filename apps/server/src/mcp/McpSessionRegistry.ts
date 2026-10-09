@@ -10,7 +10,7 @@ import * as NetAddress from "effect/net/NetAddress";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
-import * as McpProviderSession from "./McpProviderSession.ts";
+import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpToolPolicy from "./McpToolPolicy.ts";
 
 export interface McpCredentialRequest {

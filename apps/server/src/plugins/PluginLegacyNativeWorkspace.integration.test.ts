@@ -16,7 +16,7 @@ import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Startup from "../serverRuntimeStartup.ts";
 import * as Tracker from "../project/WorktreeSetupTracker.ts";
 import * as Git from "../vcs/GitVcsDriver.ts";
-import { makeProviderFailure } from "../orchestration-v2/ProviderFailure.ts";
+import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 
 it.live.each([
   "legacy",

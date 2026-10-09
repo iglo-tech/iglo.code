@@ -4,7 +4,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import * as PtyAdapter from "./PtyAdapter.ts";
+import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 
 interface BunTerminal {
   write(data: string): number;

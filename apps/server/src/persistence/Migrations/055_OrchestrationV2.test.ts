@@ -11,6 +11,41 @@ import ScheduleDispatchTargets from "./060_ScheduleDispatchTargets.ts";
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("055_OrchestrationV2", (it) => {
+  it.effect("adds upstream schema after the fork's released migration 60", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 60 });
+      const history = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
+      yield* sql`INSERT INTO scheduled_task_occurrences (id, task_id, project_id, target_json, started_at, status) VALUES ('fork-occurrence', 'schedule', 'project', '{}', '2026-10-07T00:00:00.000Z', 'pending')`;
+
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [61, "McpAppModelContext"],
+        [62, "ThreadSnapshotWindowIndexes"],
+      ]);
+      assert.deepStrictEqual(
+        yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
+        history,
+      );
+      assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
+        { id: "fork-occurrence", status: "pending" },
+      ]);
+      yield* sql`INSERT INTO mcp_app_model_context (thread_id, item_id, server, tool, text, updated_at) VALUES ('thread', 'item', 'server', 'tool', 'retained context', '2026-10-09')`;
+      assert.deepStrictEqual(yield* sql`SELECT text FROM mcp_app_model_context`, [
+        { text: "retained context" },
+      ]);
+      const indexes = yield* sql<{
+        readonly name: string;
+      }>`SELECT name FROM sqlite_master WHERE type = 'index'`;
+      assert.ok(
+        indexes.some(
+          ({ name }) => name === "orchestration_v2_projection_turn_items_user_message_idx",
+        ),
+      );
+      assert.ok(indexes.some(({ name }) => name === "orchestration_v2_projection_nodes_live_idx"));
+      assert.deepStrictEqual(yield* runMigrations(), []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect.each([false, true])(
     "upgrades plugin migration 59 without losing occurrences, injected failure=%s",
     (injectFailure) =>
@@ -31,7 +66,11 @@ layer("055_OrchestrationV2", (it) => {
           assert.ok(!columns.some(({ name }) => name === "last_delivery"));
           yield* sql`DROP TRIGGER reject_delivery_migration`;
         }
-        assert.deepStrictEqual(yield* runMigrations(), [[59, "ScheduledTaskDelivery"]]);
+        assert.deepStrictEqual(yield* runMigrations(), [
+          [59, "ScheduledTaskDelivery"],
+          [61, "McpAppModelContext"],
+          [62, "ThreadSnapshotWindowIndexes"],
+        ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
           { id: "retained", status: "pending" },
@@ -41,6 +80,8 @@ layer("055_OrchestrationV2", (it) => {
           [
             { migration_id: 59, name: "ScheduledTaskDelivery" },
             { migration_id: 60, name: "ScheduleDispatchTargets" },
+            { migration_id: 61, name: "McpAppModelContext" },
+            { migration_id: 62, name: "ThreadSnapshotWindowIndexes" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -60,6 +101,8 @@ layer("055_OrchestrationV2", (it) => {
         [57, "ScheduledTaskWebhooks"],
         [58, "WebhookRelayDeliveries"],
         [59, "ScheduledTaskDelivery"],
+        [61, "McpAppModelContext"],
+        [62, "ThreadSnapshotWindowIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -76,6 +119,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 58, name: "WebhookRelayDeliveries" },
         { migration_id: 59, name: "ScheduledTaskDelivery" },
         { migration_id: 60, name: "ScheduleDispatchTargets" },
+        { migration_id: 61, name: "McpAppModelContext" },
+        { migration_id: 62, name: "ThreadSnapshotWindowIndexes" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -84,7 +129,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 60 }, (_, index) => index + 1),
+        Array.from({ length: 62 }, (_, index) => index + 1),
       );
     }),
   );
@@ -103,6 +148,8 @@ layer("055_OrchestrationV2", (it) => {
         [58, "WebhookRelayDeliveries"],
         [59, "ScheduledTaskDelivery"],
         [60, "ScheduleDispatchTargets"],
+        [61, "McpAppModelContext"],
+        [62, "ThreadSnapshotWindowIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -129,6 +176,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 58, name: "WebhookRelayDeliveries" },
         { migration_id: 59, name: "ScheduledTaskDelivery" },
         { migration_id: 60, name: "ScheduleDispatchTargets" },
+        { migration_id: 61, name: "McpAppModelContext" },
+        { migration_id: 62, name: "ThreadSnapshotWindowIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

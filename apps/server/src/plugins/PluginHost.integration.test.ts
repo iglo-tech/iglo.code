@@ -7,6 +7,7 @@ import {
   ProjectId,
   ThreadId,
   ProviderInstanceId,
+  ProviderDriverKind,
 } from "@t3tools/contracts";
 import { Host, Storage, Schedules, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { EnvironmentId, type PluginLaunchInput } from "@t3tools/plugin-host-contract/schema";
@@ -32,7 +33,7 @@ import { ScheduledTaskId } from "@t3tools/contracts";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
 import * as Projects from "../project/ProjectService.ts";
 import * as McpSessions from "../mcp/McpSessionRegistry.ts";
-import * as ProviderSessions from "../mcp/McpProviderSession.ts";
+import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 
 const ToolResult = Schema.fromJsonString(
@@ -714,10 +715,13 @@ it.live(
         ).toEqual([]);
         const host = Context.get(server.context, Host);
         const settings = Context.get(server.context, Settings.ServerSettingsService);
-        const currentSettings = yield* settings.getSettings;
         yield* settings.updateSettings({
-          providers: {
-            opencode: { ...currentSettings.providers.opencode, serverUrl: "http://127.0.0.1:1" },
+          providerInstances: {
+            [ProviderInstanceId.make("opencode")]: {
+              driver: ProviderDriverKind.make("opencode"),
+              enabled: true,
+              config: { serverUrl: "http://127.0.0.1:1" },
+            },
           },
         });
         const external = (yield* host.providers()).find(

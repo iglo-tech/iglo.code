@@ -63,8 +63,11 @@ import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
-import * as IdAllocator from "./IdAllocator.ts";
-import type { ProviderAdapterV2Shape, ProviderAdapterV2SessionRuntime } from "./ProviderAdapter.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import type {
+  ProviderAdapterV2Shape,
+  ProviderAdapterV2SessionRuntime,
+} from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadLaunch from "./ThreadLaunchService.ts";

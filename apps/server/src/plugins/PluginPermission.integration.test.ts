@@ -20,9 +20,9 @@ import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderRepl
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Sessions from "../mcp/McpSessionRegistry.ts";
-import * as ProviderSessions from "../mcp/McpProviderSession.ts";
+import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
 import * as Claude from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
-import type { ProviderAdapterV2RuntimePolicy } from "../orchestration-v2/ProviderAdapter.ts";
+import type { ProviderAdapterV2RuntimePolicy } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as Providers from "../provider/ProviderRegistry.ts";
 
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));

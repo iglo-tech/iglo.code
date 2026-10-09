@@ -24,6 +24,7 @@ await Effect.runPromise(
   Effect.gen(function* () {
     const browser = ServerBrowser.ServerBrowser.of({
       clearProfile: () => Effect.void,
+      reportProfiles: () => Effect.void,
       openDownload: () => Effect.succeedNone,
       answerFileChooser: () => Effect.succeed(false),
       // A captured child exit reproduces Chromium startup's process I/O boundary.

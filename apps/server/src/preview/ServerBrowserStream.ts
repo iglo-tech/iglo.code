@@ -158,6 +158,7 @@ const makeHandler = (browser: ServerBrowser.ServerBrowser["Service"]) =>
               case "download":
               case "fileChooser":
               case "fileChooserClosed":
+              case "popup":
               case "pointer":
               case "probe": {
                 const { _tag: type, ...data } = output;

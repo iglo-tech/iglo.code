@@ -17,7 +17,7 @@ import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Startup from "../serverRuntimeStartup.ts";
 import * as Mcp from "../mcp/McpSessionRegistry.ts";
-import * as Sessions from "../mcp/McpProviderSession.ts";
+import * as Sessions from "@t3tools/provider-core/server/mcpSession";
 import { HttpClient, HttpBody } from "effect/http";
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 

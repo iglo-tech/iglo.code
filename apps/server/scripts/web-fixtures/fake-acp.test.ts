@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Path from "effect/Path";
-import * as AcpSessionRuntime from "../../src/provider/acp/AcpSessionRuntime.ts";
+import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 
 const fixture = NodeURL.fileURLToPath(new URL("fake-acp.mjs", import.meta.url));
 const makeRuntime = (control: string) =>

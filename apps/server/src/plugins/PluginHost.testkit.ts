@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Node-hosted fixtures run setup scripts through disposable child pipes; native PTYs have their own smoke checks.
+import * as NodeChildProcess from "node:child_process";
 import {
   CommandId,
   ProjectId,
@@ -37,35 +39,64 @@ import * as Compiled from "./compiled.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as McpSessions from "../mcp/McpSessionRegistry.ts";
-import * as ProviderSessions from "../mcp/McpProviderSession.ts";
+import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
 import * as Providers from "../provider/ProviderRegistry.ts";
+import { BunPtyRuntime } from "../terminal/BunPtyAdapter.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 
 const decodeWorkflowRun = Schema.decodeUnknownEffect(WorkflowRun);
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+const scriptRuntime: typeof BunPtyRuntime.Service = {
+  spawn: (command, options) => {
+    const child = NodeChildProcess.spawn(command[0]!, command.slice(1), {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: "pipe",
+    });
+    if (child.pid === undefined) throw new Error("Setup script did not start.");
+    const terminal = {
+      write: (data: string) => {
+        child.stdin.write(data.replaceAll("\r", "\n"));
+        return Buffer.byteLength(data);
+      },
+      resize: () => {},
+      close: () => child.stdin.end(),
+    };
+    child.stdout.on("data", (data: Buffer) => options.terminal.data(terminal, data));
+    child.stderr.on("data", (data: Buffer) => options.terminal.data(terminal, data));
+    const exited = new Promise<number>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code) => resolve(code ?? 0));
+    });
+    return {
+      pid: child.pid,
+      terminal,
+      exited,
+      get signalCode() {
+        return child.signalCode;
+      },
+      kill: (signal) => process.kill(child.pid!, signal),
+    };
+  },
+};
 
 export const startEnvironment = (
   config: Config.ServerConfig["Service"],
   plugins?: ReadonlyArray<ServerPlugin>,
 ) =>
   Effect.gen(function* () {
+    const compiledPlugins = plugins ?? (yield* Compiled.CompiledPlugins);
     const ready = yield* Deferred.make<
       Context.Context<Layer.Success<typeof Server.layer>>,
       Layer.Error<typeof Server.layer>
     >();
     const fiber = yield* Effect.scoped(
       Effect.gen(function* () {
-        const context = yield* Layer.build(
-          Server.layer.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(Config.ServerConfig, config),
-                ...(plugins === undefined
-                  ? []
-                  : [Layer.succeed(Compiled.CompiledPlugins, plugins)]),
-              ),
-            ),
-          ),
+        const context = yield* Layer.build(Server.layer).pipe(
+          Effect.provideService(Config.ServerConfig, config),
+          Effect.provideService(BunPtyRuntime, scriptRuntime),
+          Effect.provideService(Compiled.CompiledPlugins, compiledPlugins),
         );
         yield* Deferred.succeed(ready, context);
         return yield* Effect.never;

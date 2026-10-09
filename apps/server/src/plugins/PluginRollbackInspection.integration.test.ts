@@ -4,7 +4,7 @@ import { CodexSettings } from "@t3tools/contracts";
 import * as Codex from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as AdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as FileSystem from "effect/FileSystem";
-import * as Ids from "../orchestration-v2/IdAllocator.ts";
+import * as Ids from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as Executor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as Checkpoints from "../orchestration-v2/CheckpointService.ts";
