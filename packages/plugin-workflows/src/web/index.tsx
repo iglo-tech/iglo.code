@@ -1,6 +1,9 @@
 import type { WebPlugin } from "@t3tools/plugin-host-contract/web";
 import { createElement, lazy, Suspense } from "react";
-import { manifest, type WorkflowClient } from "../contracts.ts";
+import { manifest, type SchedulePayload, type WorkflowClient } from "../contracts.ts";
+
+/** The server target each workflow schedule dispatches to (see the manifest). */
+const scheduleTarget = "workflows.start";
 
 export { authoringTimings } from "./timings.ts";
 
@@ -20,6 +23,7 @@ const loadRuns = loader(() => import("./Runs.tsx"));
 const loadThread = loader(() => import("./ThreadContext.tsx"));
 const loadStart = loader(() => import("./Start.tsx"));
 const loadAttention = loader(() => import("./Attention.tsx"));
+const loadSchedule = loader(() => import("./Schedule.tsx"));
 /** Load the page modules ahead of navigation (for example on hover, or in tests). */
 export const preloadWorkflowPages = () =>
   Promise.all([
@@ -29,6 +33,7 @@ export const preloadWorkflowPages = () =>
     loadThread(),
     loadStart(),
     loadAttention(),
+    loadSchedule(),
   ]).then(() => undefined);
 const LibraryPageView = lazy(() =>
   loadLibrary().then((module) => ({ default: module.LibraryPageView })),
@@ -42,6 +47,12 @@ const ProjectStartDialog = lazy(() =>
 );
 const AttentionPageView = lazy(() =>
   loadAttention().then((module) => ({ default: module.AttentionPageView })),
+);
+const ScheduleEditorView = lazy(() =>
+  loadSchedule().then((module) => ({ default: module.ScheduleEditorView })),
+);
+const ScheduleHistoryView = lazy(() =>
+  loadSchedule().then((module) => ({ default: module.ScheduleHistoryView })),
 );
 const ThreadContextView = lazy(() =>
   loadThread().then((module) => ({ default: module.ThreadContextView })),
@@ -85,6 +96,24 @@ export const web: WebPlugin<WorkflowClient> = {
       link: (projectId) => ({ pageId: "workflows.runs", projectId, state: { start: "1" } }),
       // Opens over the chat view; only a started run navigates.
       dialog: ProjectStartDialog,
+    },
+  ],
+  scheduleTargets: [
+    {
+      id: scheduleTarget,
+      title: "Run a workflow",
+      editor: ScheduleEditorView,
+      history: ScheduleHistoryView,
+      // The host's common fields plus the payload the editor reported.
+      save: (client, { payload, ...input }) => {
+        const value = payload as SchedulePayload;
+        return client.schedule({
+          ...input,
+          definitionId: value.definitionId,
+          task: value.task,
+          workspace: value.workspace,
+        });
+      },
     },
   ],
   threadContext: [

@@ -315,3 +315,12 @@ export const PluginSchedule = Schema.Struct({
   lastError: Schema.NullOr(Schema.String),
 });
 export type PluginSchedule = typeof PluginSchedule.Type;
+/** One persisted dispatch receipt of a plugin schedule; the plugin owns the domain result. */
+export const PluginScheduleOccurrence = Schema.Struct({
+  /** The identity the target received; stable across redelivery. */
+  id: Schema.String,
+  startedAt: Schema.String,
+  status: Schema.Literals(["pending", "succeeded", "failed"]),
+  error: Schema.NullOr(Schema.String),
+});
+export type PluginScheduleOccurrence = typeof PluginScheduleOccurrence.Type;

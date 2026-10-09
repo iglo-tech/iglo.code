@@ -510,6 +510,7 @@ const layerUnusedScheduledTaskStub = Layer.succeed(
   ScheduledTaskService.ScheduledTaskService,
   ScheduledTaskService.ScheduledTaskService.of({
     lastOccurrence: () => Effect.succeed(null),
+    occurrences: () => Effect.succeed([]),
     list: () => Effect.succeed({ tasks: [] }),
     subscribeList: () => Stream.succeed({ tasks: [] }),
     upsert: () => Effect.die("ScheduledTaskService.upsert is unused in this test"),
@@ -666,6 +667,7 @@ describe("orchestrator MCP toolkit", () => {
             ScheduledTaskService.ScheduledTaskService,
             ScheduledTaskService.ScheduledTaskService.of({
               lastOccurrence: () => Effect.succeed(null),
+              occurrences: () => Effect.succeed([]),
               list: () => Ref.get(scheduledStore).pipe(Effect.map((tasks) => ({ tasks }))),
               subscribeList: () => Stream.empty,
               upsert: (input) =>

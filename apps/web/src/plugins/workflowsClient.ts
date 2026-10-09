@@ -9,6 +9,8 @@ import type {
   RemoveInput,
   ReplaceInput,
   SaveInput,
+  ScheduleHistoryInput,
+  ScheduleInput,
   StartSavedInput,
   WorkflowClient,
 } from "@t3tools/plugin-workflows/contracts";
@@ -180,6 +182,21 @@ const gate = createEnvironmentRpcCommand(connectionAtomRuntime, {
       Effect.andThen(requestGuarded("plugins.workflows.gate", input)),
     ),
 });
+const schedule = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.schedule",
+  tag: "plugins.workflows.schedule",
+  execute: (input: ScheduleInput) =>
+    authorize(input.environmentId, "plugins.workflows.schedule").pipe(
+      Effect.andThen(requestGuarded("plugins.workflows.schedule", input)),
+    ),
+});
+const scheduleHistory = createEnvironmentCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.schedule-history",
+  execute: (input: ScheduleHistoryInput) =>
+    authorize(input.environmentId, "plugins.workflows.schedule-history").pipe(
+      Effect.andThen(request("plugins.workflows.schedule-history", input)),
+    ),
+});
 const permissionsAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get) => ({
     save: get(save.permissionAtom(environmentId)),
@@ -190,6 +207,7 @@ const permissionsAtom = Atom.family((environmentId: EnvironmentId) =>
     retry: get(retry.permissionAtom(environmentId)),
     resume: get(resume.permissionAtom(environmentId)),
     gate: get(gate.permissionAtom(environmentId)),
+    schedule: get(schedule.permissionAtom(environmentId)),
   })),
 );
 
@@ -357,5 +375,8 @@ export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowCli
     retry: async (input) => settle(await retry.run(appAtomRegistry, target(input))),
     resume: async (input) => settle(await resume.run(appAtomRegistry, target(input))),
     gate: async (input) => settle(await gate.run(appAtomRegistry, target(input))),
+    schedule: async (input) => settle(await schedule.run(appAtomRegistry, target(input))),
+    scheduleHistory: async (input) =>
+      settle(await scheduleHistory.run(appAtomRegistry, target(input))),
   };
 }

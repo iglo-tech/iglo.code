@@ -107,7 +107,9 @@ it.live.each(["99-runnable", "100-runnable", "100-duplicate", "100-unavailable-p
             id: "schedule-target",
             title: "Schedule target",
             definitionId: "target",
-            input: {},
+            task: "",
+            workspace: "new-worktree",
+            enabled: true,
             schedule: { type: "interval", everyMs: 60_000 },
           })
           .pipe(Effect.result);
