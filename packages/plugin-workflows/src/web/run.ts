@@ -291,7 +291,9 @@ export function stepStates(run: {
  */
 export function takenEdges(
   definition: Definition,
-  trace: ReadonlyArray<Pick<Run["trace"][number], "nodeId" | "chosen" | "considered">>,
+  trace: ReadonlyArray<
+    Pick<Run["trace"][number], "nodeId" | "chosen" | "considered" | "repeatCount">
+  >,
 ): ReadonlySet<string> {
   const taken = new Set<string>();
   for (const item of trace) {
@@ -309,6 +311,9 @@ export function takenEdges(
       controls = controls.filter((candidate) => candidate.control === control);
     }
     for (const { control, route } of controls) {
+      // The engine records a repeat count exactly when the chosen route repeats, so a
+      // non-repeating route never lights a repeat route's At limit edge and vice versa.
+      if ((item.repeatCount === null) !== (route.repeat === undefined)) continue;
       if (route.to === item.chosen) taken.add(`${node.id}:${control}`);
       // An exhausted repeat records its At limit destination.
       else if (route.repeat?.atLimit === item.chosen) taken.add(`${node.id}:${control}.repeat`);
