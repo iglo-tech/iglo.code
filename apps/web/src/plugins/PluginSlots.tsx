@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, PluginPageState, PluginTarget, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
@@ -108,48 +108,58 @@ function EnvironmentPluginItems({
   const projectId = projectFor(route, environmentId);
   const { contributions } = usePluginContributions(environmentId);
   const environment = useEnvironment(environmentId);
-  const pathname = useLocation({ select: (location) => location.pathname });
+  const params = useParams({ strict: false });
   const { isMobile, setOpenMobile } = useSidebar();
-  return contributions.flatMap((plugin) =>
-    plugin.navigation
-      .filter((item) => plugin.context.descriptor.manifest.web.navigation.includes(item.id))
-      .map((item) => {
-        const label = labelEnvironment
-          ? `${item.title} · ${environment?.label ?? environmentId}`
-          : item.title;
-        const active = decodeURIComponent(pathname).startsWith(
-          `/plugins/${environmentId}/${plugin.manifest.id}/`,
-        );
-        return (
-          <SidebarMenuItem key={`${environmentId}:${item.id}`} className="shrink-0">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <SidebarMenuButton
-                    aria-label={label}
-                    size="icon"
-                    isActive={active}
-                    aria-current={active ? "page" : undefined}
-                    onClick={() => {
-                      if (isMobile) setOpenMobile(false);
-                      // Like project actions, entries open in the project the user is in.
-                      plugin.context.navigate(
-                        item.link.projectId === undefined && projectId !== undefined
-                          ? { ...item.link, projectId }
-                          : item.link,
-                      );
-                    }}
-                  >
-                    <PluginIcon name={item.icon} />
-                  </SidebarMenuButton>
-                }
-              />
-              <TooltipPopup side="top">{label}</TooltipPopup>
-            </Tooltip>
-          </SidebarMenuItem>
-        );
-      }),
-  );
+  return contributions.flatMap((plugin) => {
+    const entries = plugin.navigation.filter((item) =>
+      plugin.context.descriptor.manifest.web.navigation.includes(item.id),
+    );
+    // The current plugin page, from route params. An entry is active on its own page; on a
+    // page no entry links to (an editor reached from a library), the plugin's first entry is.
+    const page =
+      "pluginId" in params &&
+      params.pluginId === plugin.manifest.id &&
+      "environmentId" in params &&
+      params.environmentId === environmentId &&
+      "pageId" in params
+        ? params.pageId
+        : undefined;
+    const exact = entries.some((item) => item.link.pageId === page);
+    return entries.map((item, index) => {
+      const label = labelEnvironment
+        ? `${item.title} · ${environment?.label ?? environmentId}`
+        : item.title;
+      const active = page !== undefined && (exact ? item.link.pageId === page : index === 0);
+      return (
+        <SidebarMenuItem key={`${environmentId}:${item.id}`} className="shrink-0">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <SidebarMenuButton
+                  aria-label={label}
+                  size="icon"
+                  isActive={active}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => {
+                    if (isMobile) setOpenMobile(false);
+                    // Like project actions, entries open in the project the user is in.
+                    plugin.context.navigate(
+                      item.link.projectId === undefined && projectId !== undefined
+                        ? { ...item.link, projectId }
+                        : item.link,
+                    );
+                  }}
+                >
+                  <PluginIcon name={item.icon} />
+                </SidebarMenuButton>
+              }
+            />
+            <TooltipPopup side="top">{label}</TooltipPopup>
+          </Tooltip>
+        </SidebarMenuItem>
+      );
+    });
+  });
 }
 
 /** Plugin navigation as icon entries beside the sidebar's Settings, Pull Requests and Usage. */

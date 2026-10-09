@@ -5,7 +5,14 @@ import type { PageProps } from "./common.tsx";
 import { editableKinds, kindLabels, routeList, type EditableKind } from "./editing.ts";
 import { KindIcon } from "./kinds.tsx";
 
-export const stepButtonId = (nodeId: string) => `wf-step-${nodeId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+/**
+ * The focus target for a step (or reviewer lane) box. Step identities are already safe; lane
+ * ids carry a `/` that is escaped injectively, so `reviews/code` never meets `reviews-code`.
+ */
+export const stepButtonId = (nodeId: string) =>
+  `wf-step-${nodeId.replace(/[^a-zA-Z0-9-]/g, (char) =>
+    char === "_" ? "__" : `_x${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  )}`;
 const title = (definition: Definition, id: string) =>
   definition.nodes.find((node) => node.id === id)?.title ?? `${id} (missing)`;
 const editable = (node: Node) => (editableKinds as ReadonlyArray<string>).includes(node.kind);

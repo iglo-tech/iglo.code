@@ -4,6 +4,7 @@ import {
   CopyIcon,
   FileCodeIcon,
   FilePenLineIcon,
+  FolderIcon,
   PlusIcon,
   UploadIcon,
   WorkflowIcon,
@@ -13,6 +14,7 @@ import { useEffect, useState } from "react";
 import type { Definition, LibraryEntry, LibraryPage } from "../contracts.ts";
 import {
   draftKey,
+  ProjectsAlert,
   projectCrumb,
   projectDrafts,
   unusedWorkflowId,
@@ -176,36 +178,31 @@ function Library(props: PageProps) {
       <>
         {header}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {projects.error === null ? (
-            <Empty title="Choose a project" icon={<WorkflowIcon />}>
-              {(projects.projects ?? []).slice(0, 8).map((project) => (
-                <Button
-                  key={project.id}
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    props.navigate({ pageId: "workflows.library", projectId: project.id })
-                  }
-                >
-                  {project.title}
-                </Button>
-              ))}
-            </Empty>
-          ) : (
-            <div className="mx-auto w-full max-w-4xl px-5 pt-6 sm:px-6">
-              <Alert
-                variant="error"
-                title="Could not load projects"
-                actions={
-                  <Button size="xs" variant="outline" onClick={projects.retry}>
-                    Retry
-                  </Button>
-                }
-              >
-                {projects.error}
-              </Alert>
-            </div>
-          )}
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 pt-6 pb-12 sm:px-6">
+            <ProjectsAlert props={props} projects={projects} />
+            {projects.projects === null ? (
+              projects.error === null ? (
+                <p role="status" className="px-4 text-sm text-muted-foreground">
+                  Loading projects…
+                </p>
+              ) : null
+            ) : projects.projects.length === 0 ? (
+              <Empty title="No projects in this environment" icon={<WorkflowIcon />} />
+            ) : (
+              <ListGroup title="Choose a project">
+                {projects.projects.map((project) => (
+                  <ListRow
+                    key={project.id}
+                    title={project.title}
+                    leading={<FolderIcon />}
+                    onOpen={() =>
+                      props.navigate({ pageId: "workflows.library", projectId: project.id })
+                    }
+                  />
+                ))}
+              </ListGroup>
+            )}
+          </div>
         </div>
       </>
     );
@@ -274,6 +271,7 @@ function Library(props: PageProps) {
               </div>
             </ListGroup>
           )}
+          <ProjectsAlert props={props} projects={projects} />
           {actionError === null ? null : (
             <Alert variant="error" title="Not opened">
               {actionError}

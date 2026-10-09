@@ -14,22 +14,25 @@ import {
   useNodesInitialized,
   useReactFlow,
   useStore,
+  useStoreApi,
   type Edge,
   type EdgeProps,
   type Node as FlowCanvasNode,
   type NodeProps,
 } from "@xyflow/react";
 import { CircleAlertIcon } from "lucide-react";
-import { createContext, use, useEffect, useMemo, type CSSProperties } from "react";
+import { createContext, use, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { Definition, Problem } from "../contracts.ts";
 import { editableKinds, kindLabels } from "./editing.ts";
 import {
   flowGraph,
   layoutFlow,
+  layoutSignature,
   loopPath,
   repeatLoops,
   splinePath,
   type FlowEdge,
+  type FlowGraph,
   type FlowNode,
   type Point,
 } from "./flowGraph.ts";
@@ -79,8 +82,36 @@ const tileTone: Record<FlowNode["kind"], string> = {
 };
 const hiddenHandle: CSSProperties = { opacity: 0, pointerEvents: "none" };
 
-function StepCard({ data, width, height }: NodeProps<FlowCanvasNode<StepData, "step">>) {
+function StepCard({
+  data,
+  width,
+  height,
+  positionAbsoluteX,
+  positionAbsoluteY,
+}: NodeProps<FlowCanvasNode<StepData, "step">>) {
   const actions = use(GraphActionsContext);
+  const flow = useStoreApi();
+  const { setCenter } = useReactFlow();
+  // Keyboard focus on a box outside the visible canvas brings it into view at the same zoom.
+  const reveal = () => {
+    const {
+      transform: [x, y, zoom],
+      width: viewWidth,
+      height: viewHeight,
+    } = flow.getState();
+    const left = positionAbsoluteX * zoom + x;
+    const top = positionAbsoluteY * zoom + y;
+    if (
+      left >= 0 &&
+      top >= 0 &&
+      left + (width ?? 0) * zoom <= viewWidth &&
+      top + (height ?? 0) * zoom <= viewHeight
+    )
+      return;
+    void setCenter(positionAbsoluteX + (width ?? 0) / 2, positionAbsoluteY + (height ?? 0) / 2, {
+      zoom,
+    });
+  };
   const { node, selected, errors, warnings } = data;
   const removable = actions?.removable(node.id) ?? false;
   return (
@@ -131,6 +162,7 @@ function StepCard({ data, width, height }: NodeProps<FlowCanvasNode<StepData, "s
         id={stepButtonId(node.id)}
         aria-label={`${kindText(node.kind)}: ${node.title}`}
         aria-pressed={selected}
+        onFocus={reveal}
         aria-keyshortcuts={removable ? "Delete" : undefined}
         onKeyDown={(event) => {
           if (!removable || (event.key !== "Delete" && event.key !== "Backspace")) return;
@@ -273,6 +305,11 @@ const theme = {
   "--xy-edge-stroke-default": defaultStroke,
 } as CSSProperties;
 
+const laidOut = (graph: FlowGraph, key: string) => {
+  const layout = layoutFlow(graph);
+  return { key, layout, loops: repeatLoops(graph, layout) };
+};
+
 /**
  * Re-fit when steps are added or removed, once the new boxes are measured, and when the canvas
  * is resized (narrow layouts, the inspector opening).
@@ -308,7 +345,16 @@ export function Graph({
   readonly onRemove?: (stepId: string) => void;
 }) {
   const graph = useMemo(() => flowGraph(definition), [definition]);
-  const layout = useMemo(() => layoutFlow(graph), [graph]);
+  // Layout is keyed on structure, not on the definition object: edits that only change text
+  // (a step title, instructions) keep the previous layout instead of re-running dagre.
+  const key = layoutSignature(graph);
+  const [cached, setCached] = useState(() => laidOut(graph, key));
+  let current = cached;
+  if (cached.key !== key) {
+    current = laidOut(graph, key);
+    setCached(current);
+  }
+  const { layout, loops } = current;
   const counts = useMemo(() => {
     const byNode = new Map<string, { errors: number; warnings: number }>();
     for (const problem of problems) {
@@ -320,7 +366,6 @@ export function Graph({
     }
     return byNode;
   }, [problems]);
-  const loops = useMemo(() => repeatLoops(graph, layout), [graph, layout]);
   const nodes = useMemo<StepNode[]>(
     () => [
       ...graph.nodes.map((node): StepNode => {
@@ -332,9 +377,9 @@ export function Graph({
           position: layout.positions.get(node.id)!,
           width: size.width,
           height: size.height,
-          // Sizes are fixed by the layout. Controlled nodes are rebuilt on every change
-          // (selection, problems); without `measured`, React Flow treats rebuilt nodes as
-          // unmeasured, `useNodesInitialized` stays false and re-fitting never runs.
+          // Sizes come from the layout. These controlled nodes are rebuilt on every change, and
+          // React Flow treats a rebuilt node without `measured` as unmeasured until it resizes,
+          // which these never do; declaring the size keeps the view ready to re-fit.
           measured: size,
           data: {
             node,
