@@ -11,91 +11,6 @@ orchestrator independent of the platform implementation. An adapter change must
 preserve those behaviors rather than spread direct Bun calls through features.
 Vite+/pnpm and their Node contributor toolchain are a separate concern.
 
-## Native boundary decisions
-
-### HTTP and WebSockets: retained
-
-[#20](https://github.com/iglo-tech/iglo.code/issues/20) retains the Effect Node HTTP
-and `ws`-compatibility transport in [server.ts](../../apps/server/src/server.ts).
-On Bun 1.4.2, `Bun.serve` strips supplied `Content-Length` from streamed bodies,
-including 206 ranges and raw compressed bodies. Buffering entire files would lose
-streaming/backpressure; reopening validated paths would lose file identity.
-Held-descriptor `Bun.file(fd).slice(a, b)` is no workaround: under `Bun.serve` it
-sends the slice with the full-file length. Reopen when a supported Bun pin fixes
-both framing defects; the unexplained dedicated-versus-shared compressor wire-byte
-difference recorded in #20 must also be resolved before adoption.
-
-Retention leaves a known incompatibility: Bun's `ws` compatibility path does not
-negotiate requested permessage-deflate, so RPC frames reach remote, relay and
-tunnel clients uncompressed. That problem remains unowned. Any replacement must
-preserve RPC compression benefits and [Browser streams](../../apps/server/src/preview/ServerBrowserStream.ts)
-with uncompressed JPEG frames, bounded pending bytes and immediate slow-viewer
-cleanup; changing only the bootstrap layer is insufficient.
-
-### File operations: inconclusive
-
-[#21](https://github.com/iglo-tech/iglo.code/issues/21) keeps the existing read/write
-paths. Callback spans include worker queueing and event-loop scheduling, so their
-upper bounds do not establish intrinsic file cost. Attachment totals also include
-the retained HTTP file-response implementation, outside this decision's scope.
-Workspace FileHandle/promises reads, media validation and service writes lack
-complete coverage. Native HTTP file responses remain outside scope while HTTP is
-retained. The descriptor-slice failure above proves a transport-framing defect,
-not a read/write incompatibility outside `Bun.serve`.
-
-Reopen for a reproduced in-scope incompatibility or bounded source/actual-archive
-attribution that separates intrinsic work from scheduling, covers the selected
-owners and missing FileHandle/promises/stream operations, records drained bytes,
-and establishes at least 5% cost in a declared end-to-end workload. Validated
-[media](../../apps/server/src/assets/MediaFile.ts) and static reads must keep their
-held descriptors, identity checks and cancellation cleanup; never reopen a path
-merely to use `Bun.file`.
-
-### SQLite: retained
-
-[#22](https://github.com/iglo-tech/iglo.code/issues/22) retains
-[nodeSqliteClient.ts](../../packages/shared/src/nodeSqliteClient.ts). On the
-measured macOS arm64 source runtime, `node:sqlite` and `bun:sqlite` share the same
-SQLite source ID and compile options; changing bindings does not change the
-engine. Even removing all attributed synchronous SQLite work falls below D1's
-compatibility range in both source and archive evidence. Separate replay deltas
-changed sign. These are screening observations from distinct runs, not a universal
-wall-time ceiling; archive/Linux engine identity remains unmeasured.
-
-Reopen for a reproduced compatibility defect, differing engine metadata on a
-supported pin/target, or a fresh compatibility batch whose range is below its
-attributed SQLite union with a separate replay showing a binding delta of at least
-5% of the end-to-end median. D2 may motivate reopening but cannot replace D1's
-adoption metric. Establish catalog owner policy first: binding foreign-key
-defaults differ, and core pragmas must not be generalized to plugin/catalog
-databases. Matching engine metadata does not prove shared in-process locking
-state; preserve binding ownership, atomic core persistence and separate plugin
-transactions.
-
-### Subprocesses: retained spawner, inconclusive shell and launcher
-
-[#23](https://github.com/iglo-tech/iglo.code/issues/23) retains the Effect spawner
-at environment-server and standalone-CLI composition, including provider CLI
-consumers. Bun's `child_process` already uses native spawning. All observed P1
-server CPU is below P1's compatibility wall-time range in both build forms;
-resolving the exact spawner share alone cannot change that screening result.
-This does not bound non-CPU waiting or establish coverage of active provider turns.
-Reopen for a reproduced in-scope defect, or a fresh preregistered source/archive
-P1 (or representative added workload) batch whose range is below its server CPU
-and whose resolved spawner share is at least 5%. An added workload cannot override
-unchanged nonqualifying P1 evidence.
-
-Synchronous [login-shell/service-manager reads](../../packages/shared/src/shell.ts)
-and the [launcher's server-child spawn](../../apps/server/src/serviceLauncher.ts)
-remain **inconclusive**: operation-specific latency and parent cost are unmeasured;
-P1 and functional lifecycle fixtures do not supply those fractions. Reopen either
-for a reproduced in-scope defect or a declared source/archive workload resolving
-at least 5% attributable parent cost. For shell reads, separate parent work from
-child shell/manager execution. For launcher launch/handoff/rollback, use owned
-disposable service identities and separate spawn/IPC/exit work from child startup,
-intentional delays and staging/marker/backup I/O. Staging/marker files stay unchanged
-unless separately attributed; preserve same-protocol IPC, handoff and rollback.
-
 Effect's read-only reference under `.repos/effect-smol` contains `BunHttpServer` and a
 `sql-sqlite-bun` adapter; inspect them before inventing equivalents. Check their
 implementation and compatibility against the dependency version being adopted.
@@ -104,6 +19,68 @@ the shared Node filesystem implementation, and its sibling
 `BunChildProcessSpawner.ts` re-exports the shared Node spawner. Switching to
 `BunServices` alone therefore does not migrate those operations to `Bun.file` or
 `Bun.spawn`.
+
+## Native boundary decisions
+
+### HTTP and WebSockets: retained
+
+[#20](https://github.com/iglo-tech/iglo.code/issues/20) retains the Effect Node HTTP
+and `ws`-compatibility transport in [server.ts](../../apps/server/src/server.ts).
+Bun 1.4.2 `Bun.serve` strips supplied `Content-Length` from streamed bodies,
+including 206 and raw compressed responses; held-descriptor `Bun.file(fd).slice(a, b)` sends slice bytes
+with full-file length. Buffering loses streaming/backpressure; reopening loses
+file identity. Explain #20's dedicated/shared compressor wire-byte anomaly first.
+
+Reopen when a supported Bun pin fixes both framing defects, using the qualifying test in [#20](https://github.com/iglo-tech/iglo.code/issues/20).
+
+The retained permessage-deflate incompatibility remains unowned: remote/relay/tunnel
+RPC frames are uncompressed. Preserve compression benefits and [Browser streams](../../apps/server/src/preview/ServerBrowserStream.ts):
+uncompressed JPEG frames, bounded pending bytes and immediate slow-viewer cleanup.
+
+### File operations: inconclusive
+
+[#21](https://github.com/iglo-tech/iglo.code/issues/21) keeps existing read/write paths:
+callback bounds include queueing/scheduling; FileHandle/promises reads, validation
+and writes lack coverage. Retained HTTP file responses remain outside scope.
+The descriptor-slice failure is a `Bun.serve` framing defect; held-descriptor range
+reads outside `Bun.serve` are untested and a validated-descriptor read candidate must
+prove them first. [Media](../../apps/server/src/assets/MediaFile.ts) and static reads
+must keep held descriptors, identity checks and cancellation cleanup; never reopen
+validated paths to use `Bun.file`.
+
+Reopen for a reproduced in-scope incompatibility or resolved intrinsic cost, using the qualifying test in [#21](https://github.com/iglo-tech/iglo.code/issues/21).
+
+### SQLite: retained
+
+[#22](https://github.com/iglo-tech/iglo.code/issues/22) retains [nodeSqliteClient.ts](../../packages/shared/src/nodeSqliteClient.ts).
+`node:sqlite` and `bun:sqlite` share SQLite source ID/options on measured macOS arm64 source;
+switching bindings does not change that engine. Removing all attributed core-write
+SQLite work still falls below source/archive compatibility ranges; replay deltas
+change sign. Separate-run screening is not a universal wall-time ceiling;
+archive/Linux engine identity is unmeasured.
+Reports-resolve cannot replace the core-write adoption metric.
+
+Reopen for incompatibility, supported-target engine divergence or actionable binding cost, using the qualifying test in [#22](https://github.com/iglo-tech/iglo.code/issues/22).
+
+Establish catalog owner policy first: foreign-key defaults differ; core pragmas
+must not be generalized to plugin/catalog databases. Matching engines do not prove
+shared locking; preserve binding ownership, atomic core persistence and separate
+plugin transactions.
+
+### Subprocesses: retained spawner, inconclusive shell and launcher
+
+[#23](https://github.com/iglo-tech/iglo.code/issues/23) retains the Effect spawner.
+Bun `child_process` already spawns natively; Git-status server CPU is below its
+source/archive compatibility wall-time range. This does not bound non-CPU waiting
+or cover active provider turns.
+
+Reopen for an in-scope defect or actionable spawner cost, using the qualifying test in [#23](https://github.com/iglo-tech/iglo.code/issues/23).
+
+[Shell/service-manager reads](../../packages/shared/src/shell.ts) and [launcher spawn](../../apps/server/src/serviceLauncher.ts)
+remain inconclusive: operation latency and parent cost are unmeasured; Git-status
+and lifecycle fixtures supply neither. Preserve same-protocol IPC, handoff and rollback.
+
+Reopen either for an in-scope defect or resolved parent cost, using the qualifying test in [#23](https://github.com/iglo-tech/iglo.code/issues/23).
 
 ## Diagnostics and APIs already backed by Bun
 
@@ -139,7 +116,8 @@ forced collection is a diagnostic operation, not the normal memory baseline.
 The [#19 baseline/results](https://github.com/iglo-tech/iglo.code/issues/19#issuecomment-6069109408)
 and [immutable evidence](https://gist.github.com/Igloczek/caf01a93a62151222724aca1c6c26553/8cc8a719a3151dc9ca7f2728c3a2291056ef4758)
 cover Bun 1.4.2 at `d5cee2d8fa`, source and actual macOS arm64 archive. No adapter
-was accepted afterwards. Linux was never measured, and the dev-runner WebSocket
+was accepted afterwards; the [PR #15 measurements](https://gist.githubusercontent.com/Igloczek/1631efc0127b0ad05384482b494e14c6/raw/20b00dce23121c6ee958bf17a18033540313d6e4/bun-1.4.2-performance.md)
+record the Node-versus-Bun migration tradeoffs. Linux was never measured, and the dev-runner WebSocket
 upgrade timeout remains unresolved. These measurements retain their documented
 coverage/provenance limits and make no native replacement performance claim.
 

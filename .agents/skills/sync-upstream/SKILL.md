@@ -48,8 +48,8 @@ current when an authorized change replaces a decision.
   uses Bun histogram lateness and accounts for macOS sleep; stub utilization
   counters cannot gate warnings. Preserve focused runtime regression fixtures.
   Read [Bun runtime boundaries](../../../docs/internals/bun-runtime.md) when an
-  import changes platform adapters; it records native API candidates and the
-  constraints behind the retained compatibility APIs.
+  import changes platform adapters; it records retained and inconclusive boundary decisions
+  and the constraints behind the compatibility APIs.
 - **Fork installation and updates.** Default release downloads and lookups stay
   on `iglo-tech/iglo.code`; npm launchers/packages stay under
   `@iglo-tech/iglo-code`. Keep explicit mirror overrides and channel matching.
