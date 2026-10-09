@@ -5,16 +5,22 @@ import { flowGraph } from "./flowGraph.ts";
 import { stepStates, takenEdges } from "./run.ts";
 
 type Visit = Pick<Attempt, "nodeId" | "branchId" | "phase" | "generation">;
-type Routed = Pick<Run["trace"][number], "nodeId" | "chosen" | "considered">;
+type Routed = Pick<Run["trace"][number], "nodeId" | "chosen" | "considered" | "repeatCount">;
 const visit = (nodeId: string, phase: Attempt["phase"], branchId: string | null = null): Visit => ({
   nodeId,
   branchId,
   phase,
   generation: 1,
 });
-const routed = (nodeId: string, chosen: string, matched: ReadonlyArray<boolean> = []): Routed => ({
+const routed = (
+  nodeId: string,
+  chosen: string,
+  matched: ReadonlyArray<boolean> = [],
+  repeatCount: number | null = null,
+): Routed => ({
   nodeId,
   chosen,
+  repeatCount,
   considered: matched.map((value) => ({
     predicate: { op: "present", path: "x" },
     matched: value,
@@ -103,8 +109,8 @@ describe("taken routes", () => {
   it("lights the edges the recorded routing took, including an exhausted repeat's At limit", () => {
     const taken = takenEdges(developmentReview, [
       ...toGate.trace,
-      routed("rework", "implement"),
-      routed("rework", "human"),
+      routed("rework", "implement", [], 1),
+      routed("rework", "human", [], 1),
     ]);
     expect([...taken].sort()).toEqual(
       [
@@ -138,6 +144,26 @@ describe("taken routes", () => {
     );
     expect([...takenEdges(definition, [routed("check-result", "reviews", [true])])]).toEqual([
       "check-result:rules.0",
+    ]);
+  });
+
+  it("does not light a repeat's At limit edge when a plain route reaches the same step", () => {
+    // Approve goes to Done; Changes repeats back to work and, at its limit, also ends at Done.
+    const definition: Definition = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.id === "human" && node.kind === "human"
+          ? {
+              ...node,
+              approve: { to: "done" },
+              changes: { to: "implement", repeat: { max: 1, atLimit: "done" } },
+            }
+          : node,
+      ),
+    };
+    expect([...takenEdges(definition, [routed("human", "done")])]).toEqual(["human:approve"]);
+    expect([...takenEdges(definition, [routed("human", "done", [], 1)])]).toEqual([
+      "human:changes.repeat",
     ]);
   });
 });
