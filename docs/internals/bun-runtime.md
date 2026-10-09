@@ -131,8 +131,11 @@ The [#19 baseline/results](https://github.com/iglo-tech/iglo.code/issues/19#issu
 and [immutable evidence](https://gist.github.com/Igloczek/caf01a93a62151222724aca1c6c26553/8cc8a719a3151dc9ca7f2728c3a2291056ef4758)
 cover Bun 1.4.2 at `d5cee2d8fa`, source and actual macOS arm64 archive. No adapter
 was accepted afterwards; the [PR #15 measurements](https://gist.githubusercontent.com/Igloczek/1631efc0127b0ad05384482b494e14c6/raw/20b00dce23121c6ee958bf17a18033540313d6e4/bun-1.4.2-performance.md)
-record the Node-versus-Bun migration tradeoffs. Linux was never measured, and the dev-runner WebSocket
-upgrade timeout remains unresolved. These measurements retain their documented
+record the Node-versus-Bun migration tradeoffs. Linux was never measured. Source
+development transport checks wait for Vite's initial module-graph warm-up as well
+as backend pairing, because cold Vite work can starve the shared HTTP/WebSocket
+proxy; the single #19 timeout is consistent with this but could not be attributed
+from its log. These measurements retain their documented
 coverage/provenance limits and make no native replacement performance claim.
 
 Reopening authorizes triage, not adoption. Use a concrete incompatibility or
