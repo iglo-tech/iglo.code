@@ -1,8 +1,22 @@
-import { ArrowDownIcon, ArrowUpIcon, CornerDownRightIcon, Trash2Icon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CornerDownRightIcon,
+  RefreshCwIcon,
+  Trash2Icon,
+  Undo2Icon,
+} from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { Capabilities, Definition, Node, Problem } from "../contracts.ts";
 import type { PageProps } from "./common.tsx";
-import { editableKinds, kindLabels, routeList, type EditableKind } from "./editing.ts";
+import {
+  editableKinds,
+  kindLabels,
+  predicateSummary,
+  repeatBadge,
+  routeList,
+  type EditableKind,
+} from "./editing.ts";
 import { KindIcon } from "./kinds.tsx";
 
 /**
@@ -14,18 +28,28 @@ export const stepButtonId = (nodeId: string) =>
     char === "_" ? "__" : `_x${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
   )}`;
 const title = (definition: Definition, id: string) =>
-  definition.nodes.find((node) => node.id === id)?.title ?? `${id} (missing)`;
+  definition.nodes.find((node) => node.id === id)?.title || `${id} (missing)`;
+const exists = (definition: Definition, id: string) =>
+  definition.nodes.some((node) => node.id === id);
 const editable = (node: Node) => (editableKinds as ReadonlyArray<string>).includes(node.kind);
 
-/** Add a step: kinds this client authors are enabled; the rest stay visible but unavailable. */
+/**
+ * Add a step: only kinds this client authors and the environment advertises are enabled; the
+ * rest stay visible with the reason on hover. Until capabilities load, only agent steps and
+ * ends (which every backend runs) are offered.
+ */
 export function Palette({
   props,
   capabilities,
+  capabilitiesError,
+  onRetryCapabilities,
   disabled,
   onAdd,
 }: {
   readonly props: PageProps;
   readonly capabilities: Capabilities | null;
+  readonly capabilitiesError: string | null;
+  readonly onRetryCapabilities: () => void;
   readonly disabled: boolean;
   readonly onAdd: (kind: EditableKind) => void;
 }) {
@@ -34,14 +58,23 @@ export function Palette({
   return (
     <nav aria-label="Add a step" className="flex flex-col gap-0.5">
       {(Object.keys(kindLabels) as Array<Node["kind"]>).map((kind) => {
-        const supported = advertised === undefined || advertised.includes(kind);
+        const basic = kind === "agent" || kind === "end";
+        const supported = advertised === undefined ? basic : advertised.includes(kind);
         const authored = (editableKinds as ReadonlyArray<string>).includes(kind);
+        const reason = !authored
+          ? "Not editable in this version"
+          : advertised === undefined && !basic
+            ? "Loading step types…"
+            : !supported
+              ? "Not supported by this environment"
+              : undefined;
         return (
           <Button
             key={kind}
             variant="ghost"
             size="row"
-            disabled={disabled || !supported || !authored}
+            disabled={disabled || reason !== undefined}
+            {...(reason === undefined ? {} : { tooltip: reason })}
             onClick={() => onAdd(kind as EditableKind)}
           >
             <KindIcon kind={kind} />
@@ -49,6 +82,22 @@ export function Palette({
           </Button>
         );
       })}
+      {capabilities === null && capabilitiesError !== null ? (
+        <div role="alert" className="flex items-center gap-1 pl-2 text-xs text-destructive">
+          <span className="min-w-0 flex-1 truncate">
+            <props.Tooltip content={capabilitiesError}>Step types unavailable</props.Tooltip>
+          </span>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            ariaLabel="Retry loading step types"
+            tooltip="Retry"
+            onClick={onRetryCapabilities}
+          >
+            <RefreshCwIcon />
+          </Button>
+        </div>
+      ) : null}
     </nav>
   );
 }
@@ -165,17 +214,46 @@ export function RouteList({
             <ul className="flex flex-col pl-9 text-xs text-muted-foreground">
               {routes
                 .filter((route) => route.from.id === node.id)
-                .map((route) => (
-                  <li key={route.control} className="flex min-w-0 items-center gap-1.5 leading-5">
-                    <CornerDownRightIcon aria-hidden className="size-3 shrink-0 opacity-64" />
-                    <span className="truncate">
-                      {route.label} → {title(definition, route.to)}
-                      {route.repeat
-                        ? ` · repeat ×${route.repeat.max}, at limit → ${title(definition, route.repeat.atLimit)}`
-                        : ""}
-                    </span>
-                  </li>
-                ))}
+                .map((route) => {
+                  const rule =
+                    route.control.startsWith("rules.") &&
+                    (node.kind === "decision" || node.kind === "join")
+                      ? node.rules[Number(route.control.split(".")[1])]
+                      : undefined;
+                  const missing = !exists(definition, route.to);
+                  const Icon = route.repeat ? Undo2Icon : CornerDownRightIcon;
+                  return (
+                    <li key={route.control} className="flex min-w-0 items-center gap-1.5 leading-5">
+                      <Icon aria-hidden className="size-3 shrink-0 opacity-64" />
+                      <span className="shrink-0">{route.label}</span>
+                      {rule === undefined || route.condition === null ? null : (
+                        <>
+                          {" "}
+                          <span className="flex min-w-0">
+                            <props.Tooltip content={`If ${route.condition}`}>
+                              {predicateSummary(rule.when)}
+                            </props.Tooltip>
+                          </span>
+                        </>
+                      )}{" "}
+                      <span
+                        className={`shrink-0 ${missing ? "text-destructive" : "text-foreground"}`}
+                      >
+                        {route.repeat ? "↩" : "→"} {title(definition, route.to)}
+                      </span>
+                      {route.repeat ? (
+                        <>
+                          <Badge variant="info">{repeatBadge(route.repeat)}</Badge>
+                          <Badge
+                            variant={exists(definition, route.repeat.atLimit) ? "warning" : "error"}
+                          >
+                            at limit → {title(definition, route.repeat.atLimit)}
+                          </Badge>
+                        </>
+                      ) : null}
+                    </li>
+                  );
+                })}
             </ul>
           </li>
         );

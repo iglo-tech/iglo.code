@@ -304,6 +304,10 @@ export const fixture = Effect.gen(function* () {
     holdCheck: () => {
       checkExecution = Effect.never;
     },
+    /** Result the next check commands return. */
+    setCheck: (result: { exitCode: number; timedOut: boolean; stdout: string }) => {
+      checkExecution = Effect.succeed({ ...result, stderr: "" });
+    },
     threads,
     restart: Effect.gen(function* () {
       yield* runtime.close;

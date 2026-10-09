@@ -1073,6 +1073,10 @@ it.live(
         expect(buttons("Approve")).toHaveLength(1);
         expect(page()).not.toContain("Decide on the human gate");
         expect(page()).toContain("Work → Human review");
+        // A plain Next route carries no route badge in the history.
+        expect(
+          root().findAll((node) => node.type === pluginDesign.Badge && textOf(node) === "next"),
+        ).toHaveLength(0);
 
         // A failed run subscription keeps the snapshot visibly stale with actions held; Retry
         // resubscribes and reloads the run.

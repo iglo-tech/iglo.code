@@ -108,9 +108,13 @@ export interface PluginDesign {
     ControlProps & {
       readonly value: string;
       readonly onChange: (value: string) => void;
+      /** `sm` for dense rows such as a condition's field, operator and value. */
+      readonly size?: "sm" | "default";
       readonly options: ReadonlyArray<{
         readonly value: string;
         readonly label: string;
+        /** Trailing muted text in the list, such as a type; the trigger shows only the label. */
+        readonly detail?: string;
         readonly disabled?: boolean;
       }>;
     }
@@ -170,6 +174,7 @@ export interface PluginDesign {
     readonly value: string;
     readonly onChange: (value: string) => void;
     readonly options: ReadonlyArray<{ readonly value: string; readonly label: string }>;
+    readonly disabled?: boolean;
   }>;
   /** A status or failure notice with optional actions; `children` is the short detail. */
   readonly Alert: ComponentType<{
