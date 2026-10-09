@@ -2,10 +2,13 @@ import { describe, expect, it } from "vite-plus/test";
 import type { Attempt, Definition, Run } from "../contracts.ts";
 import { developmentReview } from "../examples.ts";
 import { flowGraph } from "./flowGraph.ts";
-import { stepStates, takenEdges } from "./run.ts";
+import { repeatEvidence, stepStates, takenEdges } from "./run.ts";
 
 type Visit = Pick<Attempt, "nodeId" | "branchId" | "phase" | "generation">;
-type Routed = Pick<Run["trace"][number], "nodeId" | "chosen" | "considered" | "repeatCount">;
+type Routed = Pick<
+  Run["trace"][number],
+  "nodeId" | "chosen" | "considered" | "repeatCount" | "route" | "repeat"
+>;
 const visit = (nodeId: string, phase: Attempt["phase"], branchId: string | null = null): Visit => ({
   nodeId,
   branchId,
@@ -165,5 +168,43 @@ describe("taken routes", () => {
     expect([...takenEdges(definition, [routed("human", "done", [], 1)])]).toEqual([
       "human:changes.repeat",
     ]);
+  });
+  it("matches the recorded route exactly, even when two routes share a destination", () => {
+    // Approve and Request changes both go to Done; only the recorded control lights.
+    const definition: Definition = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.id === "human" && node.kind === "human"
+          ? { ...node, approve: { to: "done" }, changes: { to: "done" } }
+          : node,
+      ),
+    };
+    expect([...takenEdges(definition, [{ ...routed("human", "done"), route: "changes" }])]).toEqual(
+      ["human:changes"],
+    );
+  });
+
+  it("lights a repeat's At limit edge at its limit and nothing when the run bound diverted it", () => {
+    const repeat = (outcome: "admitted" | "limit" | "visit-limit", chosen: string) => ({
+      ...routed("rework", chosen, [], 1),
+      route: "otherwise",
+      repeat: { max: 1, atLimit: "human", exhausted: outcome === "limit", outcome },
+    });
+    expect([...takenEdges(developmentReview, [repeat("admitted", "implement")])]).toEqual([
+      "rework:otherwise",
+    ]);
+    expect([...takenEdges(developmentReview, [repeat("limit", "human")])]).toEqual([
+      "rework:otherwise.repeat",
+    ]);
+    expect([...takenEdges(developmentReview, [repeat("visit-limit", "human")])]).toEqual([]);
+    expect(repeatEvidence(developmentReview, repeat("admitted", "implement"))).toMatchObject({
+      label: "repeat 1/1",
+      limit: false,
+    });
+    expect(repeatEvidence(developmentReview, repeat("limit", "human"))).toMatchObject({
+      label: "at limit",
+      limit: true,
+      detail: "1/1 repeats used · at limit → Human review",
+    });
   });
 });

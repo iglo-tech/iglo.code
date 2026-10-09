@@ -1,4 +1,4 @@
-import type { Attempt, Definition, Node, Predicate, Run, RunSummary, Value } from "../contracts.ts";
+import type { Attempt, Definition, Run, RunSummary } from "../contracts.ts";
 import { routeControls } from "../definition.ts";
 
 /** Presentation of server-owned run state. Nothing here evaluates routes or recovery rules. */
@@ -48,8 +48,21 @@ export const isActive = (attempt: Pick<Attempt, "phase">) =>
   !terminalPhases.includes(attempt.phase);
 
 /** Whether the backend accepted a report; a claim, never proof the work passed. */
-export function reportStatus(attempt: Pick<Attempt, "phase" | "report" | "check">): string {
-  if (attempt.check !== null) return "Check result recorded";
+export function reportStatus(
+  attempt: Pick<Attempt, "phase" | "report" | "check" | "threadId">,
+): string {
+  // The server records an interrupted placeholder when execution ended without a result.
+  if (attempt.check?.interrupted && attempt.check.exitCode === null)
+    return "No check result was retained; the check was interrupted, so it is neither a pass nor a failure";
+  if (attempt.check !== null)
+    return attempt.check.outcome === "unresolved"
+      ? "Check result unresolved; it is not a pass or a failure"
+      : `Check result recorded (${attempt.check.outcome})`;
+  // Checks are commands without a native thread; agents always have one.
+  if (attempt.threadId === null)
+    return isActive(attempt)
+      ? "Check is running; no result yet"
+      : "No check result was retained; routing stopped at this visit";
   if (attempt.report !== null) return `Report accepted (${attempt.report.outcome} claim)`;
   return isActive(attempt) ? "No report yet" : "No accepted report";
 }
@@ -68,64 +81,77 @@ export const attemptTitle = (
   return branch ? `${node!.title} · ${branch.title}` : (node?.title ?? attempt.nodeId);
 };
 
-const value = (input: Value) => (typeof input === "string" ? `"${input}"` : String(input));
-const comparisons: Record<string, string> = {
-  eq: "equals",
-  ne: "does not equal",
-  gt: "is greater than",
-  gte: "is at least",
-  lt: "is less than",
-  lte: "is at most",
-};
-/** The recorded predicate spelled out; its match result comes from the persisted trace. */
-export function predicateText(predicate: Predicate): string {
-  switch (predicate.op) {
-    case "all":
-    case "any":
-      return `${predicate.op === "all" ? "all of" : "any of"} (${(predicate.terms ?? [])
-        .map(predicateText)
-        .join("; ")})`;
-    case "present":
-      return `${predicate.path} is present`;
-    case "absent":
-      return `${predicate.path} is absent`;
-    case "in":
-      return `${predicate.path} is one of ${(predicate.values ?? []).map(value).join(", ")}`;
-    default:
-      return `${predicate.path} ${comparisons[predicate.op]} ${value(predicate.value!)}`;
+type TraceItem = Run["trace"][number];
+/**
+ * What happened to a recorded repeat, as a short badge with its detail on hover. The bound
+ * and outcome are what the server recorded; records from before they were kept show the
+ * counter alone rather than guessing the route.
+ */
+export function repeatEvidence(
+  definition: Definition,
+  item: Pick<TraceItem, "repeatCount" | "repeat" | "chosen">,
+): { readonly label: string; readonly limit: boolean; readonly detail: string } | null {
+  if (item.repeatCount === null) return null;
+  if (item.repeat === undefined)
+    return { label: `repeat ${item.repeatCount}`, limit: false, detail: "Repeat counter" };
+  const { max, atLimit, exhausted } = item.repeat;
+  const used = `${item.repeatCount}/${max}`;
+  switch (item.repeat.outcome ?? (exhausted ? "limit" : "admitted")) {
+    case "limit":
+      return {
+        label: "at limit",
+        limit: true,
+        detail: `${used} repeats used · at limit → ${nodeTitle(definition, atLimit)}`,
+      };
+    case "visit-limit":
+      return {
+        label: "not repeated",
+        limit: true,
+        detail: `Run visit limit reached · ${used} repeats used · → ${nodeTitle(definition, item.chosen)}`,
+      };
+    case "automation-stopped":
+      return {
+        label: "not repeated",
+        limit: true,
+        detail: `Automation stopped · ${used} repeats used · → ${nodeTitle(definition, item.chosen)}`,
+      };
+    case "admitted":
+      return {
+        label: `repeat ${used}`,
+        limit: false,
+        detail: `Visit ${item.repeatCount + 1} of up to ${max + 1} · at limit → ${nodeTitle(definition, atLimit)}`,
+      };
   }
 }
 
-/**
- * The authored repeat route behind a recorded edge (`to` is its normal destination), so a
- * counter can be shown against its limit and an at-limit exit told apart.
- */
-export function repeatLimit(definition: Definition, from: string, to: string) {
-  const node = definition.nodes.find((node) => node.id === from);
-  if (node === undefined) return null;
-  const routes = routesOf(node);
-  // An exhausted repeat records its at-limit destination as the chosen edge.
-  return (
-    routes.flatMap((route) =>
-      route.repeat && (route.to === to || route.repeat.atLimit === to)
-        ? [{ ...route.repeat, to: route.to }]
-        : [],
-    )[0] ?? null
-  );
+const routeNames: Record<string, string> = {
+  next: "next",
+  onUnresolved: "unresolved",
+  otherwise: "otherwise",
+  approve: "approve",
+  changes: "changes",
+};
+/** The authored route a trace record says fired (`rule 1`, `otherwise`…), when recorded. */
+export function routeLabel(item: Pick<TraceItem, "route">): string | null {
+  if (item.route === undefined) return null;
+  const rule = /^rules\.(\d+)$/.exec(item.route);
+  return rule ? `rule ${Number(rule[1]) + 1}` : (routeNames[item.route] ?? item.route);
 }
-function routesOf(node: Node) {
-  switch (node.kind) {
-    case "agent":
-    case "check":
-      return [node.next, ...(node.onUnresolved ? [node.onUnresolved] : [])];
-    case "decision":
-    case "join":
-      return [...node.rules.map((rule) => rule.route), node.otherwise];
-    case "human":
-      return [node.approve, node.changes];
-    default:
-      return [];
-  }
+
+/**
+ * A gate decision the server withheld, from the reason it recorded with the run. The
+ * remaining choices are the allowed actions; no route is evaluated here.
+ */
+export function withheldNotice(
+  definition: Definition,
+  item: NonNullable<Run["withheld"]>[number],
+): { readonly title: string; readonly detail: string } {
+  return {
+    title: `${item.action === "approve" ? "Approve" : "Request changes"} unavailable`,
+    detail: `${item.repeat ? "↩" : "→"} ${nodeTitle(definition, item.to)} · ${
+      item.cause === "visit-limit" ? "run visit limit reached" : "automation stopped"
+    }`,
+  };
 }
 
 /** What the user can do next, read from the server's state and allowed actions. */
@@ -284,21 +310,34 @@ export function stepStates(run: {
 }
 
 /**
- * The drawn edges (by `flowGraph` edge id) that recorded routing decisions took. The trace
- * names the step and destination; a decision's rule is identified by the first matching
- * condition it recorded (rules are evaluated in order), so two rules to the same step stay
- * distinct. Other steps' routes are told apart by destination, as that is all the trace keeps.
+ * The drawn edges (by `flowGraph` edge id) that recorded routing decisions took. Records name
+ * the authored route that fired, so it is matched exactly; a repeat that hit its limit took
+ * its At limit edge, and one diverted by the run's own bound took no drawn edge. Records from
+ * before routes were kept fall back to the first matching rule, then the destination.
  */
 export function takenEdges(
   definition: Definition,
   trace: ReadonlyArray<
-    Pick<Run["trace"][number], "nodeId" | "chosen" | "considered" | "repeatCount">
+    Pick<TraceItem, "nodeId" | "chosen" | "considered" | "repeatCount" | "route" | "repeat">
   >,
 ): ReadonlySet<string> {
   const taken = new Set<string>();
   for (const item of trace) {
     const node = definition.nodes.find((candidate) => candidate.id === item.nodeId);
     if (node === undefined) continue;
+    if (item.route !== undefined) {
+      const route = routeControls(node).find((candidate) => candidate.control === item.route);
+      if (route === undefined) continue;
+      const outcome =
+        item.repeat === undefined
+          ? null
+          : (item.repeat.outcome ?? (item.repeat.exhausted ? "limit" : "admitted"));
+      if (outcome === "limit") taken.add(`${node.id}:${item.route}.repeat`);
+      // A route the run's visit bound diverted went to the run's At limit, not its own target.
+      else if ((outcome ?? "admitted") === "admitted" && route.route.to === item.chosen)
+        taken.add(`${node.id}:${item.route}`);
+      continue;
+    }
     let controls = routeControls(node);
     if ((node.kind === "decision" || node.kind === "join") && item.considered.length > 0) {
       const matched = item.considered.findIndex((choice) => choice.matched);

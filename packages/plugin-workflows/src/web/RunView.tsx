@@ -21,6 +21,8 @@ import { errorMessage, rejected, useNarrow, type PageProps } from "./common.tsx"
 import { RouteList, stepButtonId } from "./Flow.tsx";
 import { Graph, type RunOverlay } from "./Graph.tsx";
 import { KindIcon, StatusIcon } from "./kinds.tsx";
+import { readsAs } from "./decisions.ts";
+import { sourceFields } from "../definition.ts";
 import {
   attemptTitle,
   clockTime,
@@ -33,15 +35,16 @@ import {
   nodeTitle,
   phaseLabels,
   phaseStatus,
-  predicateText,
-  repeatLimit,
+  repeatEvidence,
   reportStatus,
+  routeLabel,
   runStateLabels,
   runStateVariant,
   short,
   sourceText,
   stepStates,
   takenEdges,
+  withheldNotice,
   workspaceText,
 } from "./run.ts";
 
@@ -341,7 +344,7 @@ export function RunView({
     run.gate !== null &&
     gateNode !== null &&
     gateNode !== undefined &&
-    (allowed("approve") || allowed("request-changes"));
+    (allowed("approve") || allowed("request-changes") || (run.withheld ?? []).length > 0);
   const limit = definition.maxVisits ?? 100;
   const next = nextAction(run, active);
   const alerts = [
@@ -372,8 +375,21 @@ export function RunView({
           </>
         }
       >
-        {gateNode.title}
-        {gateReview ? ` · reviewed head ${short(gateReview.head)}` : ""}
+        <span className="flex flex-col gap-0.5">
+          <span>
+            {gateNode.title}
+            {gateReview ? ` · reviewed head ${short(gateReview.head)}` : ""}
+          </span>
+          {/* A decision the server withholds stays visible as the reason it is not offered. */}
+          {(run.withheld ?? []).map((item) => {
+            const notice = withheldNotice(definition, item);
+            return (
+              <span key={item.action} className="text-muted-foreground">
+                {notice.title} · {notice.detail}
+              </span>
+            );
+          })}
+        </span>
       </Alert>
     ) : null,
     recoverable ? (
@@ -409,9 +425,6 @@ export function RunView({
         {run.reason}
       </Alert>
     ),
-    run.automationStopped ? (
-      <Alert key="limit" variant="warning" title="Visit or repeat limit reached" />
-    ) : null,
     run.allowedActions.length > 0 && !run.allowedActions.some((action) => allowed(action)) ? (
       <Alert key="permission" variant="info" title="This connection cannot change workflow runs." />
     ) : null,
@@ -664,6 +677,7 @@ export function RunView({
           {view === "graph" ? (
             <div className="relative min-h-0 flex-1">
               <Graph
+                Tooltip={props.Tooltip}
                 definition={definition}
                 selected={selectedBox}
                 problems={[]}
@@ -1122,7 +1136,10 @@ function Inspector({
   );
 }
 
-/** A recorded routing decision as one timeline row; the server's reason is on hover. */
+/**
+ * A recorded routing decision as one timeline row: the route that fired and any repeat
+ * outcome as badges, the server's reason on hover. `detailed` adds the conditions considered.
+ */
 function RouteRow({
   props,
   definition,
@@ -1134,53 +1151,83 @@ function RouteRow({
   readonly item: Run["trace"][number];
   readonly detailed?: boolean;
 }) {
-  const { Badge } = props;
-  const limit = repeatLimit(definition, item.nodeId, item.chosen);
-  const atLimit = limit !== null && item.chosen === limit.atLimit && item.chosen !== limit.to;
-  const Icon = atLimit
+  const { Badge, Tooltip } = props;
+  // A plain Next route needs no badge; rules, Otherwise and gate decisions do.
+  const route = item.route === "next" ? null : routeLabel(item);
+  const repeat = repeatEvidence(definition, item);
+  const Icon = repeat?.limit
     ? TriangleAlertIcon
-    : item.repeatCount !== null
+    : repeat !== null
       ? RepeatIcon
       : CornerDownRightIcon;
+  const from = definition.nodes.find((node) => node.id === item.nodeId);
+  // Fields of the snapshot the decision read; only used to word the recorded conditions.
+  const fields =
+    detailed && (from?.kind === "decision" || from?.kind === "join")
+      ? sourceFields(
+          from.kind === "join" ? from : definition.nodes.find((node) => node.id === from.source),
+          definition,
+        )
+      : null;
+  const otherwise = item.route === "otherwise";
   return (
     <li className="flex min-w-0 flex-col gap-0.5">
       <div className="flex min-w-0 items-center gap-1.5">
         <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="flex min-w-0">
-          <props.Tooltip content={item.reason}>
+          <Tooltip content={item.reason}>
             {nodeTitle(definition, item.nodeId)} → {nodeTitle(definition, item.chosen)}
-          </props.Tooltip>
-        </span>
-        {atLimit ? (
-          <Badge variant="warning">at limit</Badge>
-        ) : item.repeatCount !== null ? (
-          <Badge variant="info">
-            repeat {item.repeatCount}
-            {limit ? `/${limit.max}` : ""}
-          </Badge>
-        ) : null}
-        <span className="ml-auto flex shrink-0 tabular-nums text-muted-foreground">
-          <props.Tooltip content={formatTime(item.at)}>{clockTime(item.at)}</props.Tooltip>
+          </Tooltip>
         </span>
       </div>
-      {detailed && item.considered.length ? (
+      <div className="flex min-w-0 items-center gap-1.5 pl-5">
+        {route === null ? null : <Badge variant="outline">{route}</Badge>}
+        {repeat === null ? null : (
+          <span className="flex shrink-0">
+            <Tooltip content={repeat.detail}>
+              <Badge variant={repeat.limit ? "warning" : "info"}>{repeat.label}</Badge>
+            </Tooltip>
+          </span>
+        )}
+        <span className="ml-auto flex shrink-0 tabular-nums text-muted-foreground">
+          <Tooltip content={formatTime(item.at)}>{clockTime(item.at)}</Tooltip>
+        </span>
+      </div>
+      {detailed && repeat !== null && item.repeat !== undefined ? (
+        <p className="pl-5 text-muted-foreground">{repeat.detail}</p>
+      ) : null}
+      {detailed && (item.considered.length > 0 || otherwise) ? (
         <ul aria-label="Conditions considered" className="flex flex-col gap-0.5 pl-5">
-          {item.considered.map((choice) => (
-            <li
-              key={`${choice.matched}:${predicateText(choice.predicate)}`}
-              className="flex min-w-0 items-start gap-1.5 break-words"
-            >
-              {choice.matched ? (
-                <CheckIcon aria-hidden className="mt-0.5 size-3 shrink-0 text-success" />
-              ) : (
-                <XIcon aria-hidden className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
-              )}
-              <span>
-                <span className="sr-only">{choice.matched ? "Matched: " : "Did not match: "}</span>
-                {predicateText(choice.predicate)}
+          {item.considered.map((choice, index) => {
+            const text = readsAs(choice.predicate, fields);
+            return (
+              <li key={index} className="flex min-w-0 items-center gap-1.5">
+                {choice.matched ? (
+                  <CheckIcon aria-hidden className="size-3 shrink-0 text-success" />
+                ) : (
+                  <XIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+                )}
+                <span className="shrink-0 text-muted-foreground">
+                  Rule {index + 1}
+                  <span className="sr-only">
+                    {choice.matched ? " matched: " : " did not match: "}
+                  </span>
+                </span>
+                <span className="flex min-w-0">
+                  <Tooltip content={text}>{text}</Tooltip>
+                </span>
+              </li>
+            );
+          })}
+          {otherwise ? (
+            <li className="flex min-w-0 items-center gap-1.5">
+              <CheckIcon aria-hidden className="size-3 shrink-0 text-success" />
+              <span className="text-muted-foreground">
+                Otherwise
+                <span className="sr-only"> taken: no rule matched</span>
               </span>
             </li>
-          ))}
+          ) : null}
         </ul>
       ) : null}
     </li>
