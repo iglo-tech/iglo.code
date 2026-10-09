@@ -8,7 +8,6 @@ import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchRea
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 
-import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentHttpApi, type RepositoryIdentity } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -30,6 +29,7 @@ import * as ServerConfig from "./config.ts";
 import { withUntracedRequests } from "./http.ts";
 import * as ServerHttp from "./http.ts";
 import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
+import * as RpcHttpServer from "./rpcHttpServer.ts";
 import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -254,17 +254,10 @@ const layerRelayClient = Layer.unwrap(
 const layerHttpServer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
-    return NodeHttpServer.layer(() => guardHttpResponseWriteErrors(NodeHttp.createServer()), {
+    return RpcHttpServer.layer(() => guardHttpResponseWriteErrors(NodeHttp.createServer()), {
       host: config.host ?? "127.0.0.1",
       port: config.port,
       gracefulShutdownTimeout: HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS,
-      // Negotiate permessage-deflate with clients that offer it; clients
-      // that don't still get uncompressed frames on their connection.
-      // Context takeover stays enabled (ws default) so the compression
-      // window is shared across frames — that also makes small frames cheap
-      // to compress, so no size threshold is set (ws only honors
-      // `threshold` when context takeover is disabled).
-      websocket: { perMessageDeflate: true },
     });
   }),
 );

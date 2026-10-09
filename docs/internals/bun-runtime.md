@@ -25,17 +25,31 @@ the shared Node filesystem implementation, and its sibling
 ### HTTP and WebSockets: retained
 
 [#20](https://github.com/iglo-tech/iglo.code/issues/20) retains the Effect Node HTTP
-and `ws`-compatibility transport in [server.ts](../../apps/server/src/server.ts).
+and `ws`-compatibility transport in [server.ts](../../apps/server/src/server.ts)
+and [rpcHttpServer.ts](../../apps/server/src/rpcHttpServer.ts).
 Bun 1.4.2 `Bun.serve` strips supplied `Content-Length` from streamed bodies,
 including 206 and raw compressed responses; held-descriptor `Bun.file(fd).slice(a, b)` sends slice bytes
 with full-file length. Buffering loses streaming/backpressure; reopening loses
-file identity. Explain #20's dedicated/shared compressor wire-byte anomaly first.
+file identity.
 
 Reopen when a supported Bun pin fixes both framing defects, using the qualifying test in [#20](https://github.com/iglo-tech/iglo.code/issues/20).
 
-The retained permessage-deflate incompatibility remains unowned: remote/relay/tunnel
-RPC frames are uncompressed. Preserve compression benefits and [Browser streams](../../apps/server/src/preview/ServerBrowserStream.ts):
-uncompressed JPEG frames, bounded pending bytes and immediate slow-viewer cleanup.
+RPC upgrades use the actual `ws` package through the fork-owned
+[rpcHttpServer.ts](../../apps/server/src/rpcHttpServer.ts) adapter; its package alias
+bypasses Bun 1.4.2's built-in `ws` shim, which ignores deflate negotiation. Browsers
+negotiate permessage-deflate without client changes. HTTP and non-RPC upgrades,
+including [Browser streams](../../apps/server/src/preview/ServerBrowserStream.ts),
+retain their platform: JPEG frames stay uncompressed, with bounded pending bytes
+and immediate slow-viewer cleanup.
+
+The platform-node upgrade patch skips HTTP response writes after upgrade: under
+Bun, even an unassigned `ServerResponse.end()` can inject HTTP bytes into the RPC
+WebSocket stream. Keep the raw close-handshake regression when updating Effect.
+
+The #20 compressor anomaly came from Bun's native handshake reducing dedicated
+compressors to the 3 KiB setting through an overlapping enum bitmask. Its
+512-byte window and memory level 1 reproduce the 53,245-byte result; shared
+libdeflate produces 12,974 bytes. RPC uses neither native compressor path.
 
 ### File operations: inconclusive
 
