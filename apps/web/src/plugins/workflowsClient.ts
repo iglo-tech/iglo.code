@@ -1,26 +1,35 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import type {
   CatalogEntry,
+  GateInput,
+  CommandInput,
   LibraryInput,
+  PreviewInput,
   ReadInput,
   ReplaceInput,
+  RunInput,
   SaveInput,
+  StartSavedInput,
+  ThreadInput,
   WorkflowClient,
 } from "@t3tools/plugin-workflows/contracts";
+import { PluginError } from "@t3tools/contracts";
 import type { ProjectId, ProviderInstanceId } from "@t3tools/plugin-host-contract/schema";
-import { request, requestGuarded } from "@t3tools/client-runtime/rpc";
+import { request, requestGuarded, subscribe } from "@t3tools/client-runtime/rpc";
 import {
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
+  followStreamInEnvironment,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import * as Stream from "effect/Stream";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import { Atom } from "effect/reactivity";
+import { Atom, type AsyncResult } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { authorizePluginApi } from "./runtime";
+import { authorizePluginApi, availableCatalogAtom } from "./runtime";
 
 const plugin = { id: "workflows", displayName: "Workflows" };
 const settle = <A, E>(result: AtomCommandResult<A, E>): A => {
@@ -96,12 +105,187 @@ const replace = createEnvironmentRpcCommand(connectionAtomRuntime, {
       Effect.andThen(requestGuarded("plugins.workflows.replace", input)),
     ),
 });
+const preview = createEnvironmentCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.preview",
+  execute: (input: PreviewInput) =>
+    authorize(input.environmentId, "plugins.workflows.preview").pipe(
+      Effect.andThen(request("plugins.workflows.preview", input)),
+    ),
+});
+const runs = createEnvironmentCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.list",
+  execute: (input: {
+    environmentId: EnvironmentId;
+    projectId: ProjectId;
+    before?: string | undefined;
+  }) =>
+    authorize(input.environmentId, "plugins.workflows.list").pipe(
+      Effect.andThen(request("plugins.workflows.list", input)),
+    ),
+});
+const startSaved = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.launch",
+  tag: "plugins.workflows.launch",
+  execute: (input: StartSavedInput) =>
+    authorize(input.environmentId, "plugins.workflows.launch").pipe(
+      Effect.andThen(requestGuarded("plugins.workflows.launch", input)),
+    ),
+});
+const cancel = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.cancel",
+  tag: "plugins.workflows.cancel",
+  execute: (input: CommandInput) =>
+    authorize(input.environmentId, "plugins.workflows.cancel").pipe(
+      Effect.andThen(requestGuarded("plugins.workflows.cancel", input)),
+    ),
+});
+const retry = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.retry",
+  tag: "plugins.workflows.retry",
+  execute: (input: CommandInput) =>
+    authorize(input.environmentId, "plugins.workflows.retry").pipe(
+      Effect.andThen(requestGuarded("plugins.workflows.retry", input)),
+    ),
+});
+const resume = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.resume",
+  tag: "plugins.workflows.resume",
+  execute: (input: CommandInput) =>
+    authorize(input.environmentId, "plugins.workflows.resume").pipe(
+      Effect.andThen(requestGuarded("plugins.workflows.resume", input)),
+    ),
+});
+const gate = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.gate",
+  tag: "plugins.workflows.gate",
+  execute: (input: GateInput) =>
+    authorize(input.environmentId, "plugins.workflows.gate").pipe(
+      Effect.andThen(requestGuarded("plugins.workflows.gate", input)),
+    ),
+});
 const permissionsAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get) => ({
     save: get(save.permissionAtom(environmentId)),
     replace: get(replace.permissionAtom(environmentId)),
+    start: get(startSaved.permissionAtom(environmentId)),
+    cancel: get(cancel.permissionAtom(environmentId)),
+    retry: get(retry.permissionAtom(environmentId)),
+    resume: get(resume.permissionAtom(environmentId)),
+    gate: get(gate.permissionAtom(environmentId)),
   })),
 );
+
+/** A still-published workflow API; a removed or downgraded plugin fails its streams. */
+/** Whether a workflow stream API is published; an unloaded catalog waits instead of failing. */
+const publication = (
+  catalog: ReturnType<typeof availableCatalogAtom> extends Atom.Atom<infer A> ? A : never,
+  environmentId: EnvironmentId,
+  method: string,
+) =>
+  catalog === null
+    ? "loading"
+    : catalog.environmentId === environmentId &&
+        catalog.plugins.some(
+          (item) =>
+            item.manifest.id === plugin.id &&
+            item.manifest.hostVersion === 1 &&
+            item.manifest.server.api.includes(method) &&
+            item.status === "available",
+        )
+      ? "published"
+      : "unpublished";
+const unpublished = () =>
+  Stream.fail(
+    new PluginError({
+      pluginId: plugin.id,
+      operation: "subscribe",
+      code: "unavailable",
+      message: "Workflows is unavailable or disconnected in this environment.",
+    }),
+  );
+// Keyed by the exact request so each view owns, and releases, its own subscription.
+const runsAtom = Atom.family((key: string) => {
+  const input = JSON.parse(key) as { environmentId: EnvironmentId; projectId: ProjectId };
+  return connectionAtomRuntime
+    .atom((get) =>
+      (() => {
+        const state = publication(
+          get(availableCatalogAtom(input.environmentId)),
+          input.environmentId,
+          "plugins.workflows.subscribe",
+        );
+        return state === "published"
+          ? followStreamInEnvironment(
+              input.environmentId,
+              subscribe("plugins.workflows.subscribe", input),
+            )
+          : state === "loading"
+            ? Stream.never
+            : unpublished();
+      })(),
+    )
+    .pipe(Atom.setIdleTTL(0));
+});
+const runAtom = Atom.family((key: string) => {
+  const input = JSON.parse(key) as RunInput;
+  return connectionAtomRuntime
+    .atom((get) =>
+      (() => {
+        const state = publication(
+          get(availableCatalogAtom(input.environmentId)),
+          input.environmentId,
+          "plugins.workflows.watch",
+        );
+        return state === "published"
+          ? followStreamInEnvironment(
+              input.environmentId,
+              subscribe("plugins.workflows.watch", input),
+            )
+          : state === "loading"
+            ? Stream.never
+            : unpublished();
+      })(),
+    )
+    .pipe(Atom.setIdleTTL(0));
+});
+const threadAtom = Atom.family((key: string) => {
+  const input = JSON.parse(key) as ThreadInput;
+  return connectionAtomRuntime
+    .atom((get) =>
+      (() => {
+        const state = publication(
+          get(availableCatalogAtom(input.environmentId)),
+          input.environmentId,
+          "plugins.workflows.thread",
+        );
+        return state === "published"
+          ? followStreamInEnvironment(
+              input.environmentId,
+              subscribe("plugins.workflows.thread", input),
+            )
+          : state === "loading"
+            ? Stream.never
+            : unpublished();
+      })(),
+    )
+    .pipe(Atom.setIdleTTL(0));
+});
+const listen = <A>(
+  atom: Atom.Atom<AsyncResult.AsyncResult<A, unknown>>,
+  onValue: (value: A) => void,
+  onError: (message: string) => void,
+) =>
+  appAtomRegistry.subscribe(
+    atom,
+    (result) => {
+      if (result._tag === "Success") onValue(result.value);
+      if (result._tag === "Failure") {
+        const error = Cause.squash(result.cause);
+        onError(error instanceof Error ? error.message : "The workflow subscription ended.");
+      }
+    },
+    { immediate: true },
+  );
 
 /** Every call is bound to one environment; a disconnected target fails instead of falling back. */
 export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowClient {
@@ -118,5 +302,31 @@ export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowCli
     capabilities: async (projectId) =>
       settle(await capabilities.run(appAtomRegistry, target({ projectId }))),
     skills: async (input) => settle(await skills.run(appAtomRegistry, target(input))),
+    preview: async (input) => settle(await preview.run(appAtomRegistry, target(input))),
+    startSaved: async (input) => settle(await startSaved.run(appAtomRegistry, target(input))),
+    runs: async (input) => settle(await runs.run(appAtomRegistry, target(input))),
+    subscribeRuns: (projectId, onRuns, onError) =>
+      listen(runsAtom(JSON.stringify({ environmentId, projectId })), onRuns, onError),
+    watchRun: (input, onRun, onError) =>
+      listen(
+        runAtom(
+          JSON.stringify({
+            environmentId,
+            projectId: input.projectId,
+            runId: input.runId,
+            ...(input.historyOffset === undefined ? {} : { historyOffset: input.historyOffset }),
+            ...(input.attemptId === undefined ? {} : { attemptId: input.attemptId }),
+            ...(input.traceOffset === undefined ? {} : { traceOffset: input.traceOffset }),
+          }),
+        ),
+        onRun,
+        onError,
+      ),
+    watchThread: (input, onLink, onError) =>
+      listen(threadAtom(JSON.stringify({ environmentId, ...input })), onLink, onError),
+    cancel: async (input) => settle(await cancel.run(appAtomRegistry, target(input))),
+    retry: async (input) => settle(await retry.run(appAtomRegistry, target(input))),
+    resume: async (input) => settle(await resume.run(appAtomRegistry, target(input))),
+    gate: async (input) => settle(await gate.run(appAtomRegistry, target(input))),
   };
 }

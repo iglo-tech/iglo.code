@@ -5,10 +5,25 @@ import type {
 } from "@t3tools/plugin-host-contract/web";
 import type { ProjectId } from "@t3tools/plugin-host-contract/schema";
 import { useEffect, useState, type ReactNode } from "react";
-import type { Definition, ProjectSummary, WorkflowClient } from "../contracts.ts";
+import type {
+  Definition,
+  ProjectSummary,
+  WorkflowClient,
+  WorkflowPermissions,
+} from "../contracts.ts";
 import { isDefinitionLike } from "./editing.ts";
 
 export type PageProps = PluginWebContext & { readonly client: WorkflowClient };
+/** Mutations stay unavailable until the environment grants them. */
+export const noPermissions: WorkflowPermissions = {
+  save: false,
+  replace: false,
+  start: false,
+  cancel: false,
+  retry: false,
+  resume: false,
+  gate: false,
+};
 
 export function errorMessage(cause: unknown): string {
   if (typeof cause === "object" && cause !== null && "message" in cause) {
@@ -22,6 +37,23 @@ export function errorCode(cause: unknown): string | null {
   if ((cause as { _tag?: unknown })._tag === "EnvironmentAuthorizationError") return "unauthorized";
   const code = (cause as { code?: unknown }).code;
   return typeof code === "string" ? code : null;
+}
+
+/**
+ * Only the workflow service's own refusal of `operation`, made after it consulted the command's
+ * stored result, proves nothing was committed. Transport, registry or client availability,
+ * authorization and service errors may follow a committed earlier send, so callers keep the
+ * request identity and its input for reconciliation.
+ */
+export function rejected(cause: unknown, operation: string): boolean {
+  if (typeof cause !== "object" || cause === null) return false;
+  const error = cause as { _tag?: unknown; pluginId?: unknown; operation?: unknown };
+  return (
+    error._tag === "PluginError" &&
+    error.pluginId === "workflows" &&
+    error.operation === operation &&
+    errorCode(cause) !== "service"
+  );
 }
 
 /** Narrow layouts move the palette and inspector into labeled sheets. */
@@ -110,6 +142,13 @@ export function ProjectsAlert({
       {projects.error}
     </props.Alert>
   );
+}
+
+/** Mirrors the host's permission grants for this environment. */
+export function usePermissions(client: WorkflowClient): WorkflowPermissions {
+  const [permissions, setPermissions] = useState<WorkflowPermissions>(noPermissions);
+  useEffect(() => client.subscribePermissions(setPermissions), [client]);
+  return permissions;
 }
 
 export function useProjects(props: PageProps) {

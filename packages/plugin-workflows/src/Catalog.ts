@@ -17,6 +17,7 @@ import * as Yaml from "yaml";
 import {
   Definition,
   limits,
+  type Agent,
   type AuthoringEntry,
   type Capabilities,
   type CatalogEntry,
@@ -30,6 +31,7 @@ import {
   type SaveInput,
   type ScopeInput,
   type Skill,
+  type StartPreview,
 } from "./contracts.ts";
 import { agentLocations, definitionDiagnostics } from "./definition.ts";
 import { digest, error, protect } from "./encoding.ts";
@@ -69,6 +71,14 @@ export class Catalog extends Context.Service<
     readonly projects: (input: {
       readonly environmentId: EnvironmentId;
     }) => Effect.Effect<ReadonlyArray<ProjectSummary>, PluginError>;
+    /**
+     * What starting a saved workflow would run, from cached discovery. Starting still
+     * re-resolves and rescans; this read never invalidates provider caches.
+     */
+    readonly preview: (
+      input: Scope,
+      definitionId: string,
+    ) => Effect.Effect<StartPreview, PluginError>;
     /** Resolve an authored snapshot for execution without applying public redaction. */
     readonly resolve: (
       input: Scope,
@@ -641,6 +651,78 @@ const make = Effect.gen(function* () {
         Effect.map((projects) => projects.map(({ id, title }) => ({ id, title }))),
       ),
     );
+  const preview = (input: Scope, definitionId: string) =>
+    protect(
+      "preview",
+      Effect.gen(function* () {
+        const entry = (yield* scan(input)).find(
+          (entry) => entry.definition?.id === definitionId && !entry.duplicate,
+        );
+        if (!entry?.definition)
+          return yield* error(
+            "preview",
+            "This workflow is no longer in the project catalog.",
+            "unavailable",
+          );
+        const shared = yield* discovery(input.projectId, false);
+        const validation = yield* evaluate(input, entry, shared);
+        const discovered = yield* shared.providers;
+        const providers = discovered._tag === "Success" ? discovered.success : [];
+        const workspace = yield* host.workspace(input.projectId);
+        const definition = entry.definition;
+        const agents = definition.nodes
+          .flatMap(
+            (
+              node,
+            ): ReadonlyArray<{
+              readonly node: Definition["nodes"][number];
+              readonly branch: { readonly id: string; readonly title: string } | null;
+              readonly agent: Agent;
+            }> =>
+              node.kind === "agent"
+                ? [{ node, branch: null, agent: node }]
+                : node.kind === "parallel"
+                  ? node.branches.map((branch) => ({ node, branch, agent: branch }))
+                  : [],
+          )
+          .map(({ node, branch, agent }) => ({
+            nodeId: node.id,
+            branchId: branch?.id ?? null,
+            title: branch ? `${node.title} · ${branch.title}` : node.title,
+            providerInstanceId: agent.modelSelection.instanceId,
+            providerName:
+              providers.find((provider) => provider.instanceId === agent.modelSelection.instanceId)
+                ?.displayName ?? null,
+            model: agent.modelSelection.model,
+            runtimeMode: agent.runtimeMode,
+            interactionMode: agent.interactionMode ?? ("default" as const),
+            skill: agent.skill ?? null,
+          }));
+        const texts = [
+          definition.title,
+          ...validation.reasons,
+          ...agents.map((agent) => agent.title),
+          workspace.path,
+          workspace.branch ?? "",
+        ];
+        const visible = [...(yield* Display.displayTexts(host, texts))];
+        return {
+          definitionId: definition.id,
+          title: visible.shift()!,
+          revision: definition.revision,
+          source: entry.source,
+          packaged: entry.packaged,
+          runnable: validation.runnable,
+          reasons: validation.reasons.map(() => visible.shift()!),
+          agents: agents.map((agent) => ({ ...agent, title: visible.shift()! })),
+          workspace: {
+            path: visible.shift()!,
+            branch: workspace.branch === null ? (visible.shift(), null) : visible.shift()!,
+            head: workspace.head,
+          },
+        } satisfies StartPreview;
+      }),
+    );
   const displayEntry = (entry: CatalogEntry) =>
     Display.displayCatalog(host, [entry]).pipe(Effect.map((entries) => entries[0]!));
   return Catalog.of({
@@ -661,6 +743,7 @@ const make = Effect.gen(function* () {
     capabilities,
     skills,
     projects,
+    preview,
     resolve: (input, definitionId) =>
       list(input, true).pipe(
         Effect.map((entries) => entries.find((entry) => entry.definition?.id === definitionId)),

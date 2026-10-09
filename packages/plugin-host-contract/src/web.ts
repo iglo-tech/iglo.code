@@ -115,10 +115,46 @@ export interface PluginDesign {
       }>;
     }
   >;
+  /**
+   * A searchable picker: a select-like trigger whose popup has a search field. With
+   * `onQueryChange` the plugin owns the search (for example a server query) and `options` are
+   * the results (keep the selected option among them so the trigger can name it); without it
+   * the host filters `options` by label.
+   */
+  readonly Combobox: ComponentType<
+    ControlProps & {
+      readonly value: string;
+      readonly onChange: (value: string) => void;
+      readonly options: ReadonlyArray<{
+        readonly value: string;
+        readonly label: string;
+        /** Trailing muted text, such as a revision. */
+        readonly detail?: string;
+        readonly disabled?: boolean;
+      }>;
+      /** Trigger text while nothing is selected. */
+      readonly placeholder?: string;
+      readonly searchPlaceholder?: string;
+      readonly emptyText?: string;
+      readonly query?: string;
+      readonly onQueryChange?: (query: string) => void;
+    }
+  >;
   readonly Badge: ComponentType<{
     readonly children: ReactNode;
     readonly variant?: "outline" | "secondary" | "info" | "success" | "warning" | "error";
   }>;
+  /**
+   * Supplementary text on hover and focus, such as the full value behind a truncated one.
+   * `children` is the visible trigger, truncated to its container.
+   */
+  readonly Tooltip: ComponentType<{ readonly content: ReactNode; readonly children: ReactNode }>;
+  /** A transient app toast for an outcome that needs no further action. */
+  readonly toast: (input: {
+    readonly title: string;
+    readonly description?: string;
+    readonly variant?: "success" | "info" | "warning" | "error";
+  }) => void;
   /** A host-owned icon, for icon buttons in host slots such as the chat header. */
   readonly Icon: ComponentType<{ readonly name: PluginIconName }>;
   /** An overflow (`…`) menu, or a menu behind custom trigger content. */
@@ -180,6 +216,19 @@ export interface PluginDesign {
   readonly PageHeader: ComponentType<{
     readonly breadcrumb: ReadonlyArray<PluginBreadcrumbItem>;
     readonly children?: ReactNode;
+  }>;
+  /**
+   * The app's modal dialog: a title, optional one-line description, a scrolling body and a
+   * footer for its actions. Closing (Escape, the close button, the backdrop) calls
+   * `onOpenChange(false)`; the plugin decides whether to close.
+   */
+  readonly Dialog: ComponentType<{
+    readonly open: boolean;
+    readonly onOpenChange: (open: boolean) => void;
+    readonly title: string;
+    readonly description?: string;
+    readonly footer?: ReactNode;
+    readonly children: ReactNode;
   }>;
   /** Labeled panel for narrow layouts; plugins render the same content inline when wide. */
   readonly Sheet: ComponentType<{

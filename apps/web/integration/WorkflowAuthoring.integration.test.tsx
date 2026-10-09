@@ -216,6 +216,8 @@ function track(client: WorkflowClient) {
   };
   const permissionWaiters: Array<(value: WorkflowPermissions) => void> = [];
   const wrapped: WorkflowClient = {
+    // Run APIs are not exercised by authoring; they pass through untracked.
+    ...client,
     subscribePermissions: (listener) =>
       client.subscribePermissions((value) => {
         listener(value);
