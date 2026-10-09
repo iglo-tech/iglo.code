@@ -8,11 +8,29 @@ import {
   InfoIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { Fragment, useEffect, useLayoutEffect, useRef, type ComponentProps } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { SettingsGroup } from "../components/settings/SettingsGroup";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../components/ui/alert";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxSearchInput,
+  ComboboxTrigger,
+} from "../components/ui/combobox";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../components/ui/dialog";
 import {
   Empty,
   EmptyContent,
@@ -25,6 +43,7 @@ import { Input } from "../components/ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../components/ui/menu";
 import {
   Select,
+  SelectButton,
   SelectItem,
   SelectPopup,
   SelectTrigger,
@@ -32,6 +51,7 @@ import {
 } from "../components/ui/select";
 import { Sheet, SheetHeader, SheetPopup, SheetTitle } from "../components/ui/sheet";
 import { Textarea } from "../components/ui/textarea";
+import { toastManager } from "../components/ui/toast";
 import { Toggle, ToggleGroup } from "../components/ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import {
@@ -212,6 +232,121 @@ function PageHeader({ breadcrumb, children }: ComponentProps<PluginDesign["PageH
   );
 }
 
+function PluginCombobox({
+  id,
+  ariaLabel,
+  ariaDescribedBy,
+  invalid,
+  disabled,
+  value,
+  onChange,
+  options,
+  placeholder,
+  searchPlaceholder = "Search…",
+  emptyText = "No matches",
+  query: controlledQuery,
+  onQueryChange,
+}: ComponentProps<PluginDesign["Combobox"]>) {
+  const [open, setOpen] = useState(false);
+  const [localQuery, setLocalQuery] = useState("");
+  const query = controlledQuery ?? localQuery;
+  const setQuery = onQueryChange ?? setLocalQuery;
+  const needle = query.trim().toLowerCase();
+  // A plugin-owned search already narrowed `options`; otherwise match labels here.
+  const shown =
+    onQueryChange !== undefined || needle === ""
+      ? options
+      : options.filter((option) => option.label.toLowerCase().includes(needle));
+  const values = shown.map((option) => option.value);
+  const selected = options.find((option) => option.value === value)?.label;
+  return (
+    <Combobox
+      items={values}
+      filteredItems={values}
+      autoHighlight
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setQuery("");
+      }}
+      value={value === "" ? null : value}
+      onValueChange={(next) => {
+        if (typeof next !== "string") return;
+        setOpen(false);
+        onChange(next);
+      }}
+      {...(disabled === undefined ? {} : { disabled })}
+    >
+      <ComboboxTrigger
+        id={id}
+        aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={invalid || undefined}
+        render={<SelectButton />}
+      >
+        {selected ?? <span className="text-muted-foreground">{placeholder ?? ""}</span>}
+      </ComboboxTrigger>
+      <ComboboxPopup className="flex w-(--anchor-width) min-w-72 flex-col">
+        <ComboboxSearchInput
+          placeholder={searchPlaceholder}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <ComboboxEmpty>{emptyText}</ComboboxEmpty>
+        <ComboboxList>
+          {shown.map((option, index) => (
+            <ComboboxItem
+              key={option.value}
+              index={index}
+              value={option.value}
+              {...(option.disabled === undefined ? {} : { disabled: option.disabled })}
+            >
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {option.detail === undefined ? null : (
+                <span className="shrink-0 text-xs text-muted-foreground">{option.detail}</span>
+              )}
+              <CheckIcon className={option.value === value ? "size-3.5" : "size-3.5 opacity-0"} />
+            </ComboboxItem>
+          ))}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
+  );
+}
+
+function PluginDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  footer,
+  children,
+}: ComponentProps<PluginDesign["Dialog"]>) {
+  // Without a document (server or test rendering) there is no portal layer; the dialog's
+  // content renders in place so it keeps its accessible name and controls.
+  if (typeof document === "undefined")
+    return open ? (
+      <div role="dialog" aria-label={title}>
+        <h2>{title}</h2>
+        {description === undefined ? null : <p>{description}</p>}
+        {children}
+        {footer}
+      </div>
+    ) : null;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {description === undefined ? null : <DialogDescription>{description}</DialogDescription>}
+        </DialogHeader>
+        <DialogPanel>{children}</DialogPanel>
+        {footer === undefined || footer === null ? null : <DialogFooter>{footer}</DialogFooter>}
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
 const alertIcons = {
   info: InfoIcon,
   warning: TriangleAlertIcon,
@@ -288,7 +423,25 @@ export const pluginDesign: PluginDesign = {
       </SelectPopup>
     </Select>
   ),
+  Combobox: PluginCombobox,
   Badge: ({ variant = "outline", children }) => <Badge variant={variant}>{children}</Badge>,
+  Tooltip: ({ content, children }) =>
+    // Without a window (server or test rendering) only the trigger content renders.
+    typeof window === "undefined" ? (
+      <span className="min-w-0 truncate">{children}</span>
+    ) : (
+      <Tooltip>
+        <TooltipTrigger render={<span className="min-w-0 truncate" />}>{children}</TooltipTrigger>
+        <TooltipPopup side="bottom">{content}</TooltipPopup>
+      </Tooltip>
+    ),
+  toast: ({ title, description, variant = "success" }) => {
+    toastManager.add({
+      type: variant,
+      title,
+      ...(description === undefined ? {} : { description }),
+    });
+  },
   Icon: PluginIcon,
   Menu: ({ ariaLabel, items, trigger, disabled }) => (
     <Menu>
@@ -425,6 +578,7 @@ export const pluginDesign: PluginDesign = {
     );
   },
   PageHeader,
+  Dialog: PluginDialog,
   Sheet: ({ open, onOpenChange, title, side = "right", children }) => (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPopup side={side}>

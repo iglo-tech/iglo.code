@@ -11,6 +11,8 @@ import {
   Capabilities,
   Skill,
   ProjectSummary,
+  StartPreview,
+  ThreadLink,
 } from "@t3tools/plugin-workflows/contracts";
 import { Host, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
@@ -37,6 +39,8 @@ const decodeReports = Schema.decodeUnknownEffect(Reports);
 const WorkflowRuns = Schema.Array(RunSummary);
 const CatalogEntries = Schema.Array(CatalogEntry);
 const decodeWorkflowRuns = Schema.decodeUnknownEffect(WorkflowRuns);
+const decodeWorkflowRun = Schema.decodeUnknownEffect(WorkflowRun);
+const decodeThreadLink = Schema.decodeUnknownEffect(Schema.NullOr(ThreadLink));
 
 /** Trusted server modules explicitly included in this build. An empty list is supported. */
 export class CompiledPlugins extends Context.Reference<ReadonlyArray<ServerPlugin>>(
@@ -100,6 +104,46 @@ const request = <I, S extends Schema.Top & { readonly DecodingServices: never }>
     ),
   );
 
+/** A plugin stream API whose items are re-decoded at the transport boundary. */
+const subscription = <A>(
+  registry: Registry.PluginRegistry["Service"],
+  id: string,
+  input: unknown,
+  decode: (value: unknown) => Effect.Effect<A, Schema.SchemaError>,
+) =>
+  Stream.unwrap(
+    registry.api(id).pipe(
+      Effect.map((api) => {
+        const result = api.invoke(input);
+        return Stream.isStream(result)
+          ? result
+          : Stream.fail(
+              new PluginError({
+                pluginId: "workflows",
+                code: "validation",
+                operation: id,
+                message: "This API was registered as a request instead of a subscription.",
+              }),
+            );
+      }),
+    ),
+  ).pipe(
+    Stream.mapEffect((result) =>
+      decode(result).pipe(
+        Effect.mapError(
+          (cause) =>
+            new PluginError({
+              pluginId: "workflows",
+              code: "validation",
+              operation: id,
+              message: "The plugin returned an invalid subscription response.",
+              cause,
+            }),
+        ),
+      ),
+    ),
+  );
+
 export const handlers = (registry: Registry.PluginRegistry["Service"]) => ({
   "plugins.catalog": (input: { readonly environmentId: string }) =>
     registry.catalog.pipe(
@@ -139,6 +183,14 @@ export const handlers = (registry: Registry.PluginRegistry["Service"]) => ({
     request(registry, workflowRpcs.projects._tag, input, Schema.Array(ProjectSummary)),
   [workflowRpcs.start._tag]: (input: typeof workflowRpcs.start.payloadSchema.Type) =>
     request(registry, workflowRpcs.start._tag, input, WorkflowRun),
+  [workflowRpcs.preview._tag]: (input: typeof workflowRpcs.preview.payloadSchema.Type) =>
+    request(registry, workflowRpcs.preview._tag, input, StartPreview),
+  [workflowRpcs.launch._tag]: (input: typeof workflowRpcs.launch.payloadSchema.Type) =>
+    request(registry, workflowRpcs.launch._tag, input, WorkflowRun),
+  [workflowRpcs.thread._tag]: (input: typeof workflowRpcs.thread.payloadSchema.Type) =>
+    subscription(registry, workflowRpcs.thread._tag, input, decodeThreadLink),
+  [workflowRpcs.watch._tag]: (input: typeof workflowRpcs.watch.payloadSchema.Type) =>
+    subscription(registry, workflowRpcs.watch._tag, input, decodeWorkflowRun),
   [workflowRpcs.get._tag]: (input: typeof workflowRpcs.get.payloadSchema.Type) =>
     request(registry, workflowRpcs.get._tag, input, WorkflowRun),
   [workflowRpcs.list._tag]: (input: typeof workflowRpcs.list.payloadSchema.Type) =>

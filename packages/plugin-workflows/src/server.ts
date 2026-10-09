@@ -56,6 +56,11 @@ export const plugin: ServerPlugin = {
       skills: (input: typeof rpcs.skills.payloadSchema.Type) => catalog.skills(input),
       projects: (input: typeof rpcs.projects.payloadSchema.Type) => catalog.projects(input),
       start: workflows.start,
+      preview: (input: typeof rpcs.preview.payloadSchema.Type) =>
+        catalog.preview(input, input.definitionId),
+      launch: workflows.startSaved,
+      watch: workflows.watch,
+      thread: workflows.thread,
       get: workflows.get,
       list: workflows.list,
       subscribe: workflows.subscribe,
