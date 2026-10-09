@@ -252,6 +252,8 @@ function track(client: WorkflowClient) {
     return promise;
   };
   const permissionWaiters: Array<(value: WorkflowPermissions) => void> = [];
+  // Projects the environment no longer lists, as after a project is deleted.
+  const removedProjects = new Set<string>();
   const wrapped: WorkflowClient = {
     ...client,
     subscribePermissions: (listener) =>
@@ -259,6 +261,13 @@ function track(client: WorkflowClient) {
         listener(value);
         for (const waiter of permissionWaiters.splice(0)) waiter(value);
       }),
+    projects: () =>
+      record(
+        "projects",
+        client
+          .projects()
+          .then((list) => list.filter((project) => !removedProjects.has(project.id))),
+      ),
     library: (input) => record("library", client.library(input)),
     preview: (input) => record("preview", client.preview(input)),
     scheduleHistory: (input) => record("history", client.scheduleHistory(input)),
@@ -279,6 +288,7 @@ function track(client: WorkflowClient) {
         await call.promise.catch(() => undefined);
       });
     },
+    removeProject: (id: string) => removedProjects.add(id),
     permissions: (predicate: (value: WorkflowPermissions) => boolean) =>
       new Promise<void>((resolve) => {
         const check = (value: WorkflowPermissions) =>
@@ -565,6 +575,12 @@ it.live(
           (node) => node.type === pluginDesign.Button && textOf(node) === "Open run",
         );
         expect(open).toHaveLength(2);
+        yield* promise(() => tracked.settle("projects"));
+        expect(
+          root()
+            .findAll((node) => node.type === pluginDesign.Button && textOf(node) === "Open run")
+            .every((node) => node.props.disabled === false),
+        ).toBe(true);
         yield* promise(() => act(async () => open[1]!.props.onClick()));
         const runs = (yield* first.rpc["plugins.workflows.list"]({
           environmentId: first.environmentId,
@@ -575,6 +591,18 @@ it.live(
           params: { environmentId: first.environmentId, pageId: "workflows.runs" },
           search: { pluginProjectId: projectId, pluginState: { run: oldest.id } },
         });
+
+        // A run whose project was removed from the environment cannot be opened.
+        tracked.removeProject(projectId);
+        yield* promise(() => show(history("3")));
+        yield* promise(() => tracked.settle("history"));
+        yield* promise(() => tracked.settle("projects"));
+        expect(page()).toContain("Its project is no longer in this environment.");
+        expect(
+          root().findAll(
+            (node) => node.type === pluginDesign.Button && textOf(node) === "Open run",
+          ),
+        ).toHaveLength(0);
 
         // Disconnected: the last history stays visible and is marked as possibly stale.
         yield* promise(() => show(history("2", "disconnected")));

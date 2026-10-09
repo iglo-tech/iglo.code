@@ -1,4 +1,9 @@
-import type { ScheduledTask } from "@t3tools/contracts";
+import {
+  MIN_SCHEDULED_TASK_INTERVAL_MS,
+  type ProjectId,
+  type ScheduledTask,
+  type ScheduledTaskUpsertSchedule,
+} from "@t3tools/contracts";
 import type {
   PluginScheduleTargetEditorProps,
   PluginScheduleTargetHistoryProps,
@@ -57,3 +62,57 @@ export const newPluginScheduleId = () =>
   `schedule-${Array.from(crypto.getRandomValues(new Uint8Array(12)), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("")}`;
+
+/** Plugin targets run at a time or on an interval; only prompts render a webhook request. */
+export const webhookAvailable = (targetId: string | null) => targetId === null;
+
+/**
+ * What the schedule editor saves for a plugin target: the host's common fields plus the
+ * payload the plugin's fields reported, or the reason it cannot be saved yet.
+ */
+export function pluginScheduleSubmission(input: {
+  readonly scheduleId: string;
+  readonly title: string;
+  /** Null unless the chosen project is one of the environment's projects. */
+  readonly projectId: ProjectId | null;
+  readonly schedule: ScheduledTaskUpsertSchedule | null;
+  readonly enabled: boolean;
+  readonly payload: PluginSchedulePayload | null;
+}):
+  | { readonly ok: true; readonly input: PluginScheduleTargetSaveInput }
+  | { readonly ok: false; readonly title: string; readonly description: string } {
+  const title = input.title.trim();
+  if (!title || input.projectId === null || input.payload === null)
+    return {
+      ok: false,
+      title: "Scheduled task is incomplete",
+      description: "Add a title, project, and what to run.",
+    };
+  const schedule = input.schedule;
+  if (schedule === null || schedule.type === "webhook")
+    return {
+      ok: false,
+      title: "Choose a schedule",
+      description: "Run this at a time or on an interval.",
+    };
+  if (
+    schedule.type === "interval" &&
+    (!Number.isSafeInteger(schedule.everyMs) || schedule.everyMs < MIN_SCHEDULED_TASK_INTERVAL_MS)
+  )
+    return {
+      ok: false,
+      title: "Invalid interval",
+      description: "Enter an interval of at least one minute.",
+    };
+  return {
+    ok: true,
+    input: {
+      id: input.scheduleId,
+      title,
+      projectId: input.projectId,
+      schedule,
+      enabled: input.enabled,
+      payload: input.payload,
+    },
+  };
+}
