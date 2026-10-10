@@ -303,6 +303,11 @@ export const Trace = Schema.Struct({
       ),
     }),
   ),
+  /**
+   * Set when the run's own bound sent this route to the run's At limit instead of where it
+   * leads: the whole-run visit limit or stopped automation. Absent otherwise and on older records.
+   */
+  diverted: Schema.optional(Schema.Literals(["visit-limit", "automation-stopped"])),
   at: Schema.Number,
 });
 export const ReviewSet = Schema.Struct({

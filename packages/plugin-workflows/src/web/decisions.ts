@@ -1,4 +1,4 @@
-import { limits, type Field, type Predicate, type Value } from "../contracts.ts";
+import { limits, type Definition, type Field, type Predicate, type Value } from "../contracts.ts";
 
 /**
  * Typed decision editing over the canonical predicate schema. Nothing here evaluates a
@@ -160,4 +160,28 @@ export function readsAs(
   return field !== undefined && !field.required
     ? `${compared} (false when ${path} is absent)`
     : compared;
+}
+
+/**
+ * Field picker labels: a field's own name when no other option shares it, otherwise its path,
+ * with a reviewer's field led by the reviewer's title.
+ */
+export function fieldLabels(
+  paths: ReadonlyArray<string>,
+  definition: Definition,
+): ReadonlyMap<string, string> {
+  const last = (path: string) => path.split(".").at(-1) ?? path;
+  const counts = new Map<string, number>();
+  for (const path of paths) counts.set(last(path), (counts.get(last(path)) ?? 0) + 1);
+  const branchTitle = (id: string) =>
+    definition.nodes
+      .flatMap((node) => (node.kind === "parallel" ? node.branches : []))
+      .find((branch) => branch.id === id)?.title ?? id;
+  return new Map(
+    paths.map((path) => {
+      if (counts.get(last(path)) === 1) return [path, last(path)];
+      const branch = /^branches\.([^.]+)\.(.+)$/.exec(path);
+      return [path, branch ? `${branchTitle(branch[1]!)} · ${branch[2]}` : path];
+    }),
+  );
 }

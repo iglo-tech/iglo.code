@@ -136,11 +136,12 @@ export function repeatEvidence(
 
 type RecordedRoute = Pick<
   TraceItem,
-  "nodeId" | "chosen" | "considered" | "repeatCount" | "route" | "repeat"
+  "nodeId" | "chosen" | "considered" | "repeatCount" | "route" | "repeat" | "diverted"
 >;
 
 /** Identify only what the recorded kind, predicates and destination establish unambiguously. */
 function recordedRoute(definition: Definition, item: RecordedRoute) {
+  if (item.diverted !== undefined) return null;
   const node = definition.nodes.find((candidate) => candidate.id === item.nodeId);
   if (node === undefined) return null;
   let controls = routeControls(node);
@@ -174,6 +175,19 @@ export function repeatLimit(definition: Definition, item: RecordedRoute) {
   if (item.repeatCount === null) return null;
   const found = recordedRoute(definition, item);
   return found?.route.repeat ? { ...found.route.repeat, to: found.route.to } : null;
+}
+
+/** A route the run's own bound sent to the run's At limit, as a warning badge. */
+export function runLimitEvidence(
+  definition: Definition,
+  item: Pick<TraceItem, "diverted" | "chosen">,
+): { readonly label: string; readonly limit: true; readonly detail: string } | null {
+  if (item.diverted === undefined) return null;
+  return {
+    label: "run limit",
+    limit: true,
+    detail: `${item.diverted === "visit-limit" ? "Run visit limit reached" : "Automation stopped"} · → ${nodeTitle(definition, item.chosen)}`,
+  };
 }
 
 const routeNames: Record<string, string> = {
@@ -371,9 +385,7 @@ export function stepStates(run: {
  */
 export function takenEdges(
   definition: Definition,
-  trace: ReadonlyArray<
-    Pick<TraceItem, "nodeId" | "chosen" | "considered" | "repeatCount" | "route" | "repeat">
-  >,
+  trace: ReadonlyArray<RecordedRoute>,
 ): ReadonlySet<string> {
   const taken = new Set<string>();
   for (const item of trace) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { examples } from "./examples.ts";
 import { allowedActions, transition, withheldDecisions, type State } from "./graph.ts";
-import { repeatEvidence, withheldNotice } from "./web/run.ts";
+import { repeatEvidence, runLimitEvidence, withheldNotice } from "./web/run.ts";
 
 const implementation = examples.find((definition) => definition.id === "implementation")!;
 const gate = implementation.nodes.find((node) => node.kind === "human")!;
@@ -39,12 +39,32 @@ describe("repeat routes", () => {
       reason: "The exhausted automation bound permits only human gates or an end.",
       repeatCount: 0,
       repeat: { exhausted: false, outcome: "automation-stopped" },
+      diverted: "automation-stopped",
     });
     expect(repeatEvidence(implementation, item)).toEqual({
       label: "not repeated",
       limit: true,
       detail: "Automation stopped · 0/1 repeats used · → Human review",
     });
+  });
+
+  it("records a plain route the run's own bound diverted to the run's At limit", () => {
+    const run = { ...stopped(), automationStopped: false, visits: 100, state: "running" } as State;
+    transition(run, "implement", { to: "done" }, 1, { control: "next" });
+    expect(run.trace.at(-1)).not.toHaveProperty("diverted");
+    transition(run, gate.id, { to: "implement" }, 2, { control: "approve" });
+    const item = run.trace.at(-1)!;
+    expect(item).toMatchObject({ chosen: "review", diverted: "visit-limit", repeatCount: null });
+    expect(item).not.toHaveProperty("repeat");
+    expect(runLimitEvidence(implementation, item)).toEqual({
+      label: "run limit",
+      limit: true,
+      detail: "Run visit limit reached · → Human review",
+    });
+    // The visit limit stopped automation, so a later plain route is diverted for that.
+    run.visits = 0;
+    transition(run, gate.id, { to: "implement" }, 3, { control: "approve" });
+    expect(run.trace.at(-1)).toMatchObject({ diverted: "automation-stopped" });
   });
 
   it("spends the counter only when the repeat is admitted", () => {

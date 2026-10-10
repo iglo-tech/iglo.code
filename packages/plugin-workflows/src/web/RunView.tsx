@@ -35,6 +35,7 @@ import {
   phaseLabels,
   phaseStatus,
   repeatEvidence,
+  runLimitEvidence,
   reportStatus,
   routeLabel,
   runStateLabels,
@@ -1154,7 +1155,7 @@ function Inspector({
 }
 
 /**
- * A recorded routing decision as one timeline row: the route that fired and any repeat
+ * A recorded routing decision as one timeline row: the route that fired and any repeat or run-limit
  * outcome as badges, the server's reason on hover. `detailed` adds the conditions considered.
  */
 function RouteRow({
@@ -1171,10 +1172,10 @@ function RouteRow({
   const { Badge, Tooltip } = props;
   // A plain Next route needs no badge; rules, Otherwise and gate decisions do.
   const route = item.route === "next" ? null : routeLabel(item);
-  const repeat = repeatEvidence(definition, item);
-  const Icon = repeat?.limit
+  const evidence = repeatEvidence(definition, item) ?? runLimitEvidence(definition, item);
+  const Icon = evidence?.limit
     ? TriangleAlertIcon
-    : repeat !== null
+    : item.repeatCount !== null
       ? RepeatIcon
       : CornerDownRightIcon;
   const from = definition.nodes.find((node) => node.id === item.nodeId);
@@ -1187,6 +1188,14 @@ function RouteRow({
         )
       : null;
   const otherwise = item.route === "otherwise";
+  const time = (
+    <span className="ml-auto flex shrink-0 tabular-nums text-muted-foreground">
+      <Tooltip label={formatTime(item.at)}>
+        <span className="min-w-0 truncate">{clockTime(item.at)}</span>
+      </Tooltip>
+    </span>
+  );
+  const badges = route !== null || evidence !== null;
   return (
     <li className="flex min-w-0 flex-col gap-0.5">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -1198,26 +1207,27 @@ function RouteRow({
             </span>
           </Tooltip>
         </span>
+        {badges ? null : time}
       </div>
-      <div className="flex min-w-0 items-center gap-1.5 pl-5">
-        {route === null ? null : <Badge variant="outline">{route}</Badge>}
-        {repeat === null ? null : (
-          <span className="flex shrink-0">
-            <Tooltip label={repeat.detail}>
-              <span className="flex">
-                <Badge variant={repeat.limit ? "warning" : "info"}>{repeat.label}</Badge>
-              </span>
-            </Tooltip>
-          </span>
-        )}
-        <span className="ml-auto flex shrink-0 tabular-nums text-muted-foreground">
-          <Tooltip label={formatTime(item.at)}>
-            <span className="min-w-0 truncate">{clockTime(item.at)}</span>
-          </Tooltip>
-        </span>
-      </div>
-      {detailed && repeat !== null && item.repeat !== undefined ? (
-        <p className="pl-5 text-muted-foreground">{repeat.detail}</p>
+      {badges ? (
+        <div className="flex min-w-0 items-center gap-1.5 pl-5">
+          {route === null ? null : <Badge variant="outline">{route}</Badge>}
+          {evidence === null ? null : (
+            <span className="flex shrink-0">
+              <Tooltip label={evidence.detail}>
+                <span className="flex">
+                  <Badge variant={evidence.limit ? "warning" : "info"}>{evidence.label}</Badge>
+                </span>
+              </Tooltip>
+            </span>
+          )}
+          {time}
+        </div>
+      ) : null}
+      {detailed &&
+      evidence !== null &&
+      (item.repeat !== undefined || item.diverted !== undefined) ? (
+        <p className="pl-5 text-muted-foreground">{evidence.detail}</p>
       ) : null}
       {detailed && (item.considered.length > 0 || otherwise) ? (
         <ul aria-label="Conditions considered" className="flex flex-col gap-0.5 pl-5">

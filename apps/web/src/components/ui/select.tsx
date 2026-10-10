@@ -32,6 +32,10 @@ const selectTriggerVariants = cva(
         sm: "min-h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:min-h-7",
         xs: "h-7 gap-1 rounded-md px-[calc(--spacing(2)-1px)] text-sm before:rounded-[calc(var(--radius-md)-1px)] sm:h-6 sm:text-xs [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
       },
+      /** Lets the trigger shrink below its default minimum width in dense rows. */
+      shrink: {
+        true: "min-w-0",
+      },
     },
   },
 );
@@ -40,6 +44,7 @@ function SelectTrigger({
   className,
   size = "default",
   variant = "default",
+  shrink,
   children,
   icon,
   ...props
@@ -47,7 +52,7 @@ function SelectTrigger({
   VariantProps<typeof selectTriggerVariants> & { icon?: React.ReactNode }) {
   return (
     <SelectPrimitive.Trigger
-      className={cn(selectTriggerVariants({ size, variant }), className)}
+      className={cn(selectTriggerVariants({ size, variant, shrink }), className)}
       data-slot="select-trigger"
       {...props}
     >

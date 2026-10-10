@@ -343,6 +343,7 @@ export function transition(
           },
         }
       : {}),
+    ...(outcome === "visit-limit" || outcome === "automation-stopped" ? { diverted: outcome } : {}),
     at: now,
   });
   admit(run, target, now);
