@@ -25,6 +25,9 @@ import { symlinksSupported } from "./testing/symlinks.ts";
 const bunExecutable =
   process.env.T3_BUN_EXECUTABLE ??
   NodeChildProcess.execFileSync("which", ["bun"], { encoding: "utf8" }).trim();
+const nodeExecutable = NodeChildProcess.execFileSync("which", ["node"], {
+  encoding: "utf8",
+}).trim();
 
 it.each([
   ["1.4.0", false],
@@ -240,7 +243,7 @@ it.effect("rejects a Node interpreter configured for first-party helpers", () =>
   Effect.gen(function* () {
     const error = yield* resolveBunExecutable("Device automation", {
       PATH: "",
-      T3_BUN_EXECUTABLE: process.execPath,
+      T3_BUN_EXECUTABLE: nodeExecutable,
     }).pipe(
       Effect.provideService(HostProcessExecutablePath, "/packaged/t3"),
       Effect.provideService(HostProcessIsExecutable, true),
