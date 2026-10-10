@@ -164,7 +164,8 @@ export function readsAs(
 
 /**
  * Field picker labels: a field's own name when no other option shares it, otherwise its path,
- * with a reviewer's field led by the reviewer's title.
+ * with a reviewer's field led by the reviewer's title. Reviewers sharing a title add their
+ * branch id, and any label still shared falls back to the full path.
  */
 export function fieldLabels(
   paths: ReadonlyArray<string>,
@@ -177,11 +178,22 @@ export function fieldLabels(
     definition.nodes
       .flatMap((node) => (node.kind === "parallel" ? node.branches : []))
       .find((branch) => branch.id === id)?.title ?? id;
+  const label = (path: string, qualify: boolean) => {
+    if (counts.get(last(path)) === 1) return last(path);
+    const branch = /^branches\.([^.]+)\.(.+)$/.exec(path);
+    if (!branch) return path;
+    const title = branchTitle(branch[1]!);
+    return `${qualify && title !== branch[1] ? `${title} (${branch[1]})` : title} · ${branch[2]}`;
+  };
+  const shared = (labels: ReadonlyArray<string>) => (index: number) =>
+    labels.indexOf(labels[index]!) !== labels.lastIndexOf(labels[index]!);
+  const titled = paths.map((path) => label(path, false));
+  const isTitledShared = shared(titled);
+  const qualified = paths.map((path, index) =>
+    isTitledShared(index) ? label(path, true) : titled[index]!,
+  );
+  const isQualifiedShared = shared(qualified);
   return new Map(
-    paths.map((path) => {
-      if (counts.get(last(path)) === 1) return [path, last(path)];
-      const branch = /^branches\.([^.]+)\.(.+)$/.exec(path);
-      return [path, branch ? `${branchTitle(branch[1]!)} · ${branch[2]}` : path];
-    }),
+    paths.map((path, index) => [path, isQualifiedShared(index) ? path : qualified[index]!]),
   );
 }
