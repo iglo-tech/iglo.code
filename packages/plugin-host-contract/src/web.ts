@@ -5,6 +5,7 @@ import type {
   PluginManifest,
   PluginPageLink,
   PluginPageState,
+  PluginScheduleInput,
   PluginTarget,
   ProjectId,
 } from "./schema.ts";
@@ -274,6 +275,24 @@ export interface PluginWebContext extends PluginDesign {
   readonly drafts: PluginDraftStore;
 }
 
+/** Fields a schedule target adds to the host's own schedule editor. */
+export interface PluginScheduleTargetEditorProps {
+  readonly projectId: ProjectId;
+  /** The saved payload when editing an existing schedule; null for a new one. */
+  readonly payload: unknown;
+  /** What to save, or null while it cannot be saved yet; the target explains why itself. */
+  readonly onChange: (payload: PluginScheduleInput["payload"] | null) => void;
+}
+/** The host's common schedule fields, saved through the plugin's own validating API. */
+export type PluginScheduleTargetSaveInput = Omit<PluginScheduleInput, "target">;
+export interface PluginScheduleTargetHistoryProps {
+  readonly projectId: ProjectId;
+  /** The schedule's identity within the plugin. */
+  readonly scheduleId: string;
+  /** Changes whenever the host's schedule row changes, such as after a dispatch. */
+  readonly revision: string;
+}
+
 /** The host supplies an authenticated, environment-bound typed client to each contribution. */
 export interface WebPlugin<Client> {
   readonly manifest: PluginManifest;
@@ -297,6 +316,21 @@ export interface WebPlugin<Client> {
   readonly threadContext: ReadonlyArray<{
     readonly id: string;
     readonly render: (context: PluginWebContext & { readonly client: Client }) => ReactNode;
+  }>;
+  /**
+   * Targets the host's schedule controls can run instead of a prompt. Each `id` names one of the
+   * plugin's server schedule targets; the host keeps timing, pause, run-now and deletion.
+   */
+  readonly scheduleTargets?: ReadonlyArray<{
+    readonly id: string;
+    readonly title: string;
+    readonly editor: ComponentType<
+      PluginWebContext & PluginScheduleTargetEditorProps & { readonly client: Client }
+    >;
+    readonly history: ComponentType<
+      PluginWebContext & PluginScheduleTargetHistoryProps & { readonly client: Client }
+    >;
+    readonly save: (client: Client, input: PluginScheduleTargetSaveInput) => Promise<void>;
   }>;
   /**
    * The plugin's own view of everything its attention stream counts. The host shows the

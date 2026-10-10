@@ -40,6 +40,11 @@ import {
   ScopeInput,
   RunInput,
   ScheduleInput,
+  SchedulePayload,
+  LegacySchedulePayload,
+  ScheduleOccurrence,
+  type ScheduleHistory,
+  type ScheduleHistoryInput,
   limits,
   type Attempt,
   type StopKind,
@@ -111,11 +116,15 @@ export class Workflow extends Context.Service<
     readonly resume: (input: typeof CommandInput.Type) => Effect.Effect<Run, PluginError>;
     readonly gate: (input: typeof GateInput.Type) => Effect.Effect<Run, PluginError>;
     readonly schedule: (input: typeof ScheduleInput.Type) => Effect.Effect<void, PluginError>;
+    /** Newest occurrences of one workflow schedule with the exact run each started. */
+    readonly scheduleHistory: (
+      input: ScheduleHistoryInput,
+    ) => Effect.Effect<ScheduleHistory, PluginError>;
+    /** One schedule occurrence through the same saved start; its identity is the run's. */
     readonly scheduledStart: (input: {
       readonly projectId: ProjectId;
       readonly occurrenceId: string;
-      readonly definitionId: string;
-      readonly input: StartInput["input"];
+      readonly payload: unknown;
     }) => Effect.Effect<Run, PluginError>;
   }
 >()("@t3tools/plugin-workflows/Workflow") {}
@@ -128,6 +137,12 @@ const decodeDisplay = Schema.decodeUnknownEffect(Run);
 const decodeSummary = Schema.decodeUnknownEffect(RunSummary);
 const decodeStart = Schema.decodeUnknownEffect(StartInput);
 const decodeStartSaved = Schema.decodeUnknownEffect(StartSavedInput);
+const decodeSchedulePayload = Schema.decodeUnknownEffect(
+  Schema.Union([SchedulePayload, LegacySchedulePayload]),
+);
+const decodeOccurrenceRun = Schema.decodeUnknownEffect(ScheduleOccurrence.fields.run.members[0]);
+/** The registered target every workflow schedule dispatches to. */
+export const scheduleTarget = "workflows.start";
 const attentionLabels: Record<AttentionKind, string> = {
   "needs-review": "Needs review",
   "needs-input": "Needs input",
@@ -965,6 +980,54 @@ const make = Effect.gen(function* () {
       }),
     );
   });
+  /**
+   * The one saved-workflow start: resolve the catalog's current saved snapshot and start it.
+   * `revision` is the revision a person reviewed; null starts whatever is saved now, which is
+   * how a schedule occurrence resolves its workflow at dispatch time.
+   */
+  const startCatalog = Effect.fnUntraced(function* (
+    input: {
+      readonly projectId: ProjectId;
+      readonly clientRequestId: string;
+      readonly definitionId: string;
+      readonly revision: number | null;
+      readonly input: StartInput["input"];
+      readonly workspace: StartSavedInput["workspace"];
+    },
+    options: { readonly digest?: string; readonly trigger: StartSource["trigger"] },
+  ) {
+    const entry = yield* catalog.resolve(
+      { environmentId: host.environmentId, projectId: input.projectId },
+      input.definitionId,
+    );
+    if (!entry?.definition)
+      return yield* error(
+        "start",
+        "This workflow is no longer in the project catalog.",
+        "unavailable",
+      );
+    if (input.revision !== null && entry.definition.revision !== input.revision)
+      return yield* error(
+        "start",
+        `The saved workflow changed to revision ${entry.definition.revision} after you reviewed revision ${input.revision}. Review it and start again.`,
+        "conflict",
+      );
+    if (!entry.runnable) return yield* error("start", entry.reasons.join(" "), "unsupported");
+    return yield* start(
+      {
+        environmentId: host.environmentId,
+        projectId: input.projectId,
+        clientRequestId: input.clientRequestId,
+        definition: entry.definition,
+        input: input.input,
+        ...(input.workspace === "current" ? { workspace: { type: "current" as const } } : {}),
+      },
+      {
+        ...(options.digest === undefined ? {} : { digest: options.digest }),
+        source: { trigger: options.trigger, catalogSource: entry.source },
+      },
+    );
+  });
   const startSaved = Effect.fn("Workflows.startSaved")(function* (requested: StartSavedInput) {
     const input = yield* decodeStartSaved(requested);
     yield* environment(input.environmentId);
@@ -980,30 +1043,16 @@ const make = Effect.gen(function* () {
         return yield* error("start", "This retry identity belongs to different input.", "conflict");
       return yield* decodeRun(previous.result);
     }
-    const entry = yield* catalog.resolve(input, input.definitionId);
-    if (!entry?.definition)
-      return yield* error(
-        "start",
-        "This workflow is no longer in the project catalog.",
-        "unavailable",
-      );
-    if (entry.definition.revision !== input.revision)
-      return yield* error(
-        "start",
-        `The saved workflow changed to revision ${entry.definition.revision} after you reviewed revision ${input.revision}. Review it and start again.`,
-        "conflict",
-      );
-    if (!entry.runnable) return yield* error("start", entry.reasons.join(" "), "unsupported");
-    return yield* start(
+    return yield* startCatalog(
       {
-        environmentId: input.environmentId,
         projectId: input.projectId,
         clientRequestId: input.clientRequestId,
-        definition: entry.definition,
+        definitionId: input.definitionId,
+        revision: input.revision,
         input: input.task.trim() === "" ? {} : { task: input.task },
-        ...(input.workspace === "current" ? { workspace: { type: "current" as const } } : {}),
+        workspace: input.workspace,
       },
-      { digest: requestDigest, source: { trigger: "manual", catalogSource: entry.source } },
+      { digest: requestDigest, trigger: "manual" },
     );
   });
   const report = Effect.fn("Workflows.report")(function* (
@@ -2361,57 +2410,190 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* environment(input.environmentId);
         const entry = yield* catalog.resolve(input, input.definitionId);
-        if (!entry?.runnable)
-          return yield* error("schedule", "The workflow is unavailable or not runnable.");
+        if (!entry?.definition)
+          return yield* error(
+            "schedule",
+            "This workflow is no longer in the project catalog.",
+            "unavailable",
+          );
+        if (!entry.runnable)
+          return yield* error("schedule", entry.reasons.join(" "), "unsupported");
         yield* schedules.upsert({
           id: input.id,
           title: input.title,
           projectId: input.projectId,
-          target: "workflows.start",
-          enabled: true,
+          target: scheduleTarget,
+          enabled: input.enabled,
           schedule: input.schedule,
-          payload: { definitionId: input.definitionId, input: input.input },
+          payload: {
+            definitionId: input.definitionId,
+            task: input.task,
+            workspace: input.workspace,
+          } satisfies SchedulePayload,
         });
       }),
     );
+  /** Run identities an occurrence may have used; receipts from older versions used the raw id. */
+  const occurrenceRunIds = Effect.fnUntraced(function* (projectId: string, occurrenceId: string) {
+    const clientRequestId = `schedule:${yield* hash(occurrenceId)}`;
+    return {
+      clientRequestId,
+      ids: [
+        yield* runIdentity({ projectId, clientRequestId }),
+        `workflow-${(yield* hash([host.environmentId, projectId, occurrenceId])).slice(0, 32)}`,
+      ],
+    };
+  });
   const scheduledStart = Effect.fn("Workflows.scheduledStart")(function* (input: {
     readonly projectId: ProjectId;
     readonly occurrenceId: string;
-    readonly definitionId: string;
-    readonly input: StartInput["input"];
+    readonly payload: unknown;
   }) {
-    const clientRequestId = `schedule:${yield* hash(input.occurrenceId)}`;
-    const id = `workflow-${(yield* hash([host.environmentId, input.projectId, clientRequestId])).slice(0, 32)}`;
-    // Receipts retained by older versions used the raw occurrence identity.
-    const legacyId = `workflow-${(yield* hash([host.environmentId, input.projectId, input.occurrenceId])).slice(0, 32)}`;
+    const { clientRequestId, ids } = yield* occurrenceRunIds(input.projectId, input.occurrenceId);
+    // Redelivery of a committed occurrence returns its run before the catalog is consulted.
     const [previous] = yield* sql<{
       result: string;
-    }>`SELECT result FROM workflow_commands WHERE id IN (${id}, ${legacyId})`;
+    }>`SELECT result FROM workflow_commands WHERE id IN (${ids[0]!}, ${ids[1]!})`;
     if (previous) return yield* decodeRun(previous.result);
-    const entry = yield* catalog.resolve(
+    const payload = yield* decodeSchedulePayload(input.payload);
+    return yield* startCatalog(
       {
-        environmentId: host.environmentId,
-        projectId: input.projectId,
-      },
-      input.definitionId,
-    );
-    if (!entry?.definition || !entry.runnable)
-      return yield* error(
-        "scheduled-start",
-        "The scheduled workflow is unavailable or invalid.",
-        "unavailable",
-      );
-    return yield* start(
-      {
-        environmentId: host.environmentId,
         projectId: input.projectId,
         clientRequestId,
-        definition: entry.definition,
-        input: input.input,
+        definitionId: payload.definitionId,
+        revision: null,
+        ...("input" in payload
+          ? { input: payload.input, workspace: "new-worktree" as const }
+          : {
+              input: payload.task.trim() === "" ? {} : { task: payload.task },
+              workspace: payload.workspace,
+            }),
       },
-      { source: { trigger: "schedule", catalogSource: entry.source } },
+      { trigger: "schedule" },
     );
   });
+  const scheduleHistory = (input: ScheduleHistoryInput) =>
+    protect(
+      "schedule-history",
+      Effect.gen(function* () {
+        yield* environment(input.environmentId);
+        const limit = input.limit ?? 10;
+        const owned = (yield* schedules.list()).find(
+          (item) =>
+            item.id === input.scheduleId &&
+            item.target === scheduleTarget &&
+            item.projectId === input.projectId,
+        );
+        if (owned === undefined)
+          return { schedule: null, current: null, occurrences: [], more: false };
+        const saved = yield* decodeSchedulePayload(owned.payload).pipe(Effect.option);
+        const payload = saved._tag === "Some" && !("input" in saved.value) ? saved.value : null;
+        const legacyInput =
+          saved._tag === "Some" && "input" in saved.value ? saved.value.input : null;
+        const definitionId = saved._tag === "Some" ? saved.value.definitionId : null;
+        const entry =
+          definitionId === null ? undefined : yield* catalog.resolve(input, definitionId);
+        const receipts = yield* schedules.occurrences(input.scheduleId, limit + 1);
+        const shown = receipts.slice(0, limit);
+        // Each receipt started its run in the project recorded with it, even if the
+        // schedule has since moved to another project.
+        const identities = yield* Effect.forEach(shown, (receipt) =>
+          occurrenceRunIds(receipt.projectId, receipt.id),
+        );
+        const candidates = identities.flatMap((item) => item.ids);
+        // Only the listed fields are read; the full run document is not decoded.
+        const rows =
+          candidates.length === 0
+            ? []
+            : yield* sql<{
+                id: string;
+                project_id: string;
+                state: string;
+                definition_id: string;
+                revision: number;
+                title: string;
+                created_at: number;
+              }>`SELECT id, project_id, state, json_extract(data, '$.definition.id') AS definition_id, json_extract(data, '$.definition.revision') AS revision, json_extract(data, '$.definition.title') AS title, json_extract(data, '$.createdAt') AS created_at FROM workflow_runs WHERE id IN ${sql.in(candidates)}`;
+        const runs = new Map<string, NonNullable<ScheduleHistory["occurrences"][number]["run"]>>();
+        for (const row of rows)
+          runs.set(
+            row.id,
+            yield* decodeOccurrenceRun({
+              id: row.id,
+              projectId: row.project_id,
+              state: row.state,
+              definition: { id: row.definition_id, revision: row.revision, title: row.title },
+              createdAt: row.created_at,
+            }),
+          );
+        const history: ScheduleHistory = {
+          schedule: {
+            id: owned.id,
+            title: owned.title,
+            enabled: owned.enabled,
+            payload,
+            legacyInput,
+          },
+          current: entry?.definition
+            ? {
+                title: entry.definition.title,
+                revision: entry.definition.revision,
+                runnable: entry.runnable,
+                reasons: entry.reasons,
+              }
+            : null,
+          occurrences: shown.map((receipt, index) => {
+            const run = identities[index]!.ids.map((id) => runs.get(id)).find(
+              (item) => item !== undefined,
+            );
+            return {
+              id: receipt.id,
+              startedAt: receipt.startedAt,
+              dispatch: receipt.status,
+              error: receipt.error,
+              run: run ?? null,
+            };
+          }),
+          more: receipts.length > limit,
+        };
+        // Authored and server-worded texts pass the host's redaction in one call, like every
+        // other workflow read; run titles keep the run list's 240-character cap.
+        const visible = yield* Display.displayTexts(host, [
+          ...(history.current === null ? [] : [history.current.title, ...history.current.reasons]),
+          ...history.occurrences.flatMap((item) => [
+            ...(item.error === null ? [] : [item.error]),
+            ...(item.run === null ? [] : [item.run.definition.title]),
+          ]),
+        ]);
+        let index = 0;
+        const next = () => visible[index++]!;
+        return {
+          ...history,
+          current:
+            history.current === null
+              ? null
+              : {
+                  ...history.current,
+                  title: next(),
+                  reasons: history.current.reasons.map(next),
+                },
+          occurrences: history.occurrences.map((item) => ({
+            ...item,
+            error: item.error === null ? null : next(),
+            run:
+              item.run === null
+                ? null
+                : {
+                    ...item.run,
+                    definition: {
+                      ...item.run.definition,
+                      title: next().slice(0, 240).trim(),
+                    },
+                  },
+          })),
+        } satisfies ScheduleHistory;
+      }),
+    );
   return Workflow.of({
     attention,
     watchAttention,
@@ -2431,6 +2613,7 @@ const make = Effect.gen(function* () {
     resume: (input) => protect("resume", resume(input).pipe(Effect.flatMap((run) => display(run)))),
     gate: (input) => protect("gate", gate(input).pipe(Effect.flatMap((run) => display(run)))),
     schedule,
+    scheduleHistory,
     scheduledStart: (input) =>
       protect("scheduled-start", scheduledStart(input).pipe(Effect.flatMap((run) => display(run)))),
   });

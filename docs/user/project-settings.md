@@ -73,6 +73,9 @@ list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Fixed-time schedules use that
 environment's time zone, which may differ from your phone's.
 
+A task can run a prompt or, on environments with Workflows, a saved workflow; see
+[Schedule a workflow](workflows.md#schedule-a-workflow).
+
 You can edit, pause, resume, run immediately, or delete a task from the list.
 Webhook tasks only run when their URL is called, so they can't be run
 immediately.

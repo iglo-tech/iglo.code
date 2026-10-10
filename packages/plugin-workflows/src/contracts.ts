@@ -859,14 +859,82 @@ export const SaveInput = Schema.Struct({
   fingerprint: Schema.optional(fingerprint),
 });
 export type SaveInput = typeof SaveInput.Type;
+/**
+ * What each occurrence starts: the saved workflow as it is when the occurrence is dispatched,
+ * with the same bounded free-form task and workspace choice as a manual start.
+ */
+export const SchedulePayload = Schema.Struct({
+  definitionId: Id,
+  task: StartSavedInput.fields.task,
+  workspace: StartSavedInput.fields.workspace,
+});
+export type SchedulePayload = typeof SchedulePayload.Type;
+/** Payloads saved before the task field existed carried run input directly. */
+export const LegacySchedulePayload = Schema.Struct({ definitionId: Id, input: Data });
 export const ScheduleInput = Schema.Struct({
   ...ScopeInput.fields,
+  /** The schedule's identity within this plugin; saving it again edits the same schedule. */
   id: key,
   title,
-  definitionId: Id,
-  input: Data,
+  ...SchedulePayload.fields,
+  enabled: Schema.Boolean,
   schedule: PluginScheduleInput.fields.schedule,
 });
+export type ScheduleInput = typeof ScheduleInput.Type;
+/** Occurrences listed per history read; `more` says older ones exist, never how many. */
+export const scheduleHistoryLimit = 20;
+export const ScheduleHistoryInput = Schema.Struct({
+  ...ScopeInput.fields,
+  scheduleId: key,
+  limit: Schema.optional(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: scheduleHistoryLimit })),
+  ),
+});
+export type ScheduleHistoryInput = typeof ScheduleHistoryInput.Type;
+/** One schedule occurrence: the host's dispatch receipt and, separately, the run it started. */
+export const ScheduleOccurrence = Schema.Struct({
+  id: Schema.String,
+  startedAt: Schema.String,
+  dispatch: Schema.Literals(["pending", "succeeded", "failed"]),
+  error: Schema.NullOr(Schema.String),
+  /** The exact run this occurrence started, from its own snapshot; null when none started. */
+  run: Schema.NullOr(
+    Schema.Struct({
+      id: Schema.String,
+      /** The project the run belongs to: the one recorded with its occurrence. */
+      projectId: ProjectId,
+      state: Run.fields.state,
+      definition: Schema.Struct({ id: Id, revision: Schema.Int, title: Schema.String }),
+      createdAt: Schema.Number,
+    }),
+  ),
+});
+export type ScheduleOccurrence = typeof ScheduleOccurrence.Type;
+export const ScheduleHistory = Schema.Struct({
+  /** The schedule's saved target, or null when this plugin no longer owns the schedule. */
+  schedule: Schema.NullOr(
+    Schema.Struct({
+      id: Schema.String,
+      title: Schema.String,
+      enabled: Schema.Boolean,
+      payload: Schema.NullOr(SchedulePayload),
+      /** Legacy run input saved before free-form tasks; shown, never invented. */
+      legacyInput: Schema.NullOr(Data),
+    }),
+  ),
+  /** The saved workflow the next occurrence would resolve now; null when it is gone. */
+  current: Schema.NullOr(
+    Schema.Struct({
+      title: Schema.String,
+      revision: Schema.Int,
+      runnable: Schema.Boolean,
+      reasons: Schema.Array(Schema.String),
+    }),
+  ),
+  occurrences: Schema.Array(ScheduleOccurrence).check(Schema.isMaxLength(scheduleHistoryLimit)),
+  more: Schema.Boolean,
+});
+export type ScheduleHistory = typeof ScheduleHistory.Type;
 
 const error = Schema.Union([PluginError, EnvironmentAuthorizationError]);
 export const rpcs = {
@@ -968,6 +1036,11 @@ export const rpcs = {
     success: Schema.Void,
     error,
   }),
+  scheduleHistory: Rpc.make("plugins.workflows.schedule-history", {
+    payload: ScheduleHistoryInput,
+    success: ScheduleHistory,
+    error,
+  }),
 };
 export const WorkflowRpcGroup = RpcGroup.make(...Object.values(rpcs));
 export const apiScopes = {
@@ -996,6 +1069,7 @@ export const apiScopes = {
   [rpcs.attention._tag]: AuthOrchestrationReadScope,
   [rpcs.attentionPage._tag]: AuthOrchestrationReadScope,
   [rpcs.schedule._tag]: AuthOrchestrationOperateScope,
+  [rpcs.scheduleHistory._tag]: AuthOrchestrationReadScope,
 } as const;
 export const manifest = {
   id: "workflows",
@@ -1040,6 +1114,7 @@ export interface WorkflowPermissions {
   readonly retry: boolean;
   readonly resume: boolean;
   readonly gate: boolean;
+  readonly schedule: boolean;
 }
 export type RunCommand = Omit<CommandInput, "environmentId">;
 type Scoped<I> = Omit<I, "environmentId">;
@@ -1095,4 +1170,7 @@ export interface WorkflowClient {
   readonly gate: (
     input: RunCommand & { readonly decision: "approve" | "request-changes" },
   ) => Promise<Run>;
+  /** Creates or edits one workflow schedule in the host's persisted schedule controls. */
+  readonly schedule: (input: Scoped<ScheduleInput>) => Promise<void>;
+  readonly scheduleHistory: (input: Scoped<ScheduleHistoryInput>) => Promise<ScheduleHistory>;
 }

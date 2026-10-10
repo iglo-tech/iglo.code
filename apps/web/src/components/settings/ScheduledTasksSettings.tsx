@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   Clock3Icon,
   CopyIcon,
+  HistoryIcon,
   InboxIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -62,6 +63,16 @@ import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { readEnvironmentScope } from "~/state/session";
 import { useSettingsScope } from "./SettingsScopeContext";
+import { usePluginScheduleTargets } from "../../plugins/ScheduleTargets";
+import {
+  type PluginSchedulePayload,
+  newPluginScheduleId,
+  pluginScheduleOwner,
+  scheduleRevision,
+  pluginScheduleSubmission,
+  unavailableTargetText,
+  webhookAvailable,
+} from "../../plugins/scheduleTargetLogic";
 import {
   WEBHOOK_SIGNATURE_DEFAULTS,
   matchesScheduledTaskScope,
@@ -342,6 +353,7 @@ function ScheduledTaskEnvironmentSection({
     matchesScheduledTaskScope(scope, environment.environmentId, task.projectId),
   );
   const linkedTask = tasks?.find((task) => task.id === taskId);
+  const scheduleTargets = usePluginScheduleTargets(environment.environmentId);
   const openedLink = useRef(false);
   useEffect(() => {
     if (!openedLink.current && linkedTask) {
@@ -390,6 +402,7 @@ function ScheduledTaskEnvironmentSection({
                 key={task.id}
                 environmentId={environment.environmentId}
                 task={task}
+                scheduleTargets={scheduleTargets}
                 onEdit={() => onEdit(environment.environmentId, task)}
               />
             ))
@@ -403,12 +416,23 @@ function ScheduledTaskEnvironmentSection({
 function ScheduledTaskRow({
   environmentId,
   task,
+  scheduleTargets,
   onEdit,
 }: {
   readonly environmentId: EnvironmentId;
   readonly task: ScheduledTask;
+  readonly scheduleTargets: ReturnType<typeof usePluginScheduleTargets>;
   readonly onEdit: () => void;
 }) {
+  const owner = pluginScheduleOwner(task);
+  const target =
+    owner === null
+      ? null
+      : (scheduleTargets.targets.find(
+          (item) => item.id === owner.targetId && item.pluginId === owner.pluginId,
+        ) ?? null);
+  const historyId = target === null ? null : owner?.scheduleId;
+  const [historyOpen, setHistoryOpen] = useState(false);
   const canOperate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(environmentId),
   );
@@ -449,7 +473,11 @@ function ScheduledTaskRow({
       title={task.title}
       description={
         <span className="line-clamp-2">
-          {task.dispatchTarget === undefined ? task.prompt : "Runs a plugin action"}
+          {task.dispatchTarget === undefined
+            ? task.prompt
+            : target !== null
+              ? target.title
+              : unavailableTargetText(scheduleTargets.status, task.dispatchTarget.id)}
         </span>
       }
       status={
@@ -498,6 +526,12 @@ function ScheduledTaskRow({
                 <PencilIcon />
                 Edit
               </MenuItem>
+              {historyId ? (
+                <MenuItem onClick={() => setHistoryOpen(true)}>
+                  <HistoryIcon />
+                  Run history
+                </MenuItem>
+              ) : null}
               {isWebhook ? (
                 <MenuItem onClick={() => setDeliveriesOpen(true)}>
                   <InboxIcon />
@@ -516,6 +550,33 @@ function ScheduledTaskRow({
               </MenuItem>
             </MenuPopup>
           </Menu>
+          {historyOpen && target !== null && historyId ? (
+            <Dialog
+              open
+              onOpenChange={(next) => {
+                if (!next) setHistoryOpen(false);
+              }}
+            >
+              <DialogPopup className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Run history · {task.title}</DialogTitle>
+                  <DialogDescription>
+                    Each occurrence's dispatch, and the run it started.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogPanel>
+                  {target.renderHistory({
+                    projectId: task.projectId,
+                    scheduleId: historyId,
+                    revision: scheduleRevision(task),
+                  })}
+                </DialogPanel>
+                <DialogFooter>
+                  <DialogClose render={<Button size="sm" />}>Done</DialogClose>
+                </DialogFooter>
+              </DialogPopup>
+            </Dialog>
+          ) : null}
           {deliveriesOpen ? (
             <WebhookDeliveriesDialog
               environmentId={environmentId}
@@ -822,6 +883,18 @@ function ScheduledTaskEditorDialog({
   );
   const [saving, setSaving] = useState(false);
   const submissionPending = useRef(false);
+  // A plugin target replaces the prompt; the host keeps timing, project and enabled state.
+  const scheduleTargets = usePluginScheduleTargets(environmentId);
+  const owner = task === null ? null : pluginScheduleOwner(task);
+  const [targetId, setTargetId] = useState<string | null>(owner?.targetId ?? null);
+  const [pluginScheduleId] = useState(() => owner?.scheduleId ?? newPluginScheduleId());
+  const [targetPayload, setTargetPayload] = useState<PluginSchedulePayload | null>(null);
+  const activeTarget =
+    targetId === null || (owner !== null && owner.scheduleId === null)
+      ? null
+      : (scheduleTargets.targets.find(
+          (item) => item.id === targetId && (owner === null || item.pluginId === owner.pluginId),
+        ) ?? null);
   const editingTaskMissing =
     draft.editingId !== null &&
     tasksQuery.data !== null &&
@@ -868,6 +941,37 @@ function ScheduledTaskEditorDialog({
       tasksQuery.data === null
     )
       return;
+    if (activeTarget !== null) {
+      const submission = pluginScheduleSubmission({
+        scheduleId: pluginScheduleId,
+        title: draft.title,
+        projectId: projects.some((project) => project.id === selectedProjectId)
+          ? (selectedProjectId as ProjectId)
+          : null,
+        schedule: scheduleFromDraft(draft),
+        enabled: draft.enabled,
+        payload: targetPayload,
+      });
+      if (!submission.ok) {
+        reportFailure(submission.title, submission.description);
+        return;
+      }
+      submissionPending.current = true;
+      setSaving(true);
+      try {
+        // Saved through the plugin so its server validates the target; the id makes a retry
+        // after a lost response edit the same schedule instead of creating another.
+        await activeTarget.save(submission.input);
+      } catch (error) {
+        submissionPending.current = false;
+        setSaving(false);
+        reportFailure("Could not save scheduled task", error);
+        return;
+      }
+      setSaving(false);
+      onClose();
+      return;
+    }
     const selection = activeSelection;
     if (
       !draft.title.trim() ||
@@ -929,7 +1033,7 @@ function ScheduledTaskEditorDialog({
       ...(draft.editingId ? { id: draft.editingId as ScheduledTaskId, requireExisting: true } : {}),
       title: draft.title.trim(),
       prompt: draft.prompt.trim(),
-      ...(task?.dispatchTarget === undefined ? {} : { dispatchTarget: task.dispatchTarget }),
+      // A plugin schedule edited here keeps its saved target: the server retains it.
       enabled: draft.enabled,
       schedule,
       projectId: selectedProjectId as ProjectId,
@@ -955,6 +1059,28 @@ function ScheduledTaskEditorDialog({
     onClose();
   };
 
+  const projectField = (
+    <Field label="Project" htmlFor="scheduled-task-project">
+      <Select
+        value={selectedProjectId}
+        onValueChange={(projectId) =>
+          setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
+        }
+      >
+        <SelectTrigger size="sm" id="scheduled-task-project">
+          <SelectValue placeholder="Select a project">{selectedProject?.title}</SelectValue>
+        </SelectTrigger>
+        <SelectPopup>
+          {projects.map((project) => (
+            <SelectItem key={project.id} value={project.id}>
+              {project.title}
+            </SelectItem>
+          ))}
+        </SelectPopup>
+      </Select>
+    </Field>
+  );
+
   return (
     <Dialog
       open
@@ -966,8 +1092,8 @@ function ScheduledTaskEditorDialog({
         <DialogHeader>
           <DialogTitle>{draft.editingId ? "Edit task" : "New task"}</DialogTitle>
           <DialogDescription>
-            Run a prompt automatically — on an interval, at a fixed time, or when a webhook is
-            called.
+            Run a prompt, or an action a plugin offers, automatically — on an interval, at a fixed
+            time, or when a webhook is called.
           </DialogDescription>
         </DialogHeader>
 
@@ -984,6 +1110,8 @@ function ScheduledTaskEditorDialog({
                   const next = connectedEnvironments.find((entry) => entry.environmentId === id);
                   if (!next) return;
                   setEnvironmentId(next.environmentId);
+                  setTargetId(null);
+                  setTargetPayload(null);
                   setDraft((current) => ({
                     ...current,
                     projectId: "",
@@ -1040,30 +1168,68 @@ function ScheduledTaskEditorDialog({
               />
             </Field>
 
-            {task?.dispatchTarget === undefined ? (
+            {task === null && scheduleTargets.targets.length > 0 ? (
+              <Field label="Runs" htmlFor="scheduled-task-target">
+                <Select
+                  value={targetId ?? "prompt"}
+                  onValueChange={(value) => {
+                    const next = value === "prompt" || value === null ? null : value;
+                    setTargetId(next);
+                    setTargetPayload(null);
+                    // Plugin targets run at a time or on an interval, not from a webhook.
+                    if (!webhookAvailable(next))
+                      setDraft((current) =>
+                        current.scheduleMode === "webhook"
+                          ? { ...current, scheduleMode: "fixed" }
+                          : current,
+                      );
+                  }}
+                >
+                  <SelectTrigger size="sm" id="scheduled-task-target">
+                    <SelectValue>
+                      {activeTarget?.title ?? (targetId === null ? "A prompt" : targetId)}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    <SelectItem value="prompt">A prompt</SelectItem>
+                    {scheduleTargets.targets.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.title}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </Field>
+            ) : null}
+            {targetId !== null ? (
+              activeTarget !== null ? (
+                <>
+                  {task === null ? null : (
+                    <p className="text-sm text-muted-foreground">Runs: {activeTarget.title}</p>
+                  )}
+                  {projectField}
+                  {projects.some((project) => project.id === selectedProjectId) ? (
+                    activeTarget.renderEditor({
+                      projectId: selectedProjectId as ProjectId,
+                      payload:
+                        task !== null && task.projectId === selectedProjectId
+                          ? (task.dispatchTarget?.payload ?? null)
+                          : null,
+                      onChange: setTargetPayload,
+                    })
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Choose a project.</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground" role="status">
+                  {unavailableTargetText(scheduleTargets.status, targetId)}
+                </p>
+              )
+            ) : task?.dispatchTarget === undefined ? (
               <>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Project" htmlFor="scheduled-task-project">
-                    <Select
-                      value={selectedProjectId}
-                      onValueChange={(projectId) =>
-                        setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
-                      }
-                    >
-                      <SelectTrigger size="sm" id="scheduled-task-project">
-                        <SelectValue placeholder="Select a project">
-                          {selectedProject?.title}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectPopup>
-                        {projects.map((project) => (
-                          <SelectItem key={project.id} value={project.id}>
-                            {project.title}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                  </Field>
+                  {projectField}
 
                   <Field label="Workspace" htmlFor="scheduled-task-workspace">
                     <Select
@@ -1181,7 +1347,7 @@ function ScheduledTaskEditorDialog({
                 >
                   <Toggle value="fixed">At a time</Toggle>
                   <Toggle value="interval">Every interval</Toggle>
-                  <Toggle value="webhook">On webhook</Toggle>
+                  {webhookAvailable(targetId) ? <Toggle value="webhook">On webhook</Toggle> : null}
                 </ToggleGroup>
               </div>
 
@@ -1380,7 +1546,14 @@ function ScheduledTaskEditorDialog({
           </DialogClose>
           <Button
             size="sm"
-            disabled={!canOperate || saving || editingTaskMissing || !connected || !tasksQuery.data}
+            disabled={
+              !canOperate ||
+              saving ||
+              editingTaskMissing ||
+              !connected ||
+              !tasksQuery.data ||
+              (activeTarget !== null && targetPayload === null)
+            }
             onClick={() => void submit()}
           >
             {draft.editingId ? "Save task" : "Create task"}

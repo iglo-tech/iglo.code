@@ -7,16 +7,11 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
-import { manifest, apiScopes, rpcs, ReportInput, ReportReceipt, StartInput } from "./contracts.ts";
+import { manifest, apiScopes, rpcs, ReportInput, ReportReceipt } from "./contracts.ts";
 import * as Workflow from "./Workflow.ts";
 import * as Catalog from "./Catalog.ts";
 import { protect } from "./encoding.ts";
 
-const schedulePayload = Schema.Struct({
-  definitionId: Schema.String,
-  input: StartInput.fields.input,
-});
 export const plugin: ServerPlugin = {
   manifest,
   migrations: [
@@ -72,6 +67,7 @@ export const plugin: ServerPlugin = {
       attention: workflows.watchAttention,
       attentionPage: workflows.readAttention,
       schedule: workflows.schedule,
+      scheduleHistory: workflows.scheduleHistory,
     };
     return {
       tools: [
@@ -100,21 +96,10 @@ export const plugin: ServerPlugin = {
       })),
       scheduleTargets: [
         {
-          id: "workflows.start",
+          id: Workflow.scheduleTarget,
+          // The occurrence identity is the start's retry identity: redelivery returns its run.
           invoke: ({ occurrenceId, projectId, payload }) =>
-            protect(
-              "scheduled-start",
-              Effect.gen(function* () {
-                const input = yield* Schema.decodeUnknownEffect(schedulePayload)(payload);
-                // The immutable occurrence receipt is the same idempotency key as a manual start.
-                yield* workflows.scheduledStart({
-                  projectId,
-                  occurrenceId,
-                  definitionId: input.definitionId,
-                  input: input.input,
-                });
-              }),
-            ),
+            workflows.scheduledStart({ projectId, occurrenceId, payload }).pipe(Effect.asVoid),
         },
       ],
       attention: workflows.attention,

@@ -38,6 +38,19 @@ whether a report was accepted, and why routing stopped. Only the actions the ser
 are offered: approve or request changes at a human gate, resume a retained session, retry, or
 cancel.
 
+## Schedule a workflow
+
+In **Settings → Scheduled tasks**, choose **New task** and the environment, set **Runs** to
+**Run a workflow**, and choose the project. Pick a saved workflow, an optional task and the
+workspace, then set the time or interval. Each occurrence starts the workflow as it is saved when that occurrence
+runs, so later edits apply to later runs; a run that already started keeps its snapshot.
+Pause, resume, edit, **Run now** and delete work as for any scheduled task.
+
+Open the task's menu and choose **Run history** to see recent occurrences. Each shows whether
+the dispatch went out, separately from how its run is going, and **Open run** goes to that
+exact run. If the Workflows plugin is unavailable, the schedule stays saved with its workflow
+and task but cannot run; you can still change its timing, pause it or delete it.
+
 ## Answer what needs you
 
 **Workflow attention** lists the runs that need a person, newest first, with a count of all

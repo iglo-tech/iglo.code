@@ -28,6 +28,7 @@ import type {
   PluginProvider,
   PluginSchedule,
   PluginScheduleInput,
+  PluginScheduleOccurrence,
   PluginTarget,
   PluginThreadState,
   EnvironmentId,
@@ -229,6 +230,11 @@ export class Schedules extends Context.Service<
     readonly delete: (id: string) => Effect.Effect<void, PluginError>;
     /** The retry identity is private to this plugin; dispatch receives a host-scoped id. */
     readonly runNow: (id: string, occurrenceId: string) => Effect.Effect<void, PluginError>;
+    /** Newest dispatch receipts of one of this plugin's schedules, at most `limit`. */
+    readonly occurrences: (
+      id: string,
+      limit: number,
+    ) => Effect.Effect<ReadonlyArray<PluginScheduleOccurrence>, PluginError>;
     readonly registerDueWork: (
       run: Effect.Effect<void, PluginError>,
     ) => Effect.Effect<void, never, Scope.Scope>;

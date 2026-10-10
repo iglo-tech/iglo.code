@@ -250,6 +250,17 @@ it.live(
               expectedRevision: 1,
               decision: "approve",
             }),
+          () =>
+            workflows.schedule({
+              projectId,
+              id: "guarded",
+              title: "Guarded",
+              definitionId: "guarded",
+              task: "",
+              workspace: "new-worktree",
+              enabled: true,
+              schedule: { type: "interval", everyMs: 60000 },
+            }),
         ]) {
           yield* Effect.promise(() =>
             expect(command()).rejects.toMatchObject({ _tag: "EnvironmentAuthorizationError" }),
@@ -267,6 +278,7 @@ it.live(
               "plugins.workflows.retry",
               "plugins.workflows.resume",
               "plugins.workflows.gate",
+              "plugins.workflows.schedule",
             ].includes(method),
           ),
         ).toEqual([]);
