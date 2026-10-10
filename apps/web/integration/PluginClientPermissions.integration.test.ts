@@ -4,9 +4,12 @@ import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   WS_METHODS,
+  ProjectId,
   type EnvironmentId,
   type ServerConfig,
 } from "@t3tools/contracts";
+import { Definition } from "@t3tools/plugin-workflows/contracts";
+import * as Schema from "effect/Schema";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import {
   PrimaryConnectionTarget,
@@ -98,6 +101,9 @@ vi.mock("../src/state/session", async () => {
 });
 
 import { availableCatalogAtom, createFixtureClient } from "../src/plugins/runtime";
+import { createWorkflowsClient } from "../src/plugins/workflowsClient";
+
+const decodeDefinition = Schema.decodeUnknownSync(Definition);
 import { appAtomRegistry } from "../src/rpc/atomRegistry";
 
 it.live(
@@ -196,18 +202,41 @@ it.live(
         );
         yield* Effect.addFinalizer(() => Effect.sync(releaseReports));
         yield* Deferred.await(reportsReady);
+        const workflows = createWorkflowsClient(environmentId);
+        const projectId = ProjectId.make("missing-project");
+        const definition = decodeDefinition({
+          version: 1,
+          id: "guarded",
+          revision: 1,
+          title: "Guarded",
+          entry: "done",
+          atLimit: "done",
+          nodes: [{ id: "done", kind: "end", title: "Done", outcome: "completed" }],
+        });
         for (const command of [
           () => client.resolve("missing"),
           () => client.schedule("missing", 60000),
+          () => workflows.save({ projectId, definition, expectedRevision: null }),
+          () =>
+            workflows.replace({
+              projectId,
+              source: ".t3code/workflows/guarded.yaml",
+              fingerprint: "0".repeat(64),
+              definition,
+            }),
         ]) {
           yield* Effect.promise(() =>
             expect(command()).rejects.toMatchObject({ _tag: "EnvironmentAuthorizationError" }),
           );
         }
         expect(
-          invoked.filter(
-            (method) =>
-              method === "plugins.fixture.resolve" || method === "plugins.fixture.schedule",
+          invoked.filter((method) =>
+            [
+              "plugins.fixture.resolve",
+              "plugins.fixture.schedule",
+              "plugins.workflows.save",
+              "plugins.workflows.replace",
+            ].includes(method),
           ),
         ).toEqual([]);
         const writable = yield* auth.issueSession({

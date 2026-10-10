@@ -30,6 +30,7 @@
     "@t3tools/contracts": "workspace:*",
     "@t3tools/plugin-fixture": "workspace:*",
     "@t3tools/plugin-host-contract": "workspace:*",
+    "@t3tools/plugin-workflows": "workspace:*",
     "@t3tools/provider-acp-registry": "workspace:*",
     "@t3tools/provider-core": "workspace:*",
     "@t3tools/provider-cursor": "workspace:*",
@@ -96,6 +97,7 @@
     "tailwindcss": "^4.0.0",
     "unified": "catalog:",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "yaml": "catalog:"
   }
 }

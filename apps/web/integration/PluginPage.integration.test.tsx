@@ -14,6 +14,7 @@ import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -24,6 +25,7 @@ import {
   createRoute,
   createRouter,
   createMemoryHistory,
+  RouterContextProvider,
 } from "@tanstack/react-router";
 import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -238,15 +240,36 @@ it.live(
             initialEntries: [`/plugins/${first.host.environmentId}/fixture/fixture.reports`],
           }),
         });
+        // Mirror the app's router provider, which reloads on each committed history change.
+        const unsubscribe = router.history.subscribe(() => void router.load());
+        yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
         yield* Effect.promise(() => router.load());
-        const context = createPluginWebContext(
-          first.host.environmentId,
+        const values = new Map<string, string>();
+        const storage = {
+          getItem: (key: string) => values.get(key) ?? null,
+          setItem: (key: string, value: string) => void values.set(key, value),
+          removeItem: (key: string) => void values.delete(key),
+        };
+        const context = createPluginWebContext({
+          environmentId: first.host.environmentId,
           descriptor,
-          first.projectId,
-          first.threadId,
-          router.navigate,
-        );
+          projectId: first.projectId,
+          threadId: first.threadId,
+          pageState: { report: "same-report" },
+          navigate: router.navigate,
+          storage,
+        });
         const contribution = { ...bind(web, client), context };
+        const page = () => (
+          <RouterContextProvider router={router}>
+            <PluginPageContent
+              catalog={catalog}
+              contributions={[contribution]}
+              pluginId="fixture"
+              pageId="fixture.reports"
+            />
+          </RouterContextProvider>
+        );
         let renderer: ReactTestRenderer | undefined;
         yield* Effect.addFinalizer(() =>
           Effect.promise(async () => {
@@ -256,14 +279,7 @@ it.live(
         );
         yield* Effect.promise(() =>
           act(async () => {
-            renderer = create(
-              <PluginPageContent
-                catalog={catalog}
-                contributions={[contribution]}
-                pluginId="fixture"
-                pageId="fixture.reports"
-              />,
-            );
+            renderer = create(page());
           }),
         );
         yield* Effect.promise(() =>
@@ -273,6 +289,7 @@ it.live(
         );
         expect(renderer!.root.findAllByProps({ "data-slot": "sidebar-inset" })).toHaveLength(1);
         expect(renderer!.root.findAllByType("li")).toHaveLength(1);
+        expect(renderer!.root.findByType("li").props["aria-current"]).toBe("true");
         const button = (label: string) =>
           renderer!.root.findAllByType("button").find((item) => item.children.includes(label))!;
         yield* Effect.promise(() =>
@@ -288,6 +305,22 @@ it.live(
           (yield* first.rpc["plugins.fixture.list"]({ environmentId: first.host.environmentId }))[0]
             ?.resolved,
         ).toBe(false);
+        const attention = yield* first.rpc["plugins.attention"]({
+          environmentId: first.host.environmentId,
+        }).pipe(
+          Stream.filter((item) => item.pluginId === "fixture" && item.items.length > 0),
+          Stream.take(1),
+          Stream.runHead,
+        );
+        // Server links carry bounded page state through the route without a fixture-specific branch.
+        context.navigate(Option.getOrThrow(attention).items[0]!.link);
+        yield* Effect.promise(async () => {
+          await router.latestLoadPromise;
+        });
+        expect(router.state.location.search).toMatchObject({
+          pluginThreadId: first.threadId,
+          pluginState: { report: "same-report" },
+        });
         const changed = yield* Deferred.make<void>();
         yield* first.rpc["plugins.fixture.subscribe"]({
           environmentId: first.host.environmentId,
@@ -320,11 +353,57 @@ it.live(
           `/plugins/${first.host.environmentId}/fixture/fixture.reports`,
         );
         expect(router.state.location.search).toMatchObject({ pluginProjectId: first.projectId });
+        // Host draft storage keeps an unsent note across a remount (reload).
+        const note = () =>
+          renderer!.root.findAll((node) => node.props.ariaLabel === "Reminder note")[0]!;
+        yield* Effect.promise(() => act(async () => note().props.onChange("Ping the reviewer")));
+        expect([...values].filter(([key]) => key.includes(":fixture:entry:"))).toHaveLength(1);
         yield* Effect.promise(async () => {
           await act(() => renderer!.unmount());
         });
         renderer = undefined;
         yield* Deferred.await(closed);
+        yield* Effect.promise(() =>
+          act(async () => {
+            renderer = create(page());
+          }),
+        );
+        expect(note().props.value).toBe("Ping the reviewer");
+        // The host guard holds navigation while the note is unsent: Keep editing, then Discard.
+        // TanStack history consults blockers only when a document exists, checked on push.
+        const leave = () =>
+          act(async () => {
+            vi.stubGlobal("document", {});
+            void router.navigate({
+              to: "/$environmentId/$threadId",
+              params: { environmentId: first.host.environmentId, threadId: first.threadId },
+            });
+            vi.unstubAllGlobals();
+            vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          });
+        const press = (label: string) =>
+          act(async () => {
+            button(label).props.onClick();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          });
+        yield* Effect.promise(leave);
+        expect(renderer!.root.findAllByProps({ role: "alertdialog" }).length).toBeGreaterThan(0);
+        yield* Effect.promise(() => press("Keep editing"));
+        expect(router.state.location.pathname).toBe(
+          `/plugins/${first.host.environmentId}/fixture/fixture.reports`,
+        );
+        expect(note().props.value).toBe("Ping the reviewer");
+        yield* Effect.promise(leave);
+        yield* Effect.promise(() => press("Discard"));
+        expect(decodeURIComponent(router.state.location.pathname)).toBe(
+          `/${first.host.environmentId}/${first.threadId}`,
+        );
+        expect([...values].filter(([key]) => key.includes(":fixture:entry:"))).toEqual([]);
+        yield* Effect.promise(async () => {
+          await act(() => renderer!.unmount());
+        });
+        renderer = undefined;
         yield* Effect.promise(async () => {
           await act(() => {
             renderer = create(
