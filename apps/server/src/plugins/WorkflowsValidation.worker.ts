@@ -16,7 +16,8 @@ const definition = Schema.decodeUnknownSync(Definition)({
   id: "complexity",
   revision: 1,
   title: "Complexity",
-  entry: "d0",
+  // The source runs first so every decision has a result to read.
+  entry: "source",
   atLimit: "gate",
   nodes: [
     ...Array.from({ length: count }, (_, index) => {
@@ -38,7 +39,7 @@ const definition = Schema.decodeUnknownSync(Definition)({
       runtimeMode: "approval-required",
       instruction: "Source",
       report: { fields: [{ name: "ready", type: "boolean", required: true }] },
-      next: { to: "gate" },
+      next: { to: "d0" },
     },
     { id: "gate", kind: "human", title: "Gate", approve: { to: "end" }, changes: { to: "end" } },
     { id: "end", kind: "end", title: "End", outcome: "completed" },

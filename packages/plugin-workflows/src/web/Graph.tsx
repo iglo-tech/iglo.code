@@ -22,6 +22,7 @@ import {
 } from "@xyflow/react";
 import { CircleAlertIcon } from "lucide-react";
 import { createContext, use, useEffect, useMemo, useState, type CSSProperties } from "react";
+import type { PluginDesign } from "@t3tools/plugin-host-contract/web";
 import type { Definition, Problem } from "../contracts.ts";
 import { editableKinds, kindLabels } from "./editing.ts";
 import {
@@ -59,6 +60,9 @@ interface GraphActions {
   readonly removable: (stepId: string) => boolean;
   readonly onSelect: (stepId: string | null, boxId?: string) => void;
   readonly onRemove: (stepId: string) => void;
+  /** Selecting a route's edge or label selects its owning step and route control. */
+  readonly onSelectRoute: (stepId: string, control: string) => void;
+  readonly Tooltip: PluginDesign["Tooltip"];
 }
 const GraphActionsContext = createContext<GraphActions | null>(null);
 
@@ -292,6 +296,7 @@ const labelTone: Partial<Record<FlowEdge["kind"], string>> = {
 };
 
 const takenStroke = "var(--primary)";
+const danglingStroke = "var(--destructive)";
 
 function RouteLine({
   id,
@@ -302,7 +307,9 @@ function RouteLine({
   data,
   markerEnd,
 }: EdgeProps<RouteEdge>) {
+  const actions = use(GraphActionsContext);
   if (data === undefined) return null;
+  const owner = data.edge.route;
   let path: string;
   let label: Point | null;
   let beside = false;
@@ -333,11 +340,15 @@ function RouteLine({
         path={path}
         {...(markerEnd === undefined ? {} : { markerEnd })}
         style={{
-          stroke: data.taken ? takenStroke : (strokes[data.edge.kind] ?? defaultStroke),
+          stroke: data.taken
+            ? takenStroke
+            : data.edge.dangling
+              ? danglingStroke
+              : (strokes[data.edge.kind] ?? defaultStroke),
           strokeWidth: data.taken ? 2.25 : 1.5,
           // A run's graph keeps untaken routes readable but behind the path the run took.
           ...(data.taken === false ? { opacity: 0.48 } : {}),
-          ...(data.edge.kind === "atLimit" ? { strokeDasharray: "5 4" } : {}),
+          ...(data.edge.kind === "atLimit" || data.edge.dangling ? { strokeDasharray: "5 4" } : {}),
         }}
       />
       {label === null ? null : (
@@ -348,9 +359,25 @@ function RouteLine({
                 ? `translate(${label.x + 6}px, ${label.y}px) translateY(-50%)`
                 : `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`,
             }}
-            className={`pointer-events-none absolute whitespace-nowrap rounded-md border bg-background px-1.5 text-[11px] font-medium leading-[18px] ${data.taken ? "border-primary/40 text-primary" : (labelTone[data.edge.kind] ?? "border-border text-muted-foreground")} ${data.taken === false ? "opacity-64" : ""}`}
+            onClick={
+              owner === null || actions === null
+                ? undefined
+                : () => actions.onSelectRoute(owner.stepId, owner.control)
+            }
+            className={`absolute whitespace-pre rounded-md border bg-background px-1.5 text-[11px] font-medium leading-[18px] ${owner === null ? "pointer-events-none" : "nodrag nopan pointer-events-auto cursor-pointer"} ${data.taken ? "border-primary/40 text-primary" : data.edge.dangling ? "border-destructive/40 text-destructive" : (labelTone[data.edge.kind] ?? "border-border text-muted-foreground")} ${data.taken === false ? "opacity-64" : ""}`}
           >
-            {data.edge.label}
+            {actions === null || data.edge.title === data.edge.label ? (
+              data.edge.label
+            ) : (
+              // Clipped and two-line labels carry the full route text on hover.
+              <actions.Tooltip content={data.edge.title}>
+                {data.edge.label.split("\n").map((line) => (
+                  <span key={line} className="block">
+                    {line}
+                  </span>
+                ))}
+              </actions.Tooltip>
+            )}
           </div>
         </EdgeLabelRenderer>
       )}
@@ -360,7 +387,8 @@ function RouteLine({
 
 const nodeTypes = { step: StepCard, bounds: () => null };
 const edgeTypes = { route: RouteLine };
-const fitOptions = { padding: 0.16, maxZoom: 1 };
+// Fitting never shrinks text below ~90%: a larger workflow pans instead (zoom out stays manual).
+const fitOptions = { padding: 0.16, maxZoom: 1, minZoom: 0.9 };
 // App tokens drive React Flow's own chrome so light and dark themes follow the app.
 const theme = {
   "--xy-background-color": "transparent",
@@ -384,13 +412,30 @@ const laidOut = (graph: FlowGraph, key: string) => {
  * is resized (narrow layouts, the inspector opening).
  */
 function Refit({ signature }: { readonly signature: string }) {
-  const { fitView } = useReactFlow();
+  const { fitView, getNodes, getNodesBounds, getViewport, setViewport } = useReactFlow();
   const initialized = useNodesInitialized();
   const width = useStore((state) => state.width);
   const height = useStore((state) => state.height);
   useEffect(() => {
-    if (initialized && width > 0 && height > 0) void fitView(fitOptions);
-  }, [signature, initialized, width, height, fitView]);
+    if (!initialized || width <= 0 || height <= 0) return;
+    void fitView(fitOptions).then(() => {
+      // A workflow taller than the canvas at the minimum fit zoom starts at its entry.
+      const bounds = getNodesBounds(getNodes());
+      const { x, zoom } = getViewport();
+      if (bounds.height * zoom + 48 > height)
+        void setViewport({ x, y: 24 - bounds.y * zoom, zoom });
+    });
+  }, [
+    signature,
+    initialized,
+    width,
+    height,
+    fitView,
+    getNodes,
+    getNodesBounds,
+    getViewport,
+    setViewport,
+  ]);
   return null;
 }
 
@@ -425,6 +470,8 @@ export function Graph({
   readOnly,
   onSelect,
   onRemove,
+  onSelectRoute,
+  Tooltip,
   run = null,
   focus = null,
   onFocused,
@@ -435,6 +482,10 @@ export function Graph({
   readonly readOnly: boolean;
   readonly onSelect: (stepId: string | null, boxId?: string) => void;
   readonly onRemove?: (stepId: string) => void;
+  /** A route's edge was chosen; without it, choosing an edge selects its owning step. */
+  readonly onSelectRoute?: (stepId: string, control: string) => void;
+  /** The host tooltip, for the full text behind a clipped edge label. */
+  readonly Tooltip: PluginDesign["Tooltip"];
   readonly run?: RunOverlay | null;
   /** A step whose box takes keyboard focus once it exists; `onFocused` reports it. */
   readonly focus?: string | null;
@@ -523,7 +574,11 @@ export function Graph({
     return graph.edges.map((edge) => {
       const route = layout.routes.get(edge.id);
       const isTaken = taken(edge);
-      const color = isTaken ? takenStroke : (markerColors[edge.kind] ?? "var(--muted-foreground)");
+      const color = isTaken
+        ? takenStroke
+        : edge.dangling
+          ? danglingStroke
+          : (markerColors[edge.kind] ?? "var(--muted-foreground)");
       return {
         id: edge.id,
         type: "route",
@@ -559,8 +614,10 @@ export function Graph({
       removable: (id) => removableIds.has(id),
       onSelect,
       onRemove: (id) => onRemove?.(id),
+      onSelectRoute: onSelectRoute ?? ((stepId) => onSelect(stepId)),
+      Tooltip,
     }),
-    [readOnly, removableIds, onSelect, onRemove],
+    [readOnly, removableIds, onSelect, onRemove, onSelectRoute, Tooltip],
   );
   const signature = useMemo(() => graph.nodes.map((node) => node.id).join("\u0000"), [graph]);
   return (
@@ -590,6 +647,10 @@ export function Graph({
           onPaneClick={() => onSelect(null)}
           onNodeClick={(_, node) => {
             if (node.type === "step") onSelect(node.data.node.stepId, node.data.node.id);
+          }}
+          onEdgeClick={(_, edge) => {
+            const owner = edge.data?.edge.route;
+            if (owner) actions.onSelectRoute(owner.stepId, owner.control);
           }}
           attributionPosition="bottom-right"
         >

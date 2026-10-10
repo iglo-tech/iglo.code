@@ -14,11 +14,18 @@ import {
   type Value,
 } from "../contracts.ts";
 import { definitionDiagnostics, routeControls, sourceFields } from "../definition.ts";
+import { inValueLimit, readsAs } from "./decisions.ts";
 
 type AgentNode = Extract<Node, { kind: "agent" }>;
-export type EditableKind = "agent" | "end";
+export type EditableKind = "agent" | "check" | "decision" | "human" | "end";
 /** Kinds whose controls this client authors; other kinds stay preserved and read-only. */
-export const editableKinds: ReadonlyArray<EditableKind> = ["agent", "end"];
+export const editableKinds: ReadonlyArray<EditableKind> = [
+  "agent",
+  "check",
+  "decision",
+  "human",
+  "end",
+];
 export const kindLabels: Record<Node["kind"], string> = {
   agent: "Agent step",
   check: "Check",
@@ -82,9 +89,38 @@ export function defaultAgent(capabilities: Capabilities | null): Agent {
   };
 }
 
+/** The route a step continues through; a step inserted after it takes over this route. */
+function primaryRoute(node: Node): { readonly control: string; readonly route: Route } | null {
+  switch (node.kind) {
+    case "agent":
+    case "check":
+      return { control: "next", route: node.next };
+    case "decision":
+      return { control: "otherwise", route: node.otherwise };
+    case "human":
+      return { control: "approve", route: node.approve };
+    default:
+      return null;
+  }
+}
+function withPrimary(node: Node, route: Route): Node {
+  switch (node.kind) {
+    case "agent":
+    case "check":
+      return { ...node, next: route };
+    case "decision":
+      return { ...node, otherwise: route };
+    case "human":
+      return { ...node, approve: route };
+    default:
+      return node;
+  }
+}
+
 /**
  * Add a step after `after` (or before the entry when nothing is selected) and keep the
- * sequence connected: the new step inherits the previous outgoing route.
+ * sequence connected: the new step inherits the previous step's continuing route. A new
+ * decision reads the step it follows when that step publishes report or check fields.
  */
 export function addStep(
   definition: Definition,
@@ -97,22 +133,44 @@ export function addStep(
     const node: Node = { id, kind: "end", title: "End", outcome: "completed" };
     return { definition: { ...definition, nodes: [...definition.nodes, node] }, id };
   }
-  const id = uniqueId(definition, "agent");
-  const count = definition.nodes.filter((node) => node.kind === "agent").length + 1;
+  const id = uniqueId(definition, kind);
+  const count = definition.nodes.filter((node) => node.kind === kind).length + 1;
   const previous = definition.nodes.find((node) => node.id === after);
+  const inherited = previous === undefined ? null : primaryRoute(previous);
   const target =
-    previous?.kind === "agent" || previous?.kind === "check"
-      ? previous.next.to
-      : previous === undefined
-        ? definition.entry
+    previous === undefined
+      ? definition.entry
+      : inherited !== null && !inherited.route.repeat
+        ? inherited.route.to
         : (definition.nodes.find((node) => node.kind === "end")?.id ?? definition.entry);
-  const node: AgentNode = {
-    id,
-    kind: "agent",
-    title: `Agent step ${count}`,
-    ...defaultAgent(capabilities),
-    next: { to: target },
-  };
+  const title = `${kindLabels[kind]} ${count}`;
+  const node: Node =
+    kind === "agent"
+      ? ({
+          id,
+          kind,
+          title,
+          ...defaultAgent(capabilities),
+          next: { to: target },
+        } satisfies AgentNode)
+      : kind === "check"
+        ? { id, kind, title, command: "", args: [], next: { to: target } }
+        : kind === "decision"
+          ? {
+              id,
+              kind,
+              title,
+              // The step it follows runs before it; after another decision, share its source.
+              source:
+                previous !== undefined && sourceFields(previous, definition).size > 0
+                  ? previous.id
+                  : previous?.kind === "decision"
+                    ? previous.source
+                    : "",
+              rules: [],
+              otherwise: { to: target },
+            }
+          : { id, kind, title, approve: { to: target }, changes: { to: target } };
   const index = previous ? definition.nodes.indexOf(previous) + 1 : 0;
   const nodes = [...definition.nodes];
   nodes.splice(index, 0, node);
@@ -122,8 +180,8 @@ export function addStep(
       ...definition,
       entry: previous === undefined ? id : definition.entry,
       nodes: nodes.map((item) =>
-        item.id === after && (item.kind === "agent" || item.kind === "check") && !item.next.repeat
-          ? { ...item, next: { to: id } }
+        item.id === after && inherited !== null && !inherited.route.repeat
+          ? withPrimary(item, { to: id })
           : item,
       ),
     },
@@ -148,7 +206,11 @@ export function moveStep(definition: Definition, id: string, offset: -1 | 1): De
 export function removeStep(definition: Definition, id: string): Definition {
   const removed = definition.nodes.find((node) => node.id === id);
   if (!removed || definition.nodes.length === 1) return definition;
-  const replacement = removed.kind === "agent" && !removed.next.repeat ? removed.next.to : null;
+  const replacement =
+    (removed.kind === "agent" || removed.kind === "check") && !removed.next.repeat
+      ? removed.next.to
+      : null;
+  // Repeat routes, At limit destinations and decision sources stay dangling on purpose.
   const reroute = (route: Route): Route =>
     replacement !== null && route.to === id && !route.repeat
       ? { ...route, to: replacement }
@@ -158,15 +220,27 @@ export function removeStep(definition: Definition, id: string): Definition {
     entry: definition.entry === id && replacement !== null ? replacement : definition.entry,
     nodes: definition.nodes
       .filter((node) => node.id !== id)
-      .map((node) =>
-        node.kind === "agent" && node.id !== id
-          ? {
+      .map((node): Node => {
+        switch (node.kind) {
+          case "agent":
+          case "check":
+            return {
               ...node,
               next: reroute(node.next),
               ...(node.onUnresolved ? { onUnresolved: reroute(node.onUnresolved) } : {}),
-            }
-          : node,
-      ),
+            };
+          case "decision":
+            return {
+              ...node,
+              rules: node.rules.map((rule) => ({ ...rule, route: reroute(rule.route) })),
+              otherwise: reroute(node.otherwise),
+            };
+          case "human":
+            return { ...node, approve: reroute(node.approve), changes: reroute(node.changes) };
+          default:
+            return node;
+        }
+      }),
   };
 }
 
@@ -208,6 +282,38 @@ export function localProblems(definition: Definition): ReadonlyArray<Problem> {
     );
   for (const node of definition.nodes) {
     if (!node.title.trim()) add(`${node.id}: add a label.`, node.id, "title");
+    if (node.kind === "check") {
+      if (!node.command.trim()) add(`${node.id}: add a command.`, node.id, "command");
+      if (node.args.some((arg) => arg === ""))
+        add(`${node.id}: remove empty arguments.`, node.id, "args");
+    }
+    if (node.kind === "decision")
+      node.rules.forEach((rule, index) => {
+        const visit = (predicate: Predicate, path: ReadonlyArray<number>) => {
+          if (predicate.op === "all" || predicate.op === "any")
+            predicate.terms?.forEach((term, position) => visit(term, [...path, position]));
+          else if (predicate.op === "in" && !predicate.values?.length)
+            add(
+              `${node.id}: choose at least one value.`,
+              node.id,
+              [`rules.${index}.when`, ...path].join("."),
+            );
+          else if (predicate.op === "in" && predicate.values!.length > inValueLimit)
+            add(
+              `${node.id}: "is one of" accepts at most ${inValueLimit} values.`,
+              node.id,
+              [`rules.${index}.when`, ...path].join("."),
+            );
+          else if (
+            predicate.op !== "in" &&
+            predicate.op !== "present" &&
+            predicate.op !== "absent" &&
+            predicate.value === undefined
+          )
+            add(`${node.id}: enter a value.`, node.id, [`rules.${index}.when`, ...path].join("."));
+        };
+        visit(rule.when, []);
+      });
     if (node.kind !== "agent") continue;
     if (!node.instruction.trim()) add(`${node.id}: add instructions.`, node.id, "instruction");
     node.report.fields.forEach((field, index) => {
@@ -304,6 +410,8 @@ export function routeList(definition: Definition): ReadonlyArray<{
   readonly label: string;
   readonly to: string;
   readonly repeat: Route["repeat"];
+  /** Reads-as text of a decision rule's saved predicate; null for other routes. */
+  readonly condition: string | null;
 }> {
   const labels: Record<string, string> = {
     next: "Next",
@@ -312,22 +420,49 @@ export function routeList(definition: Definition): ReadonlyArray<{
     approve: "Approve",
     changes: "Request changes",
   };
-  return definition.nodes.flatMap((from) =>
-    routeControls(from).map(({ control, route }) => ({
-      from,
-      control,
-      label: labels[control] ?? ruleLabel(from, control),
-      to: route.to,
-      repeat: route.repeat,
-    })),
-  );
+  return definition.nodes.flatMap((from) => {
+    const fields =
+      from.kind === "decision" || from.kind === "join"
+        ? sourceFields(
+            from.kind === "join" ? from : definition.nodes.find((node) => node.id === from.source),
+            definition,
+          )
+        : null;
+    return routeControls(from).map(({ control, route }) => {
+      const rule = control.startsWith("rules.") ? Number(control.split(".")[1] ?? 0) : null;
+      const predicate =
+        rule !== null && (from.kind === "decision" || from.kind === "join")
+          ? from.rules[rule]?.when
+          : undefined;
+      return {
+        from,
+        control,
+        label: labels[control] ?? `Rule ${(rule ?? 0) + 1}`,
+        to: route.to,
+        repeat: route.repeat,
+        condition: predicate === undefined ? null : readsAs(predicate, fields),
+      };
+    });
+  });
 }
 
-function ruleLabel(node: Node, control: string): string {
-  const index = Number(control.split(".")[1] ?? 0);
-  const rule = node.kind === "decision" || node.kind === "join" ? node.rules[index] : undefined;
-  return `Rule ${index + 1}${rule === undefined ? "" : `: ${predicateSummary(rule.when)}`}`;
+const titleOf = (definition: Definition, id: string) =>
+  definition.nodes.find((node) => node.id === id)?.title || `${id} (missing)`;
+/**
+ * One route on one line. A repeat route names its backward direction, its maximum with the
+ * total visits it allows (repeat once is two visits) and its At limit destination.
+ */
+export function routeText(
+  definition: Definition,
+  route: Pick<ReturnType<typeof routeList>[number], "label" | "to" | "repeat" | "condition">,
+): string {
+  const when = route.condition === null ? "" : ` (if ${route.condition})`;
+  if (!route.repeat) return `${route.label}${when} → ${titleOf(definition, route.to)}`;
+  return `${route.label}${when} ↩ ${titleOf(definition, route.to)} · ${repeatBadge(route.repeat)} · at limit → ${titleOf(definition, route.repeat.atLimit)}`;
 }
+/** `repeat ×1 (2 visits)`: the maximum counts repeats after the first visit. */
+export const repeatBadge = (repeat: NonNullable<Route["repeat"]>) =>
+  `repeat ×${repeat.max} (${repeat.max + 1} visits)`;
 
 export const sameDefinition = (left: Definition | null, right: Definition | null) =>
   JSON.stringify(left) === JSON.stringify(right);

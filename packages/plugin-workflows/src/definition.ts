@@ -130,6 +130,17 @@ export function routeControls(node: Node): ReadonlyArray<{ control: string; rout
       return [];
   }
 }
+const routeNames: Record<string, string> = {
+  next: "Next",
+  onUnresolved: "If unresolved",
+  otherwise: "Otherwise",
+  approve: "Approve",
+  changes: "Request changes",
+};
+const routeName = (control: string) =>
+  control.startsWith("rules.")
+    ? `Rule ${Number(control.split(".")[1]) + 1}`
+    : (routeNames[control] ?? control);
 /** Located validation results; errors block publication, warnings never do. */
 export function definitionDiagnostics(definition: Definition): Problem[] {
   const problems: Problem[] = [];
@@ -148,8 +159,19 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
     add("The run At limit destination must be an end or human gate.", { control: "atLimit" });
   let edges = 0;
   for (const node of definition.nodes) {
+    // Repeat counters are keyed by step and Return to, so two such routes would share one.
+    const repeatTargets = new Map<string, string>();
     for (const { control, route } of routeControls(node)) {
       edges++;
+      if (route.repeat) {
+        const first = repeatTargets.get(route.to);
+        if (first === undefined) repeatTargets.set(route.to, control);
+        else
+          add(
+            `${node.id}: ${routeName(first)} already repeats back to ${route.to}, and repeats from one step to the same step share one counter. Return to a different step or keep a single repeat route.`,
+            { nodeId: node.id, control: `${control}.repeat` },
+          );
+      }
       if (!nodes.has(route.to))
         add(`${node.id}: unknown route target ${route.to}.`, { nodeId: node.id, control });
       const target = nodes.get(route.to);
@@ -203,7 +225,10 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
           return;
         }
         if (predicate.op === "all" || predicate.op === "any") {
-          for (const term of predicate.terms ?? []) visit(term, depth + 1, control);
+          // Each term is located by its index path, so a problem names the exact condition.
+          (predicate.terms ?? []).forEach((term, index) =>
+            visit(term, depth + 1, `${control}.${index}`),
+          );
           return;
         }
         const field = fields.get(predicate.path ?? "");
@@ -229,7 +254,7 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
               control,
             });
       };
-      node.rules.forEach((rule, index) => visit(rule.when, 1, `rules.${index}`));
+      node.rules.forEach((rule, index) => visit(rule.when, 1, `rules.${index}.when`));
       if (terms > limits.predicateTerms)
         add(`${node.id}: too many predicate terms.`, { nodeId: node.id, control: "rules" });
     }
@@ -295,6 +320,16 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
       previous.push(node.id);
       predecessors.set(destination, previous);
     }
+  // A decision can only read a source that runs before it on some path.
+  for (const node of definition.nodes) {
+    if (node.kind !== "decision" || !nodes.has(node.source)) continue;
+    const before = upstreamOf(definition, node.id);
+    if (!before.has(node.source))
+      add(
+        `${node.id}: ${node.source} never runs before this decision, so there is no result to decide on. Choose an earlier step.`,
+        { nodeId: node.id, control: "source" },
+      );
+  }
   const reachable = new Set([...nodes.keys()].filter(terminal));
   const pending = [...reachable];
   for (let index = 0; index < pending.length; index++)
@@ -323,6 +358,23 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
         "warning",
       );
   return problems;
+}
+/** Steps that run before `id` on some path, following every route and repeat At limit. */
+export function upstreamOf(definition: Definition, id: string): Set<string> {
+  const predecessors = new Map<string, string[]>();
+  for (const node of definition.nodes)
+    for (const route of routes(node))
+      for (const to of [route.to, ...(route.repeat ? [route.repeat.atLimit] : [])])
+        predecessors.set(to, [...(predecessors.get(to) ?? []), node.id]);
+  const before = new Set<string>();
+  const queue = [id];
+  for (let index = 0; index < queue.length; index++)
+    for (const predecessor of predecessors.get(queue[index]!) ?? [])
+      if (!before.has(predecessor)) {
+        before.add(predecessor);
+        queue.push(predecessor);
+      }
+  return before;
 }
 export function definitionProblems(definition: Definition): string[] {
   return definitionDiagnostics(definition)
