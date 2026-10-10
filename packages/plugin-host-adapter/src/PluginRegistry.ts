@@ -448,13 +448,20 @@ const make = Effect.gen(function* () {
                 [...registered].map(([pluginId, service]) =>
                   Stream.unwrap(
                     Effect.sync(() => {
-                      let lastItems: PluginAttention["items"] = [];
+                      let last: Pick<PluginAttention, "items" | "total"> = { items: [] };
                       return service.attention.pipe(
-                        Stream.map((items) => ({ environmentId, pluginId, items })),
+                        Stream.map((value) => ({
+                          environmentId,
+                          pluginId,
+                          ...("items" in value ? value : { items: value }),
+                        })),
                         Stream.mapEffect((item) => decodeAttention(item)),
                         Stream.tap((item) =>
                           Effect.sync(() => {
-                            lastItems = item.items;
+                            last =
+                              item.total === undefined
+                                ? { items: item.items }
+                                : { items: item.items, total: item.total };
                           }),
                         ),
                         Stream.catchCause((cause) =>
@@ -476,7 +483,7 @@ const make = Effect.gen(function* () {
                                     Stream.succeed({
                                       environmentId,
                                       pluginId,
-                                      items: lastItems,
+                                      ...last,
                                       error,
                                     }),
                                     Stream.fail(error),

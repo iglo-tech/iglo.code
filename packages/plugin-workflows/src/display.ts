@@ -218,6 +218,32 @@ export const displayRun = (host: Host["Service"], run: Run) =>
       ...review,
       pullRequest: pullRequest(review.pullRequest, text),
     })),
+    ...(run.overview?.review == null
+      ? {}
+      : {
+          overview: {
+            ...run.overview,
+            review: {
+              ...run.overview.review,
+              pullRequest: pullRequest(run.overview.review.pullRequest, text),
+              branches: run.overview.review.branches.map((branch) => ({
+                ...branch,
+                reason: branch.reason === null ? null : text(branch.reason, Infinity),
+                workspace:
+                  branch.workspace === null
+                    ? null
+                    : {
+                        ...branch.workspace,
+                        path: text(branch.workspace.path, Infinity),
+                        branch:
+                          branch.workspace.branch === null
+                            ? null
+                            : text(branch.workspace.branch, Infinity),
+                      },
+              })),
+            },
+          },
+        }),
   }));
 
 export const displaySummary = (host: Host["Service"], run: Run, summary: RunSummary) =>

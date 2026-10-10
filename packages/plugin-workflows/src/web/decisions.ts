@@ -171,38 +171,39 @@ export function readsAs(
 }
 
 /**
- * Field picker labels: a field's own name when no other option shares it, otherwise its path,
- * with a join's reviewer field led by its own fork's reviewer title. Reviewers sharing a title add their
- * branch id, and any label still shared falls back to the full path.
+ * Field picker labels use a reviewer's current title, plus its branch id when another reviewer
+ * shares that title. A removed reviewer stays visible. `source` names the declared source node
+ * or the join's fork, so branch identities reused by another group cannot borrow its labels.
  */
 export function fieldLabels(
   paths: ReadonlyArray<string>,
   definition: Definition,
-  source: Node | undefined,
+  source: Node | string | undefined,
 ): ReadonlyMap<string, string> {
   const last = (path: string) => path.split(".").at(-1) ?? path;
   const counts = new Map<string, number>();
   for (const path of paths) counts.set(last(path), (counts.get(last(path)) ?? 0) + 1);
-  const fork =
-    source?.kind === "join" ? definition.nodes.find((node) => node.id === source.fork) : undefined;
+  const forkId =
+    typeof source === "string" ? source : source?.kind === "join" ? source.fork : undefined;
+  const fork = definition.nodes.find((node) => node.id === forkId);
   const branches = fork?.kind === "parallel" ? fork.branches : [];
-  const branchTitle = (id: string) => branches.find((branch) => branch.id === id)?.title ?? id;
-  const label = (path: string, qualify: boolean) => {
-    if (counts.get(last(path)) === 1) return last(path);
-    const branch = /^branches\.([^.]+)\.(.+)$/.exec(path);
-    if (!branch) return path;
-    const title = branchTitle(branch[1]!);
-    return `${qualify && title !== branch[1] ? `${title} (${branch[1]})` : title} · ${branch[2]}`;
+  const title = (branch: (typeof branches)[number]) => branch.title || branch.id;
+  const titles = new Map<string, number>();
+  for (const branch of branches) titles.set(title(branch), (titles.get(title(branch)) ?? 0) + 1);
+  const reviewer = (id: string) => {
+    const branch = branches.find((item) => item.id === id);
+    if (branch === undefined) return `${id} (removed)`;
+    return (titles.get(title(branch)) ?? 0) > 1 ? `${title(branch)} (${id})` : title(branch);
   };
-  const shared = (labels: ReadonlyArray<string>) => (index: number) =>
-    labels.indexOf(labels[index]!) !== labels.lastIndexOf(labels[index]!);
-  const titled = paths.map((path) => label(path, false));
-  const isTitledShared = shared(titled);
-  const qualified = paths.map((path, index) =>
-    isTitledShared(index) ? label(path, true) : titled[index]!,
-  );
-  const isQualifiedShared = shared(qualified);
+  const labels = paths.map((path) => {
+    const name = counts.get(last(path)) === 1 ? last(path) : path;
+    const branch = /^branches\.([^.]+)\.(.+)$/.exec(path);
+    if (branch === null) return name;
+    const field = counts.get(last(path)) === 1 ? last(path) : branch[2]!;
+    return `${reviewer(branch[1]!)} · ${field}`;
+  });
+  const shared = (label: string) => labels.indexOf(label) !== labels.lastIndexOf(label);
   return new Map(
-    paths.map((path, index) => [path, isQualifiedShared(index) ? path : qualified[index]!]),
+    paths.map((path, index) => [path, shared(labels[index]!) ? path : labels[index]!]),
   );
 }

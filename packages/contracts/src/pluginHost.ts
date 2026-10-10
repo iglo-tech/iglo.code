@@ -163,10 +163,18 @@ export const PluginAttentionItem = Schema.Struct({
   link: PluginPageLink,
 });
 export type PluginAttentionItem = typeof PluginAttentionItem.Type;
+/** A plugin's bounded newest-first items with its own count of everything needing attention. */
+export const PluginAttentionSummary = Schema.Struct({
+  items: Schema.Array(PluginAttentionItem).check(Schema.isMaxLength(100)),
+  total: NonNegativeInt,
+});
+export type PluginAttentionSummary = typeof PluginAttentionSummary.Type;
 export const PluginAttention = Schema.Struct({
   environmentId: EnvironmentId,
   pluginId: PluginId,
   items: Schema.Array(PluginAttentionItem).check(Schema.isMaxLength(100)),
+  /** Everything needing attention; absent when the plugin reports only its capped items. */
+  total: Schema.optional(NonNegativeInt),
   error: Schema.optional(PluginError),
 });
 export type PluginAttention = typeof PluginAttention.Type;

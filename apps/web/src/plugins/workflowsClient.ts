@@ -266,6 +266,8 @@ const streamFamily = <TTag extends EnvironmentSubscriptionRpcTag>(method: TTag) 
   );
 const runsAtom = streamFamily("plugins.workflows.subscribe");
 const threadAtom = streamFamily("plugins.workflows.thread");
+// One live newest page per environment and project scope, shared by every open view of it.
+const attentionAtom = streamFamily("plugins.workflows.attention");
 const listen = <A>(
   source: {
     readonly atom: Atom.Atom<
@@ -339,6 +341,18 @@ export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowCli
       ),
     watchThread: (input, onLink, onError) =>
       listen(threadAtom(JSON.stringify({ environmentId, ...input })), onLink, onError),
+    subscribeAttention: ({ projectId, limit }, onPage, onError) =>
+      listen(
+        attentionAtom(
+          JSON.stringify({
+            environmentId,
+            ...(projectId === null ? {} : { projectId }),
+            limit,
+          }),
+        ),
+        onPage,
+        onError,
+      ),
     cancel: async (input) => settle(await cancel.run(appAtomRegistry, target(input))),
     retry: async (input) => settle(await retry.run(appAtomRegistry, target(input))),
     resume: async (input) => settle(await resume.run(appAtomRegistry, target(input))),

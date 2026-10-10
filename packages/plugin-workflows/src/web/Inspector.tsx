@@ -1,17 +1,21 @@
-import { ArrowDownIcon, ArrowUpIcon, Trash2Icon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import type { ProviderInstanceId, RuntimeMode } from "@t3tools/plugin-host-contract/schema";
-import type { Field, Node, Skill } from "../contracts.ts";
+import type { Agent, Field, Node, Skill } from "../contracts.ts";
 import { Labeled, errorMessage, type PageProps } from "./common.tsx";
 import {
+  addBranch,
   isProtected,
+  joinOf,
   kindLabels,
+  moveBranch,
   moveStep,
   problemText,
+  removeBranch,
   reviewerAt,
-  routeList,
   updateNode,
   upstreamFields,
+  type Branch,
 } from "./editing.ts";
 import { KindIcon } from "./kinds.tsx";
 import {
@@ -61,6 +65,7 @@ function FullValue({
 }
 
 type AgentNode = Extract<Node, { kind: "agent" }>;
+type ParallelNode = Extract<Node, { kind: "parallel" }>;
 const runtimeModes: ReadonlyArray<RuntimeMode> = [
   "approval-required",
   "auto-accept-edits",
@@ -144,13 +149,22 @@ export function Inspector(input: InspectorProps) {
         </div>
       )}
       {reviewer !== undefined ? (
-        <ReviewerInspector
-          key={input.selected}
-          {...input}
-          group={reviewer.group}
-          reviewer={reviewer.branch}
-          lane={reviewer.lane}
-        />
+        input.readOnly ? (
+          <ReviewerInspector
+            key={input.selected}
+            {...input}
+            group={reviewer.group}
+            reviewer={reviewer.branch}
+            lane={reviewer.lane}
+          />
+        ) : (
+          <ParallelInspector
+            key={input.selected}
+            {...input}
+            node={reviewer.group}
+            initialReviewerId={reviewer.branch.id}
+          />
+        )
       ) : node === undefined ? (
         <WorkflowSettings {...input} />
       ) : node.kind === "agent" ? (
@@ -163,8 +177,10 @@ export function Inspector(input: InspectorProps) {
         <DecisionInspector key={node.id} {...input} node={node} />
       ) : node.kind === "human" ? (
         <HumanInspector key={node.id} {...input} node={node} />
+      ) : node.kind === "parallel" ? (
+        <ParallelInspector key={node.id} {...input} node={node} />
       ) : (
-        <ReadOnlyStep {...input} node={node} />
+        <DecisionInspector key={node.id} {...input} node={node} />
       )}
     </section>
   );
@@ -172,7 +188,7 @@ export function Inspector(input: InspectorProps) {
 
 /**
  * One reviewer lane of a parallel group, read-only: what it is, which model runs it and what it
- * is asked to do. Editing reviewers arrives with the group's own editor.
+ * is asked to do. Editing uses the group's shared agent fields.
  */
 function ReviewerInspector({
   props,
@@ -366,60 +382,105 @@ function EndInspector({
   );
 }
 
-/** Kinds authored in later updates are shown with their routes and kept exactly on save. */
-function ReadOnlyStep({
-  props,
-  definition,
-  node,
-  problems,
-}: InspectorProps & { readonly node: Node }) {
-  const target = (id: string) => definition.nodes.find((item) => item.id === id)?.title ?? id;
+function AgentInspector(input: InspectorProps & { readonly node: AgentNode }) {
+  const { props, definition, node, problems, readOnly, onChange } = input;
+  const set = (update: (current: AgentNode) => AgentNode) =>
+    onChange(updateNode(definition, node.id, (current) => update(current as AgentNode)));
+  const invalid = (control: string) =>
+    problems.some((problem) => matches(problem, node.id, control));
   return (
-    <div className="flex flex-col gap-3 text-sm">
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 truncate font-medium">{node.title}</span>
-        <props.Badge variant="secondary">Read-only</props.Badge>
+    <div className="flex flex-col gap-3">
+      <Labeled id={controlId(node.id, "title")} label="Label">
+        <FullValue props={props} value={node.title}>
+          <props.Input
+            id={controlId(node.id, "title")}
+            value={node.title}
+            readOnly={readOnly}
+            disabled={readOnly}
+            invalid={invalid("title")}
+            onChange={(title) => set((current) => ({ ...current, title }))}
+          />
+        </FullValue>
+      </Labeled>
+      <Problems problems={problems} nodeId={node.id} control="title" />
+      <AgentFields
+        {...input}
+        nodeId={node.id}
+        prefix=""
+        agent={node}
+        reviewer={false}
+        set={(update) => set((current) => update(current) as AgentNode)}
+      />
+      <div className="flex flex-col gap-3 border-t border-border pt-4">
+        <RouteEditor
+          props={props}
+          definition={definition}
+          node={node}
+          control="next"
+          label="Next"
+          route={node.next}
+          optional={false}
+          readOnly={readOnly}
+          problems={problems}
+          onRoute={(route) => route && set((current) => ({ ...current, next: route }))}
+        />
+        <RouteEditor
+          props={props}
+          definition={definition}
+          node={node}
+          control="onUnresolved"
+          label="If unresolved"
+          route={node.onUnresolved}
+          optional
+          readOnly={readOnly}
+          problems={problems}
+          onRoute={(route) =>
+            set((current) => {
+              const { onUnresolved: _previous, ...rest } = current;
+              return route === undefined ? rest : { ...rest, onUnresolved: route };
+            })
+          }
+        />
       </div>
-      <ul aria-label="Routes" className="flex flex-col gap-1 text-xs text-muted-foreground">
-        {routeList(definition)
-          .filter((route) => route.from.id === node.id)
-          .map((route) => (
-            <li key={route.control}>
-              {route.label} → {target(route.to)}
-              {route.repeat
-                ? ` · repeat ×${route.repeat.max}, at limit → ${target(route.repeat.atLimit)}`
-                : ""}
-            </li>
-          ))}
-      </ul>
       <Problems problems={problems} nodeId={node.id} control="" />
     </div>
   );
 }
 
-function AgentInspector({
+function AgentFields({
   props,
   definition,
-  node,
   capabilities,
   capabilitiesError,
   onRetryCapabilities,
   problems,
   readOnly,
-  onChange,
-}: InspectorProps & { readonly node: AgentNode }) {
+  nodeId,
+  prefix,
+  agent,
+  reviewer,
+  set,
+}: InspectorProps & {
+  readonly nodeId: string;
+  /** Control prefix of this agent inside its node (`branches.0.` for a reviewer). */
+  readonly prefix: string;
+  readonly agent: Agent;
+  /** Reviewers keep the canonical review permission policy. */
+  readonly reviewer: boolean;
+  /** Updates keep every property of the owning node or branch they do not change. */
+  readonly set: (update: (current: Agent) => Agent) => void;
+}) {
   const { Input, Select, Textarea, Button, client, projectId, connection } = props;
-  const set = (update: (current: AgentNode) => AgentNode) =>
-    onChange(updateNode(definition, node.id, (current) => update(current as AgentNode)));
+  const cid = (control: string) => controlId(nodeId, `${prefix}${control}`);
   const invalid = (control: string) =>
-    problems.some((problem) => matches(problem, node.id, control));
+    problems.some((problem) => matches(problem, nodeId, `${prefix}${control}`));
   const providers = capabilities?.providers ?? [];
-  const provider = providers.find((item) => item.instanceId === node.modelSelection.instanceId);
-  const model = provider?.models.find((item) => item.slug === node.modelSelection.model);
+  const provider = providers.find((item) => item.instanceId === agent.modelSelection.instanceId);
+  const model = provider?.models.find((item) => item.slug === agent.modelSelection.model);
   const [skills, setSkills] = useState<ReadonlyArray<Skill> | null>(null);
   const [skillsError, setSkillsError] = useState<string | null>(null);
   const [skillsAttempt, setSkillsAttempt] = useState(0);
-  const instanceId = node.modelSelection.instanceId;
+  const instanceId = agent.modelSelection.instanceId;
   useEffect(() => {
     if (projectId === null || connection === "disconnected") return;
     let active = true;
@@ -437,7 +498,7 @@ function AgentInspector({
       active = false;
     };
   }, [client, projectId, connection, instanceId, skillsAttempt]);
-  const upstream = upstreamFields(definition, node.id);
+  const upstream = upstreamFields(definition, nodeId);
   const field = (index: number, update: Partial<Field>) =>
     set((current) => ({
       ...current,
@@ -455,7 +516,7 @@ function AgentInspector({
       },
     }));
   const optionValue = (id: string) =>
-    node.modelSelection.options?.find((option) => option.id === id)?.value;
+    agent.modelSelection.options?.find((option) => option.id === id)?.value;
   const setOption = (id: string, value: string | boolean | undefined) =>
     set((current) => {
       const options = (current.modelSelection.options ?? []).filter((option) => option.id !== id);
@@ -484,19 +545,6 @@ function AgentInspector({
   ];
   return (
     <div className="flex flex-col gap-3">
-      <Labeled id={controlId(node.id, "title")} label="Label">
-        <FullValue props={props} value={node.title}>
-          <Input
-            id={controlId(node.id, "title")}
-            value={node.title}
-            readOnly={readOnly}
-            disabled={readOnly}
-            invalid={invalid("title")}
-            onChange={(title) => set((current) => ({ ...current, title }))}
-          />
-        </FullValue>
-      </Labeled>
-      <Problems problems={problems} nodeId={node.id} control="title" />
       {capabilitiesError !== null || capabilities?.discoveryError ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
           <span>
@@ -513,7 +561,7 @@ function AgentInspector({
         </div>
       ) : null}
       <Labeled
-        id={controlId(node.id, "modelSelection")}
+        id={cid("modelSelection")}
         label="Provider"
         hint={
           provider === undefined
@@ -528,8 +576,8 @@ function AgentInspector({
         }
       >
         <Select
-          id={controlId(node.id, "modelSelection")}
-          value={node.modelSelection.instanceId}
+          id={cid("modelSelection")}
+          value={agent.modelSelection.instanceId}
           disabled={readOnly}
           invalid={invalid("modelSelection")}
           options={withCurrent(
@@ -539,8 +587,8 @@ function AgentInspector({
                 item.reporting ? (item.available ? "" : " — not ready") : " — cannot report"
               }`,
             })),
-            node.modelSelection.instanceId,
-            `${node.modelSelection.instanceId} (not in this environment)`,
+            agent.modelSelection.instanceId,
+            `${agent.modelSelection.instanceId} (not in this environment)`,
           )}
           onChange={(value) => {
             const next = providers.find((item) => item.instanceId === value);
@@ -559,19 +607,19 @@ function AgentInspector({
           }}
         />
       </Labeled>
-      <Problems problems={problems} nodeId={node.id} control="modelSelection" />
-      <Labeled id={controlId(node.id, "model")} label="Model">
+      <Problems problems={problems} nodeId={nodeId} control={`${prefix}modelSelection`} />
+      <Labeled id={cid("model")} label="Model">
         <Select
-          id={controlId(node.id, "model")}
-          value={node.modelSelection.model}
+          id={cid("model")}
+          value={agent.modelSelection.model}
           disabled={readOnly}
           options={withCurrent(
             (provider?.models ?? []).map((item) => ({
               value: item.slug,
               label: `${item.name}${item.isCustom ? " (custom)" : ""}`,
             })),
-            node.modelSelection.model,
-            `${node.modelSelection.model} (not listed)`,
+            agent.modelSelection.model,
+            `${agent.modelSelection.model} (not listed)`,
           )}
           onChange={(value) =>
             set((current) => ({
@@ -582,7 +630,7 @@ function AgentInspector({
         />
       </Labeled>
       {(model?.optionDescriptors ?? []).map((descriptor) => {
-        const id = controlId(node.id, `option-${descriptor.id}`);
+        const id = cid(`option-${descriptor.id}`);
         const value = optionValue(descriptor.id);
         return (
           <Labeled key={descriptor.id} id={id} label={descriptor.label}>
@@ -609,11 +657,35 @@ function AgentInspector({
           </Labeled>
         );
       })}
-      <Labeled id={controlId(node.id, "runtimeMode")} label="Runtime mode">
+      {reviewer &&
+      (agent.interactionMode !== "plan" || agent.runtimeMode !== "approval-required") ? (
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+          <span>Not the review permission policy</span>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={readOnly}
+            onClick={() =>
+              set((current) => ({
+                ...current,
+                interactionMode: "plan",
+                runtimeMode: "approval-required",
+              }))
+            }
+          >
+            Use the review permission policy
+          </Button>
+        </div>
+      ) : null}
+      <Labeled
+        id={cid("runtimeMode")}
+        label="Runtime mode"
+        hint={reviewer ? "Review policy · plan mode, ask before external actions" : null}
+      >
         <Select
-          id={controlId(node.id, "runtimeMode")}
-          value={node.runtimeMode}
-          disabled={readOnly}
+          id={cid("runtimeMode")}
+          value={agent.runtimeMode}
+          disabled={readOnly || reviewer}
           invalid={invalid("runtimeMode")}
           options={runtimeModes.map((mode) => ({
             value: mode,
@@ -628,12 +700,12 @@ function AgentInspector({
           }
         />
       </Labeled>
-      <Problems problems={problems} nodeId={node.id} control="runtimeMode" />
-      <Labeled id={controlId(node.id, "interactionMode")} label="Interaction mode">
+      <Problems problems={problems} nodeId={nodeId} control={`${prefix}runtimeMode`} />
+      <Labeled id={cid("interactionMode")} label="Interaction mode">
         <Select
-          id={controlId(node.id, "interactionMode")}
-          value={node.interactionMode ?? "default"}
-          disabled={readOnly}
+          id={cid("interactionMode")}
+          value={agent.interactionMode ?? "default"}
+          disabled={readOnly || reviewer}
           options={[
             { value: "default", label: "Default" },
             { value: "plan", label: "Plan" },
@@ -647,29 +719,29 @@ function AgentInspector({
         />
       </Labeled>
       <Labeled
-        id={controlId(node.id, "skill")}
+        id={cid("skill")}
         label="Installed skill"
         hint={
           skillsError !== null
             ? null
-            : node.skill !== undefined &&
+            : agent.skill !== undefined &&
                 skills !== null &&
-                !skills.some((skill) => skill.name === node.skill && skill.enabled)
-              ? `${node.skill} is not installed for this provider. Choose an installed skill.`
+                !skills.some((skill) => skill.name === agent.skill && skill.enabled)
+              ? `${agent.skill} is not installed for this provider. Choose an installed skill.`
               : skills === null && connection === "connected"
                 ? "Loading skills…"
                 : null
         }
       >
         <Select
-          id={controlId(node.id, "skill")}
-          value={node.skill ?? ""}
+          id={cid("skill")}
+          value={agent.skill ?? ""}
           disabled={readOnly}
           invalid={invalid("skill")}
           options={withCurrent(
             skillOptions,
-            node.skill ?? "",
-            `${node.skill ?? ""} (not installed)`,
+            agent.skill ?? "",
+            `${agent.skill ?? ""} (not installed)`,
           )}
           onChange={(value) =>
             set((current) => {
@@ -692,41 +764,40 @@ function AgentInspector({
           </Button>
         </div>
       )}
-      <Problems problems={problems} nodeId={node.id} control="skill" />
-      <Labeled
-        id={controlId(node.id, "instruction")}
-        label="Instructions"
-        hint={protectedNote(node.instruction)}
-      >
+      <Problems problems={problems} nodeId={nodeId} control={`${prefix}skill`} />
+      <Labeled id={cid("instruction")} label="Instructions" hint={protectedNote(agent.instruction)}>
         <Textarea
-          id={controlId(node.id, "instruction")}
+          id={cid("instruction")}
           rows={6}
-          value={node.instruction}
+          value={agent.instruction}
           readOnly={readOnly}
           disabled={readOnly}
           invalid={invalid("instruction")}
           onChange={(instruction) => set((current) => ({ ...current, instruction }))}
         />
       </Labeled>
-      <Problems problems={problems} nodeId={node.id} control="instruction" />
+      <Problems problems={problems} nodeId={nodeId} control={`${prefix}instruction`} />
       <div className="grid grid-cols-2 gap-3">
-        <Labeled id={controlId(node.id, "timeoutMs")} label="Deadline (min)">
+        <Labeled
+          id={cid("timeoutMs")}
+          label={reviewer ? "Review deadline (min)" : "Deadline (min)"}
+        >
           <Input
-            id={controlId(node.id, "timeoutMs")}
+            id={cid("timeoutMs")}
             type="number"
             placeholder="120"
-            value={minutes(node.timeoutMs)}
+            value={minutes(agent.timeoutMs)}
             readOnly={readOnly}
             disabled={readOnly}
             invalid={invalid("timeoutMs")}
             onChange={(value) => timeout("timeoutMs", value)}
           />
         </Labeled>
-        <Labeled id={controlId(node.id, "humanTimeoutMs")} label="Input deadline (min)">
+        <Labeled id={cid("humanTimeoutMs")} label="Input deadline (min)">
           <Input
-            id={controlId(node.id, "humanTimeoutMs")}
+            id={cid("humanTimeoutMs")}
             type="number"
-            value={minutes(node.humanTimeoutMs)}
+            value={minutes(agent.humanTimeoutMs)}
             readOnly={readOnly}
             disabled={readOnly}
             invalid={invalid("humanTimeoutMs")}
@@ -738,8 +809,8 @@ function AgentInspector({
       <Problems problems={problems} nodeId={node.id} control="humanTimeoutMs" />
       <fieldset className="flex flex-col gap-2 border-t border-border pt-4">
         <legend className="pb-1 text-xs font-medium text-muted-foreground">Inputs</legend>
-        {(node.bindings ?? []).map((binding, index) => {
-          const id = controlId(node.id, `bindings.${index}`);
+        {(agent.bindings ?? []).map((binding, index) => {
+          const id = cid(`bindings.${index}`);
           const value = `${binding.node}\u0000${binding.path}`;
           return (
             <div key={index} className="flex flex-wrap items-end gap-2">
@@ -821,7 +892,7 @@ function AgentInspector({
             </div>
           );
         })}
-        <Problems problems={problems} nodeId={node.id} control="bindings" />
+        <Problems problems={problems} nodeId={nodeId} control={`${prefix}bindings`} />
         <div>
           <Button
             size="sm"
@@ -850,8 +921,8 @@ function AgentInspector({
       </fieldset>
       <fieldset className="flex flex-col gap-2 border-t border-border pt-4">
         <legend className="pb-1 text-xs font-medium text-muted-foreground">Report fields</legend>
-        {node.report.fields.map((item, index) => {
-          const id = controlId(node.id, `report.fields.${index}`);
+        {agent.report.fields.map((item, index) => {
+          const id = cid(`report.fields.${index}`);
           return (
             <div key={index} className="flex flex-col gap-2 rounded-lg border border-border p-2">
               <Labeled id={id} label={`Field ${index + 1} name`}>
@@ -932,11 +1003,15 @@ function AgentInspector({
                   />
                 </Labeled>
               ) : null}
-              <Problems problems={problems} nodeId={node.id} control={`report.fields.${index}`} />
+              <Problems
+                problems={problems}
+                nodeId={nodeId}
+                control={`${prefix}report.fields.${index}`}
+              />
             </div>
           );
         })}
-        <Problems problems={problems} nodeId={node.id} control="report.fields" />
+        <Problems problems={problems} nodeId={nodeId} control={`${prefix}report.fields`} />
         <div>
           <Button
             size="sm"
@@ -962,10 +1037,10 @@ function AgentInspector({
             Add report field
           </Button>
         </div>
-        <Labeled id={controlId(node.id, "evidenceRequired")} label="Evidence">
+        <Labeled id={cid("evidenceRequired")} label="Evidence">
           <Select
-            id={controlId(node.id, "evidenceRequired")}
-            value={node.report.evidenceRequired ? "required" : "optional"}
+            id={cid("evidenceRequired")}
+            value={agent.report.evidenceRequired ? "required" : "optional"}
             disabled={readOnly}
             options={[
               { value: "optional", label: "Optional" },
@@ -983,37 +1058,247 @@ function AgentInspector({
           />
         </Labeled>
       </fieldset>
-      <div className="flex flex-col gap-3 border-t border-border pt-4">
-        <RouteEditor
-          props={props}
-          definition={definition}
-          node={node}
-          control="next"
-          label="Next"
-          route={node.next}
-          optional={false}
+    </div>
+  );
+}
+
+/**
+ * Reviewers of one frozen pull request head, each a distinct branch with a stable identity.
+ * Labels and order are presentation; join rules and inputs refer to the identity.
+ */
+function ParallelInspector(
+  input: InspectorProps & { readonly node: ParallelNode; readonly initialReviewerId?: string },
+) {
+  const { props, definition, node, problems, readOnly, onChange, capabilities } = input;
+  const { Input, Button, Badge } = props;
+  const [selected, setSelected] = useState(() =>
+    Math.max(
+      0,
+      node.branches.findIndex((branch) => branch.id === input.initialReviewerId),
+    ),
+  );
+  const index = Math.min(selected, node.branches.length - 1);
+  const branch = node.branches[index]!;
+  const set = (update: (current: ParallelNode) => ParallelNode) =>
+    onChange(updateNode(definition, node.id, (current) => update(current as ParallelNode)));
+  const setBranch = (update: (current: Agent) => Agent) =>
+    set((current) => ({
+      ...current,
+      branches: current.branches.map((item, position) =>
+        position === index ? (update(item) as Branch) : item,
+      ),
+    }));
+  const invalid = (control: string) =>
+    problems.some((problem) => matches(problem, node.id, control));
+  const join = joinOf(definition, node.id);
+  const pullRequest = (update: Partial<ParallelNode["pullRequest"]>) =>
+    set((current) => ({ ...current, pullRequest: { ...current.pullRequest, ...update } }));
+  return (
+    <div className="flex flex-col gap-3">
+      <Labeled id={controlId(node.id, "title")} label="Label">
+        <Input
+          id={controlId(node.id, "title")}
+          value={node.title}
           readOnly={readOnly}
-          problems={problems}
-          onRoute={(route) => route && set((current) => ({ ...current, next: route }))}
+          disabled={readOnly}
+          invalid={invalid("title")}
+          onChange={(title) => set((current) => ({ ...current, title }))}
         />
-        <RouteEditor
-          props={props}
-          definition={definition}
-          node={node}
-          control="onUnresolved"
-          label="If unresolved"
-          route={node.onUnresolved}
-          optional
-          readOnly={readOnly}
-          problems={problems}
-          onRoute={(route) =>
-            set((current) => {
-              const { onUnresolved: _previous, ...rest } = current;
-              return route === undefined ? rest : { ...rest, onUnresolved: route };
-            })
-          }
-        />
+      </Labeled>
+      <Problems problems={problems} nodeId={node.id} control="title" />
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Join</span>
+        <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm">
+          <span className="truncate">{join ? join.title || join.id : "Missing join"}</span>
+          <Badge variant={join ? "outline" : "warning"}>
+            Wait for all · {node.branches.length}{" "}
+            {node.branches.length === 1 ? "reviewer" : "reviewers"}
+          </Badge>
+        </span>
       </div>
+      <fieldset className="flex flex-col gap-2 border-t border-border pt-4">
+        <legend className="pb-1 text-xs font-medium text-muted-foreground">Pull request</legend>
+        <Labeled id={controlId(node.id, "pullRequest.repository")} label="Repository">
+          <Input
+            id={controlId(node.id, "pullRequest.repository")}
+            value={node.pullRequest.repository}
+            placeholder="owner/name"
+            readOnly={readOnly}
+            invalid={invalid("pullRequest.repository")}
+            onChange={(repository) => pullRequest({ repository })}
+          />
+        </Labeled>
+        <Problems problems={problems} nodeId={node.id} control="pullRequest.repository" />
+        <div className="grid grid-cols-2 gap-3">
+          <Labeled id={controlId(node.id, "pullRequest.number")} label="Number">
+            <Input
+              id={controlId(node.id, "pullRequest.number")}
+              type="number"
+              value={String(node.pullRequest.number)}
+              readOnly={readOnly}
+              invalid={invalid("pullRequest.number")}
+              onChange={(value) => {
+                const number = Number.parseInt(value, 10);
+                if (Number.isInteger(number) && number > 0) pullRequest({ number });
+              }}
+            />
+          </Labeled>
+          <Labeled id={controlId(node.id, "pullRequest.host")} label="Forge host">
+            <Input
+              id={controlId(node.id, "pullRequest.host")}
+              value={node.pullRequest.host ?? ""}
+              placeholder="Project default"
+              readOnly={readOnly}
+              onChange={(host) =>
+                set((current) => {
+                  const { host: _previous, ...rest } = current.pullRequest;
+                  return {
+                    ...current,
+                    pullRequest: host.trim() === "" ? rest : { ...rest, host },
+                  };
+                })
+              }
+            />
+          </Labeled>
+        </div>
+      </fieldset>
+      <section
+        aria-labelledby={`${controlId(node.id, "branches")}-title`}
+        className="flex flex-col gap-2 border-t border-border pt-4"
+      >
+        <div className="flex items-center gap-2">
+          <h3
+            id={`${controlId(node.id, "branches")}-title`}
+            className="text-xs font-medium text-muted-foreground"
+          >
+            Reviewers
+          </h3>
+          <Button
+            size="xs"
+            variant="ghost"
+            ariaLabel="Add reviewer"
+            disabled={readOnly || node.branches.length >= 32}
+            onClick={() => {
+              onChange(addBranch(definition, node.id, capabilities));
+              setSelected(node.branches.length);
+            }}
+          >
+            <PlusIcon />
+            Reviewer
+          </Button>
+        </div>
+        <ol aria-label="Reviewers" className="flex flex-col gap-px">
+          {node.branches.map((item, position) => {
+            const name = item.title || item.id;
+            const issues = problems.filter(
+              (problem) =>
+                problem.nodeId === node.id &&
+                (problem.control === `branches.${position}` ||
+                  problem.control?.startsWith(`branches.${position}.`) === true),
+            ).length;
+            return (
+              <li key={item.id} className="flex min-w-0 items-center gap-0.5">
+                <Button
+                  size="row"
+                  variant={position === index ? "outline" : "ghost"}
+                  ariaPressed={position === index}
+                  ariaLabel={`Edit reviewer ${name} (${item.id})${issues ? `, ${issues} to fix` : ""}`}
+                  onClick={() => setSelected(position)}
+                >
+                  <KindIcon kind="branch" className="size-3.5 text-muted-foreground" />
+                  <span className="truncate">{name}</span>
+                  <span className="truncate text-muted-foreground">
+                    {item.skill ? item.skill : item.id}
+                  </span>
+                  {issues ? (
+                    <span className="ml-auto flex shrink-0">
+                      <Badge variant="error">{issues} to fix</Badge>
+                    </span>
+                  ) : null}
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  ariaLabel={`Move reviewer ${name} up`}
+                  tooltip="Move up"
+                  disabled={readOnly || position === 0}
+                  onClick={() => {
+                    onChange(moveBranch(definition, node.id, position, -1));
+                    if (position === index) setSelected(position - 1);
+                  }}
+                >
+                  <ArrowUpIcon />
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  ariaLabel={`Move reviewer ${name} down`}
+                  tooltip="Move down"
+                  disabled={readOnly || position === node.branches.length - 1}
+                  onClick={() => {
+                    onChange(moveBranch(definition, node.id, position, 1));
+                    if (position === index) setSelected(position + 1);
+                  }}
+                >
+                  <ArrowDownIcon />
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  ariaLabel={`Remove reviewer ${name}`}
+                  tooltip="Remove reviewer"
+                  disabled={readOnly || node.branches.length === 1}
+                  onClick={() => {
+                    onChange(removeBranch(definition, node.id, position));
+                    setSelected(Math.max(0, Math.min(index, node.branches.length - 2)));
+                  }}
+                >
+                  <Trash2Icon />
+                </Button>
+              </li>
+            );
+          })}
+        </ol>
+        <Problems problems={problems} nodeId={node.id} control="branches" exact />
+      </section>
+      <fieldset
+        key={branch.id}
+        className="flex flex-col gap-3 rounded-lg border border-border bg-card p-2.5"
+      >
+        <legend className="px-1 text-xs font-medium text-muted-foreground">
+          {branch.title || branch.id}
+        </legend>
+        <Labeled
+          id={controlId(node.id, `branches.${index}.title`)}
+          label="Label"
+          hint={`ID ${branch.id}`}
+        >
+          <Input
+            id={controlId(node.id, `branches.${index}.title`)}
+            value={branch.title}
+            readOnly={readOnly}
+            invalid={invalid(`branches.${index}.title`)}
+            onChange={(title) =>
+              set((current) => ({
+                ...current,
+                branches: current.branches.map((item, position) =>
+                  position === index ? { ...item, title } : item,
+                ),
+              }))
+            }
+          />
+        </Labeled>
+        <Problems problems={problems} nodeId={node.id} control={`branches.${index}`} exact />
+        <AgentFields
+          {...input}
+          nodeId={node.id}
+          prefix={`branches.${index}.`}
+          agent={branch}
+          reviewer
+          set={setBranch}
+        />
+      </fieldset>
+      <Problems problems={problems} nodeId={node.id} control="next" />
       <Problems problems={problems} nodeId={node.id} control="" />
     </div>
   );

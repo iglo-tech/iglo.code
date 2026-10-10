@@ -233,10 +233,20 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
         }
         const field = fields.get(predicate.path ?? "");
         if (!field) {
-          add(`${node.id}: unknown predicate path ${predicate.path}.`, {
-            nodeId: node.id,
-            control,
-          });
+          // A join rule that reads a removed reviewer names it, so the dangling rule is obvious.
+          const reviewer =
+            node.kind === "join"
+              ? /^branches\.([^.]+)\./.exec(predicate.path ?? "")?.[1]
+              : undefined;
+          const fork = node.kind === "join" ? nodes.get(node.fork) : undefined;
+          add(
+            reviewer !== undefined &&
+              fork?.kind === "parallel" &&
+              !fork.branches.some((branch) => branch.id === reviewer)
+              ? `${node.id}: a rule reads reviewer ${reviewer}, which is no longer in ${fork.id}. Choose another field or remove the condition.`
+              : `${node.id}: unknown predicate path ${predicate.path}.`,
+            { nodeId: node.id, control },
+          );
           return;
         }
         if (["gt", "gte", "lt", "lte"].includes(predicate.op) && field.type !== "number")

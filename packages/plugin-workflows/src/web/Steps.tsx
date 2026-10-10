@@ -34,7 +34,8 @@ import {
 } from "./Routes.tsx";
 
 type CheckNode = Extract<Node, { kind: "check" }>;
-type DecisionNode = Extract<Node, { kind: "decision" }>;
+/** Decisions and joins share ordered typed rules; a join reads its fork's published fields. */
+type DecisionNode = Extract<Node, { kind: "decision" | "join" }>;
 type HumanNode = Extract<Node, { kind: "human" }>;
 const fieldTypes: Record<Field["type"], string> = {
   boolean: "bool",
@@ -325,14 +326,17 @@ export function HumanInspector(input: StepProps<HumanNode>) {
 
 /**
  * Ordered rules over a source's declared fields. The server evaluates them in order and the
- * first match decides; Otherwise is required and used when none match.
+ * first match decides; Otherwise is required and used when none match. A join's fields are
+ * its persisted aggregate result and each reviewer's report, named by reviewer identity.
  */
 export function DecisionInspector(input: StepProps<DecisionNode>) {
   const { props, definition, node, problems, readOnly } = input;
   const { set, invalid } = stepEditing(input);
-  const { Button, Select, SegmentedControl, Tooltip } = props;
+  const { Button, Select, SegmentedControl, Tooltip, Badge } = props;
+  const fork =
+    node.kind === "join" ? definition.nodes.find((item) => item.id === node.fork) : undefined;
   const fields = sourceFields(
-    definition.nodes.find((item) => item.id === node.source),
+    node.kind === "join" ? node : definition.nodes.find((item) => item.id === node.source),
     definition,
   );
   // Only steps that run before this decision have a result for it to read.
@@ -360,21 +364,46 @@ export function DecisionInspector(input: StepProps<DecisionNode>) {
   return (
     <div className="flex flex-col gap-3">
       <TitleField {...input} />
-      <Labeled id={controlId(node.id, "source")} label="Decide on">
-        <Select
-          id={controlId(node.id, "source")}
-          value={node.source}
-          disabled={readOnly}
-          invalid={invalid("source")}
-          options={withCurrent(
-            [...(node.source === "" ? [{ value: "", label: "Choose a step" }] : []), ...sources],
-            node.source,
-            `${node.source} (missing, no fields, or runs later)`,
-          )}
-          onChange={(source) => set((current) => ({ ...current, source }))}
-        />
-      </Labeled>
-      <Problems problems={problems} nodeId={node.id} control="source" />
+      {node.kind === "join" ? (
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted-foreground">Joins</span>
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm">
+            <span className="truncate">{fork?.title || node.fork}</span>
+            {fork?.kind === "parallel" ? (
+              <Badge variant="outline">
+                Wait for all · {fork.branches.length}{" "}
+                {fork.branches.length === 1 ? "reviewer" : "reviewers"}
+              </Badge>
+            ) : (
+              <Badge variant="warning">Missing parallel group</Badge>
+            )}
+          </span>
+          <Problems problems={problems} nodeId={node.id} control="fork" />
+        </div>
+      ) : (
+        <>
+          <Labeled id={controlId(node.id, "source")} label="Decide on">
+            <Select
+              id={controlId(node.id, "source")}
+              value={node.source}
+              disabled={readOnly}
+              invalid={invalid("source")}
+              options={withCurrent(
+                [
+                  ...(node.source === "" ? [{ value: "", label: "Choose a step" }] : []),
+                  ...sources,
+                ],
+                node.source,
+                `${node.source} (missing, no fields, or runs later)`,
+              )}
+              onChange={(source) =>
+                set((current) => (current.kind === "decision" ? { ...current, source } : current))
+              }
+            />
+          </Labeled>
+          <Problems problems={problems} nodeId={node.id} control="source" />
+        </>
+      )}
       <section
         aria-labelledby={`${controlId(node.id, "rules")}-title`}
         className="flex flex-col gap-2"
@@ -768,9 +797,11 @@ function Term(
   }
   const operators = operatorsFor(field);
   const labels = fieldLabels(
-    [...fields.keys()],
+    fields.has(fieldPath) ? [...fields.keys()] : [...fields.keys(), fieldPath],
     input.definition,
-    input.definition.nodes.find((source) => source.id === node.source),
+    node.kind === "join"
+      ? node
+      : input.definition.nodes.find((source) => source.id === node.source),
   );
   return (
     <div role="group" aria-label="Condition" className="flex min-w-0 flex-col gap-1">
@@ -786,12 +817,13 @@ function Term(
             options={withCurrent(
               [...fields].map(([path, item]) => ({
                 value: path,
-                // Report fields read as their declared name; the type is a muted hint.
+                // Report fields read as their declared name, reviewer fields with the reviewer's
+                // current label; the type is a muted hint.
                 label: `${labels.get(path) ?? path}${item.required ? "" : "?"}`,
                 detail: fieldTypes[item.type],
               })),
               fieldPath,
-              `${fieldPath} (missing field)`,
+              `${labels.get(fieldPath) ?? fieldPath} (missing field)`,
             )}
             onChange={(path) => set(leafFor(path, fields.get(path), predicate))}
           />

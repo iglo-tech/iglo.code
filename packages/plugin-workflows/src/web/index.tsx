@@ -19,9 +19,17 @@ const loadEditor = loader(() => import("./Editor.tsx"));
 const loadRuns = loader(() => import("./Runs.tsx"));
 const loadThread = loader(() => import("./ThreadContext.tsx"));
 const loadStart = loader(() => import("./Start.tsx"));
+const loadAttention = loader(() => import("./Attention.tsx"));
 /** Load the page modules ahead of navigation (for example on hover, or in tests). */
 export const preloadWorkflowPages = () =>
-  Promise.all([loadLibrary(), loadEditor(), loadRuns(), loadThread(), loadStart()]).then(
+  Promise.all([
+    loadLibrary(),
+    loadEditor(),
+    loadRuns(),
+    loadThread(),
+    loadStart(),
+    loadAttention(),
+  ]).then(
     () => undefined,
   );
 const LibraryPageView = lazy(() =>
@@ -34,6 +42,9 @@ const RunsPageView = lazy(() => loadRuns().then((module) => ({ default: module.R
 const ProjectStartDialog = lazy(() =>
   loadStart().then((module) => ({ default: module.ProjectStartDialog })),
 );
+const AttentionPageView = lazy(() =>
+  loadAttention().then((module) => ({ default: module.AttentionPageView })),
+);
 const ThreadContextView = lazy(() =>
   loadThread().then((module) => ({ default: module.ThreadContextView })),
 );
@@ -45,6 +56,7 @@ export const web: WebPlugin<WorkflowClient> = {
     { id: "workflows.library", title: "Workflows", component: LibraryPageView },
     { id: "workflows.editor", title: "Workflow editor", component: EditorPageView },
     { id: "workflows.runs", title: "Workflow runs", component: RunsPageView },
+    { id: "workflows.attention", title: "Workflow attention", component: AttentionPageView },
   ],
   navigation: [
     {
@@ -53,7 +65,14 @@ export const web: WebPlugin<WorkflowClient> = {
       icon: "workflow",
       link: { pageId: "workflows.library" },
     },
+    {
+      id: "workflows.attention-navigation",
+      title: "Workflow attention",
+      icon: "inbox",
+      link: { pageId: "workflows.attention" },
+    },
   ],
+  attention: { title: "Workflows", link: { pageId: "workflows.attention" } },
   projectActions: [
     {
       id: "workflows.project",
