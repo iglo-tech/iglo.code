@@ -1,5 +1,5 @@
 import { ArrowDownIcon, ArrowUpIcon, CornerDownRightIcon, Trash2Icon } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import type { Capabilities, Definition, Node, Problem } from "../contracts.ts";
 import type { PageProps } from "./common.tsx";
 import { editableKinds, kindLabels, routeList, type EditableKind } from "./editing.ts";
@@ -55,7 +55,8 @@ export function Palette({
 
 /**
  * The Routes view: steps in reading order, each with its outgoing routes on one line apiece.
- * Alt+Arrow reorders the reading order and Delete removes a step, without dragging.
+ * Alt+Arrow reorders the reading order and Delete removes a step, without dragging. A run view
+ * shows it read-only with each step's recorded `status`.
  */
 export function RouteList({
   props,
@@ -66,6 +67,7 @@ export function RouteList({
   onSelect,
   onMove,
   onRemove,
+  renderStatus,
 }: {
   readonly props: PageProps;
   readonly definition: Definition;
@@ -75,6 +77,7 @@ export function RouteList({
   readonly onSelect: (id: string) => void;
   readonly onMove: (id: string, offset: -1 | 1) => void;
   readonly onRemove: (id: string) => void;
+  readonly renderStatus?: (node: Node) => ReactNode;
 }) {
   const { Button, Badge, Menu } = props;
   const routes = routeList(definition);
@@ -124,6 +127,7 @@ export function RouteList({
               {definition.entry === node.id ? <Badge variant="info">Start</Badge> : null}
               {definition.atLimit === node.id ? <Badge variant="warning">Run limit</Badge> : null}
               {node.kind === "end" ? <Badge variant="outline">{node.outcome}</Badge> : null}
+              {renderStatus?.(node)}
               {errors > 0 ? (
                 <Badge variant="error">{errors} to fix</Badge>
               ) : warnings > 0 ? (

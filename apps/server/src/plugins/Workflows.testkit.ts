@@ -240,6 +240,18 @@ export const fixture = Effect.gen(function* () {
     if (!Effect.isEffect(result)) return yield* Effect.die("Expected request");
     return yield* result;
   });
+  /** A subscription API on the currently running plugin (after any restart). */
+  const stream = (method: string, input: unknown) =>
+    Stream.unwrap(
+      Effect.suspend(() => runtime.registry.api(`plugins.workflows.${method}`)).pipe(
+        Effect.flatMap((api) => {
+          const result = api.invoke(input);
+          return Stream.isStream(result)
+            ? Effect.succeed(result)
+            : Effect.die("Expected a subscription");
+        }),
+      ),
+    );
   const query = (runId: string) =>
     invoke("get", { environmentId, projectId, runId }).pipe(Effect.flatMap(decodeRun));
   const reconcile = invoke("reconcile", { environmentId, projectId }).pipe(Effect.asVoid);
@@ -276,6 +288,7 @@ export const fixture = Effect.gen(function* () {
     query,
     reconcile,
     invoke,
+    stream,
     report,
     launches,
     commands,

@@ -5,6 +5,8 @@ import {
   FileCodeIcon,
   FilePenLineIcon,
   FolderIcon,
+  HistoryIcon,
+  PlayIcon,
   PlusIcon,
   UploadIcon,
   WorkflowIcon,
@@ -161,6 +163,14 @@ function Library(props: PageProps) {
     <PageHeader breadcrumb={[projectCrumb(props, projects.projects), { label: "Workflows" }]}>
       {projectId === null ? null : (
         <>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => props.navigate({ pageId: "workflows.runs", projectId })}
+          >
+            <HistoryIcon />
+            Runs
+          </Button>
           <Menu
             ariaLabel="More workflow actions"
             items={[{ label: "Import YAML", icon: <UploadIcon />, onSelect: startImport }]}
@@ -396,40 +406,60 @@ function Library(props: PageProps) {
                       .filter((part) => part !== null)
                       .join(" · ")}
                     actions={
-                      <Menu
-                        ariaLabel={`Actions for ${label}`}
-                        disabled={offline}
-                        items={[
-                          ...(invalid
-                            ? [
-                                {
-                                  label: "Repair",
-                                  icon: <WrenchIcon />,
-                                  onSelect: () => open(entry, { repair: "1" }),
-                                },
-                                {
-                                  label: "Import replacement",
-                                  icon: <UploadIcon />,
-                                  onSelect: () => open(entry, { repair: "1", import: "1" }),
-                                },
-                              ]
-                            : []),
-                          ...(entry.packaged
-                            ? [
-                                {
-                                  label: "Clone to edit",
-                                  icon: <CopyIcon />,
-                                  onSelect: () => clone(entry),
-                                },
-                              ]
-                            : []),
-                          {
-                            label: "Export YAML",
-                            icon: <FileCodeIcon />,
-                            onSelect: () => open(entry, { view: "yaml" }),
-                          },
-                        ]}
-                      />
+                      <>
+                        {invalid ? null : (
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            ariaLabel={`Run ${label}`}
+                            tooltip="Run workflow"
+                            disabled={offline}
+                            onClick={() =>
+                              props.navigate({
+                                pageId: "workflows.runs",
+                                projectId,
+                                state: { start: "1", workflow: entry.definitionId! },
+                              })
+                            }
+                          >
+                            <PlayIcon />
+                          </Button>
+                        )}
+                        <Menu
+                          ariaLabel={`Actions for ${label}`}
+                          disabled={offline}
+                          items={[
+                            ...(invalid
+                              ? [
+                                  {
+                                    label: "Repair",
+                                    icon: <WrenchIcon />,
+                                    onSelect: () => open(entry, { repair: "1" }),
+                                  },
+                                  {
+                                    label: "Import replacement",
+                                    icon: <UploadIcon />,
+                                    onSelect: () => open(entry, { repair: "1", import: "1" }),
+                                  },
+                                ]
+                              : []),
+                            ...(entry.packaged
+                              ? [
+                                  {
+                                    label: "Clone to edit",
+                                    icon: <CopyIcon />,
+                                    onSelect: () => clone(entry),
+                                  },
+                                ]
+                              : []),
+                            {
+                              label: "Export YAML",
+                              icon: <FileCodeIcon />,
+                              onSelect: () => open(entry, { view: "yaml" }),
+                            },
+                          ]}
+                        />
+                      </>
                     }
                   >
                     {entry.reasons.length === 0 ? null : (
