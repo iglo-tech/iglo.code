@@ -49,9 +49,11 @@ import * as AntigravityInstallation from "./AntigravityInstallation.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import { applyProviderCompatibility } from "./providerCompatibility.ts";
 import * as ResetCreditCoordinator from "./resetCreditCoordinator.ts";
+import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as OpenCodeRuntime from "@t3tools/provider-opencode/server/OpenCodeRuntime";
 import * as OpenCodeServerLedger from "@t3tools/provider-opencode/server/OpenCodeServerLedger";
-import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
+import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as ProviderInstanceRegistryHydration from "./ProviderInstanceRegistryHydration.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettingsModule from "../serverSettings.ts";
@@ -68,7 +70,7 @@ import type {
 } from "@t3tools/provider-core/server/driver";
 import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "./ProviderRegistry.ts";
-import { layerTestProviderHost } from "@t3tools/provider-testing/host";
+import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
 const decodeServerSettings = Schema.decodeSync(ServerSettings);
@@ -2061,7 +2063,7 @@ it.layer(
         stampIdentity: (draft) => Effect.succeed({ ...draft, instanceId, driver }),
         probe: Effect.succeed(initializeResult),
         supportsTextGeneration: Effect.succeed(false),
-      }).pipe(Effect.provide(layerTestProviderHost({ runBackgroundWork: false })));
+      }).pipe(Effect.provide(TestProviderHost.layer({ runBackgroundWork: false })));
       const startSession = (version: string, scoped = true) =>
         native.onSessionStarted(
           {
@@ -2498,7 +2500,7 @@ it.layer(
             const instances = yield* makeProviderInstanceRegistry({
               drivers: [fixtureDriver],
               configMap: { [instanceId]: { driver, config: { revision: "original" } } },
-            }).pipe(Effect.provide(layerTestProviderHost({ runBackgroundWork: false })));
+            }).pipe(Effect.provide(TestProviderHost.layer({ runBackgroundWork: false })));
             const services = yield* Layer.build(
               ProviderRegistry.layer.pipe(
                 Layer.provide(
@@ -3443,6 +3445,8 @@ it.layer(
               ProviderEventLoggers.NoOpProviderEventLoggers,
             ),
           ),
+          Layer.provideMerge(ProviderLatestVersions.layer),
+          Layer.provideMerge(McpProviderSessions.layer),
           Layer.provideMerge(ModelManifest.layerTest),
           Layer.provideMerge(ResetCreditCoordinator.layerTest),
           Layer.provideMerge(
@@ -3546,6 +3550,8 @@ it.layer(
               ProviderEventLoggers.NoOpProviderEventLoggers,
             ),
           ),
+          Layer.provideMerge(ProviderLatestVersions.layer),
+          Layer.provideMerge(McpProviderSessions.layer),
           Layer.provideMerge(ModelManifest.layerTest),
           Layer.provideMerge(ResetCreditCoordinator.layerTest),
           Layer.provideMerge(
@@ -3664,6 +3670,8 @@ it.layer(
               ProviderEventLoggers.NoOpProviderEventLoggers,
             ),
           ),
+          Layer.provideMerge(ProviderLatestVersions.layer),
+          Layer.provideMerge(McpProviderSessions.layer),
           Layer.provideMerge(ModelManifest.layerTest),
           Layer.provideMerge(ResetCreditCoordinator.layerTest),
           Layer.provideMerge(
@@ -3722,6 +3730,8 @@ it.layer(
                 ProviderEventLoggers.NoOpProviderEventLoggers,
               ),
             ),
+            Layer.provideMerge(ProviderLatestVersions.layer),
+            Layer.provideMerge(McpProviderSessions.layer),
             Layer.provideMerge(ModelManifest.layerTest),
             Layer.provideMerge(ResetCreditCoordinator.layerTest),
             Layer.provideMerge(

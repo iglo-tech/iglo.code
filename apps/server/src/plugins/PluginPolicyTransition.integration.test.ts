@@ -32,7 +32,7 @@ import { startEnvironment, origin, makeClient } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
-import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Claude from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import * as Manager from "../orchestration-v2/ProviderSessionManager.ts";
 import * as Registry from "../orchestration-v2/ProviderAdapterRegistry.ts";
@@ -77,6 +77,7 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
           traceTimingEnabled: false,
         };
         const server = yield* startEnvironment(config, [plugin]);
+        const mcpSessions = Context.get(server.context, McpProviderSessions.McpProviderSessions);
         const host = Context.get(server.context, Host);
         const projectId = ProjectId.make("policy-promotion-project");
         const threadId = ThreadId.make("policy-promotion-thread");
@@ -110,7 +111,7 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
         const nativeFrames = yield* Queue.unbounded<SDKMessage>();
         const opened: Claude.ClaudeAgentSdkQueryOpenInput[] = [];
         let closed = 0;
-        const adapter = Claude.makeClaudeAdapterV2({
+        const adapter = yield* Claude.makeClaudeAdapterV2({
           crypto: yield* Crypto.Crypto,
           instanceId,
           settings,
@@ -140,7 +141,7 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
-        });
+        }).pipe(Effect.provideService(McpProviderSessions.McpProviderSessions, mcpSessions));
         const mgrContext = yield* Layer.build(
           Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
             Layer.provide(Registry.layerFromAdapters([adapter])),
@@ -225,7 +226,7 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
         expect(opened[0]?.options.allowedTools).not.toContain(
           "mcp__t3-code__plugin_fixture_report",
         );
-        const credential = ProviderSessions.readMcpProviderSession(threadId)!;
+        const credential = (yield* mcpSessions.read(threadId))!;
         const http = Context.get(server.context, HttpClient.HttpClient);
         const headers = {
           authorization: credential.authorizationHeader,

@@ -19,7 +19,7 @@ import * as Schema from "effect/Schema";
 import { sweepStalePendingAttachments } from "./attachmentStore.ts";
 import { DEFAULT_SIGNAL_EXPORT, type SignalExport } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-import { HostProcessExecutablePath, HostProcessIsExecutable } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 export const DEFAULT_PORT = 3773;
 
@@ -96,6 +96,7 @@ export class ServerConfig extends Context.Service<
     readonly startupPresentation: StartupPresentation;
     readonly desktopBootstrapToken: string | undefined;
     readonly desktopBootstrapSecret?: string | undefined;
+    readonly shellEnvironmentPrepared?: boolean | undefined;
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
     readonly desktopBrowserFd?: number | undefined;
@@ -255,8 +256,8 @@ export const layerTest = (cwd: string, baseDirOrPrefix: string | { readonly pref
 export const resolveStaticDir = Effect.fn(function* () {
   const { dirname, join, resolve } = yield* Path.Path;
   const { exists } = yield* FileSystem.FileSystem;
-  const isExecutable = yield* HostProcessIsExecutable;
-  const moduleDir = isExecutable ? dirname(yield* HostProcessExecutablePath) : import.meta.dirname;
+  const isExecutable = yield* HostProcess.IsExecutable;
+  const moduleDir = isExecutable ? dirname(yield* HostProcess.ExecutablePath) : import.meta.dirname;
   const bundledClient = resolve(join(moduleDir, "client"));
   const bundledStat = yield* exists(join(bundledClient, "index.html")).pipe(
     Effect.orElseSucceed(() => false),

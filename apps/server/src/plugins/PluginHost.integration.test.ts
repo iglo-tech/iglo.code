@@ -33,7 +33,7 @@ import { ScheduledTaskId } from "@t3tools/contracts";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
 import * as Projects from "../project/ProjectService.ts";
 import * as McpSessions from "../mcp/McpSessionRegistry.ts";
-import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 
 const ToolResult = Schema.fromJsonString(
@@ -86,10 +86,9 @@ it.live(
           threadId: launched.threadId,
           providerInstanceId: ProviderInstanceId.make("codex"),
         });
-        ProviderSessions.setMcpProviderSession(credential.config);
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => ProviderSessions.clearMcpProviderSession(launched.threadId)),
-        );
+        const mcpSessions = Context.get(context, McpProviderSessions.McpProviderSessions);
+        yield* mcpSessions.set(credential.config);
+        yield* Effect.addFinalizer(() => mcpSessions.clear(launched.threadId));
         const client = Context.get(context, HttpClient.HttpClient);
         const init = yield* client.post(`${origin}/mcp`, {
           headers: {
@@ -181,7 +180,7 @@ it.live(
           threadId: launched.threadId,
           providerInstanceId: ProviderInstanceId.make("codex"),
         });
-        ProviderSessions.setMcpProviderSession(fresh.config);
+        yield* mcpSessions.set(fresh.config);
         const stale = yield* call("tools/call", {
           name: "plugin_fixture_report",
           arguments: { id: "stale-report", summary: "Must be rejected" },
@@ -291,7 +290,10 @@ it.live(
             expect(refreshedCredential.config.authorizationHeader).not.toBe(
               credential.config.authorizationHeader,
             );
-            ProviderSessions.setMcpProviderSession(refreshedCredential.config);
+            // The restarted environment starts with an empty session map.
+            yield* Context.get(restarted.context, McpProviderSessions.McpProviderSessions).set(
+              refreshedCredential.config,
+            );
             const restartedHttp = Context.get(restarted.context, HttpClient.HttpClient);
             const discovery = yield* restartedHttp.post(`${testOrigin(restarted.context)}/mcp`, {
               headers: {

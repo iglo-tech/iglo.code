@@ -32,7 +32,7 @@ import { startEnvironment, origin, makeClient } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
-import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Claude from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import * as Manager from "../orchestration-v2/ProviderSessionManager.ts";
 import * as Registry from "../orchestration-v2/ProviderAdapterRegistry.ts";
@@ -102,6 +102,7 @@ it.live(
           traceTimingEnabled: false,
         };
         const server = yield* startEnvironment(config, [plugin]);
+        const mcpSessions = Context.get(server.context, McpProviderSessions.McpProviderSessions);
         const projectId = ProjectId.make("policy-promotion-project");
         const threadId = ThreadId.make("policy-promotion-thread");
         const instanceId = ProviderInstanceId.make("claudeAgent");
@@ -133,7 +134,7 @@ it.live(
         const fs = yield* FileSystem.FileSystem;
         const nativeFrames = yield* Queue.unbounded<SDKMessage>();
         const opened: Claude.ClaudeAgentSdkQueryOpenInput[] = [];
-        const adapter = Claude.makeClaudeAdapterV2({
+        const adapter = yield* Claude.makeClaudeAdapterV2({
           crypto: yield* Crypto.Crypto,
           instanceId,
           settings,
@@ -161,7 +162,7 @@ it.live(
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
-        });
+        }).pipe(Effect.provideService(McpProviderSessions.McpProviderSessions, mcpSessions));
         const ingestion = yield* Layer.build(
           Ingestor.layer.pipe(Layer.provide(ThreadCommands.layer)),
         ).pipe(Effect.provide(server.context.pipe(Context.merge(deps))));
@@ -210,7 +211,7 @@ it.live(
         });
         yield* runtime.startTurn(turn("supervised-turn", supervisedPolicy));
         const options = opened[0]!.options;
-        const credential = ProviderSessions.readMcpProviderSession(threadId)!;
+        const credential = (yield* mcpSessions.read(threadId))!;
         expect(options.permissionMode).toBe("default");
         expect(options.allowedTools).not.toContain("mcp__t3-code__*");
         expect(options.allowedTools).toContain("mcp__t3-code__plugin_fixture_query");

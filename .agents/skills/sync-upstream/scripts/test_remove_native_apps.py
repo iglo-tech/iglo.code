@@ -271,7 +271,11 @@ class NativeRemovalTest(unittest.TestCase):
                 {"name": "shared", "bundles": ["assets", "mobile", "web"]},
                 {"name": "expo-device-hub", "bundles": ["device-tools"], "includeInBundles": ["mobile", "web"]},
             ],
-            "packageOverrides": [{"name": "@expo/native"}, {"name": "web-dependency"}],
+            "packageOverrides": [
+                {"name": "@expo/native"},
+                {"repositoryUrl": "https://github.com/iamEvanYT/electron-webauthn"},
+                {"name": "web-dependency"},
+            ],
         }))
         prune(self.root)
         path = self.root / "third-party-licenses.config.json"
@@ -344,6 +348,10 @@ class NativeRemovalTest(unittest.TestCase):
               "@clerk/electron": 0.0.44
               "@clerk/electron-passkeys": 0.0.3
               "@napi-rs/keyring": 1.3.0
+              "@electron-webauthn/macos": 1.3.1
+              objc-js: 1.5.0
+              plist: 3.1.1
+              tldts: 7.4.2
               effect: 4.0.1
             overrides:
               "dbus-next>usocket": "-"
@@ -363,16 +371,21 @@ class NativeRemovalTest(unittest.TestCase):
             packages:
               effect@4: {resolution: {integrity: original}}
         """)
-        self.write("scripts/package.json", json.dumps({"dependencies": {
-            "@electron/asar": "4.3.0", "@electron/osx-sign": "2.7.0", "sharp": "0.35.4",
-        }}))
+        self.write("scripts/package.json", json.dumps({
+            "dependencies": {
+                "@electron/asar": "4.3.0", "@electron/osx-sign": "2.7.0", "plist": "catalog:",
+                "sharp": "0.35.4",
+            },
+            "devDependencies": {"@types/plist": "catalog:", "@types/pngjs": "6.0.5"},
+        }))
         prune(self.root)
         workspace = (self.root / "pnpm-workspace.yaml").read_text()
         self.assertIn("'!apps/desktop'", workspace)
         self.assertIn('"@clerk/electron": 0.0.44', workspace)
         self.assertIn('"@napi-rs/keyring": 1.3.0', workspace)
         self.assertIn("node-pty: true", workspace)
-        for obsolete in ('electron: true', 'electron-passkeys', 'dbus-next', 'node-abi'):
+        for obsolete in ('electron: true', 'electron-passkeys', 'dbus-next', 'node-abi',
+                         'electron-webauthn', 'objc-js', 'plist', 'tldts'):
             self.assertNotIn(obsolete, workspace)
         lock = (self.root / "pnpm-lock.yaml").read_text()
         self.assertNotIn("apps/desktop:", lock)
@@ -380,6 +393,7 @@ class NativeRemovalTest(unittest.TestCase):
         self.assertIn("integrity: original", lock)
         self.assertEqual(json.loads((self.root / "scripts/package.json").read_text()), {
             "dependencies": {"sharp": "0.35.4"},
+            "devDependencies": {"@types/pngjs": "6.0.5"},
         })
         self.assertEqual(prune(self.root), [])
 

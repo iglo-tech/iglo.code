@@ -23,13 +23,13 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
 import { resolveBunExecutable } from "@t3tools/shared/bunRuntime";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as ProcessRunner from "../processRunner.ts";
 
 const DEVICE_HUB_PACKAGE = "expo-device-hub";
-export const DEVICE_HUB_VERSION = "0.12.0";
+export const DEVICE_HUB_VERSION = "0.15.3";
 const AGENT_DEVICE_PACKAGE = "agent-device";
-export const AGENT_DEVICE_VERSION = "0.21.12";
+export const AGENT_DEVICE_VERSION = "0.21.23";
 
 const INSTALL_TIMEOUT = Duration.minutes(10);
 const installLock = Semaphore.makeUnsafe(1);
@@ -142,7 +142,7 @@ const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
     .pipe(Effect.mapError(fail("preparing the install directory")));
 
   return yield* Effect.gen(function* () {
-    const environment = yield* HostProcessEnvironment;
+    const environment = yield* HostProcess.Environment;
     const bunPath = yield* resolveBunExecutable(
       spec.name === DEVICE_HUB_PACKAGE ? "Local device support" : "Device automation",
       environment,

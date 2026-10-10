@@ -15,7 +15,7 @@ import * as Path from "effect/Path";
 import { FetchHttpClient, HttpClient } from "effect/http";
 import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
 import { cliArchiveFileName, cliArchivePlatformKey } from "@t3tools/shared/cliRelease";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { afterAll, afterEach, beforeAll, expect } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import * as Layer from "effect/Layer";
@@ -40,8 +40,8 @@ let releaseServer: NodeHttp.Server;
 let releaseBaseUrl: string;
 const releaseFiles = new Map<string, Buffer>();
 const releaseRequests: string[] = [];
-const platform = HostProcessPlatform.defaultValue();
-const arch = HostProcessArchitecture.defaultValue();
+const platform = HostProcess.Platform.defaultValue();
+const arch = HostProcess.Architecture.defaultValue();
 const platformKey = (() => {
   const key = cliArchivePlatformKey(platform, arch);
   if (!key)
@@ -189,8 +189,8 @@ const setup = (mode: "source" | "compiled") =>
     const paths = yield* Path.Path;
     const runner = yield* ProcessRunner.ProcessRunner;
     const httpClient = yield* HttpClient.HttpClient;
-    const hostPlatform = yield* HostProcessPlatform;
-    const hostArchitecture = yield* HostProcessArchitecture;
+    const hostPlatform = yield* HostProcess.Platform;
+    const hostArchitecture = yield* HostProcess.Architecture;
     for (const version of ["1.0.0", "1.1.0"]) {
       const installed = yield* ensurePinnedRuntimeInstalled({
         baseDir: home,
@@ -221,8 +221,8 @@ const setup = (mode: "source" | "compiled") =>
     );
     return { home, dbPath, statePath };
   }).pipe(
-    Effect.provideService(HostProcessPlatform, platform),
-    Effect.provideService(HostProcessArchitecture, arch),
+    Effect.provideService(HostProcess.Platform, platform),
+    Effect.provideService(HostProcess.Architecture, arch),
   );
 
 function waitForClose(child: NodeChildProcess.ChildProcess) {

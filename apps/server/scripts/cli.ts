@@ -15,7 +15,7 @@ import {
 } from "../../../scripts/build-npm-platform-packages.ts";
 import { DEVELOPMENT_ICON_OVERRIDES } from "../../../scripts/lib/brand-assets.ts";
 import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-executable-imports.ts";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
 import { CLI_ARCHIVE_PLATFORM_KEYS } from "@t3tools/shared/cliRelease";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -134,8 +134,8 @@ const buildExeCmd = Command.make(
       const repoRoot = yield* RepoRoot;
       const serverDir = path.join(repoRoot, "apps/server");
 
-      const hostPlatform = yield* HostProcessPlatform;
-      const hostArch = yield* HostProcessArchitecture;
+      const hostPlatform = yield* HostProcess.Platform;
+      const hostArch = yield* HostProcess.Architecture;
       const target = Option.getOrElse(config.target, () => `${hostPlatform}-${hostArch}`);
       if (!CLI_ARCHIVE_PLATFORM_KEYS.some((supported) => supported === target)) {
         return yield* new ServerCliExecutableBuildConfigurationError({

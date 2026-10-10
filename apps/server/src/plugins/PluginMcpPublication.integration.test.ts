@@ -12,7 +12,7 @@ import { startEnvironment, origin } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
-import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as PluginRegistry from "@t3tools/plugin-host-adapter/registry";
 import * as Sessions from "../mcp/McpSessionRegistry.ts";
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -124,7 +124,8 @@ it.live.each(["ordinary", "empty", "unsupported"] as const)(
           threadId,
           providerInstanceId: instanceId,
         });
-        ProviderSessions.setMcpProviderSession({
+        const mcpSessions = Context.get(server.context, McpProviderSessions.McpProviderSessions);
+        yield* mcpSessions.set({
           ...credential.config,
           runtimePolicy: {
             cwd: config.baseDir,
@@ -132,9 +133,7 @@ it.live.each(["ordinary", "empty", "unsupported"] as const)(
             interactionMode: "default",
           },
         });
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => ProviderSessions.clearMcpProviderSession(threadId)),
-        );
+        yield* Effect.addFinalizer(() => mcpSessions.clear(threadId));
         const http = Context.get(server.context, HttpClient.HttpClient);
         const headers = {
           authorization: credential.config.authorizationHeader,

@@ -75,7 +75,7 @@ import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as OpenCode2Client from "./OpenCode2Client.ts";
 import * as OpenCode2Server from "./OpenCode2Server.ts";
 import * as OpenCodeRuntime from "../OpenCodeRuntime.ts";
-import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import { t3OrchestrationSystemPrompt } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { SKILL_MENTION_PATTERN } from "@t3tools/shared/composerInlineTokens";
@@ -89,7 +89,7 @@ import {
   backgroundWorkNotification,
   type BackgroundWorkReport,
 } from "@t3tools/provider-core/server/notification";
-import * as ProviderContinuationRequests from "@t3tools/provider-core/server/continuationRequests";
+import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import {
   makeSubagentChildThread,
@@ -473,7 +473,7 @@ export const t3McpServerName = Effect.fn("t3McpServerName")(function* (threadId:
  */
 const mcpRules = (
   mcpServerName: string | null,
-  threadId: string | null,
+  readOnlyPluginTools: ReadonlyArray<string>,
   policy: RulesPolicy,
 ): ReadonlyArray<Rule> =>
   mcpServerName === null
@@ -490,12 +490,7 @@ const mcpRules = (
                 effect: "ask" as const,
               },
             ]),
-        ...(
-          (threadId === null
-            ? undefined
-            : McpProviderSession.readMcpProviderSession(ThreadId.make(threadId))
-          )?.readOnlyPluginTools ?? []
-        ).map((id) => ({
+        ...readOnlyPluginTools.map((id) => ({
           action: `${mcpServerName}_${id}`,
           resource: "*",
           effect: "allow" as const,
@@ -507,7 +502,7 @@ const sessionRules = (
   paths: ReadonlyArray<Rule>,
   grants: ReadonlyArray<Rule>,
   mcpServerName: string | null,
-  threadId: string | null,
+  readOnlyPluginTools: ReadonlyArray<string>,
 ): ReadonlyArray<Rule> => [
   ...(policy.runtimeMode === "full-access"
     ? [rule("*", "allow")]
@@ -521,7 +516,7 @@ const sessionRules = (
   // are never denied: the free tier refuses sessions whose rules deny them.
   ...(policy.interactionMode === "plan" ? [rule("edit", "deny")] : []),
   ...paths,
-  ...mcpRules(mcpServerName, threadId, policy),
+  ...mcpRules(mcpServerName, readOnlyPluginTools, policy),
 ];
 
 const sameRules = (left: ReadonlyArray<Rule> | undefined, right: ReadonlyArray<Rule>) =>
@@ -856,6 +851,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
   const server = yield* OpenCode2Server.OpenCode2Server;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const host = yield* ProviderHost.ProviderHost;
+  const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
   const crypto = yield* Crypto.Crypto;
   const driver = OPENCODE_PROVIDER;
@@ -883,7 +879,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
   });
 
   const openSession = Effect.fn("OpenCode2Adapter.openSession")(function* (
-    input: Parameters<ProviderAdapter.ProviderAdapterV2Shape["openSession"]>[0],
+    input: Parameters<ProviderAdapter.ProviderAdapterV2["Service"]["openSession"]>[0],
     initial: {
       readonly connection: OpenCode2Server.OpenCode2Connection;
       readonly scope: Scope.Closeable;
@@ -3019,7 +3015,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         paths,
         policy.runtimeMode === "full-access" ? [] : thread.grants,
         appThreadId === null ? null : yield* mcpServerNameFor(appThreadId),
-        appThreadId,
+        appThreadId === null
+          ? []
+          : ((yield* mcpSessions.read(ThreadId.make(appThreadId)))?.readOnlyPluginTools ?? []),
       );
     });
 
@@ -3028,10 +3026,10 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       const threadId = state.providerThread.appThreadId;
       const credential =
         state.subagent === undefined && threadId !== null
-          ? McpProviderSession.readMcpProviderSession(threadId)
+          ? yield* mcpSessions.read(threadId)
           : undefined;
       const owner = credential?.providerInstanceId === instanceId ? credential : undefined;
-      McpProviderSession.invalidateMcpProviderSessionRuntimePolicy(owner);
+      yield* mcpSessions.invalidateRuntimePolicy(owner);
       // A subagent's session may use its thread's T3 server, the root's.
       const rules = yield* rulesFor(state, policy, rootOf(state).providerThread.appThreadId);
       if (!sameRules(state.rules, rules)) {
@@ -3043,7 +3041,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       }
       state.policy = policy;
       // Resume and compaction apply rules without the manager's startTurn hook.
-      McpProviderSession.updateMcpProviderSessionRuntimePolicy(owner, {
+      yield* mcpSessions.updateRuntimePolicy(owner, {
         ...policy,
         cwd: state.directory,
       });
@@ -3289,7 +3287,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       state: ThreadState,
       turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
     ) {
-      const mcpSession = McpProviderSession.readMcpProviderSession(turnInput.threadId);
+      const mcpSession = yield* mcpSessions.read(turnInput.threadId);
       const directory = turnInput.runtimePolicy.cwd ?? host.paths.cwd;
       const name = yield* mcpServerNameFor(turnInput.threadId);
       // An external server may not reach T3's MCP endpoint, as with 1.x.

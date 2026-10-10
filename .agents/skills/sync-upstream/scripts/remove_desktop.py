@@ -10,6 +10,7 @@ def desktop_dependency(name):
     return bool(re.match(
         r"^(?:electron(?:[-@>]|$)|@electron/asar(?:@|$)|@electron/osx-sign(?:@|$)"
         r"|@clerk/electron-passkeys(?:@|$)|@crowecawcaw/xa11y(?:@|$)"
+        r"|@electron-webauthn/|objc-js(?:@|$)|(?:@types/)?plist(?:@|$)|tldts(?:@|$)"
         r"|dbus-next(?:[@>]|$)|node-abi(?:[@:]|$))", name
     ))
 
@@ -166,6 +167,7 @@ def prune_desktop(root):
         ".github/scripts/stage-preview-bundle.py", ".github/scripts/stage-preview-bundle.test.py",
         "scripts/lib/desktop-external-packages.ts", "scripts/lib/update-manifest.ts",
         "docs/internals/linux-snap-shot.md", "docs/user/snap-shot.md", "docs/user/browser-import.md",
+        "docs/user/default-browser.md",
     ):
         remove(path)
     for pattern in (".github/workflows/desktop-*", "scripts/build-desktop-artifact.*",
@@ -231,8 +233,10 @@ def prune_desktop(root):
 
     def scripts_package(text):
         data = json.loads(text)
-        data["dependencies"] = {name: value for name, value in data.get("dependencies", {}).items()
-                                if not desktop_dependency(name)}
+        for field in ("dependencies", "devDependencies"):
+            if field in data:
+                data[field] = {name: value for name, value in data[field].items()
+                               if not desktop_dependency(name)}
         return text if data == json.loads(text) else json.dumps(data, indent=2) + "\n"
     edit("scripts/package.json", scripts_package)
     edit("scripts/build-cli-archive.ts", lambda text: text.replace(
@@ -294,12 +298,16 @@ def prune_desktop(root):
             if entry.get("bundles"):
                 notices.append(entry)
         data["customNotices"] = notices
-        data["packageOverrides"] = [entry for entry in data.get("packageOverrides", [])
-                                    if not desktop_dependency(entry.get("name", ""))]
+        data["packageOverrides"] = [
+            entry for entry in data.get("packageOverrides", [])
+            if not desktop_dependency(entry.get("name", ""))
+            and not desktop_dependency(entry.get("repositoryUrl", "").rstrip("/").rsplit("/", 1)[-1])
+        ]
         return text if data == json.loads(text) else json.dumps(data, indent=2) + "\n"
     edit("third-party-licenses.config.json", licenses)
     edit("docs/README.md", lambda text: text.replace('- [SnapShots](./user/snap-shot.md)\n', '')
-         .replace('- [Import browser sessions](./user/browser-import.md)\n', ''))
+         .replace('- [Import browser sessions](./user/browser-import.md)\n', '')
+         .replace('- [Use T3 Code as your default browser](./user/default-browser.md)\n', ''))
     edit("docs/operations/development.md", lambda text: text
          .replace('Prefer a container? See [Dev container](../internals/devcontainer.md) for VS Code and Codespaces setup.\n\n', '')
          .replace('Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron client.', 'Use `vp run dev` for server and web.')

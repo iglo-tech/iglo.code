@@ -18,7 +18,7 @@ launch T3 Code and configure providers afterwards.
 curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | sh
 ```
 
-This puts `t3` in `~/.local/bin`. If your shell reports `command not found`
+This installs the `t3` binary to `~/.local/bin`. If your shell reports `command not found`
 afterwards, that directory is not on your `PATH` yet; the installer prints the
 line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
 `T3CODE_VERSION` to pin an exact version.

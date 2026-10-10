@@ -29,7 +29,7 @@ import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -375,7 +375,7 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   const serverDir = path.join(repoRoot, "apps/server");
   const executableName = "t3";
   const targetKey = cliArchivePlatformKey(input.platform, input.arch);
-  const hostKey = `${yield* HostProcessPlatform}-${yield* HostProcessArchitecture}`;
+  const hostKey = `${yield* HostProcess.Platform}-${yield* HostProcess.Architecture}`;
   if (targetKey !== hostKey || targetKey === "darwin-x64") {
     return yield* new CliArchiveInputMissingError({
       inputPath: targetKey,

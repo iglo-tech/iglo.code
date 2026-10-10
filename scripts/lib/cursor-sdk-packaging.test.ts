@@ -6,7 +6,7 @@ import * as NodeModule from "node:module";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 import { build } from "vite-plus/pack";
@@ -128,7 +128,7 @@ it("loads packaged Cursor catalog chunks without credentials or checkout depende
         timeout: 30_000,
       },
     );
-    if (HostProcessPlatform.defaultValue() === "darwin") {
+    if (HostProcess.Platform.defaultValue() === "darwin") {
       NodeChildProcess.execFileSync("codesign", ["--force", "--sign", "-", executable]);
     }
     const stdout = NodeChildProcess.execFileSync(executable, [], {

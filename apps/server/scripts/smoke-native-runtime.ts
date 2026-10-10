@@ -8,11 +8,11 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
-const platform = await Effect.runPromise(HostProcessPlatform);
+const platform = await Effect.runPromise(HostProcess.Platform);
 const scriptDirectory = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const [requestedMode = "source", archive, ...extra] = process.argv.slice(2);
 const mode = requestedMode.replace(/^--/u, "");

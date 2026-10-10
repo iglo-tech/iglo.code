@@ -1,4 +1,4 @@
-import { resolveHostModuleUrl } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeModule from "node:module";
 
 import type {
@@ -31,7 +31,7 @@ import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 // fff-node stays external to the CLI bundle because it dlopens a native
 // library. Resolve the archive's native package from the real filesystem
 // rather than Bun's embedded virtual entrypoint.
-const requireForFff = NodeModule.createRequire(resolveHostModuleUrl(import.meta.url));
+const requireForFff = NodeModule.createRequire(HostProcess.resolveHostModuleUrl(import.meta.url));
 const { FileFinder } = requireForFff("@ff-labs/fff-node") as typeof import("@ff-labs/fff-node");
 
 const WORKSPACE_INDEX_MAX_ENTRIES = 25_000;

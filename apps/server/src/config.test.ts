@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { HostProcessExecutablePath, HostProcessIsExecutable } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -17,8 +17,8 @@ it.layer(NodeServices.layer)("static client resolution", (it) => {
       yield* fs.makeDirectory(clientDir);
       yield* fs.writeFileString(path.join(clientDir, "index.html"), "<html>packaged client</html>");
       const resolved = yield* resolveStaticDir().pipe(
-        Effect.provideService(HostProcessIsExecutable, true),
-        Effect.provideService(HostProcessExecutablePath, path.join(archiveDir, "t3")),
+        Effect.provideService(HostProcess.IsExecutable, true),
+        Effect.provideService(HostProcess.ExecutablePath, path.join(archiveDir, "t3")),
       );
       assert.equal(resolved, clientDir);
     }),
@@ -32,8 +32,8 @@ it.layer(NodeServices.layer)("static client resolution", (it) => {
         const sibling = path.join(import.meta.dirname, "client");
         const monorepo = path.resolve(import.meta.dirname, "../../web/dist");
         const resolved = yield* resolveStaticDir().pipe(
-          Effect.provideService(HostProcessIsExecutable, false),
-          Effect.provideService(HostProcessExecutablePath, "/unrelated/bun"),
+          Effect.provideService(HostProcess.IsExecutable, false),
+          Effect.provideService(HostProcess.ExecutablePath, "/unrelated/bun"),
           Effect.provideService(
             FileSystem.FileSystem,
             FileSystem.makeNoop({
@@ -54,8 +54,8 @@ it.layer(NodeServices.layer)("static client resolution", (it) => {
       const path = yield* Path.Path;
       const monorepo = path.resolve(import.meta.dirname, "../../web/dist");
       const resolved = yield* resolveStaticDir().pipe(
-        Effect.provideService(HostProcessIsExecutable, true),
-        Effect.provideService(HostProcessExecutablePath, "/isolated/archive/t3"),
+        Effect.provideService(HostProcess.IsExecutable, true),
+        Effect.provideService(HostProcess.ExecutablePath, "/isolated/archive/t3"),
         Effect.provideService(
           FileSystem.FileSystem,
           FileSystem.makeNoop({

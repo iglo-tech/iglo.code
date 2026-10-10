@@ -1,4 +1,4 @@
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -210,8 +210,8 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       for (const tool of ["dirname", "uname", "readlink"]) {
         yield* fs.symlink(`/usr/bin/${tool}`, path.join(toolBin, tool));
       }
-      const hostPlatform = yield* HostProcessPlatform;
-      const hostArch = yield* HostProcessArchitecture;
+      const hostPlatform = yield* HostProcess.Platform;
+      const hostArch = yield* HostProcess.Architecture;
       const env = { ...process.env, PATH: toolBin, NODE_PATH: fixture.outputDir } as Record<
         string,
         string

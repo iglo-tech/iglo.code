@@ -36,8 +36,8 @@ import * as Ingestor from "../orchestration-v2/ProviderEventIngestor.ts";
 import * as Executor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
-import * as Sessions from "@t3tools/provider-core/server/mcpSession";
-import { layerTestProviderHost } from "@t3tools/provider-testing/host";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import { makeReplayAdapter } from "../orchestration-v2/Adapters/OpenCode2AdapterV2.testkit.ts";
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const SESSION = "ses_f148ca2deffeJcwCnRQtb0YFNX";
@@ -109,6 +109,7 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
           encode({ providers: { opencode: { binaryPath, enabled: true } } }),
         );
         const server = yield* startEnvironment(config, [plugin]);
+        const mcpSessions = Context.get(server.context, McpProviderSessions.McpProviderSessions);
         const host = Context.get(server.context, Host);
         const instanceId = ProviderInstanceId.make("opencode");
         yield* Context.get(server.context, Providers.ProviderRegistry).refreshInstance(instanceId);
@@ -264,7 +265,7 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
           version: "2.0.18",
           scenario: "compaction-policy",
           entries,
-        }).pipe(Effect.provide(layerTestProviderHost()), Effect.provide(ctx));
+        }).pipe(Effect.provide(TestProviderHost.layer()), Effect.provide(ctx));
         const managerContext = yield* Layer.build(
           Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
             Layer.provide(Registry.layerFromAdapters([adapter])),
@@ -320,9 +321,7 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
         });
         yield* runtime.startTurn(turnInput("first", full));
         expect(yield* Deferred.await(terminal)).toBe("completed");
-        expect(Sessions.readMcpProviderSession(threadId)?.runtimePolicy?.runtimeMode).toBe(
-          "full-access",
-        );
+        expect((yield* mcpSessions.read(threadId))?.runtimePolicy?.runtimeMode).toBe("full-access");
         terminal = yield* Deferred.make<string>();
         const requestedPolicy = scenario === "unchanged-compaction" ? full : supervised;
         yield* threads.dispatch({
@@ -346,7 +345,7 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
           });
         const status = yield* Deferred.await(terminal);
         expect(status).toBe("completed");
-        const credential = Sessions.readMcpProviderSession(threadId)!;
+        const credential = (yield* mcpSessions.read(threadId))!;
         const http = Context.get(server.context, HttpClient.HttpClient);
         const headers = {
           authorization: credential.authorizationHeader,

@@ -17,7 +17,7 @@ import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Startup from "../serverRuntimeStartup.ts";
 import * as Mcp from "../mcp/McpSessionRegistry.ts";
-import * as Sessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { HttpClient, HttpBody } from "effect/http";
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -142,10 +142,9 @@ it.live("a failed deferred constraint must roll back the private plugin transact
         threadId,
         providerInstanceId: ProviderInstanceId.make("codex"),
       });
-      Sessions.setMcpProviderSession(credential.config);
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => Sessions.clearMcpProviderSession(threadId)),
-      );
+      const mcpSessions = Context.get(server.context, McpProviderSessions.McpProviderSessions);
+      yield* mcpSessions.set(credential.config);
+      yield* Effect.addFinalizer(() => mcpSessions.clear(threadId));
       const http = Context.get(server.context, HttpClient.HttpClient);
       const headers = {
         authorization: credential.config.authorizationHeader,

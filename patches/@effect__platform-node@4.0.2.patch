@@ -1,0 +1,81 @@
+--- a/src/NodeHttpServer.ts
++++ b/src/NodeHttpServer.ts
+@@ -253,7 +253,6 @@
+   never,
+   Exclude<Effect.Services<App>, HttpServerRequest | Scope.Scope>
+ > => {
+-  const handledApp = HttpEffect.toHandled(httpEffect, handleResponse, options.middleware as any)
+   return Effect.withFiber((parent) => {
+     const services = parent.context
+     return Effect.succeed(function handler(
+@@ -261,19 +260,24 @@
+       socket: Duplex,
+       head: Buffer
+     ) {
++      // Bun ties ServerResponse.end() to the request even without assignSocket.
++      // Never construct or end an HTTP response after a WebSocket upgrade.
++      const handledApp = HttpEffect.toHandled(
++        httpEffect,
++        (request, response) =>
++          !(request as ServerRequestImpl).upgraded && socket.destroyed
++            ? Effect.void
++            : handleResponse(request, response),
++        options.middleware as any
++      )
+       let nodeResponse_: Http.ServerResponse | undefined = undefined
+       const nodeResponse = () => {
+         if (nodeResponse_ === undefined) {
+           nodeResponse_ = new Http.ServerResponse(nodeRequest)
+-          if (request.upgraded || socket.destroyed) {
+-            // End without assigning the socket so handleResponse skips HTTP writes.
+-            nodeResponse_.end()
+-          } else {
+-            nodeResponse_.assignSocket(socket as any)
+-            nodeResponse_.on("finish", () => {
+-              socket.end()
+-            })
+-          }
++          nodeResponse_.assignSocket(socket as any)
++          nodeResponse_.on("finish", () => {
++            socket.end()
++          })
+         }
+         return nodeResponse_
+       }
+--- a/dist/NodeHttpServer.js
++++ b/dist/NodeHttpServer.js
+@@ -155,23 +155,24 @@
+  * @since 4.0.0
+  */
+ export const makeUpgradeHandler = (lazyWss, httpEffect, options) => {
+-  const handledApp = HttpEffect.toHandled(httpEffect, handleResponse, options.middleware);
+   return Effect.withFiber(parent => {
+     const services = parent.context;
+     return Effect.succeed(function handler(nodeRequest, socket, head) {
++      // Bun ties ServerResponse.end() to the request even without assignSocket.
++      // Never construct or end an HTTP response after a WebSocket upgrade.
++      const handledApp = HttpEffect.toHandled(
++        httpEffect,
++        (request, response) => !request.upgraded && socket.destroyed ? Effect.void : handleResponse(request, response),
++        options.middleware
++      );
+       let nodeResponse_ = undefined;
+       const nodeResponse = () => {
+         if (nodeResponse_ === undefined) {
+           nodeResponse_ = new Http.ServerResponse(nodeRequest);
+-          if (request.upgraded || socket.destroyed) {
+-            // End without assigning the socket so handleResponse skips HTTP writes.
+-            nodeResponse_.end();
+-          } else {
+-            nodeResponse_.assignSocket(socket);
+-            nodeResponse_.on("finish", () => {
+-              socket.end();
+-            });
+-          }
++          nodeResponse_.assignSocket(socket);
++          nodeResponse_.on("finish", () => {
++            socket.end();
++          });
+         }
+         return nodeResponse_;
+       };

@@ -4,7 +4,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type { McpInvocationScope } from "../../../apps/server/src/mcp/McpInvocationContext.ts";
-import * as Sessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Threads from "../../../apps/server/src/orchestration-v2/ThreadManagementService.ts";
 import { exceededDispatchModeLimit } from "../../../apps/server/src/orchestration-v2/DispatchModeLimit.ts";
 import * as CommandAccess from "./PluginCommandAccess.ts";
@@ -27,6 +27,7 @@ export class PluginToolService extends Context.Service<
 export const make = Effect.gen(function* () {
   const host = yield* Host;
   const threads = yield* Threads.ThreadManagementService;
+  const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   return PluginToolService.of({
     bind: (pluginId, tool) => {
       const decodeInput = Schema.decodeUnknownEffect(tool.input);
@@ -44,7 +45,7 @@ export const make = Effect.gen(function* () {
               "This plugin tool requires an authenticated thread in the selected environment.",
             );
           const caller = invocation.thread;
-          const session = Sessions.readMcpProviderSession(caller.threadId);
+          const session = yield* mcpSessions.read(caller.threadId);
           if (
             session === undefined ||
             session.providerSessionId !== caller.providerSessionId ||
@@ -115,7 +116,7 @@ export const make = Effect.gen(function* () {
               Effect.provideService(CommandAccess.PluginCommandAccess, {
                 authorize: (action) =>
                   Effect.gen(function* () {
-                    const credential = Sessions.readMcpProviderSession(caller.threadId);
+                    const credential = yield* mcpSessions.read(caller.threadId);
                     const current = yield* threads.getThreadShell(caller.threadId).pipe(
                       Effect.mapError(
                         (cause) =>
