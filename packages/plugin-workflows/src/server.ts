@@ -69,6 +69,8 @@ export const plugin: ServerPlugin = {
       retry: workflows.retry,
       resume: workflows.resume,
       gate: workflows.gate,
+      attention: workflows.watchAttention,
+      attentionPage: workflows.readAttention,
       schedule: workflows.schedule,
     };
     return {

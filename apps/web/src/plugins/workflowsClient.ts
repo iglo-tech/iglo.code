@@ -1,5 +1,6 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import type {
+  AttentionInput,
   CatalogEntry,
   GateInput,
   CommandInput,
@@ -270,6 +271,29 @@ const threadAtom = Atom.family((key: string) => {
     )
     .pipe(Atom.setIdleTTL(0));
 });
+// One live newest page per environment and project scope, shared by every open view of it.
+const attentionAtom = Atom.family((key: string) => {
+  const input = JSON.parse(key) as AttentionInput;
+  return connectionAtomRuntime
+    .atom((get) =>
+      (() => {
+        const state = publication(
+          get(availableCatalogAtom(input.environmentId)),
+          input.environmentId,
+          "plugins.workflows.attention",
+        );
+        return state === "published"
+          ? followStreamInEnvironment(
+              input.environmentId,
+              subscribe("plugins.workflows.attention", input),
+            )
+          : state === "loading"
+            ? Stream.never
+            : unpublished();
+      })(),
+    )
+    .pipe(Atom.setIdleTTL(0));
+});
 const listen = <A>(
   atom: Atom.Atom<AsyncResult.AsyncResult<A, unknown>>,
   onValue: (value: A) => void,
@@ -324,6 +348,18 @@ export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowCli
       ),
     watchThread: (input, onLink, onError) =>
       listen(threadAtom(JSON.stringify({ environmentId, ...input })), onLink, onError),
+    subscribeAttention: ({ projectId, limit }, onPage, onError) =>
+      listen(
+        attentionAtom(
+          JSON.stringify({
+            environmentId,
+            ...(projectId === null ? {} : { projectId }),
+            limit,
+          }),
+        ),
+        onPage,
+        onError,
+      ),
     cancel: async (input) => settle(await cancel.run(appAtomRegistry, target(input))),
     retry: async (input) => settle(await retry.run(appAtomRegistry, target(input))),
     resume: async (input) => settle(await resume.run(appAtomRegistry, target(input))),

@@ -59,15 +59,22 @@ export function Palette({
     <nav aria-label="Add a step" className="flex flex-col gap-0.5">
       {(Object.keys(kindLabels) as Array<Node["kind"]>).map((kind) => {
         const basic = kind === "agent" || kind === "end";
-        const supported = advertised === undefined ? basic : advertised.includes(kind);
+        // A parallel group needs its join; both must be advertised.
+        const supported =
+          advertised === undefined
+            ? basic
+            : advertised.includes(kind) && (kind !== "parallel" || advertised.includes("join"));
         const authored = (editableKinds as ReadonlyArray<string>).includes(kind);
         const reason = !authored
           ? "Not editable in this version"
-          : advertised === undefined && !basic
-            ? "Loading step types…"
-            : !supported
-              ? "Not supported by this environment"
-              : undefined;
+          : kind === "join"
+            ? // A join is added with, and removed with, its parallel group.
+              "Added with each Parallel group"
+            : advertised === undefined && !basic
+              ? "Loading step types…"
+              : !supported
+                ? "Not supported by this environment"
+                : undefined;
         return (
           <Button
             key={kind}
@@ -212,6 +219,15 @@ export function RouteList({
               )}
             </div>
             <ul className="flex flex-col pl-9 text-xs text-muted-foreground">
+              {node.kind === "parallel" || node.kind === "join" ? (
+                <li className="flex min-w-0 items-center gap-1.5 leading-5">
+                  <span className="min-w-0 truncate">
+                    {node.kind === "parallel"
+                      ? `${node.branches.map((branch) => branch.title || branch.id).join(", ")} · ${node.pullRequest.repository || "repository not set"}#${node.pullRequest.number}`
+                      : `Wait for all · ${title(definition, node.fork)}`}
+                  </span>
+                </li>
+              ) : null}
               {routes
                 .filter((route) => route.from.id === node.id)
                 .map((route) => {

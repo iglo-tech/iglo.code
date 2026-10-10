@@ -1,4 +1,12 @@
-import type { Attempt, Definition, Run, RunSummary } from "../contracts.ts";
+import type {
+  Attempt,
+  AttentionItem,
+  AttentionKind,
+  Definition,
+  Run,
+  RunSummary,
+  StopKind,
+} from "../contracts.ts";
 import { routeControls } from "../definition.ts";
 
 /** Presentation of server-owned run state. Nothing here evaluates routes or recovery rules. */
@@ -413,4 +421,70 @@ export function sourceText(source: Run["source"]): string {
   return `${source.trigger === "schedule" ? "Scheduled" : "Manual"} · ${
     source.catalogSource ?? "submitted definition"
   }`;
+}
+
+/** Words for the server's stable attention kinds; nothing here infers a kind. */
+export const attentionLabels: Record<AttentionKind, string> = {
+  "needs-review": "Needs review",
+  "needs-input": "Needs input",
+  interrupted: "Interrupted",
+  "missing-report": "Missing report",
+  "timed-out": "Timed out",
+  failed: "Failed",
+  "review-stale": "Review is stale",
+  "review-unverifiable": "Review input cannot be verified",
+  unavailable: "Could not continue",
+  unresolved: "Unresolved",
+};
+const stopTexts: Record<StopKind, string> = {
+  interrupted: "Execution interrupted before a result",
+  "missing-report": "No report after one reminder",
+  "timed-out": "Deadline expired",
+  failed: "Step failed · no automatic route",
+  "review-stale": "Pull request head changed since it was frozen",
+  "review-unverifiable": "Pull request head could not be verified",
+  unavailable: "A required resource was unavailable",
+  unresolved: "No route to continue",
+};
+export const stopText = (kind: StopKind) => stopTexts[kind];
+
+/** One attention item's detail, with its native queue position when it is a request. */
+export function attentionText(item: AttentionItem): string {
+  if (item.kind === "needs-review") return `Gate revision ${item.gateRevision ?? "unknown"}`;
+  if (item.kind === "needs-input") {
+    if (item.request === null) return "Waiting in its thread";
+    const { kind, position, pending } = item.request;
+    return `${requestKind(kind)} request ${position} of ${pending} · ${
+      position === 1 ? "answered next" : `after ${position - 1} earlier`
+    }`;
+  }
+  return stopTexts[item.kind];
+}
+export const requestKind = (kind: string) => {
+  const words = kind.replace(/[_-]+/g, " ").trim();
+  return words === "" ? "Native" : words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+type Review = NonNullable<NonNullable<Run["overview"]>["review"]>;
+const causeTexts: Record<NonNullable<Review["cause"]>, string> = {
+  "head-changed": "head changed",
+  "head-unverifiable": "head unverifiable",
+  "workspace-unavailable": "checkout unavailable",
+  "workspace-changed": "checkout changed",
+};
+/** The server's report and settlement counts, kept apart: an early report decides nothing. */
+export const joinCounts = (review: Review) =>
+  `${review.reported}/${review.required} reported · ${review.settled}/${review.required} settled`;
+/** The join's persisted result; only a persisted result decides. */
+export function joinStatus(review: Review): {
+  readonly label: string;
+  readonly variant: "info" | "success" | "warning" | "error";
+} {
+  if (review.result === null) return { label: "Waiting for all", variant: "info" };
+  if (review.result === "all_completed") return { label: "All completed", variant: "success" };
+  const result = review.result.replace("_", " ");
+  const label = `${result.charAt(0).toUpperCase()}${result.slice(1)}${
+    review.cause ? ` · ${causeTexts[review.cause]}` : ""
+  }`;
+  return { label, variant: review.result === "failed" ? "error" : "warning" };
 }

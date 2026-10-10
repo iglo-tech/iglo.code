@@ -180,16 +180,16 @@ it.effect(
         expect(gated.gate).toMatchObject({ nodeId: "review", revision: gated.revision });
         expect(gated.allowedActions).toEqual(["cancel", "approve", "request-changes"]);
         expect(gated.trace.at(-1)).toMatchObject({ nodeId: "implement", chosen: "review" });
-        // Attention opens the run page with this exact run selected.
+        // Attention opens the run page with this exact run and gate selected.
         const [attention] = yield* test.registry
           .attention(test.environmentId)
           .pipe(Stream.take(1), Stream.runCollect);
         expect(attention?.items.find((item) => item.id === started.id)?.link).toEqual({
           pageId: "workflows.runs",
           projectId: test.projectId,
-          state: { run: started.id },
-          threadId,
+          state: { run: started.id, node: "review" },
         });
+        expect(attention?.total).toBe(1);
 
         const stale = yield* test
           .invoke("gate", {

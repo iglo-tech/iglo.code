@@ -13,6 +13,7 @@ import {
   ProjectSummary,
   StartPreview,
   ThreadLink,
+  AttentionPage,
 } from "@t3tools/plugin-workflows/contracts";
 import { Host, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { PluginError } from "@t3tools/plugin-host-contract/schema";
@@ -41,6 +42,7 @@ const CatalogEntries = Schema.Array(CatalogEntry);
 const decodeWorkflowRuns = Schema.decodeUnknownEffect(WorkflowRuns);
 const decodeWorkflowRun = Schema.decodeUnknownEffect(WorkflowRun);
 const decodeThreadLink = Schema.decodeUnknownEffect(Schema.NullOr(ThreadLink));
+const decodeAttentionPage = Schema.decodeUnknownEffect(AttentionPage);
 
 /** Trusted server modules explicitly included in this build. An empty list is supported. */
 export class CompiledPlugins extends Context.Reference<ReadonlyArray<ServerPlugin>>(
@@ -191,6 +193,11 @@ export const handlers = (registry: Registry.PluginRegistry["Service"]) => ({
     subscription(registry, workflowRpcs.thread._tag, input, decodeThreadLink),
   [workflowRpcs.watch._tag]: (input: typeof workflowRpcs.watch.payloadSchema.Type) =>
     subscription(registry, workflowRpcs.watch._tag, input, decodeWorkflowRun),
+  [workflowRpcs.attention._tag]: (input: typeof workflowRpcs.attention.payloadSchema.Type) =>
+    subscription(registry, workflowRpcs.attention._tag, input, decodeAttentionPage),
+  [workflowRpcs.attentionPage._tag]: (
+    input: typeof workflowRpcs.attentionPage.payloadSchema.Type,
+  ) => request(registry, workflowRpcs.attentionPage._tag, input, AttentionPage),
   [workflowRpcs.get._tag]: (input: typeof workflowRpcs.get.payloadSchema.Type) =>
     request(registry, workflowRpcs.get._tag, input, WorkflowRun),
   [workflowRpcs.list._tag]: (input: typeof workflowRpcs.list.payloadSchema.Type) =>

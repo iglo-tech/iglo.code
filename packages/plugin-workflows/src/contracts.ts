@@ -36,6 +36,13 @@ export const limits = {
   activeAttempts: 64,
   /** Routing records of one history page's visits returned beside the route-history page. */
   relatedTrace: 200,
+  /** Pending native requests retained per attempt, oldest first. */
+  requests: 32,
+  /** Runs per attention page, and items listed per run on it. */
+  attentionRuns: 25,
+  /** Most runs one attention read returns: the host summary and fully loaded pages. */
+  attentionRunsMax: 100,
+  attentionItems: 64,
   timeoutMs: { default: 7_200_000, min: 60_000, max: 86_400_000 },
 } as const;
 const text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_000));
@@ -273,8 +280,38 @@ export const Attempt = Schema.Struct({
   lastActiveAt: Schema.Number,
   deadline: Schema.NullOr(Schema.Number),
   waitStartedAt: Schema.NullOr(Schema.Number),
+  /**
+   * The thread's pending native requests in native queue order, as last inspected. Absent on
+   * attempts recorded before requests were kept.
+   */
+  requests: Schema.optional(
+    Schema.Array(
+      Schema.Struct({ id: Schema.String, kind: Schema.String, createdAt: Schema.Number }),
+    ).check(Schema.isMaxLength(limits.requests)),
+  ),
+  /** Every pending native request of the thread, including any beyond the retained list. */
+  pendingRequests: Schema.optional(Schema.Int),
 });
 export type Attempt = typeof Attempt.Type;
+/**
+ * Stable, server-owned reasons a run needs a person. Clients word them; they never derive
+ * them from prose. Ordinary running work is progress and has no reason.
+ */
+const stopKinds = [
+  "interrupted",
+  "missing-report",
+  "timed-out",
+  "failed",
+  "review-stale",
+  "review-unverifiable",
+  "unavailable",
+  "unresolved",
+] as const;
+/** Why an unresolved run stopped; set with the disposition, cleared when the run continues. */
+export const StopKind = Schema.Literals(stopKinds);
+export type StopKind = typeof StopKind.Type;
+export const AttentionKind = Schema.Literals(["needs-review", "needs-input", ...stopKinds]);
+export type AttentionKind = typeof AttentionKind.Type;
 export const Trace = Schema.Struct({
   id: Schema.String,
   nodeId: Id,
@@ -316,7 +353,43 @@ export const ReviewSet = Schema.Struct({
     Schema.Literals(["all_completed", "failed", "unresolved", "canceled", "stale"]),
   ),
   consumed: Schema.Boolean,
+  /**
+   * What decided an aggregate that the branches alone do not explain: the frozen head
+   * changed or could not be verified, or a reviewer checkout was unavailable or changed.
+   */
+  cause: Schema.optional(
+    Schema.Literals([
+      "head-changed",
+      "head-unverifiable",
+      "workspace-unavailable",
+      "workspace-changed",
+    ]),
+  ),
 });
+/** One required reviewer of a review generation, as the server last recorded it. */
+export const ReviewBranch = Schema.Struct({
+  id: Id,
+  attemptId: Schema.String,
+  threadId: Schema.NullOr(ThreadId),
+  phase: Attempt.fields.phase,
+  reason: Schema.NullOr(Schema.String),
+  report: Schema.NullOr(
+    Schema.Struct({
+      outcome: ReportInput.fields.outcome,
+      acceptedAt: Schema.Number,
+    }),
+  ),
+  deadline: Schema.NullOr(Schema.Number),
+  /** The isolated checkout prepared for this reviewer, once its launch was reserved. */
+  workspace: Schema.NullOr(
+    Schema.Struct({
+      path: Schema.String,
+      branch: Schema.NullOr(Schema.String),
+      frozenHead: Schema.NullOr(Schema.String),
+    }),
+  ),
+});
+export type ReviewBranch = typeof ReviewBranch.Type;
 /** How a run was started; retained with its snapshot so later catalog edits cannot rewrite it. */
 export const StartSource = Schema.Struct({
   trigger: Schema.Literals(["manual", "schedule"]),
@@ -359,6 +432,10 @@ export const Run = Schema.Struct({
   workspacePath: Schema.NullOr(Schema.String),
   branch: Schema.NullOr(Schema.String),
   reason: Schema.NullOr(Schema.String),
+  /** Why an unresolved run stopped. Absent on runs recorded before stop kinds were kept. */
+  stop: Schema.optional(
+    Schema.NullOr(Schema.Struct({ kind: StopKind, attemptId: Schema.NullOr(Schema.String) })),
+  ),
   gate: Schema.NullOr(
     Schema.Struct({ nodeId: Id, revision: Schema.Int, reviewId: Schema.NullOr(Schema.String) }),
   ),
@@ -399,13 +476,23 @@ export const Run = Schema.Struct({
           phase: Attempt.fields.phase,
         }),
       ).check(Schema.isMaxLength(limits.activeAttempts)),
+      /**
+       * The newest review generation with its complete required branch set, so a join's
+       * progress never depends on the loaded history page.
+       */
       review: Schema.NullOr(
         Schema.Struct({
           id: Schema.String,
+          fork: Id,
+          generation: Schema.Int,
+          head: Schema.String,
+          pullRequest: PluginPullRequestRef,
           required: Schema.Int,
           reported: Schema.Int,
           settled: Schema.Int,
           result: ReviewSet.fields.result,
+          cause: ReviewSet.fields.cause,
+          branches: Schema.Array(ReviewBranch).check(Schema.isMaxLength(32)),
         }),
       ),
     }),
@@ -474,6 +561,64 @@ export const RunListInput = Schema.Struct({
   projectId: ProjectId,
   before: Schema.optional(Schema.String),
 });
+export const AttentionInput = Schema.Struct({
+  environmentId: EnvironmentId,
+  /** Only this project's runs; omitted, every project in the environment. */
+  projectId: Schema.optional(ProjectId),
+  /** Continue after this run (newest first); omitted, the newest page. */
+  before: Schema.optional(Schema.String.check(Schema.isMaxLength(256))),
+  /** Newest runs to return; omitted, one page. Loading older runs raises it. */
+  limit: Schema.optional(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: limits.attentionRunsMax })),
+  ),
+});
+export type AttentionInput = typeof AttentionInput.Type;
+/** One thing a person must do for a run, with the exact place to do it. */
+export const AttentionItem = Schema.Struct({
+  /** Stable while the underlying condition lasts. */
+  id: Schema.String,
+  kind: AttentionKind,
+  /** Step (and reviewer) label from the run's snapshot. */
+  title: Schema.String,
+  nodeId: Id,
+  branchId: Schema.NullOr(Id),
+  attemptId: Schema.NullOr(Schema.String),
+  threadId: Schema.NullOr(ThreadId),
+  /** The gate revision a decision is bound to (needs-review only). */
+  gateRevision: Schema.NullOr(Schema.Int),
+  /** A pending native request and its place in that thread's native queue (1 = answered next). */
+  request: Schema.NullOr(
+    Schema.Struct({
+      id: Schema.String,
+      kind: Schema.String,
+      position: Schema.Int,
+      pending: Schema.Int,
+      createdAt: Schema.Number,
+    }),
+  ),
+});
+export type AttentionItem = typeof AttentionItem.Type;
+export const AttentionRun = Schema.Struct({
+  runId: Schema.String,
+  projectId: ProjectId,
+  workflowTitle: Schema.String,
+  state: Run.fields.state,
+  revision: Schema.Int,
+  createdAt: Schema.Number,
+  allowedActions: Run.fields.allowedActions,
+  items: Schema.Array(AttentionItem).check(Schema.isMaxLength(limits.attentionItems)),
+  /** Items of this run, including any beyond the listed ones. */
+  itemTotal: Schema.Int,
+});
+export type AttentionRun = typeof AttentionRun.Type;
+export const AttentionPage = Schema.Struct({
+  /** Distinct runs needing attention in scope, independent of this page. */
+  total: Schema.Int,
+  runs: Schema.Array(AttentionRun).check(Schema.isMaxLength(limits.attentionRunsMax)),
+  /** Cursor of the next older page; null on the last page. */
+  before: Schema.NullOr(Schema.String),
+});
+export type AttentionPage = typeof AttentionPage.Type;
 /**
  * A located validation result. `control` names the inspector control that repairs it,
  * relative to the node (for example `instruction`, `next` or `report.fields.0`).
@@ -806,6 +951,18 @@ export const rpcs = {
   retry: Rpc.make("plugins.workflows.retry", { payload: CommandInput, success: Run, error }),
   resume: Rpc.make("plugins.workflows.resume", { payload: CommandInput, success: Run, error }),
   gate: Rpc.make("plugins.workflows.gate", { payload: GateInput, success: Run, error }),
+  attention: Rpc.make("plugins.workflows.attention", {
+    payload: AttentionInput,
+    success: AttentionPage,
+    error,
+    stream: true,
+  }),
+  // One-shot read of the same model for agents, scripts and tests; pages use `attention`.
+  attentionPage: Rpc.make("plugins.workflows.attention-page", {
+    payload: AttentionInput,
+    success: AttentionPage,
+    error,
+  }),
   schedule: Rpc.make("plugins.workflows.schedule", {
     payload: ScheduleInput,
     success: Schema.Void,
@@ -836,6 +993,8 @@ export const apiScopes = {
   [rpcs.retry._tag]: AuthOrchestrationOperateScope,
   [rpcs.resume._tag]: AuthOrchestrationOperateScope,
   [rpcs.gate._tag]: AuthOrchestrationOperateScope,
+  [rpcs.attention._tag]: AuthOrchestrationReadScope,
+  [rpcs.attentionPage._tag]: AuthOrchestrationReadScope,
   [rpcs.schedule._tag]: AuthOrchestrationOperateScope,
 } as const;
 export const manifest = {
@@ -866,8 +1025,8 @@ export const manifest = {
     scheduleTargets: ["workflows.start"],
   },
   web: {
-    pages: ["workflows.library", "workflows.editor", "workflows.runs"],
-    navigation: ["workflows.navigation"],
+    pages: ["workflows.library", "workflows.editor", "workflows.runs", "workflows.attention"],
+    navigation: ["workflows.navigation", "workflows.attention-navigation"],
     projectActions: ["workflows.project", "workflows.project-run"],
     threadContext: ["workflows.thread"],
   },
@@ -922,6 +1081,12 @@ export interface WorkflowClient {
   readonly watchThread: (
     input: Scoped<ThreadInput>,
     onLink: (link: ThreadLink | null) => void,
+    onError: (message: string) => void,
+  ) => () => void;
+  /** The newest `limit` runs needing attention, live; returns the unsubscribe function. */
+  readonly subscribeAttention: (
+    input: { readonly projectId: ProjectId | null; readonly limit: number },
+    onPage: (page: AttentionPage) => void,
     onError: (message: string) => void,
   ) => () => void;
   readonly cancel: (input: RunCommand) => Promise<Run>;
