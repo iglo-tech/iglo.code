@@ -2,7 +2,7 @@
 
 ## First checkout
 
-The application runs on Bun 1.4.2 or newer on macOS arm64, Linux x64, and Linux
+The application runs on Bun 1.4.3 or newer on macOS arm64, Linux x64, and Linux
 arm64. Development and packaging use the version pinned in `.bun-version`.
 The retained Vite+/pnpm contributor toolchain uses Node 24 independently of the
 application runtime. Install Bun and Vite+ (`vp`) before starting the server. Set up a coding agent

@@ -5,7 +5,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-export const BUN_VERSION = "1.4.2";
+export const BUN_VERSION = "1.4.3";
 
 export const isSupportedBunVersion = (version: string | undefined): boolean => {
   if (version === undefined || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version)) return false;
