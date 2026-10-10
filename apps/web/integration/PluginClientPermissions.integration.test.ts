@@ -224,6 +224,32 @@ it.live(
               fingerprint: "0".repeat(64),
               definition,
             }),
+          () =>
+            workflows.startSaved({
+              projectId,
+              clientRequestId: "guarded",
+              definitionId: "guarded",
+              revision: 1,
+              task: "",
+              workspace: "new-worktree",
+            }),
+          ...(["cancel", "retry", "resume"] as const).map(
+            (action) => () =>
+              workflows[action]({
+                projectId,
+                runId: "missing-run",
+                clientRequestId: action,
+                expectedRevision: 1,
+              }),
+          ),
+          () =>
+            workflows.gate({
+              projectId,
+              runId: "missing-run",
+              clientRequestId: "gate",
+              expectedRevision: 1,
+              decision: "approve",
+            }),
         ]) {
           yield* Effect.promise(() =>
             expect(command()).rejects.toMatchObject({ _tag: "EnvironmentAuthorizationError" }),
@@ -236,6 +262,11 @@ it.live(
               "plugins.fixture.schedule",
               "plugins.workflows.save",
               "plugins.workflows.replace",
+              "plugins.workflows.launch",
+              "plugins.workflows.cancel",
+              "plugins.workflows.retry",
+              "plugins.workflows.resume",
+              "plugins.workflows.gate",
             ].includes(method),
           ),
         ).toEqual([]);

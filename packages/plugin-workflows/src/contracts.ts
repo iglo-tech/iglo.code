@@ -32,6 +32,10 @@ export const limits = {
   evidence: 20,
   repeats: 20,
   visits: 1_000,
+  /** Active attempts listed in a run overview: one per parallel branch plus the main step. */
+  activeAttempts: 64,
+  /** Routing records of one history page's visits returned beside the route-history page. */
+  relatedTrace: 200,
   timeoutMs: { default: 7_200_000, min: 60_000, max: 86_400_000 },
 } as const;
 const text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_000));
@@ -294,6 +298,20 @@ export const ReviewSet = Schema.Struct({
   ),
   consumed: Schema.Boolean,
 });
+/** How a run was started; retained with its snapshot so later catalog edits cannot rewrite it. */
+export const StartSource = Schema.Struct({
+  trigger: Schema.Literals(["manual", "schedule"]),
+  /** Catalog source the saved snapshot was resolved from; null for a submitted definition. */
+  catalogSource: Schema.NullOr(Schema.String),
+});
+export type StartSource = typeof StartSource.Type;
+/** Server-owned targets of the currently allowed recovery actions; clients never derive them. */
+export const RecoveryTarget = Schema.Struct({
+  /** Step where Retry admits a new attempt (with a new thread). */
+  retryNodeId: Schema.NullOr(Id),
+  /** Attempt whose retained native session Resume continues. */
+  resumeAttemptId: Schema.NullOr(Schema.String),
+});
 export const Run = Schema.Struct({
   id: Schema.String,
   environmentId: EnvironmentId,
@@ -329,10 +347,46 @@ export const Run = Schema.Struct({
     Schema.Literals(["cancel", "retry", "resume", "approve", "request-changes"]),
   ),
   createdAt: Schema.Number,
+  /** Absent on runs persisted before start sources were recorded. */
+  source: Schema.optional(StartSource),
+  /** Read-time field; present on every displayed run. */
+  recovery: Schema.optional(RecoveryTarget),
+  /** Read-time totals over the complete snapshot, independent of the loaded history page. */
+  overview: Schema.optional(
+    Schema.Struct({
+      visits: Schema.Int,
+      completedVisits: Schema.Int,
+      activeAttempts: Schema.Array(
+        Schema.Struct({
+          id: Schema.String,
+          nodeId: Id,
+          branchId: Schema.NullOr(Id),
+          generation: Schema.Int,
+          threadId: Schema.NullOr(ThreadId),
+          phase: Attempt.fields.phase,
+        }),
+      ).check(Schema.isMaxLength(limits.activeAttempts)),
+      review: Schema.NullOr(
+        Schema.Struct({
+          id: Schema.String,
+          required: Schema.Int,
+          reported: Schema.Int,
+          settled: Schema.Int,
+          result: ReviewSet.fields.result,
+        }),
+      ),
+    }),
+  ),
+  /** Routing records of this page's visits that are not on the loaded route-history page. */
+  relatedTrace: Schema.optional(Schema.Array(Trace).check(Schema.isMaxLength(limits.relatedTrace))),
   history: Schema.optional(
     Schema.Struct({
+      /** First visit on this page; `tail` when it is the newest page. */
       offset: Schema.Int,
       tail: Schema.Boolean,
+      /** Route history pages independently of visits. */
+      traceOffset: Schema.optional(Schema.Int),
+      traceTail: Schema.optional(Schema.Boolean),
       limit: Schema.Int,
       attempts: Schema.Int,
       trace: Schema.Int,
@@ -356,6 +410,7 @@ export const RunSummary = Schema.Struct({
   gate: Run.fields.gate,
   allowedActions: Run.fields.allowedActions,
   createdAt: Schema.Number,
+  source: Run.fields.source,
   attempts: Schema.Array(
     Schema.Struct({
       id: Attempt.fields.id,
@@ -539,17 +594,85 @@ export type StartInput = typeof StartInput.Type;
 export const RunInput = Schema.Struct({
   ...ScopeInput.fields,
   runId: Schema.String,
+  /** First visit of a history page; omitted, the newest page (or `attemptId`'s page). */
   historyOffset: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  /** Opens the visit page containing this attempt when no offset is given. */
+  attemptId: Schema.optional(Schema.String.check(Schema.isMaxLength(256))),
+  /** First entry of a route-history page; omitted, the newest entries. */
+  traceOffset: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
+export type RunInput = typeof RunInput.Type;
+/** Bounded free-form task text recorded as the run input; the server owns its field name. */
+export const taskLimit = 4_000;
+export const StartSavedInput = Schema.Struct({
+  ...ScopeInput.fields,
+  /** One immutable identity per start intent; retries return the run it created. */
+  clientRequestId: key,
+  definitionId: Id,
+  /** The saved revision the user reviewed; a different current revision is a conflict. */
+  revision: Schema.Int.check(Schema.isGreaterThan(0)),
+  task: Schema.String.check(Schema.isMaxLength(taskLimit)),
+  workspace: Schema.Literals(["new-worktree", "current"]),
+});
+export type StartSavedInput = typeof StartSavedInput.Type;
+export const PreviewInput = Schema.Struct({ ...ScopeInput.fields, definitionId: Id });
+export type PreviewInput = typeof PreviewInput.Type;
+/** What a start would run: the saved snapshot's identity, providers and workspace. */
+export const StartPreview = Schema.Struct({
+  definitionId: Id,
+  title: Schema.String,
+  revision: Schema.Int,
+  source: Schema.String,
+  packaged: Schema.Boolean,
+  runnable: Schema.Boolean,
+  reasons: Schema.Array(Schema.String),
+  agents: Schema.Array(
+    Schema.Struct({
+      nodeId: Id,
+      branchId: Schema.NullOr(Id),
+      title: Schema.String,
+      providerInstanceId: Schema.String,
+      providerName: Schema.NullOr(Schema.String),
+      model: Schema.String,
+      runtimeMode: RuntimeMode,
+      interactionMode: Schema.Literals(["default", "plan"]),
+      skill: Schema.NullOr(Schema.String),
+    }),
+  ).check(Schema.isMaxLength(limits.nodes * 32)),
+  workspace: Schema.Struct({
+    path: Schema.String,
+    branch: Schema.NullOr(Schema.String),
+    head: Schema.NullOr(Schema.String),
+  }),
+});
+export type StartPreview = typeof StartPreview.Type;
+export const ThreadInput = Schema.Struct({ ...ScopeInput.fields, threadId: ThreadId });
+export type ThreadInput = typeof ThreadInput.Type;
+/** Historical owner of a native thread: the exact run and attempt it was launched for. */
+export const ThreadLink = Schema.Struct({
+  runId: Schema.String,
+  attemptId: Schema.String,
+  nodeId: Id,
+  branchId: Schema.NullOr(Id),
+  generation: Schema.Int,
+  workflowTitle: Schema.String,
+  nodeTitle: Schema.String,
+  runState: Run.fields.state,
+  phase: Attempt.fields.phase,
+  reportAccepted: Schema.Boolean,
+});
+export type ThreadLink = typeof ThreadLink.Type;
 export const CommandInput = Schema.Struct({
   ...RunInput.fields,
   clientRequestId: key,
   expectedRevision: Schema.Int,
 });
+export type CommandInput = typeof CommandInput.Type;
 export const GateInput = Schema.Struct({
   ...CommandInput.fields,
   decision: Schema.Literals(["approve", "request-changes"]),
 });
+export type GateInput = typeof GateInput.Type;
 export const SaveInput = Schema.Struct({
   ...ScopeInput.fields,
   definition: Definition,
@@ -607,6 +730,28 @@ export const rpcs = {
     error,
   }),
   start: Rpc.make("plugins.workflows.start", { payload: StartInput, success: Run, error }),
+  preview: Rpc.make("plugins.workflows.preview", {
+    payload: PreviewInput,
+    success: StartPreview,
+    error,
+  }),
+  launch: Rpc.make("plugins.workflows.launch", {
+    payload: StartSavedInput,
+    success: Run,
+    error,
+  }),
+  watch: Rpc.make("plugins.workflows.watch", {
+    payload: RunInput,
+    success: Run,
+    error,
+    stream: true,
+  }),
+  thread: Rpc.make("plugins.workflows.thread", {
+    payload: ThreadInput,
+    success: Schema.NullOr(ThreadLink),
+    error,
+    stream: true,
+  }),
   get: Rpc.make("plugins.workflows.get", { payload: RunInput, success: Run, error }),
   list: Rpc.make("plugins.workflows.list", {
     payload: RunListInput,
@@ -646,6 +791,10 @@ export const apiScopes = {
   [rpcs.skills._tag]: AuthOrchestrationReadScope,
   [rpcs.projects._tag]: AuthOrchestrationReadScope,
   [rpcs.start._tag]: AuthOrchestrationOperateScope,
+  [rpcs.preview._tag]: AuthOrchestrationReadScope,
+  [rpcs.launch._tag]: AuthOrchestrationOperateScope,
+  [rpcs.watch._tag]: AuthOrchestrationReadScope,
+  [rpcs.thread._tag]: AuthOrchestrationReadScope,
   [rpcs.get._tag]: AuthOrchestrationReadScope,
   [rpcs.list._tag]: AuthOrchestrationReadScope,
   [rpcs.subscribe._tag]: AuthOrchestrationReadScope,
@@ -684,17 +833,23 @@ export const manifest = {
     scheduleTargets: ["workflows.start"],
   },
   web: {
-    pages: ["workflows.library", "workflows.editor"],
+    pages: ["workflows.library", "workflows.editor", "workflows.runs"],
     navigation: ["workflows.navigation"],
-    projectActions: ["workflows.project"],
-    threadContext: [],
+    projectActions: ["workflows.project", "workflows.project-run"],
+    threadContext: ["workflows.thread"],
   },
 } satisfies PluginManifest;
 
 export interface WorkflowPermissions {
   readonly save: boolean;
   readonly replace: boolean;
+  readonly start: boolean;
+  readonly cancel: boolean;
+  readonly retry: boolean;
+  readonly resume: boolean;
+  readonly gate: boolean;
 }
+export type RunCommand = Omit<CommandInput, "environmentId">;
 type Scoped<I> = Omit<I, "environmentId">;
 /** Environment-bound client the host supplies to workflow pages; rejections carry `_tag`/`message`. */
 export interface WorkflowClient {
@@ -715,4 +870,31 @@ export interface WorkflowClient {
     readonly projectId: ProjectId;
     readonly providerInstanceId: ProviderInstanceId;
   }) => Promise<ReadonlyArray<Skill>>;
+  readonly preview: (input: Scoped<PreviewInput>) => Promise<StartPreview>;
+  readonly startSaved: (input: Scoped<StartSavedInput>) => Promise<Run>;
+  readonly runs: (input: Scoped<typeof RunListInput.Type>) => Promise<ReadonlyArray<RunSummary>>;
+  /** Latest runs of one project, live; returns the unsubscribe function. */
+  readonly subscribeRuns: (
+    projectId: ProjectId,
+    onRuns: (runs: ReadonlyArray<RunSummary>) => void,
+    onError: (message: string) => void,
+  ) => () => void;
+  /** One run, live, whether or not it is among the latest; returns the unsubscribe function. */
+  readonly watchRun: (
+    input: Scoped<RunInput>,
+    onRun: (run: Run) => void,
+    onError: (message: string) => void,
+  ) => () => void;
+  /** The thread's owning run and attempt, live; returns the unsubscribe function. */
+  readonly watchThread: (
+    input: Scoped<ThreadInput>,
+    onLink: (link: ThreadLink | null) => void,
+    onError: (message: string) => void,
+  ) => () => void;
+  readonly cancel: (input: RunCommand) => Promise<Run>;
+  readonly retry: (input: RunCommand) => Promise<Run>;
+  readonly resume: (input: RunCommand) => Promise<Run>;
+  readonly gate: (
+    input: RunCommand & { readonly decision: "approve" | "request-changes" },
+  ) => Promise<Run>;
 }
