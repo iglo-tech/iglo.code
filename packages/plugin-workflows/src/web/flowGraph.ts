@@ -1,7 +1,7 @@
 import dagre, { type EdgeLabel, type GraphLabel, type NodeLabel } from "@dagrejs/dagre";
 import type { Definition, Node } from "../contracts.ts";
 import { routeControls } from "../definition.ts";
-import { predicateSummary } from "./editing.ts";
+import { predicateSummary, repeatBadge } from "./editing.ts";
 
 /** A drawn box: a step, one reviewer lane of a parallel group, or a route target that is gone. */
 export interface FlowNode {
@@ -31,9 +31,16 @@ export interface FlowEdge {
   readonly source: string;
   readonly target: string;
   readonly kind: FlowEdgeKind;
+  /** Short drawn label; a repeat's has two lines (route, then bound). */
   readonly label: string;
+  /** The full route text, shown on hover. */
+  readonly title: string;
   /** A repeat route back to an earlier step; drawn beside the flow instead of through it. */
   readonly back: boolean;
+  /** The step and inspector control that own the route; null for reviewer lane edges. */
+  readonly route: { readonly stepId: string; readonly control: string } | null;
+  /** Points at a step that no longer exists; drawn as an error until repaired. */
+  readonly dangling: boolean;
 }
 export interface FlowGraph {
   readonly nodes: ReadonlyArray<FlowNode>;
@@ -43,15 +50,20 @@ export interface FlowGraph {
 const clip = (text: string, length = 34) =>
   text.length > length ? `${text.slice(0, length - 1)}…` : text;
 
-function routeLabel(node: Node, control: string): { kind: FlowEdgeKind; label: string } {
-  if (control === "next") return { kind: "next", label: "next" };
-  if (control === "onUnresolved") return { kind: "unresolved", label: "unresolved" };
-  if (control === "otherwise") return { kind: "otherwise", label: "otherwise" };
-  if (control === "approve") return { kind: "approve", label: "approve" };
-  if (control === "changes") return { kind: "changes", label: "changes" };
+function routeLabel(
+  node: Node,
+  control: string,
+): { kind: FlowEdgeKind; label: string; title: string } {
+  if (control === "next") return { kind: "next", label: "next", title: "next" };
+  if (control === "onUnresolved")
+    return { kind: "unresolved", label: "unresolved", title: "unresolved" };
+  if (control === "otherwise") return { kind: "otherwise", label: "otherwise", title: "otherwise" };
+  if (control === "approve") return { kind: "approve", label: "approve", title: "approve" };
+  if (control === "changes") return { kind: "changes", label: "changes", title: "changes" };
   const index = Number(control.split(".")[1] ?? 0);
   const rule = node.kind === "decision" || node.kind === "join" ? node.rules[index] : undefined;
-  return { kind: "rule", label: rule === undefined ? control : clip(predicateSummary(rule.when)) };
+  const summary = rule === undefined ? control : predicateSummary(rule.when);
+  return { kind: "rule", label: clip(summary, 24), title: summary };
 }
 
 function detailOf(node: Node): string | null {
@@ -115,7 +127,10 @@ export function flowGraph(definition: Definition): FlowGraph {
           target: id,
           kind: "fork",
           label: "",
+          title: "",
           back: false,
+          route: null,
+          dangling: false,
         });
         edges.push({
           id: `${id}->${node.next}`,
@@ -123,13 +138,19 @@ export function flowGraph(definition: Definition): FlowGraph {
           target: target(node.next),
           kind: "join",
           label: "",
+          title: "",
           back: false,
+          route: null,
+          dangling: !ids.has(node.next),
         });
       }
       if (node.branches.length > 0) continue;
     }
-    for (const { control, route } of routeControls(node)) {
-      const { kind, label } = routeLabel(node, control);
+    const controls = routeControls(node);
+    const repeats = controls.filter(({ route }) => route.repeat !== undefined).length;
+    for (const { control, route } of controls) {
+      const { kind, label, title } = routeLabel(node, control);
+      const owner = { stepId: node.id, control };
       if (route.repeat === undefined) {
         edges.push({
           id: `${node.id}:${control}`,
@@ -137,25 +158,38 @@ export function flowGraph(definition: Definition): FlowGraph {
           target: target(route.to),
           kind,
           label,
+          title,
           back: false,
+          route: owner,
+          dangling: !ids.has(route.to),
         });
         continue;
       }
+      // The back edge names its direction and bound; its At limit is a separate dashed edge,
+      // prefixed with the route only when the step has more than one repeat to tell apart.
+      const prefix = kind === "next" ? "" : `${label} · `;
+      const bound = `↩ ×${route.repeat.max} · ${route.repeat.max + 1} visits`;
       edges.push({
         id: `${node.id}:${control}`,
         source: node.id,
         target: target(route.to),
         kind: "repeat",
-        label: `${kind === "next" ? "repeat" : `${label} · repeat`} ×${route.repeat.max}`,
+        label: kind === "next" ? bound : `${label}\n${bound}`,
+        title: `${kind === "next" ? "" : `${title} · `}↩ ${repeatBadge(route.repeat)}`,
         back: true,
+        route: owner,
+        dangling: !ids.has(route.to),
       });
       edges.push({
         id: `${node.id}:${control}.repeat`,
         source: node.id,
         target: target(route.repeat.atLimit),
         kind: "atLimit",
-        label: "at limit",
+        label: repeats > 1 ? `${prefix}at limit` : "at limit",
+        title: `${kind === "next" ? "" : `${title} · `}at limit after ${repeatBadge(route.repeat)}`,
         back: false,
+        route: { stepId: node.id, control: `${control}.repeat` },
+        dangling: !ids.has(route.repeat.atLimit),
       });
     }
   }
@@ -205,8 +239,11 @@ export function layoutSignature(graph: FlowGraph): string {
   ]);
 }
 
-/** Approximate drawn width of an edge label (11px medium text plus padding). */
-export const labelWidth = (label: string) => label.length * 6.5 + 16;
+/** Approximate drawn width of an edge label (11px medium text plus padding), by its longest line. */
+export const labelWidth = (label: string) =>
+  Math.max(...label.split("\n").map((line) => line.length)) * 6.5 + 16;
+/** Approximate drawn height of an edge label: 18px per line plus its border. */
+export const labelHeight = (label: string) => label.split("\n").length * 18 + 2;
 
 /** Top-to-bottom layered layout. Repeat routes are left out so they never push steps around. */
 export function layoutFlow(graph: FlowGraph): FlowLayout {
@@ -228,7 +265,12 @@ export function layoutFlow(graph: FlowGraph): FlowLayout {
       edge.target,
       edge.label === ""
         ? { minlen: 1 }
-        : { minlen: 1, width: labelWidth(edge.label), height: 20, labelpos: "c" },
+        : {
+            minlen: 1,
+            width: labelWidth(edge.label),
+            height: labelHeight(edge.label),
+            labelpos: "c",
+          },
       edge.id,
     );
   }

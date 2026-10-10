@@ -290,6 +290,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     },
     [narrow],
   );
+  // Choosing a route on the graph opens its step and focuses that route's control.
+  const selectRoute = useCallback(
+    (stepId: string, control: string) => {
+      select(stepId);
+      setFocus(controlId(stepId, control));
+    },
+    [select],
+  );
   const discard = () => {
     forget();
     setDraft(server?.definition ?? null);
@@ -548,6 +556,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       <Palette
         props={props}
         capabilities={capabilities}
+        capabilitiesError={capabilitiesError}
+        onRetryCapabilities={() => setCapabilitiesAttempt((value) => value + 1)}
         disabled={readOnly}
         onAdd={(kind: EditableKind) => {
           const added = addStep(draft, kind, selected, capabilities);
@@ -964,12 +974,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           ) : view === "graph" && draft !== null ? (
             <div className="relative min-h-0 flex-1">
               <Graph
+                Tooltip={props.Tooltip}
                 definition={draft}
                 selected={selected}
                 problems={problems}
                 readOnly={readOnly}
                 onSelect={select}
                 onRemove={removeSelected}
+                onSelectRoute={selectRoute}
               />
             </div>
           ) : view === "routes" && draft !== null ? (

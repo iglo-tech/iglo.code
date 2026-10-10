@@ -393,7 +393,17 @@ export const pluginDesign: PluginDesign = {
       onChange={(event) => onChange(event.currentTarget.value)}
     />
   ),
-  Select: ({ id, ariaLabel, ariaDescribedBy, invalid, disabled, value, onChange, options }) => (
+  Select: ({
+    id,
+    ariaLabel,
+    ariaDescribedBy,
+    invalid,
+    disabled,
+    value,
+    onChange,
+    options,
+    size,
+  }) => (
     <Select
       value={value}
       items={options.map((option) => ({ value: option.value, label: option.label }))}
@@ -404,6 +414,9 @@ export const pluginDesign: PluginDesign = {
     >
       <SelectTrigger
         id={id}
+        size={size ?? "default"}
+        // Dense rows share their width, so a small trigger may shrink below the default minimum.
+        className={size === "sm" ? "min-w-0" : undefined}
         aria-label={ariaLabel}
         aria-describedby={ariaDescribedBy}
         aria-invalid={invalid || undefined}
@@ -417,7 +430,14 @@ export const pluginDesign: PluginDesign = {
             value={option.value}
             {...(option.disabled === undefined ? {} : { disabled: option.disabled })}
           >
-            {option.label}
+            {option.detail === undefined ? (
+              option.label
+            ) : (
+              <span className="flex items-baseline justify-between gap-3">
+                <span className="truncate">{option.label}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{option.detail}</span>
+              </span>
+            )}
           </SelectItem>
         ))}
       </SelectPopup>
@@ -473,10 +493,11 @@ export const pluginDesign: PluginDesign = {
       </MenuPopup>
     </Menu>
   ),
-  SegmentedControl: ({ ariaLabel, value, onChange, options }) => (
+  SegmentedControl: ({ ariaLabel, value, onChange, options, disabled }) => (
     <ToggleGroup
       aria-label={ariaLabel}
       variant="segmented"
+      {...(disabled === undefined ? {} : { disabled })}
       value={[value]}
       onValueChange={(next) => {
         const selected = next[0];
