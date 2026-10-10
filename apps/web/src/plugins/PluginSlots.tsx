@@ -186,6 +186,7 @@ function EnvironmentPluginAttention({
   const { contributions } = usePluginContributions(environmentId);
   const environment = useEnvironment(environmentId);
   const attention = useAtomValue(attentionAtom(environmentId));
+  const { isMobile, setOpenMobile } = useSidebar();
   const summaries = Option.getOrElse(AsyncResult.value(attention), () => []);
   return summaries.flatMap((summary) => {
     const plugin = contributions.find((item) => item.manifest.id === summary.pluginId);
@@ -210,7 +211,10 @@ function EnvironmentPluginAttention({
               size="sm"
               disabled={!available}
               title={available ? item.reason : "This page is not available in this client."}
-              onClick={() => plugin.context.navigate(item.link)}
+              onClick={() => {
+                if (isMobile) setOpenMobile(false);
+                plugin.context.navigate(item.link);
+              }}
             >
               <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />
               <span className="min-w-0 truncate">
