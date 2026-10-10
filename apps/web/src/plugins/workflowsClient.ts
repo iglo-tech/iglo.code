@@ -7,15 +7,22 @@ import type {
   PreviewInput,
   ReadInput,
   ReplaceInput,
-  RunInput,
   SaveInput,
   StartSavedInput,
-  ThreadInput,
   WorkflowClient,
 } from "@t3tools/plugin-workflows/contracts";
 import { PluginError } from "@t3tools/contracts";
+import type { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
 import type { ProjectId, ProviderInstanceId } from "@t3tools/plugin-host-contract/schema";
-import { request, requestGuarded, subscribe } from "@t3tools/client-runtime/rpc";
+import {
+  request,
+  requestGuarded,
+  subscribe,
+  type EnvironmentRpcInput,
+  type EnvironmentRpcStreamFailure,
+  type EnvironmentRpcStreamValue,
+  type EnvironmentSubscriptionRpcTag,
+} from "@t3tools/client-runtime/rpc";
 import {
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
@@ -175,7 +182,6 @@ const permissionsAtom = Atom.family((environmentId: EnvironmentId) =>
   })),
 );
 
-/** A still-published workflow API; a removed or downgraded plugin fails its streams. */
 /** Whether a workflow stream API is published; an unloaded catalog waits instead of failing. */
 const publication = (
   catalog: ReturnType<typeof availableCatalogAtom> extends Atom.Atom<infer A> ? A : never,
@@ -204,72 +210,35 @@ const unpublished = () =>
     }),
   );
 // Keyed by the exact request so each view owns, and releases, its own subscription.
-const runsAtom = Atom.family((key: string) => {
-  const input = JSON.parse(key) as { environmentId: EnvironmentId; projectId: ProjectId };
-  return connectionAtomRuntime
-    .atom((get) =>
-      (() => {
-        const state = publication(
-          get(availableCatalogAtom(input.environmentId)),
-          input.environmentId,
-          "plugins.workflows.subscribe",
-        );
-        return state === "published"
-          ? followStreamInEnvironment(
-              input.environmentId,
-              subscribe("plugins.workflows.subscribe", input),
-            )
-          : state === "loading"
-            ? Stream.never
-            : unpublished();
-      })(),
-    )
-    .pipe(Atom.setIdleTTL(0));
-});
-const runAtom = Atom.family((key: string) => {
-  const input = JSON.parse(key) as RunInput;
-  return connectionAtomRuntime
-    .atom((get) =>
-      (() => {
-        const state = publication(
-          get(availableCatalogAtom(input.environmentId)),
-          input.environmentId,
-          "plugins.workflows.watch",
-        );
-        return state === "published"
-          ? followStreamInEnvironment(
-              input.environmentId,
-              subscribe("plugins.workflows.watch", input),
-            )
-          : state === "loading"
-            ? Stream.never
-            : unpublished();
-      })(),
-    )
-    .pipe(Atom.setIdleTTL(0));
-});
-const threadAtom = Atom.family((key: string) => {
-  const input = JSON.parse(key) as ThreadInput;
-  return connectionAtomRuntime
-    .atom((get) =>
-      (() => {
-        const state = publication(
-          get(availableCatalogAtom(input.environmentId)),
-          input.environmentId,
-          "plugins.workflows.thread",
-        );
-        return state === "published"
-          ? followStreamInEnvironment(
-              input.environmentId,
-              subscribe("plugins.workflows.thread", input),
-            )
-          : state === "loading"
-            ? Stream.never
-            : unpublished();
-      })(),
-    )
-    .pipe(Atom.setIdleTTL(0));
-});
+const streamFamily = <TTag extends EnvironmentSubscriptionRpcTag>(method: TTag) =>
+  Atom.family((key: string) => {
+    const input = JSON.parse(key) as EnvironmentRpcInput<TTag> & { environmentId: EnvironmentId };
+    return connectionAtomRuntime
+      .atom(
+        (
+          get,
+        ): Stream.Stream<
+          EnvironmentRpcStreamValue<TTag>,
+          EnvironmentRpcStreamFailure<TTag> | PluginError,
+          EnvironmentRegistry.EnvironmentRegistry
+        > => {
+          const state = publication(
+            get(availableCatalogAtom(input.environmentId)),
+            input.environmentId,
+            method,
+          );
+          return state === "published"
+            ? followStreamInEnvironment(input.environmentId, subscribe(method, input))
+            : state === "loading"
+              ? Stream.never
+              : unpublished();
+        },
+      )
+      .pipe(Atom.setIdleTTL(0));
+  });
+const runsAtom = streamFamily("plugins.workflows.subscribe");
+const runAtom = streamFamily("plugins.workflows.watch");
+const threadAtom = streamFamily("plugins.workflows.thread");
 const listen = <A>(
   atom: Atom.Atom<AsyncResult.AsyncResult<A, unknown>>,
   onValue: (value: A) => void,
