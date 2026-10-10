@@ -176,6 +176,9 @@ export function PluginSidebarItems() {
   ));
 }
 
+/** Newest items listed in the sidebar; the plugin's attention view lists the rest. */
+const ATTENTION_SHOWN = 5;
+
 function EnvironmentPluginAttention({
   environmentId,
   labelEnvironment,
@@ -191,7 +194,38 @@ function EnvironmentPluginAttention({
     const plugin = contributions.find((item) => item.manifest.id === summary.pluginId);
     if (plugin === undefined) return [];
     const prefix = labelEnvironment ? `${environment?.label ?? environmentId} · ` : "";
+    // The plugin's own total; a capped item list is never presented as the count.
+    const count = summary.total ?? (summary.items.length >= 100 ? null : summary.items.length);
+    const view = plugin.attention;
+    // The plugin's own attention view, when this client can open it.
+    const target = view !== null && pageAvailable(plugin, view.link.pageId) ? view : null;
+    const shown = summary.items.slice(0, ATTENTION_SHOWN);
+    const more = (count ?? summary.items.length) - shown.length;
+    const countLabel = `${prefix}${view?.title ?? plugin.manifest.displayName}: ${count ?? "100+"} ${count === 1 ? "needs" : "need"} attention`;
     return [
+      ...(count === 0 && summary.error === undefined
+        ? []
+        : [
+            <SidebarMenuItem key={`${summary.pluginId}:count`}>
+              {target !== null ? (
+                <SidebarMenuButton
+                  size="sm"
+                  aria-label={countLabel}
+                  onClick={() => plugin.context.navigate(target.link)}
+                >
+                  <span className="min-w-0 truncate">
+                    {prefix}
+                    {target.title}
+                  </span>
+                  <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                    {count ?? "100+"}
+                  </span>
+                </SidebarMenuButton>
+              ) : (
+                <p className="truncate px-2 text-xs text-muted-foreground">{countLabel}</p>
+              )}
+            </SidebarMenuItem>,
+          ]),
       ...(summary.error === undefined
         ? []
         : [
@@ -202,7 +236,7 @@ function EnvironmentPluginAttention({
               </p>
             </SidebarMenuItem>,
           ]),
-      ...summary.items.map((item) => {
+      ...shown.map((item) => {
         const available = pageAvailable(plugin, item.link.pageId);
         return (
           <SidebarMenuItem key={`${summary.pluginId}:${item.id}`}>
@@ -221,6 +255,25 @@ function EnvironmentPluginAttention({
           </SidebarMenuItem>
         );
       }),
+      ...(summary.items.length > shown.length
+        ? [
+            <SidebarMenuItem key={`${summary.pluginId}:more`}>
+              {target !== null ? (
+                <SidebarMenuButton size="sm" onClick={() => plugin.context.navigate(target.link)}>
+                  <span className="min-w-0 truncate text-muted-foreground">
+                    {more}
+                    {count === null ? "+" : ""} more
+                  </span>
+                </SidebarMenuButton>
+              ) : (
+                <p className="truncate px-2 text-xs text-muted-foreground">
+                  {more}
+                  {count === null ? "+" : ""} more
+                </p>
+              )}
+            </SidebarMenuItem>,
+          ]
+        : []),
     ];
   });
 }

@@ -17,12 +17,18 @@ import { definitionDiagnostics, routeControls, sourceFields } from "../definitio
 import { inValueLimit, readsAs } from "./decisions.ts";
 
 type AgentNode = Extract<Node, { kind: "agent" }>;
-export type EditableKind = "agent" | "check" | "decision" | "human" | "end";
-/** Kinds whose controls this client authors; other kinds stay preserved and read-only. */
-export const editableKinds: ReadonlyArray<EditableKind> = [
+type ParallelNode = Extract<Node, { kind: "parallel" }>;
+type JoinNode = Extract<Node, { kind: "join" }>;
+export type Branch = ParallelNode["branches"][number];
+/** Kinds the palette adds; a Join is added with each Parallel group. */
+export type EditableKind = "agent" | "check" | "decision" | "parallel" | "human" | "end";
+/** Kinds whose controls this client authors. */
+export const editableKinds: ReadonlyArray<Node["kind"]> = [
   "agent",
   "check",
   "decision",
+  "parallel",
+  "join",
   "human",
   "end",
 ];
@@ -89,6 +95,73 @@ export function defaultAgent(capabilities: Capabilities | null): Agent {
   };
 }
 
+/**
+ * A reviewer branch: the canonical review permission policy (native plan mode, asking before
+ * external actions) and a typed verdict later routes can read.
+ */
+export function newBranch(capabilities: Capabilities | null, id: string, title: string): Branch {
+  return {
+    ...defaultAgent(capabilities),
+    id,
+    title,
+    runtimeMode: "approval-required",
+    interactionMode: "plan",
+    report: {
+      fields: [{ name: "verdict", type: "enum", required: true, values: ["pass", "changes"] }],
+    },
+  };
+}
+const uniqueBranchId = (node: ParallelNode) => {
+  const ids = new Set(node.branches.map((branch) => branch.id));
+  for (let index = node.branches.length + 1; ; index++)
+    if (!ids.has(`reviewer-${index}`)) return `reviewer-${index}`;
+};
+/** Add a reviewer with a new stable identity; existing identities never change. */
+export function addBranch(
+  definition: Definition,
+  nodeId: string,
+  capabilities: Capabilities | null,
+): Definition {
+  return updateNode(definition, nodeId, (node) => {
+    if (node.kind !== "parallel") return node;
+    const id = uniqueBranchId(node);
+    return {
+      ...node,
+      branches: [
+        ...node.branches,
+        newBranch(capabilities, id, `Reviewer ${node.branches.length + 1}`),
+      ],
+    };
+  });
+}
+/** Reading order only; identities, and the predicates that use them, are unchanged. */
+export function moveBranch(
+  definition: Definition,
+  nodeId: string,
+  index: number,
+  offset: -1 | 1,
+): Definition {
+  return updateNode(definition, nodeId, (node) => {
+    if (node.kind !== "parallel") return node;
+    const destination = index + offset;
+    if (destination < 0 || destination >= node.branches.length) return node;
+    const branches = [...node.branches];
+    const [branch] = branches.splice(index, 1);
+    branches.splice(destination, 0, branch!);
+    return { ...node, branches };
+  });
+}
+/** Predicates and inputs that read a removed reviewer stay, so validation shows each one. */
+export function removeBranch(definition: Definition, nodeId: string, index: number): Definition {
+  return updateNode(definition, nodeId, (node) =>
+    node.kind === "parallel" && node.branches.length > 1
+      ? { ...node, branches: node.branches.filter((_, position) => position !== index) }
+      : node,
+  );
+}
+export const joinOf = (definition: Definition, fork: string) =>
+  definition.nodes.find((node): node is JoinNode => node.kind === "join" && node.fork === fork);
+
 /** The route a step continues through; a step inserted after it takes over this route. */
 function primaryRoute(node: Node): { readonly control: string; readonly route: Route } | null {
   switch (node.kind) {
@@ -96,6 +169,7 @@ function primaryRoute(node: Node): { readonly control: string; readonly route: R
     case "check":
       return { control: "next", route: node.next };
     case "decision":
+    case "join":
       return { control: "otherwise", route: node.otherwise };
     case "human":
       return { control: "approve", route: node.approve };
@@ -109,6 +183,7 @@ function withPrimary(node: Node, route: Route): Node {
     case "check":
       return { ...node, next: route };
     case "decision":
+    case "join":
       return { ...node, otherwise: route };
     case "human":
       return { ...node, approve: route };
@@ -135,7 +210,11 @@ export function addStep(
   }
   const id = uniqueId(definition, kind);
   const count = definition.nodes.filter((node) => node.kind === kind).length + 1;
-  const previous = definition.nodes.find((node) => node.id === after);
+  const selected = definition.nodes.find((node) => node.id === after);
+  // A step after a parallel group follows its join, so the fork/join pair stays together.
+  const previous =
+    selected?.kind === "parallel" ? (joinOf(definition, selected.id) ?? selected) : selected;
+  after = previous?.id ?? null;
   const inherited = previous === undefined ? null : primaryRoute(previous);
   const target =
     previous === undefined
@@ -144,6 +223,41 @@ export function addStep(
         ? inherited.route.to
         : (definition.nodes.find((node) => node.kind === "end")?.id ?? definition.entry);
   const title = `${kindLabels[kind]} ${count}`;
+  const index = previous ? definition.nodes.indexOf(previous) + 1 : 0;
+  const connect = (inserted: ReadonlyArray<Node>) => {
+    const nodes = [...definition.nodes];
+    nodes.splice(index, 0, ...inserted);
+    return {
+      ...definition,
+      entry: previous === undefined ? id : definition.entry,
+      nodes: nodes.map((item) =>
+        item.id === after && inherited !== null && !inherited.route.repeat
+          ? withPrimary(item, { to: id })
+          : item,
+      ),
+    };
+  };
+  if (kind === "parallel") {
+    // A parallel group and its Wait for all join are added, and removed, together.
+    const joinId = uniqueId(definition, "join");
+    const fork: Node = {
+      id,
+      kind,
+      title: `Reviews ${count}`,
+      pullRequest: { repository: "", number: 1 },
+      branches: [newBranch(capabilities, "reviewer-1", "Reviewer 1")],
+      next: joinId,
+    };
+    const join: Node = {
+      id: joinId,
+      kind: "join",
+      title: "Wait for all",
+      fork: id,
+      rules: [],
+      otherwise: { to: target },
+    };
+    return { id, definition: connect([fork, join]) };
+  }
   const node: Node =
     kind === "agent"
       ? ({
@@ -171,21 +285,7 @@ export function addStep(
               otherwise: { to: target },
             }
           : { id, kind, title, approve: { to: target }, changes: { to: target } };
-  const index = previous ? definition.nodes.indexOf(previous) + 1 : 0;
-  const nodes = [...definition.nodes];
-  nodes.splice(index, 0, node);
-  return {
-    id,
-    definition: {
-      ...definition,
-      entry: previous === undefined ? id : definition.entry,
-      nodes: nodes.map((item) =>
-        item.id === after && inherited !== null && !inherited.route.repeat
-          ? withPrimary(item, { to: id })
-          : item,
-      ),
-    },
-  };
+  return { id, definition: connect([node]) };
 }
 
 /** Reading order only; routes, not list position, decide execution. */
@@ -206,10 +306,34 @@ export function moveStep(definition: Definition, id: string, offset: -1 | 1): De
 export function removeStep(definition: Definition, id: string): Definition {
   const removed = definition.nodes.find((node) => node.id === id);
   if (!removed || definition.nodes.length === 1) return definition;
-  const replacement =
+  // A fork and its join are one group: removing either removes both, and routes into the
+  // group continue where its join's Otherwise went.
+  const fork =
+    removed.kind === "parallel"
+      ? removed
+      : removed.kind === "join"
+        ? definition.nodes.find((node) => node.id === removed.fork && node.kind === "parallel")
+        : undefined;
+  const join = fork ? joinOf(definition, fork.id) : undefined;
+  if (fork && join) {
+    const ids = new Set([fork.id, join.id]);
+    if (definition.nodes.every((node) => ids.has(node.id))) return definition;
+    const pruned = { ...definition, nodes: definition.nodes.filter((node) => node.id !== join.id) };
+    return removeStepWith(pruned, fork.id, join.otherwise.repeat ? null : join.otherwise.to);
+  }
+  return removeStepWith(
+    definition,
+    id,
     (removed.kind === "agent" || removed.kind === "check") && !removed.next.repeat
       ? removed.next.to
-      : null;
+      : null,
+  );
+}
+function removeStepWith(
+  definition: Definition,
+  id: string,
+  replacement: string | null,
+): Definition {
   // Repeat routes, At limit destinations and decision sources stay dangling on purpose.
   const reroute = (route: Route): Route =>
     replacement !== null && route.to === id && !route.repeat
@@ -230,6 +354,7 @@ export function removeStep(definition: Definition, id: string): Definition {
               ...(node.onUnresolved ? { onUnresolved: reroute(node.onUnresolved) } : {}),
             };
           case "decision":
+          case "join":
             return {
               ...node,
               rules: node.rules.map((rule) => ({ ...rule, route: reroute(rule.route) })),
@@ -287,7 +412,25 @@ export function localProblems(definition: Definition): ReadonlyArray<Problem> {
       if (node.args.some((arg) => arg === ""))
         add(`${node.id}: remove empty arguments.`, node.id, "args");
     }
-    if (node.kind === "decision")
+    if (node.kind === "parallel") {
+      if (!node.pullRequest.repository.trim())
+        add(
+          `${node.id}: enter the pull request's repository (owner/name).`,
+          node.id,
+          "pullRequest.repository",
+        );
+      node.branches.forEach((branch, index) => {
+        if (!branch.title.trim())
+          add(`${node.id}: label reviewer ${index + 1}.`, node.id, `branches.${index}.title`);
+        if (!branch.instruction.trim())
+          add(
+            `${node.id}: give ${branch.title || `reviewer ${index + 1}`} its focus and instructions.`,
+            node.id,
+            `branches.${index}.instruction`,
+          );
+      });
+    }
+    if (node.kind === "decision" || node.kind === "join")
       node.rules.forEach((rule, index) => {
         const visit = (predicate: Predicate, path: ReadonlyArray<number>) => {
           if (predicate.op === "all" || predicate.op === "any")

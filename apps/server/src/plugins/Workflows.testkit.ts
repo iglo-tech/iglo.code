@@ -52,6 +52,8 @@ export const fixture = Effect.gen(function* () {
   let head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   let dirty = false;
   let providerAvailable = true;
+  let forgeAvailable = true;
+  let redactions = 0;
   let lostAcknowledgement = false;
   let checkExecution = Effect.succeed({
     exitCode: 0,
@@ -68,7 +70,11 @@ export const fixture = Effect.gen(function* () {
   const host = Host.of({
     environmentId,
     cancelPending: () => Effect.void,
-    redact: (input) => Effect.succeed(input.text),
+    redact: (input) =>
+      Effect.sync(() => {
+        redactions++;
+        return input.text;
+      }),
     projects: () =>
       Effect.succeed([{ id: projectId, title: "Workflow", workspaceRoot: directory }]),
     providers: () =>
@@ -94,7 +100,19 @@ export const fixture = Effect.gen(function* () {
         yield* Queue.offer(checkStarts, input.command);
         return yield* checkExecution;
       }),
-    verifyPullRequestHead: () => Effect.succeed({ head, branch: "feature" }),
+    verifyPullRequestHead: () =>
+      Effect.suspend(() =>
+        forgeAvailable
+          ? Effect.succeed({ head, branch: "feature" })
+          : Effect.fail(
+              new PluginError({
+                pluginId: "host",
+                code: "unavailable",
+                operation: "verify-pull-request-head",
+                message: "The forge is unreachable.",
+              }),
+            ),
+      ),
     receipt: (id) => Effect.succeed(receipts.get(id) ?? null),
     retryPreparation: () =>
       Effect.fail(
@@ -344,6 +362,14 @@ export const fixture = Effect.gen(function* () {
     setHead: (value: string) => {
       head = value;
     },
+    /** Display reads redact through the host; counting them shows when a view re-read. */
+    redactions: () => redactions,
+    /** Whether the forge can verify the pull request head. */
+    setForgeAvailable: (value: boolean) => {
+      forgeAvailable = value;
+    },
+    /** The host's attention stream of the currently running plugin (after any restart). */
+    hostAttention: Stream.unwrap(Effect.sync(() => runtime.registry.attention(environmentId))),
     setDirty: (value: boolean) => {
       dirty = value;
     },

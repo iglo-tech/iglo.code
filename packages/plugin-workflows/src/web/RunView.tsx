@@ -24,9 +24,14 @@ import { KindIcon, StatusIcon } from "./kinds.tsx";
 import { readsAs } from "./decisions.ts";
 import { sourceFields } from "../definition.ts";
 import {
+  attentionLabels,
   attemptTitle,
   clockTime,
   formatTime,
+  joinCounts,
+  joinStatus,
+  requestKind,
+  stopText,
   isActive,
   relativeTime,
   sourceShort,
@@ -250,6 +255,12 @@ export function RunView({
   const gateReview = run.gate?.reviewId
     ? run.reviews.find((review) => review.id === run.gate!.reviewId)
     : undefined;
+  // A retry at a parallel group is the review rerun: a new generation on a verified head.
+  const rerunFork = recovery?.retryNodeId
+    ? definition.nodes.find((node) => node.id === recovery.retryNodeId && node.kind === "parallel")
+    : undefined;
+  const label = (action: Action) =>
+    action === "retry" && rerunFork ? "Rerun review" : actionLabels[action];
   const allowed = (action: Action) =>
     run.allowedActions.includes(action) &&
     (action === "approve" || action === "request-changes" ? permissions.gate : permissions[action]);
@@ -292,7 +303,7 @@ export function RunView({
             title: "Decision not applied",
             detail: result.reason ?? "The reviewed input could not be verified.",
           });
-        else props.toast({ title: `${actionLabels[action]} applied` });
+        else props.toast({ title: `${label(action)} applied` });
       },
       (cause: unknown) => {
         if (
@@ -302,7 +313,7 @@ export function RunView({
           setPending(null);
           setNotice({
             variant: "warning",
-            title: `${actionLabels[action]} not applied`,
+            title: `${label(action)} not applied`,
             detail: `${errorMessage(cause)} The current run state is shown.`,
           });
           setSubscription((value) => value + 1);
@@ -331,8 +342,8 @@ export function RunView({
       >
         {icon}
         {pending?.action === action && !pending.inFlight
-          ? `Retry: ${actionLabels[action]}`
-          : actionLabels[action]}
+          ? `Retry: ${label(action)}`
+          : label(action)}
       </Button>
     ) : null;
   const active = overview?.activeAttempts ?? [];
@@ -340,6 +351,7 @@ export function RunView({
     ? run.attempts.find((attempt) => attempt.id === recovery.resumeAttemptId)
     : undefined;
   const recoverable = allowed("resume") || allowed("retry");
+  const stopped = run.state === "unresolved" ? (run.stop?.kind ?? null) : null;
   const decisionShown =
     run.gate !== null &&
     gateNode !== null &&
@@ -396,7 +408,7 @@ export function RunView({
       <Alert
         key="recovery"
         variant="warning"
-        title={runStateLabels[run.state]}
+        title={stopped ? attentionLabels[stopped] : runStateLabels[run.state]}
         actions={
           <>
             {actionButton("retry", "outline", <RotateCcwIcon />)}
@@ -405,6 +417,7 @@ export function RunView({
         }
       >
         <span className="flex flex-col gap-0.5">
+          {stopped ? <span>{stopText(stopped)}</span> : null}
           {run.reason === null ? null : <span>{run.reason}</span>}
           {allowed("resume") ? (
             <span>
@@ -415,14 +428,24 @@ export function RunView({
               {recovery?.resumeAttemptId ? ` · attempt ${short(recovery.resumeAttemptId)}` : ""}
             </span>
           ) : null}
-          {allowed("retry") && recovery?.retryNodeId ? (
+          {allowed("retry") && rerunFork ? (
+            <span>
+              Rerun: generation{" "}
+              {(run.reviews.findLast((review) => review.fork === rerunFork.id)?.generation ?? 0) +
+                1}{" "}
+              of {rerunFork.title} · current head, new reviewer worktrees
+            </span>
+          ) : allowed("retry") && recovery?.retryNodeId ? (
             <span>Retry: new attempt of {nodeTitle(definition, recovery.retryNodeId)}</span>
           ) : null}
         </span>
       </Alert>
-    ) : run.reason === null ? null : (
-      <Alert key="reason" variant="warning" title="Reason">
-        {run.reason}
+    ) : run.reason === null && !stopped ? null : (
+      <Alert key="reason" variant="warning" title={stopped ? attentionLabels[stopped] : "Reason"}>
+        <span className="flex flex-col gap-0.5">
+          {stopped ? <span>{stopText(stopped)}</span> : null}
+          {run.reason === null ? null : <span>{run.reason}</span>}
+        </span>
       </Alert>
     ),
     run.allowedActions.length > 0 && !run.allowedActions.some((action) => allowed(action)) ? (
@@ -432,7 +455,7 @@ export function RunView({
       <Alert
         key="pending"
         variant="error"
-        title={`${actionLabels[pending.action]} did not complete`}
+        title={`${label(pending.action)} did not complete`}
         actions={
           <Button size="xs" variant="ghost" onClick={() => setPending(null)}>
             Dismiss
@@ -501,6 +524,9 @@ export function RunView({
         select({ node: attempt.nodeId, attempt: attempt.id, branch: attempt.branchId })
       }
       onTraceOffset={setTraceOffset}
+      onSelectReviewer={(attemptId, branchId) =>
+        select({ node: overview!.review!.fork, attempt: attemptId, branch: branchId })
+      }
       elsewhere={
         elsewhere ? (
           <Alert
@@ -600,7 +626,7 @@ export function RunView({
           ) : null}
           {busy ? (
             <p role="status" className="text-xs text-muted-foreground">
-              Sending {actionLabels[pending.action].toLowerCase()}…
+              Sending {label(pending.action).toLowerCase()}…
             </p>
           ) : null}
         </div>
@@ -796,6 +822,7 @@ function Inspector({
   firstVisit,
   onSelectAttempt,
   onTraceOffset,
+  onSelectReviewer,
   elsewhere,
 }: {
   readonly props: PageProps;
@@ -808,11 +835,24 @@ function Inspector({
   readonly firstVisit: number;
   readonly onSelectAttempt: (attempt: Attempt) => void;
   readonly onTraceOffset: (offset: number | undefined) => void;
+  readonly onSelectReviewer: (attemptId: string, branchId: string) => void;
   readonly elsewhere: ReactNode;
 }) {
   const { Button, Badge } = props;
   const definition = run.definition;
   const node = nodeId === null ? undefined : definition.nodes.find((item) => item.id === nodeId);
+  const review = run.overview?.review ?? null;
+  const reviewSummary =
+    review === null ? null : (
+      <ReviewSummary
+        props={props}
+        run={run}
+        projectId={projectId}
+        review={review}
+        selected={attempt?.id ?? null}
+        onSelect={onSelectReviewer}
+      />
+    );
   if (elsewhere)
     return (
       <section className="flex flex-col gap-3">
@@ -827,6 +867,7 @@ function Inspector({
     const traceStart = history?.traceOffset ?? 0;
     return (
       <section className="flex flex-col gap-3">
+        {reviewSummary}
         <h2 id="wf-evidence-title" className="text-sm font-medium">
           Route history
         </h2>
@@ -928,6 +969,7 @@ function Inspector({
             : ""}
         </span>
       </div>
+      {review !== null && node?.id === review.fork && lane === undefined ? reviewSummary : null}
       {visits.length > 1 ? (
         <ol aria-label="Visits" className="flex flex-col gap-px">
           {visits.map(({ attempt: item, overall }, index) => (
@@ -998,6 +1040,27 @@ function Inspector({
               </>
             )}
           </dl>
+          {attempt.phase === "waiting-input" && (attempt.requests ?? []).length > 0 ? (
+            <section aria-label="Pending native requests" className="flex flex-col gap-1 text-xs">
+              <p className="font-medium">Pending requests</p>
+              <ol aria-label="Pending native requests" className="flex flex-col gap-0.5">
+                {(attempt.requests ?? []).map((request, index, all) => (
+                  <li key={request.id} className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">
+                      {requestKind(request.kind)} request {index + 1} of{" "}
+                      {Math.max(attempt.pendingRequests ?? 0, all.length)}
+                    </span>
+                    {index === 0 ? <Badge variant="info">Next</Badge> : null}
+                    <span className="ml-auto flex shrink-0 tabular-nums text-muted-foreground">
+                      <props.Tooltip content={formatTime(request.createdAt)}>
+                        {clockTime(request.createdAt)}
+                      </props.Tooltip>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
           {attempt.threadId ? (
             <div>
               <Button
@@ -1267,5 +1330,126 @@ function Pair({ name, value }: { readonly name: string; readonly value: string }
       <dt className="text-muted-foreground">{name}</dt>
       <dd className="whitespace-pre-wrap break-words">{value}</dd>
     </>
+  );
+}
+
+type Review = NonNullable<NonNullable<Run["overview"]>["review"]>;
+/**
+ * The newest review generation: every required reviewer from the server's complete set, its
+ * frozen input and isolated checkout, and the join's persisted result. Nothing is counted here.
+ */
+function ReviewSummary({
+  props,
+  run,
+  projectId,
+  review,
+  selected,
+  onSelect,
+}: {
+  readonly props: PageProps;
+  readonly run: Run;
+  readonly projectId: ProjectId;
+  readonly review: Review;
+  readonly selected: string | null;
+  readonly onSelect: (attemptId: string, branchId: string) => void;
+}) {
+  const { Button, Badge, Tooltip } = props;
+  const fork = run.definition.nodes.find((node) => node.id === review.fork);
+  const branches = fork?.kind === "parallel" ? fork.branches : [];
+  const earlier = run.reviews.filter((item) => item.fork === review.fork && item.id !== review.id);
+  const join = joinStatus(review);
+  return (
+    <section aria-labelledby="wf-review-title" className="flex min-w-0 flex-col gap-2 text-xs">
+      <h3 id="wf-review-title" className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+        <KindIcon kind="parallel" className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate">
+          Parallel review: {fork?.title ?? review.fork} · generation {review.generation}
+        </span>
+      </h3>
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">
+        <dt className="text-muted-foreground">Frozen head</dt>
+        <dd className="flex min-w-0">
+          <Tooltip content={`${review.head} · verified when this generation started`}>
+            {review.pullRequest.repository}#{review.pullRequest.number} at committed head{" "}
+            {short(review.head)}
+          </Tooltip>
+        </dd>
+        <dt className="text-muted-foreground">Join</dt>
+        <dd>
+          Wait for all · All {review.required} {review.required === 1 ? "reviewer" : "reviewers"}{" "}
+          required
+        </dd>
+        <dt className="text-muted-foreground">Result</dt>
+        <dd role="status" className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <Badge variant={join.variant}>{join.label}</Badge>
+          <span className="tabular-nums text-muted-foreground">{joinCounts(review)}</span>
+        </dd>
+      </dl>
+      <ol aria-label="Required reviewers" className="flex flex-col gap-px">
+        {review.branches.map((branch) => {
+          const authored = branches.find((item) => item.id === branch.id);
+          const name = authored?.title ?? branch.id;
+          const report = branch.report
+            ? `Report accepted (${branch.report.outcome} claim)`
+            : isActive(branch)
+              ? "No report yet"
+              : "No accepted report";
+          return (
+            <li key={branch.attemptId} className="flex min-w-0 items-center gap-0.5">
+              <Button
+                size="row"
+                variant={selected === branch.attemptId ? "outline" : "ghost"}
+                ariaPressed={selected === branch.attemptId}
+                ariaLabel={`Show the evidence of reviewer ${name}`}
+                tooltip={[
+                  authored?.instruction,
+                  branch.deadline === null ? null : `Deadline ${formatTime(branch.deadline)}`,
+                  branch.workspace
+                    ? `Isolated worktree ${branch.workspace.path}${branch.workspace.frozenHead ? ` at ${short(branch.workspace.frozenHead)}` : ""}`
+                    : "Isolated worktree not prepared yet",
+                  branch.reason === null ? null : `Stop reason: ${branch.reason}`,
+                ]
+                  .filter((part) => part != null && part !== "")
+                  .join("\n")}
+                onClick={() => onSelect(branch.attemptId, branch.id)}
+              >
+                <StatusIcon status={phaseStatus(branch.phase)} className="size-3.5" />
+                <span className="truncate">{name}</span>
+                <span className="ml-auto truncate text-muted-foreground">
+                  {phaseLabels[branch.phase]} · {report}
+                </span>
+              </Button>
+              {branch.threadId ? (
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  ariaLabel={`Open the thread of reviewer ${name}`}
+                  tooltip="Open thread"
+                  onClick={() =>
+                    props.openThread({
+                      environmentId: run.environmentId,
+                      projectId,
+                      threadId: branch.threadId!,
+                    })
+                  }
+                >
+                  <MessageSquareIcon />
+                </Button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+      {earlier.length > 0 ? (
+        <ul aria-label="Review generations" className="flex flex-col gap-0.5 text-muted-foreground">
+          {earlier.map((item) => (
+            <li key={item.id} className="truncate">
+              Generation {item.generation} · head {short(item.head)} ·{" "}
+              {item.result === null ? "no result" : item.result.replace("_", " ")}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }

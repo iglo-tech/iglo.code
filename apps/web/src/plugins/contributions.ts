@@ -23,6 +23,7 @@ export function bind<Client>(plugin: WebPlugin<Client>, client: Client) {
     })),
     navigation: plugin.navigation,
     projectActions: plugin.projectActions,
+    attention: plugin.attention ?? null,
     threadContext: plugin.threadContext.map((contribution) => ({
       id: contribution.id,
       render: (context: PluginWebContext) => contribution.render({ ...context, client }),

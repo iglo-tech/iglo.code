@@ -721,11 +721,12 @@ it.live(
         expect(button("Check").props.tooltip).toBe("Loading step types…");
         expect(button("Agent step").props.disabled).toBe(false);
         yield* promise(() => tracked.settle("capabilities"));
-        // The backend advertises checks, decisions and human gates; parallel review stays read-only.
+        // The backend advertises every kind; a Join is only added with its Parallel group.
         expect(button("Check").props.disabled).toBe(false);
         expect(button("Decision").props.disabled).toBe(false);
         expect(button("Human gate").props.disabled).toBe(false);
-        expect(button("Parallel group").props.disabled).toBe(true);
+        expect(button("Parallel group").props.disabled).toBe(false);
+        expect(button("Join").props.disabled).toBe(true);
         yield* promise(() => click("Agent step"));
         yield* promise(() => tracked.settle("skills"));
         yield* promise(() => write("wf-agent-1-instruction", "Implement the change"));

@@ -18,6 +18,7 @@ import type * as Rpc from "effect/rpc/Rpc";
 
 import type {
   PluginAttentionItem,
+  PluginAttentionSummary,
   PluginCommandReceipt,
   PluginError,
   PluginLaunchInput,
@@ -213,7 +214,11 @@ export interface PluginServices {
       readonly payload: Schema.Json;
     }) => Effect.Effect<void, PluginError>;
   }>;
-  readonly attention: Stream.Stream<ReadonlyArray<PluginAttentionItem>, PluginError>;
+  /** Capped items, or items with the plugin's total so a capped list is never read as the count. */
+  readonly attention: Stream.Stream<
+    ReadonlyArray<PluginAttentionItem> | PluginAttentionSummary,
+    PluginError
+  >;
 }
 
 export class Schedules extends Context.Service<

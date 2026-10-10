@@ -298,4 +298,9 @@ export interface WebPlugin<Client> {
     readonly id: string;
     readonly render: (context: PluginWebContext & { readonly client: Client }) => ReactNode;
   }>;
+  /**
+   * The plugin's own view of everything its attention stream counts. The host shows the
+   * plugin's total beside it; opening it resolves nothing.
+   */
+  readonly attention?: { readonly title: string; readonly link: PluginPageLink };
 }

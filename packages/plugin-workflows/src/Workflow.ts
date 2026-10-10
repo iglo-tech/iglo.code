@@ -42,6 +42,10 @@ import {
   ScheduleInput,
   limits,
   type Attempt,
+  type StopKind,
+  type AttentionInput,
+  type AttentionKind,
+  type AttentionPage,
 } from "./contracts.ts";
 import * as Catalog from "./Catalog.ts";
 import * as Display from "./display.ts";
@@ -65,13 +69,22 @@ import {
   allowedActions,
   recoveryNode,
   withheldDecisions,
+  attentionItems,
+  attentionRelevant,
   type State,
 } from "./graph.ts";
 
 export class Workflow extends Context.Service<
   Workflow,
   {
-    readonly attention: Stream.Stream<ReadonlyArray<PluginAttentionItem>, PluginError>;
+    /** The host's environment summary: capped items with the distinct-run total. */
+    readonly attention: Stream.Stream<
+      { readonly items: ReadonlyArray<PluginAttentionItem>; readonly total: number },
+      PluginError
+    >;
+    /** Newest page of runs needing attention, re-emitted when it changes. */
+    readonly watchAttention: (input: AttentionInput) => Stream.Stream<AttentionPage, PluginError>;
+    readonly readAttention: (input: AttentionInput) => Effect.Effect<AttentionPage, PluginError>;
     readonly start: (input: StartInput) => Effect.Effect<Run, PluginError>;
     /** Start the catalog's saved snapshot; the receipt is consulted before the catalog. */
     readonly startSaved: (input: StartSavedInput) => Effect.Effect<Run, PluginError>;
@@ -115,6 +128,30 @@ const decodeDisplay = Schema.decodeUnknownEffect(Run);
 const decodeSummary = Schema.decodeUnknownEffect(RunSummary);
 const decodeStart = Schema.decodeUnknownEffect(StartInput);
 const decodeStartSaved = Schema.decodeUnknownEffect(StartSavedInput);
+const attentionLabels: Record<AttentionKind, string> = {
+  "needs-review": "Needs review",
+  "needs-input": "Needs input",
+  interrupted: "Interrupted",
+  "missing-report": "Missing report",
+  "timed-out": "Timed out",
+  failed: "Failed",
+  "review-stale": "Review is stale",
+  "review-unverifiable": "Review input cannot be verified",
+  unavailable: "Could not continue",
+  unresolved: "Unresolved",
+};
+/** Server-worded reason for one run, from its stable kinds and counts only. */
+const attentionReason = (run: AttentionPage["runs"][number]) => {
+  const kinds = [...new Set(run.items.map((item) => item.kind))];
+  const requests = run.items.filter((item) => item.request !== null).length;
+  return kinds
+    .map((kind) =>
+      kind === "needs-input" && requests > 0
+        ? `${attentionLabels[kind]}: ${requests}${run.itemTotal > run.items.length ? "+" : ""} native ${requests === 1 ? "request" : "requests"}`
+        : attentionLabels[kind],
+    )
+    .join(" · ");
+};
 const activeRun = (state: PluginThreadState) =>
   state.runs.findLast(
     (run) =>
@@ -171,6 +208,10 @@ const make = Effect.gen(function* () {
   // Committed run revisions and new thread bindings, so watchers skip unrelated commits.
   const runVersions = new Map<string, number>();
   let bindingVersion = 0;
+  // Commits that can change what needs a person; attention reads skip all other commits.
+  // Runs not seen since start count as relevant, so a restart never hides a resolution.
+  let attentionVersion = 0;
+  const attentionRelevance = new Map<string, boolean>();
   yield* Effect.addFinalizer(() => PubSub.shutdown(changes));
   const checks = new Map<string, Fiber.Fiber<void, PluginError>>();
   const environment = (environmentId: string) =>
@@ -228,16 +269,25 @@ const make = Effect.gen(function* () {
     }
     mutation++;
     runVersions.set(run.id, run.revision);
+    const relevant = attentionRelevant(run);
+    if (relevant || attentionRelevance.get(run.id) !== false) attentionVersion++;
+    attentionRelevance.set(run.id, relevant);
     if (run.attempts.some((attempt) => attempt.phase === "launching")) bindingVersion++;
     projectVersions.set(run.projectId, (projectVersions.get(run.projectId) ?? 0) + 1);
     return run;
   });
+  // A rolled-back commit may have recorded relevance it never wrote; forget it so the next
+  // persist of any run re-reads attention.
+  const commit = <A, E, R>(action: Effect.Effect<A, E, R>) =>
+    sql
+      .withTransaction(action)
+      .pipe(Effect.onError(() => Effect.sync(() => attentionRelevance.clear())));
   const transaction = <A, E, R>(operation: string, action: Effect.Effect<A, E, R>) =>
     protect(
       operation,
       Effect.gen(function* () {
         const before = mutation;
-        const result = yield* sql.withTransaction(action);
+        const result = yield* commit(action);
         if (mutation !== before) yield* notify;
         return result;
       }).pipe(lock.withPermits(1)),
@@ -299,10 +349,12 @@ const make = Effect.gen(function* () {
       (review, index) => index >= run.reviews.length - limit || reviewIds.has(review.id),
     );
     const review = run.reviews.at(-1);
+    // The newest generation's complete required set, whichever history page is loaded.
     const branches = review
-      ? review.branches.map((branch) =>
-          run.attempts.find((attempt) => attempt.id === branch.attemptId),
-        )
+      ? review.branches.flatMap((branch) => {
+          const attempt = run.attempts.find((attempt) => attempt.id === branch.attemptId);
+          return attempt ? [{ id: branch.id, attempt }] : [];
+        })
       : [];
     const page = {
       ...run,
@@ -331,10 +383,37 @@ const make = Effect.gen(function* () {
         review: review
           ? {
               id: review.id,
+              fork: review.fork,
+              generation: review.generation,
+              head: review.head,
+              pullRequest: review.pullRequest,
               required: review.branches.length,
-              reported: branches.filter((attempt) => attempt?.report).length,
-              settled: branches.filter((attempt) => attempt && terminalAttempt(attempt)).length,
+              reported: branches.filter(({ attempt }) => attempt.report).length,
+              settled: branches.filter(({ attempt }) => terminalAttempt(attempt)).length,
               result: review.result,
+              ...(review.cause === undefined ? {} : { cause: review.cause }),
+              branches: branches.map(({ id, attempt }) => ({
+                id,
+                attemptId: attempt.id,
+                threadId: attempt.threadId,
+                phase: attempt.phase,
+                reason: attempt.reason,
+                report: attempt.report
+                  ? {
+                      outcome: attempt.report.outcome,
+                      acceptedAt: attempt.report.receipt.acceptedAt,
+                    }
+                  : null,
+                deadline: attempt.deadline,
+                workspace:
+                  attempt.launch?.workspace.type === "existing"
+                    ? {
+                        path: attempt.launch.workspace.path,
+                        branch: attempt.launch.workspace.branch,
+                        frozenHead: attempt.launch.workspace.frozenHead ?? null,
+                      }
+                    : null,
+              })),
             }
           : null,
       },
@@ -538,54 +617,135 @@ const make = Effect.gen(function* () {
         ).pipe(Stream.flatMap((links) => Stream.fromIterable(links)));
       }),
     );
-  const attentionItems = protect(
-    "attention",
-    Effect.gen(function* () {
-      const rows = yield* sql<{
-        data: string;
-      }>`SELECT data FROM workflow_runs WHERE state IN ('awaiting-review', 'unresolved') OR (state = 'running' AND EXISTS (SELECT 1 FROM json_each(workflow_runs.data, '$.attempts') WHERE json_extract(value, '$.phase') = 'waiting-input')) ORDER BY rowid LIMIT 100`;
-      return yield* Effect.forEach(rows, (row) =>
-        Effect.gen(function* () {
-          const run = yield* decodeRun(row.data);
-          const threadIds = run.attempts.flatMap((attempt) =>
-            attempt.threadId ? [attempt.threadId] : [],
-          );
-          const reason = yield* host.redact({
-            text:
-              run.reason ??
-              (run.state === "awaiting-review"
-                ? "The workflow needs a human decision."
-                : "Native execution requires your input."),
-            threadIds,
-          });
-          const summary = yield* host.redact({ text: run.definition.title, threadIds });
-          const relatedThread =
-            run.attempts.find((attempt) => attempt.phase === "waiting-input")?.threadId ??
-            run.attempts.at(-1)?.threadId;
-          return {
-            id: run.id,
-            summary: summary.slice(0, 240).trim(),
-            severity: "warning" as const,
-            reason: reason.slice(0, 500).trim(),
-            link: {
-              pageId: "workflows.runs",
+  /**
+   * Runs needing a person, newest first, with the distinct-run total of the whole scope. The
+   * same predicate selects and counts, so a capped page is never mistaken for the total.
+   */
+  const attentionPage = (input: {
+    readonly projectId: string | null;
+    readonly before: string | null;
+    readonly limit: number;
+  }) =>
+    protect(
+      "attention",
+      Effect.gen(function* () {
+        const [count] = yield* sql<{
+          total: number;
+        }>`SELECT COUNT(*) AS total FROM workflow_runs WHERE (${input.projectId} IS NULL OR project_id = ${input.projectId}) AND (state IN ('awaiting-review', 'unresolved') OR (state = 'running' AND EXISTS (SELECT 1 FROM json_each(workflow_runs.data, '$.attempts') WHERE json_extract(value, '$.phase') = 'waiting-input')))`;
+        const rows = yield* sql<{
+          data: string;
+        }>`SELECT data FROM workflow_runs WHERE (${input.projectId} IS NULL OR project_id = ${input.projectId}) AND (state IN ('awaiting-review', 'unresolved') OR (state = 'running' AND EXISTS (SELECT 1 FROM json_each(workflow_runs.data, '$.attempts') WHERE json_extract(value, '$.phase') = 'waiting-input'))) AND (${input.before} IS NULL OR rowid < (SELECT rowid FROM workflow_runs WHERE id = ${input.before})) ORDER BY rowid DESC LIMIT ${input.limit + 1}`;
+        const runs = yield* Effect.forEach(rows.slice(0, input.limit), (row) =>
+          Effect.gen(function* () {
+            const run = yield* decodeRun(row.data);
+            const all = attentionItems(run);
+            const listed = all.slice(0, limits.attentionItems);
+            const label = (nodeId: string, branchId: string | null) => {
+              const node = run.definition.nodes.find((node) => node.id === nodeId);
+              const branch =
+                node?.kind === "parallel"
+                  ? node.branches.find((branch) => branch.id === branchId)
+                  : undefined;
+              return branch && node ? `${node.title} · ${branch.title}` : (node?.title ?? nodeId);
+            };
+            const [workflowTitle, ...titles] = yield* Display.displayTexts(
+              host,
+              [run.definition.title, ...listed.map((item) => label(item.nodeId, item.branchId))],
+              run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : [])),
+            );
+            const items = listed.map((item, index) => ({
+              ...item,
+              title: titles[index]!.slice(0, 240).trim(),
+            }));
+            return {
+              runId: run.id,
               projectId: run.projectId,
-              state: { run: run.id },
-              ...(relatedThread ? { threadId: relatedThread } : {}),
+              workflowTitle: workflowTitle!.slice(0, 240).trim(),
+              state: run.state,
+              revision: run.revision,
+              createdAt: run.createdAt,
+              allowedActions: run.allowedActions,
+              items,
+              itemTotal: all.length,
+            };
+          }),
+        );
+        return {
+          total: count?.total ?? 0,
+          runs,
+          before: rows.length > input.limit ? (runs.at(-1)?.runId ?? null) : null,
+        } satisfies AttentionPage;
+      }),
+    );
+  /** Re-read only after attention-relevant commits, and deliver only pages that differ. */
+  const followAttention = (load: Effect.Effect<AttentionPage, PluginError>) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        // Subscribe before the first read so no committed change is missed.
+        const subscription = yield* PubSub.subscribe(changes);
+        let sent: string | null = null;
+        let observed: number | null = null;
+        // The version is taken before reading, so a commit during the read triggers another.
+        const read = Effect.suspend(() => {
+          if (observed === attentionVersion) return Effect.succeed(null);
+          observed = attentionVersion;
+          return load;
+        });
+        const fresh = (page: AttentionPage | null) => {
+          if (page === null) return [];
+          const encoded = canonical(page);
+          if (encoded === sent) return [];
+          sent = encoded;
+          return [page];
+        };
+        return Stream.concat(
+          Stream.fromEffect(read),
+          Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => read)),
+        ).pipe(Stream.flatMap((page) => Stream.fromIterable(fresh(page))));
+      }),
+    );
+  const attentionInput = (input: AttentionInput) =>
+    environment(input.environmentId).pipe(
+      Effect.as({
+        projectId: input.projectId ?? null,
+        before: input.before ?? null,
+        limit: input.limit ?? limits.attentionRuns,
+      }),
+    );
+  const watchAttention = (input: AttentionInput) =>
+    Stream.unwrap(
+      attentionInput(input).pipe(Effect.map((scope) => followAttention(attentionPage(scope)))),
+    );
+  const readAttention = (input: AttentionInput) =>
+    attentionInput(input).pipe(Effect.flatMap(attentionPage));
+  /** The host's environment summary: one item per run with its exact place to act. */
+  const attention = followAttention(
+    attentionPage({ projectId: null, before: null, limit: 100 }),
+  ).pipe(
+    Stream.map((page) => ({
+      total: page.total,
+      items: page.runs.map((run) => {
+        const first = run.items[0];
+        return {
+          id: run.runId,
+          summary: run.workflowTitle || run.runId,
+          severity: "warning" as const,
+          reason: attentionReason(run).slice(0, 500),
+          link: {
+            pageId: "workflows.runs",
+            projectId: run.projectId,
+            state: {
+              run: run.runId,
+              ...(first?.attemptId
+                ? { attempt: first.attemptId }
+                : first
+                  ? { node: first.nodeId }
+                  : {}),
             },
-          };
-        }),
-      );
-    }),
-  );
-  const attention = Stream.unwrap(
-    Effect.gen(function* () {
-      const subscription = yield* PubSub.subscribe(changes);
-      return Stream.concat(
-        Stream.fromEffect(attentionItems),
-        Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => attentionItems)),
-      );
-    }),
+          },
+        };
+      }),
+    })),
   );
   const snapshots = Effect.fnUntraced(function* (
     projectId: ProjectId,
@@ -967,6 +1127,7 @@ const make = Effect.gen(function* () {
         run.state = "canceled";
         run.reason = "Canceled by the user.";
         run.gate = null;
+        run.stop = null;
         for (const review of run.reviews) if (!review.result) review.result = "canceled";
         for (const attempt of run.attempts)
           if (!terminalAttempt(attempt)) {
@@ -1013,6 +1174,7 @@ const make = Effect.gen(function* () {
         attempt.resumable = false;
         run.state = "running";
         run.reason = null;
+        run.stop = null;
         yield* enqueue(run, `${attempt.id}:resume:${attempt.resumeCount}`, "resume", attempt.id);
       }),
     );
@@ -1038,6 +1200,7 @@ const make = Effect.gen(function* () {
             freshness?._tag === "Success"
               ? "The pull request head changed after review."
               : "The reviewed pull request head cannot be verified.",
+            freshness?._tag === "Success" ? "review-stale" : "review-unverifiable",
           );
           return;
         }
@@ -1081,7 +1244,7 @@ const make = Effect.gen(function* () {
       );
       const now = yield* Clock.currentTimeMillis;
       const before = mutation;
-      yield* sql.withTransaction(
+      yield* commit(
         Effect.gen(function* () {
           const active = activeRun(state);
           const pendingRequests = state.requests.filter((request) =>
@@ -1120,12 +1283,29 @@ const make = Effect.gen(function* () {
               return end > accountingFrom && end - request.createdAt >= agent.humanTimeoutMs!;
             });
           attempt.nativeSessionId = state.nativeSession?.id ?? null;
+          // Why this attempt stopped, recorded with the run's disposition below.
+          let cause: StopKind = "unresolved";
+          // Pending requests in native queue order; a change is new attention to show.
+          const queued = pendingRequests
+            .toSorted((left, right) => left.createdAt - right.createdAt)
+            .slice(0, limits.requests)
+            .map(({ id, kind, createdAt }) => ({ id, kind, createdAt }));
+          // The uncapped count keeps "request N of M" truthful beyond the retained list.
+          const requestsChanged =
+            canonical(attempt.requests ?? []) !== canonical(queued) ||
+            (attempt.pendingRequests ?? queued.length) !== pendingRequests.length;
+          if (requestsChanged) {
+            attempt.requests = queued;
+            attempt.pendingRequests = pendingRequests.length;
+          }
           if (attempt.deadline !== null && until >= attempt.deadline) {
             attempt.phase = "unresolved";
             attempt.reason = "The review branch deadline expired.";
+            cause = "timed-out";
           } else if (humanExpired) {
             attempt.phase = "unresolved";
             attempt.reason = "The human-response deadline expired.";
+            cause = "timed-out";
           } else if (request) {
             const waitStartedAt = Math.min(
               now,
@@ -1145,8 +1325,9 @@ const make = Effect.gen(function* () {
             if (attempt.remainingMs === 0) {
               attempt.phase = "unresolved";
               attempt.reason = "The execution timeout expired.";
+              cause = "timed-out";
             } else {
-              if (enteredWait) yield* persist(run);
+              if (enteredWait || requestsChanged) yield* persist(run);
               return;
             }
           } else {
@@ -1170,15 +1351,17 @@ const make = Effect.gen(function* () {
             ) {
               attempt.phase = "unresolved";
               attempt.reason = "The execution timeout expired.";
+              cause = "timed-out";
             } else if (
               active ||
               state.outstandingWork.length > 0 ||
               checkpoints.some((checkpoint) =>
                 ["pending", "capturing", "running"].includes(checkpoint.status),
               )
-            )
+            ) {
+              if (requestsChanged) yield* persist(run);
               return;
-            else {
+            } else {
               const execution = state.runs.findLast(
                 (run) => state.resultRunId === undefined || run.id === state.resultRunId,
               );
@@ -1204,6 +1387,7 @@ const make = Effect.gen(function* () {
                   attempt.remainingMs > 0 &&
                   (attempt.deadline === null || attempt.deadline > now);
                 attempt.reason = "Native execution was explicitly interrupted.";
+                cause = "interrupted";
               } else if (
                 generation.some((run) => run.resultRelevant !== false && run.status === "failed") ||
                 execution.status === "failed" ||
@@ -1213,8 +1397,11 @@ const make = Effect.gen(function* () {
               ) {
                 attempt.phase = "failed";
                 attempt.reason = "Native execution or checkpoint failed.";
-              } else if (execution.status !== "completed") return;
-              else if (!attempt.report) {
+                cause = "failed";
+              } else if (execution.status !== "completed") {
+                if (requestsChanged) yield* persist(run);
+                return;
+              } else if (!attempt.report) {
                 if (!attempt.reminderSent) {
                   attempt.remainingMs = Math.max(
                     0,
@@ -1228,13 +1415,16 @@ const make = Effect.gen(function* () {
                 }
                 attempt.phase = "unresolved";
                 attempt.reason = "Execution settled after one reminder without an accepted report.";
-              } else
+                cause = "missing-report";
+              } else {
                 attempt.phase =
                   attempt.report.outcome === "completed"
                     ? "completed"
                     : attempt.report.outcome === "failed"
                       ? "failed"
                       : "unresolved";
+                if (attempt.phase === "failed") cause = "failed";
+              }
             }
           }
           if (attempt.branchId === null) {
@@ -1252,7 +1442,13 @@ const make = Effect.gen(function* () {
                   reason: attempt.reason ?? "The agent reported unsuccessful execution.",
                   control: "onUnresolved",
                 });
-              else unresolved(run, attempt.reason ?? "The agent reported unsuccessful execution.");
+              else
+                unresolved(
+                  run,
+                  attempt.reason ?? "The agent reported unsuccessful execution.",
+                  cause,
+                  attempt.id,
+                );
             }
           } else yield* enqueue(run, `${run.id}:join:${attempt.id}`, "node");
           yield* persist(run);
@@ -1323,7 +1519,7 @@ const make = Effect.gen(function* () {
             ? "The execution reminder deadline expired."
             : "The execution launch deadline expired.";
         if (owned.branchId) yield* enqueue(current, `${current.id}:join:${owned.id}`, "node");
-        else unresolved(current, owned.reason);
+        else unresolved(current, owned.reason, "timed-out", owned.id);
         yield* persist(current);
       }),
     );
@@ -1371,7 +1567,7 @@ const make = Effect.gen(function* () {
                 if (terminalAttempt(current) || state.state !== "running") return;
                 current.phase = "unresolved";
                 current.reason = "The owning native thread is unavailable.";
-                if (!current.branchId) unresolved(state, current.reason);
+                if (!current.branchId) unresolved(state, current.reason, "unavailable", current.id);
                 else yield* enqueue(state, `${state.id}:join:${current.id}`, "node");
                 yield* persist(state);
               }),
@@ -1415,7 +1611,13 @@ const make = Effect.gen(function* () {
             reason: "The check was interrupted or timed out.",
             control: "onUnresolved",
           });
-        else unresolved(run, "The check result is unresolved. An explicit retry is required.");
+        else
+          unresolved(
+            run,
+            "The check result is unresolved. An explicit retry is required.",
+            result!.timedOut ? "timed-out" : result!.interrupted ? "interrupted" : "unresolved",
+            attemptId,
+          );
         yield* persist(run);
       }),
     );
@@ -1441,7 +1643,11 @@ const make = Effect.gen(function* () {
             const run = yield* load(runId);
             if (run.state !== "running" || run.currentNode !== node.id) return;
             run.currentNode = review.fork;
-            unresolved(run, "The reviewed pull request head changed or cannot be verified.");
+            unresolved(
+              run,
+              "The reviewed pull request head changed or cannot be verified.",
+              freshness?._tag === "Success" ? "review-stale" : "review-unverifiable",
+            );
             yield* persist(run);
           }),
         );
@@ -1459,7 +1665,7 @@ const make = Effect.gen(function* () {
               ? run.reviews.findLast((review) => review.fork === source.fork)
               : null;
           if (!review?.result && !attempt?.check && !attempt?.report) {
-            unresolved(run, `Decision input ${node.source} is unavailable.`);
+            unresolved(run, `Decision input ${node.source} is unavailable.`, "unavailable");
             yield* persist(run);
             return;
           }
@@ -1493,7 +1699,11 @@ const make = Effect.gen(function* () {
           const run = yield* load(runId);
           if (run.state !== "running" || run.currentNode !== node.id) return;
           if (freshness._tag !== "Success" || commit?._tag !== "Success") {
-            unresolved(run, "The intended committed pull request head cannot be verified.");
+            unresolved(
+              run,
+              "The intended committed pull request head cannot be verified.",
+              "review-unverifiable",
+            );
             yield* persist(run);
             return;
           }
@@ -1538,7 +1748,11 @@ const make = Effect.gen(function* () {
             if (run.state !== "running" || run.currentNode !== node.id) return;
             const current = run.reviews.findLast((review) => review.fork === node.fork);
             if (current && !current.result && !current.consumed) return;
-            unresolved(run, `Join ${node.id} has no fresh, unconsumed fork generation.`);
+            unresolved(
+              run,
+              `Join ${node.id} has no fresh, unconsumed fork generation.`,
+              "unresolved",
+            );
             yield* persist(run);
           }),
         );
@@ -1589,6 +1803,18 @@ const make = Effect.gen(function* () {
               attempt.reason = "The reviewer checkout changed from its frozen input.";
             }
           }
+          // Record what decided the aggregate when the branches alone do not explain it.
+          const cause =
+            freshness._tag !== "Success"
+              ? ("head-unverifiable" as const)
+              : freshness.success.head !== current.head
+                ? ("head-changed" as const)
+                : workspaceEvidence.some((item) => item?._tag !== "Success")
+                  ? ("workspace-unavailable" as const)
+                  : workspaceEvidence.some((item) => item._tag === "Success" && !item.success.valid)
+                    ? ("workspace-changed" as const)
+                    : undefined;
+          if (cause) current.cause = cause;
           current.result =
             freshness._tag !== "Success"
               ? "unresolved"
@@ -1667,7 +1893,7 @@ const make = Effect.gen(function* () {
             "The resumed execution identity is unavailable.",
             "service",
           );
-        yield* sql.withTransaction(
+        yield* commit(
           Effect.gen(function* () {
             // The command lock remains held until the new owned execution is retained.
             if (kind === "resume" && execution) attempt.executionRunId = execution.id;
@@ -1677,7 +1903,7 @@ const make = Effect.gen(function* () {
               attempt.phase = "unresolved";
               attempt.reason = receipt.error ?? "The follow-up was rejected.";
               if (attempt.branchId) yield* enqueue(run, `${run.id}:join:${attempt.id}`, "node");
-              else unresolved(run, attempt.reason);
+              else unresolved(run, attempt.reason, "unavailable", attempt.id);
             }
             yield* persist(run);
           }),
@@ -1706,7 +1932,12 @@ const make = Effect.gen(function* () {
         current.reason =
           "The reviewed pull request head changed or cannot be verified before execution.";
         run.currentNode = review?.fork ?? current.nodeId;
-        unresolved(run, current.reason);
+        unresolved(
+          run,
+          current.reason,
+          freshness?._tag === "Success" ? "review-stale" : "review-unverifiable",
+          current.id,
+        );
         yield* persist(run);
       }),
     );
@@ -1964,7 +2195,7 @@ const make = Effect.gen(function* () {
         if (receipt.status === "rejected" || receipt.threadId !== current.threadId) {
           current.phase = "unresolved";
           current.reason = receipt.error ?? "The launch receipt did not match the bound thread.";
-          if (!current.branchId) unresolved(run, current.reason);
+          if (!current.branchId) unresolved(run, current.reason, "unavailable", current.id);
           else yield* enqueue(run, `${run.id}:join:${current.id}`, "node");
         } else {
           current.phase = current.report ? "reported" : "running";
@@ -2010,9 +2241,10 @@ const make = Effect.gen(function* () {
                 const attempt = run.attempts.find((attempt) => attempt.id === item.attempt_id)!;
                 attempt.phase = "unresolved";
                 attempt.reason = result.failure.message;
-                if (!attempt.branchId) unresolved(run, result.failure.message);
+                if (!attempt.branchId)
+                  unresolved(run, result.failure.message, "unavailable", attempt.id);
                 else yield* enqueue(run, `${run.id}:join:${attempt.id}`, "node");
-              } else unresolved(run, result.failure.message);
+              } else unresolved(run, result.failure.message, "unavailable");
               yield* persist(run);
             }),
           );
@@ -2089,7 +2321,7 @@ const make = Effect.gen(function* () {
                     owned.reason = validation.failure.message;
                     if (owned.branchId)
                       yield* enqueue(current, `${current.id}:join:${owned.id}`, "node");
-                    else unresolved(current, owned.reason);
+                    else unresolved(current, owned.reason, "unavailable", owned.id);
                     yield* persist(current);
                   }),
                 );
@@ -2182,6 +2414,8 @@ const make = Effect.gen(function* () {
   });
   return Workflow.of({
     attention,
+    watchAttention,
+    readAttention,
     start: (input) => protect("start", start(input).pipe(Effect.flatMap((run) => display(run)))),
     startSaved: (input) =>
       protect("start", startSaved(input).pipe(Effect.flatMap((run) => display(run)))),

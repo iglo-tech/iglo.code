@@ -53,6 +53,7 @@ export type EnvironmentSubscriptionRpcTag =
   | "plugins.workflows.subscribe"
   | "plugins.workflows.watch"
   | "plugins.workflows.thread"
+  | "plugins.workflows.attention"
   | typeof WS_METHODS.codexAuthCallbackSubscribe
   | typeof WS_METHODS.providerAuthSubscribe
   | typeof WS_METHODS.providerInstallSubscribe

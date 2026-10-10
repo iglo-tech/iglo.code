@@ -5,12 +5,15 @@ import { sourceFields } from "../definition.ts";
 import type { Definition, Node } from "../contracts.ts";
 import { addTerm, readsAs } from "./decisions.ts";
 import {
+  addBranch,
   addStep,
   exportYaml,
   importYaml,
   localProblems,
+  moveBranch,
   moveStep,
   newDefinition,
+  removeBranch,
   removeStep,
   routeList,
   routeText,
@@ -304,6 +307,174 @@ describe("decision and repeat authoring", () => {
         control: "rules.0.when",
         message: `${built.decision}: "is one of" accepts at most 32 values.`,
       }),
+    );
+  });
+});
+
+describe("parallel review authoring", () => {
+  type Parallel = Extract<Node, { kind: "parallel" }>;
+  type Join = Extract<Node, { kind: "join" }>;
+  const parallelOf = (definition: Definition) =>
+    definition.nodes.find((node): node is Parallel => node.kind === "parallel")!;
+  const joinOf = (definition: Definition) =>
+    definition.nodes.find((node): node is Join => node.kind === "join")!;
+  /** An implementation step followed by a reviewed group of `count` same-skill reviewers. */
+  const reviewed = (count: number) => {
+    const agent = addStep(newDefinition("Review"), "agent", null, capabilities);
+    const group = addStep(agent.definition, "parallel", agent.id, capabilities);
+    let definition: Definition = updateNode(group.definition, group.id, (node) =>
+      node.kind === "parallel"
+        ? { ...node, pullRequest: { repository: "acme/app", number: 7 } }
+        : node,
+    );
+    for (let index = 1; index < count; index++)
+      definition = addBranch(definition, group.id, capabilities);
+    definition = updateNode(definition, group.id, (node) =>
+      node.kind === "parallel"
+        ? {
+            ...node,
+            branches: node.branches.map((branch, index) => ({
+              ...branch,
+              skill: "code-review",
+              instruction: `Review focus ${index + 1}`,
+            })),
+          }
+        : node,
+    );
+    definition = updateNode(definition, agent.id, (node) =>
+      node.kind === "agent" ? { ...node, instruction: "Implement" } : node,
+    );
+    return { definition, agent: agent.id, group: group.id };
+  };
+
+  it("adds a connected fork and Wait for all join with the review permission policy", () => {
+    const { definition, agent, group } = reviewed(1);
+    const fork = parallelOf(definition);
+    const join = joinOf(definition);
+    const implement = definition.nodes.find((node) => node.id === agent);
+    expect(implement).toMatchObject({ next: { to: group } });
+    expect(fork).toMatchObject({ next: join.id });
+    expect(join).toMatchObject({ fork: group, otherwise: { to: "done" } });
+    expect(fork.branches[0]).toMatchObject({
+      interactionMode: "plan",
+      runtimeMode: "approval-required",
+    });
+    expect(localProblems(definition).filter((problem) => problem.severity === "error")).toEqual([]);
+    // The group's frozen input must name a repository before it can run.
+    const unnamed = updateNode(definition, group, (node) =>
+      node.kind === "parallel" ? { ...node, pullRequest: { repository: "", number: 7 } } : node,
+    );
+    expect(localProblems(unnamed)).toContainEqual(
+      expect.objectContaining({ nodeId: group, control: "pullRequest.repository" }),
+    );
+  });
+
+  it("keeps more than five same-skill reviewers distinct after reorder and reopen", () => {
+    const { definition, group } = reviewed(6);
+    const ids = parallelOf(definition).branches.map((branch) => branch.id);
+    expect(new Set(ids).size).toBe(6);
+    expect(new Set(parallelOf(definition).branches.map((branch) => branch.skill))).toEqual(
+      new Set(["code-review"]),
+    );
+    // A join rule reads the second reviewer by identity.
+    const join = joinOf(definition);
+    const ruled = updateNode(definition, join.id, (node) =>
+      node.kind === "join"
+        ? {
+            ...node,
+            rules: [
+              {
+                when: { op: "eq", path: `branches.${ids[1]}.data.verdict`, value: "changes" },
+                route: { to: "done" },
+              },
+            ],
+          }
+        : node,
+    );
+    const moved = moveBranch(moveBranch(ruled, group, 1, 1), group, 0, 1);
+    const renamed = updateNode(moved, group, (node) =>
+      node.kind === "parallel"
+        ? {
+            ...node,
+            branches: node.branches.map((branch) =>
+              branch.id === ids[1] ? { ...branch, title: "Security" } : branch,
+            ),
+          }
+        : node,
+    );
+    const reopened = importYaml(exportYaml(renamed).text);
+    if (reopened._tag !== "Success") throw new Error(reopened.message);
+    const branches = parallelOf(reopened.definition).branches;
+    expect(branches.map((branch) => branch.id)).toEqual([ids[2], ids[0], ids[1], ...ids.slice(3)]);
+    expect(branches.map((branch) => branch.instruction)).toEqual([
+      "Review focus 3",
+      "Review focus 1",
+      "Review focus 2",
+      "Review focus 4",
+      "Review focus 5",
+      "Review focus 6",
+    ]);
+    expect(branches.find((branch) => branch.id === ids[1])?.title).toBe("Security");
+    // The renamed, moved reviewer is still the one the rule reads.
+    expect(definitionProblems(reopened.definition)).toEqual([]);
+    expect(
+      sourceFields(joinOf(reopened.definition), reopened.definition).get(
+        `branches.${ids[1]}.data.verdict`,
+      ),
+    ).toMatchObject({ type: "enum" });
+  });
+
+  it("exposes join rules that read a removed reviewer and removes the group as a pair", () => {
+    const { definition, group, agent } = reviewed(3);
+    const removedId = parallelOf(definition).branches[2]!.id;
+    const join = joinOf(definition);
+    const ruled = updateNode(definition, join.id, (node) =>
+      node.kind === "join"
+        ? {
+            ...node,
+            rules: [
+              {
+                when: {
+                  op: "all",
+                  terms: [
+                    { op: "eq", path: "result", value: "all_completed" },
+                    { op: "eq", path: `branches.${removedId}.data.verdict`, value: "pass" },
+                  ],
+                },
+                route: { to: "done" },
+              },
+            ],
+          }
+        : node,
+    );
+    const dangling = removeBranch(ruled, group, 2);
+    expect(parallelOf(dangling).branches).toHaveLength(2);
+    expect(localProblems(dangling)).toContainEqual(
+      expect.objectContaining({
+        severity: "error",
+        nodeId: join.id,
+        control: "rules.0.when.1",
+        message: expect.stringContaining(`reviewer ${removedId}`),
+      }),
+    );
+    // Removing the group removes its join and reconnects into the join's Otherwise.
+    const ungrouped = removeStep(dangling, join.id);
+    expect(ungrouped.nodes.some((node) => node.kind === "parallel" || node.kind === "join")).toBe(
+      false,
+    );
+    expect(ungrouped.nodes.find((node) => node.id === agent)).toMatchObject({
+      next: { to: "done" },
+    });
+  });
+
+  it("blocks a join entered other than through its fork", () => {
+    const { definition, agent } = reviewed(2);
+    const join = joinOf(definition);
+    const bypass = updateNode(definition, agent, (node) =>
+      node.kind === "agent" ? { ...node, next: { to: join.id } } : node,
+    );
+    expect(localProblems(bypass)).toContainEqual(
+      expect.objectContaining({ severity: "error", nodeId: agent, control: "next" }),
     );
   });
 });

@@ -8,6 +8,8 @@ import {
   type Predicate,
   type Value,
   type Node,
+  type StopKind,
+  type AttentionItem,
 } from "./contracts.ts";
 import { dataProblems, evaluate } from "./definition.ts";
 import { canonical } from "./encoding.ts";
@@ -164,9 +166,23 @@ export function allowedActions(run: Run): State["allowedActions"] {
   }
   return ["cancel"];
 }
-export function unresolved(run: State, reason: string) {
+export function unresolved(
+  run: State,
+  reason: string,
+  kind: StopKind,
+  attemptId: string | null = null,
+) {
   run.state = "unresolved";
   run.reason = reason;
+  run.stop = { kind, attemptId };
+}
+/** Why a route into an unresolved end stopped, from the review aggregate it consumed. */
+function endStop(run: State): StopKind {
+  const review = run.reviews.find((review) => run.trace.at(-1)?.sourceIds.includes(review.id));
+  if (review?.cause === "head-unverifiable") return "review-unverifiable";
+  if (review?.cause === "head-changed" || review?.result === "stale") return "review-stale";
+  if (review?.result === "failed") return "failed";
+  return "unresolved";
 }
 export function admit(run: State, id: string, now: number) {
   let node = run.definition.nodes.find((node) => node.id === id)!;
@@ -182,9 +198,11 @@ export function admit(run: State, id: string, now: number) {
   run.currentNode = node.id;
   run.state = "running";
   run.gate = null;
+  run.stop = null;
   run.visits++;
   if (node.kind === "end") {
     run.state = node.outcome;
+    if (node.outcome === "unresolved") run.stop = { kind: endStop(run), attemptId: null };
     return;
   }
   if (node.kind === "human") {
@@ -249,7 +267,7 @@ export function reserveAttempt(
     bindingReason = `Resolved input exceeds ${limits.fields} fields.`;
     input = { ...run.input };
   }
-  if (bindingReason && !branch) unresolved(run, bindingReason);
+  if (bindingReason && !branch) unresolved(run, bindingReason, "unresolved", attemptId);
   const timeoutMs =
     agent?.timeoutMs ??
     (node.kind === "check" ? node.timeoutMs : undefined) ??
@@ -374,3 +392,73 @@ export function launchInstruction(agent: Agent, attempt: Attempt, head?: string)
 }
 export const commandId = (attempt: Attempt, kind: string, revision = 0) =>
   CommandId.make(`${attempt.id}:${kind}:${revision}`);
+
+/**
+ * What a person must do for this run, newest-relevant first: a human gate, every pending
+ * native request of every waiting attempt in its thread's queue order, or the stop of an
+ * unresolved run. Running work without a request is progress and yields nothing.
+ */
+export function attentionItems(run: Run): Omit<AttentionItem, "title">[] {
+  const items: Omit<AttentionItem, "title">[] = [];
+  if (run.state === "awaiting-review" && run.gate)
+    items.push({
+      id: `${run.id}:gate:${run.gate.nodeId}:${run.visits}`,
+      kind: "needs-review",
+      nodeId: run.gate.nodeId,
+      branchId: null,
+      attemptId: null,
+      threadId: null,
+      gateRevision: run.gate.revision,
+      request: null,
+    });
+  if (run.state === "running" || run.state === "unresolved")
+    for (const attempt of run.attempts) {
+      if (attempt.phase !== "waiting-input") continue;
+      const base = {
+        kind: "needs-input" as const,
+        nodeId: attempt.nodeId,
+        branchId: attempt.branchId,
+        attemptId: attempt.id,
+        threadId: attempt.threadId,
+        gateRevision: null,
+      };
+      const requests = attempt.requests ?? [];
+      if (requests.length === 0)
+        items.push({ ...base, id: `${run.id}:input:${attempt.id}`, request: null });
+      requests.forEach((request, index) =>
+        items.push({
+          ...base,
+          id: `${run.id}:request:${attempt.id}:${request.id}`,
+          request: {
+            ...request,
+            position: index + 1,
+            pending: Math.max(attempt.pendingRequests ?? 0, requests.length),
+          },
+        }),
+      );
+    }
+  if (run.state === "unresolved") {
+    const attempt = run.stop?.attemptId
+      ? run.attempts.find((item) => item.id === run.stop!.attemptId)
+      : undefined;
+    items.push({
+      id: `${run.id}:stop:${run.visits}`,
+      kind: run.stop?.kind ?? "unresolved",
+      nodeId: attempt?.nodeId ?? run.currentNode,
+      branchId: attempt?.branchId ?? null,
+      attemptId: attempt?.id ?? null,
+      threadId: attempt?.threadId ?? null,
+      gateRevision: null,
+      request: null,
+    });
+  }
+  return items;
+}
+
+/** Whether a run currently has, or could be listed with, something a person must do. */
+export const attentionRelevant = (run: Run) =>
+  run.state === "awaiting-review" ||
+  run.state === "unresolved" ||
+  run.attempts.some(
+    (attempt) => attempt.phase === "waiting-input" || (attempt.requests ?? []).length > 0,
+  );
