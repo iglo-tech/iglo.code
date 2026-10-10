@@ -339,5 +339,20 @@ describe("decision and repeat authoring", () => {
     expect(own.get("data.ready")).toBe("ready");
     expect(own.get("summary")).toBe("summary");
     expect(own.get("data.summary")).toBe("data.summary");
+    const sameTitles = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.kind === "parallel"
+          ? { ...node, branches: node.branches.map((branch) => ({ ...branch, title: "Review" })) }
+          : node,
+      ),
+    };
+    const twins = fieldLabels(
+      ["branches.code.summary", "branches.security.summary", "branches.security.data.verdict"],
+      sameTitles,
+    );
+    expect(twins.get("branches.code.summary")).toBe("Review (code) · summary");
+    expect(twins.get("branches.security.summary")).toBe("Review (security) · summary");
+    expect(twins.get("branches.security.data.verdict")).toBe("verdict");
   });
 });
