@@ -41,7 +41,7 @@ for an independent server.
 
 ### Run from source
 
-Install Bun 1.4.2 or newer and Vite+ for the contributor toolchain, then run:
+Install Bun 1.4.3 or newer and Vite+ for the contributor toolchain, then run:
 
 ```bash
 git clone https://github.com/iglo-tech/iglo.code.git

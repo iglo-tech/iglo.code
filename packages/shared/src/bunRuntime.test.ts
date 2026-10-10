@@ -29,7 +29,8 @@ const bunExecutable =
 it.each([
   ["1.4.0", false],
   ["1.4.1", false],
-  ["1.4.2", true],
+  ["1.4.2", false],
+  ["1.4.3", true],
   ["1.4.10", true],
   ["1.5.0", true],
   ["2.0.0", true],
