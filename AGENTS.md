@@ -2,7 +2,7 @@
 
 ## Fork scope
 
-iglo.code maintains the web client and server. The desktop and native mobile apps are intentionally removed. Apply [sync-upstream](.agents/skills/sync-upstream/SKILL.md) when importing upstream changes to preserve this scope. Shared runtime, server compatibility, remote access, and the Device panel remain supported.
+iglo.code maintains the web client and server. The desktop and native mobile apps and the devcontainer are intentionally removed. Apply [sync-upstream](.agents/skills/sync-upstream/SKILL.md) when importing upstream changes to preserve this scope. Shared runtime, server compatibility, remote access, and the Device panel remain supported.
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves the web client in this fork.
 

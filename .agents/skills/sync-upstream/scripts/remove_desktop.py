@@ -160,6 +160,7 @@ def prune_desktop(root):
         changed.append(str(cli_release.relative_to(root)))
     remove("apps/desktop")
     for path in (
+        ".devcontainer", "docs/internals/devcontainer.md",
         "native/browser-secret", "native/hyprland-snap-shot", "native/kde-snap-shot",
         ".github/workflows/release-desktop.yml", ".github/workflows/publish-aur.yml",
         ".github/scripts/stage-preview-bundle.py", ".github/scripts/stage-preview-bundle.test.py",
@@ -227,8 +228,6 @@ def prune_desktop(root):
              .replace("vp run build:desktop", "vp run --filter t3 build")
              .replace("resource-monitor kde-snap-shot hyprland-snap-shot", "resource-monitor"))
     edit(".github/workflows/release.yml", release_workflow)
-    edit(".devcontainer/update-content.sh", lambda text: strip_native_comments(
-        re.sub(r"^.*@t3tools/desktop.*\n", "", text, flags=re.M)))
 
     def scripts_package(text):
         data = json.loads(text)
@@ -269,6 +268,10 @@ def prune_desktop(root):
         r'^\s*"(?:\*\*/)?dist-electron(?:/\*\*)?",\n', '',
         text.replace("apps/{web,desktop}/src/**", "apps/web/src/**"), flags=re.M,
     ))
+    edit("vite.config.ts", lambda text: re.sub(
+        r'^      \{\n        files: \["\.devcontainer/devcontainer\.json"\],\n.*?^      \},\n',
+        '', text, flags=re.M | re.S,
+    ).replace("    overrides: [\n    ],\n", ""))
     edit(".gitignore", lambda text: re.sub(
         r'^(?:dist-electron/|\.electron-runtime/|release-mock/|squashfs-root/)\n', '', text, flags=re.M,
     ))
@@ -298,6 +301,7 @@ def prune_desktop(root):
     edit("docs/README.md", lambda text: text.replace('- [SnapShots](./user/snap-shot.md)\n', '')
          .replace('- [Import browser sessions](./user/browser-import.md)\n', ''))
     edit("docs/operations/development.md", lambda text: text
+         .replace('Prefer a container? See [Dev container](../internals/devcontainer.md) for VS Code and Codespaces setup.\n\n', '')
          .replace('Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron client.', 'Use `vp run dev` for server and web.')
          .replace('`apps/server`, `apps/desktop`, `apps/web`', '`apps/server`, `apps/web`')
          .split('## Desktop artifacts')[0].rstrip() + '\n')

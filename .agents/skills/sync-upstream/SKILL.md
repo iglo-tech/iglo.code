@@ -1,6 +1,6 @@
 ---
 name: sync-upstream
-description: Import T3 Code upstream changes into iglo.code while preserving its web-only scope, Bun runtime, fork distribution, workflows, and lightweight CI. Use for upstream merges, snapshot imports, or removing restored desktop and mobile apps.
+description: Import T3 Code upstream changes into iglo.code while preserving its web-only scope, Bun runtime, fork distribution, workflows, and lightweight CI. Use for upstream merges, snapshot imports, or removing restored desktop/mobile apps and devcontainer setup.
 ---
 
 # Sync upstream into iglo.code
@@ -22,10 +22,13 @@ current when an authorized change replaces a decision.
 - **Identity and repository tooling.** Keep the iglo.code name, branding, README,
   repo-local skills, and fork-specific AGENTS.md guidance. Upstream attribution
   and compatible internal `t3` / `@t3tools` names remain valid.
+- **Local development.** The maintainer uses the local toolchain. Keep
+  `.devcontainer/` and `docs/internals/devcontainer.md` removed, along with their
+  configuration and documentation references.
 - **Bun application runtime.** The server and first-party JavaScript helpers run
   on Bun. Preserve the minimum-version checks and align `.bun-version`,
   [bunRuntime.ts](../../../packages/shared/src/bunRuntime.ts), the server engine,
-  dev/container setup, CI setup, and packaging when intentionally bumping Bun.
+  dev setup, CI setup, and packaging when intentionally bumping Bun.
   Read the pin from the checkout; an upstream Node pin or older Bun pin must not
   downgrade it. Vite+/pnpm and their Node contributor toolchain remain separate
   from the installed application's runtime.
@@ -94,7 +97,7 @@ Inspect the implementation of each fork difference touched by the incoming diff
 and record its pre-import behavior in temporary notes outside the worktree.
 Preserve local work and fork customizations. Fetch the configured `upstream` remote
 and use the requested revision, or its default branch when none was specified.
-Prefer an ordinary merge; desktop and mobile modify/delete conflicts are resolved
+Prefer an ordinary merge; desktop, mobile, and devcontainer modify/delete conflicts are resolved
 by deletion. Resolve shared-file conflicts by keeping upstream improvements and
 reapplying the fork's changes, rather than choosing one entire side.
 
@@ -122,7 +125,7 @@ python3 -B .agents/skills/sync-upstream/scripts/remove_native_apps.py
 ```
 
 The helper needs only Python's standard library and can run before dependency
-installation. It removes both app trees, their native tools, workflows, patches,
+installation. It removes both app trees, the devcontainer and its guide, native tools, workflows, patches,
 dependency configuration, and known workspace hooks. It rewrites known combined
 desktop/CLI packaging integrations; apply the CI policy above to any remaining
 workflows. It is safe to rerun. It drops obsolete native app lockfile importers
@@ -135,7 +138,8 @@ Search for active hooks and contradictory guidance:
 ```sh
 rg --hidden -n 'apps/(desktop|mobile)|@t3tools/(desktop|mobile)|dev:desktop|build:desktop|release-desktop|test-t3-mobile|mobile-native|mobile-showcase' \
   AGENTS.md README.md package.json pnpm-workspace.yaml vite.config.ts knip.jsonc \
-  scripts .github .agents docs assets .devcontainer
+  scripts .github .agents docs assets
+git grep -inE 'devcontainer|codespace|containerEnv|remoteContainers' -- ':!.repos/**'
 ```
 
 Occurrences inside this skill, path fixtures, and upstream compatibility code can
@@ -185,7 +189,7 @@ measurements under comparable source/built forms; distinguish RSS from platform
 footprint and avoid treating one sample or forced GC as normal memory usage.
 Follow AGENTS.md for verification scope and browser consent.
 
-Finish when both native apps and their active hooks are absent, the lockfile
+Finish when both native apps, the devcontainer, and their active hooks are absent, the lockfile
 matches the remaining workspace, and fork customizations survive. Report the
 imported upstream revision (when applicable), checks, affected fork differences
 preserved, and unresolved conflicts.

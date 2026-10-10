@@ -184,6 +184,7 @@ packageExtensions:
       vite-plus: "catalog:"
 
 patchedDependencies:
+  "@effect/platform-node@4.0.1": patches/@effect__platform-node@4.0.1.patch
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
   "@effect/vitest@4.0.1": patches/@effect__vitest@4.0.1.patch
   "@ff-labs/fff-node@0.9.4": patches/@ff-labs__fff-node@0.9.4.patch

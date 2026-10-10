@@ -103,6 +103,43 @@ layer("NodeSqliteClient", (it) => {
       assert.deepEqual(yield* sql`SELECT * FROM transaction_children`, [{ parent_id: 1 }]);
     }),
   );
+
+  it.effect("preserves nested savepoint rollbacks across repeated transactions", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`CREATE TABLE nested_entries(value INTEGER)`;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`INSERT INTO nested_entries VALUES (1)`;
+          yield* sql.withTransaction(sql`INSERT INTO nested_entries VALUES (2)`);
+          const failure = yield* sql
+            .withTransaction(
+              sql`INSERT INTO nested_entries VALUES (3)`.pipe(
+                Effect.andThen(Effect.fail("nested")),
+              ),
+            )
+            .pipe(Effect.flip);
+          assert.equal(failure, "nested");
+          yield* sql.withTransaction(sql`INSERT INTO nested_entries VALUES (4)`);
+        }),
+      );
+      const failure = yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`INSERT INTO nested_entries VALUES (5)`;
+            yield* sql.withTransaction(sql`INSERT INTO nested_entries VALUES (6)`);
+            return yield* Effect.fail("outer");
+          }),
+        )
+        .pipe(Effect.flip);
+      assert.equal(failure, "outer");
+      assert.deepEqual(yield* sql`SELECT value FROM nested_entries ORDER BY value`.values, [
+        [1],
+        [2],
+        [4],
+      ]);
+    }),
+  );
 });
 
 const makeTempDatabase = Effect.gen(function* () {

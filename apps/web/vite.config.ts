@@ -14,6 +14,7 @@ import {
   DEV_PROXIED_PATH_PREFIXES,
 } from "@t3tools/shared/devProxy";
 
+import { DEV_WEB_READY_MESSAGE } from "../../scripts/lib/environment-startup";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
@@ -145,6 +146,28 @@ function devCompressionPlugin(): Plugin {
   };
 }
 
+// Acceptance checks run without loading the client's JavaScript. Keep their
+// transport deadlines out of Vite's initial module-graph crawl, which can
+// starve this same process's HTTP and WebSocket proxy callbacks.
+function devReadinessPlugin(): Plugin {
+  return {
+    name: "t3code:dev-readiness",
+    apply: "serve",
+    configureServer(server) {
+      server.httpServer?.once("listening", () => {
+        const client = server.environments.client;
+        void client
+          .warmupRequest("/src/main.tsx")
+          .then(() => client.waitForRequestsIdle())
+          .then(() => server.config.logger.info(DEV_WEB_READY_MESSAGE))
+          .catch((error: unknown) => {
+            server.config.logger.error(`Initial client warmup failed: ${String(error)}`);
+          });
+      });
+    },
+  };
+}
+
 // Vite rejects requests whose Host header isn't localhost, which blocks sharing
 // a dev server over Tailscale/LAN. Tailnet names are safe to allow wholesale:
 // the DNS is controlled by tailscale, so they can't be rebound by an attacker.
@@ -160,6 +183,7 @@ export default defineConfig(() => {
     assetsInclude: ["**/*.wasm"],
     plugins: [
       devCompressionPlugin(),
+      devReadinessPlugin(),
       thirdPartyLicensesPlugin({
         bundleName: "web",
         configFile: new URL("../../third-party-licenses.config.json", import.meta.url),
@@ -230,13 +254,6 @@ export default defineConfig(() => {
       port,
       strictPort: true,
       allowedHosts,
-      // Transform the whole module graph at server start instead of on the
-      // first request. Without this, a cold worktree discovers and transforms
-      // modules one import-level at a time while the browser waits — which
-      // over a tailnet origin turns into minutes of waterfall.
-      warmup: {
-        clientFiles: ["./src/main.tsx"],
-      },
       ...(devProxyTarget
         ? {
             // One entry per shared prefix; the server's dev catch-all 404s the

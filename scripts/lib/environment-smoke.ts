@@ -22,6 +22,8 @@ import {
   ProjectSnapshot,
 } from "@t3tools/contracts";
 
+import { readEnvironmentStartup } from "./environment-startup.ts";
+
 const decodeExecutionEnvironmentDescriptor = Schema.decodeUnknownSync(
   Schema.toCodecJson(ExecutionEnvironmentDescriptor),
 );
@@ -204,8 +206,9 @@ export async function createEnvironmentFixture(
     if (process.env.T3_SMOKE_DEBUG)
       console.error(`[environment-smoke] spawned pid=${server.pid} executable=${executable}`);
     output = collectProcess(server);
-    // The server's published pairing URL is an observable startup milestone.
-    // Readiness never depends on a fixed sleep or repeated domain assertions.
+    // Source checks use Vite's origin: wait for both the backend pairing URL
+    // and the initial client graph crawl before starting transport deadlines.
+    // Archives serve their built client and need only the pairing milestone.
     pairingUrl = await new Promise<string>((resolve, reject) => {
       const child = server!;
       let startup = "";
@@ -217,14 +220,13 @@ export async function createEnvironmentFixture(
         if (process.env.T3_SMOKE_DEBUG)
           process.stderr.write(redactEnvironmentLog(chunk.toString()));
         startup += chunk.toString();
-        const match = /https?:\/\/[^\s"'<>]+\/pair[?#]token=[^\s"'<>]+/.exec(startup);
-        if (!match) return;
-        serverOrigin =
-          /Listening on (https?:\/\/[^\s]+)/.exec(startup)?.[1] ?? new URL(match[0]).origin;
+        const ready = readEnvironmentStartup(startup, input.kind);
+        if (!ready) return;
+        serverOrigin = ready.serverOrigin;
         clearTimeout(timeout);
         child.stdout?.off("data", inspect);
         child.stderr?.off("data", inspect);
-        resolve(match[0]);
+        resolve(ready.pairingUrl);
       };
       child.stdout?.on("data", inspect);
       child.stderr?.on("data", inspect);
