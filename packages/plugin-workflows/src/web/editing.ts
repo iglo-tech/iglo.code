@@ -304,6 +304,13 @@ export function localProblems(definition: Definition): ReadonlyArray<Problem> {
               node.id,
               [`rules.${index}.when`, ...path].join("."),
             );
+          else if (
+            predicate.op !== "in" &&
+            predicate.op !== "present" &&
+            predicate.op !== "absent" &&
+            predicate.value === undefined
+          )
+            add(`${node.id}: enter a value.`, node.id, [`rules.${index}.when`, ...path].join("."));
         };
         visit(rule.when, []);
       });

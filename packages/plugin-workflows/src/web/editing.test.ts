@@ -3,7 +3,7 @@ import { developmentReview } from "../examples.ts";
 import { definitionProblems } from "../definition.ts";
 import { sourceFields } from "../definition.ts";
 import type { Definition, Node } from "../contracts.ts";
-import { addTerm, readsAs } from "./decisions.ts";
+import { addTerm, fieldLabels, readsAs } from "./decisions.ts";
 import {
   addStep,
   exportYaml,
@@ -305,5 +305,39 @@ describe("decision and repeat authoring", () => {
         message: `${built.decision}: "is one of" accepts at most 32 values.`,
       }),
     );
+    const cleared = edit({
+      rules: [
+        {
+          when: { op: "all", terms: [{ op: "gt", path: "exitCode" }] },
+          route: { to: built.human },
+        },
+      ],
+    });
+    expect(cleared).toContainEqual(
+      expect.objectContaining({
+        nodeId: built.decision,
+        control: "rules.0.when.0",
+        message: `${built.decision}: enter a value.`,
+      }),
+    );
+  });
+
+  it("labels picker fields by name unless another option shares it", () => {
+    const join = developmentReview.nodes.find((item) => item.kind === "join");
+    const labels = fieldLabels(
+      [...sourceFields(join, developmentReview).keys()],
+      developmentReview,
+    );
+    expect(labels.get("result")).toBe("result");
+    expect(labels.get("branches.code.data.verdict")).toBe("Code · data.verdict");
+    expect(labels.get("branches.security.summary")).toBe("Security · summary");
+    const implement = developmentReview.nodes.find((item) => item.id === "implement");
+    const own = fieldLabels(
+      [...sourceFields(implement, developmentReview).keys(), "data.summary"],
+      developmentReview,
+    );
+    expect(own.get("data.ready")).toBe("ready");
+    expect(own.get("summary")).toBe("summary");
+    expect(own.get("data.summary")).toBe("data.summary");
   });
 });

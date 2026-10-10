@@ -124,6 +124,19 @@ export function repeatEvidence(
   }
 }
 
+/** A route the run's own bound sent to the run's At limit, as a warning badge. */
+export function runLimitEvidence(
+  definition: Definition,
+  item: Pick<TraceItem, "diverted" | "chosen">,
+): { readonly label: string; readonly limit: true; readonly detail: string } | null {
+  if (item.diverted === undefined) return null;
+  return {
+    label: "run limit",
+    limit: true,
+    detail: `${item.diverted === "visit-limit" ? "Run visit limit reached" : "Automation stopped"} · → ${nodeTitle(definition, item.chosen)}`,
+  };
+}
+
 const routeNames: Record<string, string> = {
   next: "next",
   onUnresolved: "unresolved",

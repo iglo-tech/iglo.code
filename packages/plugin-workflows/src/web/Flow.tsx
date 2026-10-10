@@ -64,7 +64,9 @@ export function Palette({
         const reason = !authored
           ? "Not editable in this version"
           : advertised === undefined && !basic
-            ? "Loading step types…"
+            ? capabilitiesError === null
+              ? "Loading step types…"
+              : "Step types unavailable"
             : !supported
               ? "Not supported by this environment"
               : undefined;

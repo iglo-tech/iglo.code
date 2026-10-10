@@ -1,5 +1,5 @@
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Field, Node, Predicate, Route, Value } from "../contracts.ts";
 import { sourceFields, upstreamOf } from "../definition.ts";
 import { Labeled } from "./common.tsx";
@@ -7,6 +7,7 @@ import {
   addTerm,
   countTerms,
   depthLimit,
+  fieldLabels,
   firstLeaf,
   inValueLimit,
   isGroup,
@@ -58,6 +59,49 @@ function stepEditing<N extends Node>({ definition, node, problems, onChange }: S
   };
 }
 type StepProps<N extends Node> = InspectorProps & { readonly node: N };
+
+const parseOperand = (text: string) => {
+  const parsed = Number(text);
+  return text.trim() !== "" && Number.isFinite(parsed) ? parsed : undefined;
+};
+/**
+ * A number operand keeps what is typed, so it can be cleared or start with "-". Text that is
+ * not a number leaves the operand missing, which local problems flag.
+ */
+function NumberOperand({
+  Input,
+  id,
+  value,
+  readOnly,
+  invalid,
+  onChange,
+}: {
+  readonly Input: InspectorProps["props"]["Input"];
+  readonly id: string;
+  readonly value: number | undefined;
+  readonly readOnly: boolean;
+  readonly invalid: boolean;
+  readonly onChange: (value: number | undefined) => void;
+}) {
+  const [text, setText] = useState(value === undefined ? "" : String(value));
+  // Follow outside changes (undo, another field); keep the text while it still reads as `value`.
+  if (parseOperand(text) !== value) setText(value === undefined ? "" : String(value));
+  return (
+    <Input
+      id={id}
+      ariaLabel="Value"
+      size="sm"
+      type="number"
+      value={text}
+      readOnly={readOnly}
+      invalid={invalid}
+      onChange={(next) => {
+        setText(next);
+        onChange(parseOperand(next));
+      }}
+    />
+  );
+}
 
 function TitleField<N extends Node>(input: StepProps<N>) {
   const { set, invalid } = stepEditing(input);
@@ -677,17 +721,15 @@ function Term(
           onChange={operand}
         />
       ) : field?.type === "number" || (field === undefined && typeof value === "number") ? (
-        <Input
+        <NumberOperand
+          Input={Input}
           id={`${id}-value`}
-          ariaLabel="Value"
-          size="sm"
-          type="number"
-          value={String(value ?? "")}
+          value={typeof value === "number" ? value : undefined}
           readOnly={readOnly}
           invalid={invalid}
-          onChange={(text) => {
-            const parsed = Number(text);
-            if (text.trim() !== "" && Number.isFinite(parsed)) operand(parsed);
+          onChange={(next) => {
+            const { value: _previous, ...rest } = predicate;
+            set(next === undefined ? rest : { ...rest, value: next });
           }}
         />
       ) : (
@@ -703,6 +745,7 @@ function Term(
       );
   }
   const operators = operatorsFor(field);
+  const labels = fieldLabels([...fields.keys()], input.definition);
   return (
     <div role="group" aria-label="Condition" className="flex min-w-0 flex-col gap-1">
       <div className="flex min-w-0 items-center gap-1">
@@ -718,7 +761,7 @@ function Term(
               [...fields].map(([path, item]) => ({
                 value: path,
                 // Report fields read as their declared name; the type is a muted hint.
-                label: `${path.split(".").at(-1) ?? path}${item.required ? "" : "?"}`,
+                label: `${labels.get(path) ?? path}${item.required ? "" : "?"}`,
                 detail: fieldTypes[item.type],
               })),
               fieldPath,

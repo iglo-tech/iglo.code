@@ -416,7 +416,7 @@ export const pluginDesign: PluginDesign = {
         id={id}
         size={size ?? "default"}
         // Dense rows share their width, so a small trigger may shrink below the default minimum.
-        className={size === "sm" ? "min-w-0" : undefined}
+        shrink={size === "sm"}
         aria-label={ariaLabel}
         aria-describedby={ariaDescribedBy}
         aria-invalid={invalid || undefined}
