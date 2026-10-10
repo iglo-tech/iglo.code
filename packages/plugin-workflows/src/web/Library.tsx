@@ -177,7 +177,7 @@ function Library(props: PageProps) {
     return (
       <>
         {header}
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 pt-6 pb-12 sm:px-6">
             <ProjectsAlert props={props} projects={projects} />
             {projects.projects === null ? (
@@ -211,7 +211,7 @@ function Library(props: PageProps) {
   return (
     <>
       {header}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 pt-6 pb-12 sm:px-6">
           {name === null ? null : (
             <ListGroup title="New workflow" list={false}>

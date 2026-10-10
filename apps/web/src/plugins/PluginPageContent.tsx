@@ -57,6 +57,25 @@ export function PluginPageContent({
     [electron, environmentLabel, showEnvironment, status, claimHeader, onRetryCatalog],
   );
   const ownHeader = page !== undefined && headers > 0;
+  // The fallback only renders without a page, so it always sits in the gutter-reserving scroller.
+  const body =
+    page !== undefined && plugin !== undefined ? (
+      page.render(plugin.context)
+    ) : (
+      <div className="mx-auto max-w-xl px-6 py-12">
+        <h1 className="text-lg font-semibold">{missing.title}</h1>
+        <p role="status" className="mt-3 text-sm text-muted-foreground">
+          {missing.text}
+        </p>
+        {missing.retry && onRetryCatalog !== undefined ? (
+          <div className="mt-4">
+            <Button size="sm" variant="outline" onClick={onRetryCatalog}>
+              Retry
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    );
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <PluginPageChromeContext value={chrome}>
@@ -75,23 +94,7 @@ export function PluginPageContent({
               : "scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto"
           }
         >
-          {page !== undefined && plugin !== undefined ? (
-            page.render(plugin.context)
-          ) : (
-            <div className="mx-auto max-w-xl px-6 py-12">
-              <h1 className="text-lg font-semibold">{missing.title}</h1>
-              <p role="status" className="mt-3 text-sm text-muted-foreground">
-                {missing.text}
-              </p>
-              {missing.retry && onRetryCatalog !== undefined ? (
-                <div className="mt-4">
-                  <Button size="sm" variant="outline" onClick={onRetryCatalog}>
-                    Retry
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          )}
+          {body}
         </main>
       </PluginPageChromeContext>
     </SidebarInset>
