@@ -99,10 +99,13 @@ it.effect("starts one saved revision across a lost response and a later catalog 
       expect(yield* list()).toHaveLength(1);
 
       // The same identity cannot be reused for different input.
-      const reused = yield* startSaved("intent-1", { task: "Something else" }).pipe(Effect.flip);
+      const reused = yield* startSaved("intent-1", { task: "Something else" }).pipe(
+        Effect.flip,
+        Effect.orDie,
+      );
       expect(reused).toMatchObject({ code: "conflict" });
       // A new intent for the reviewed revision is refused with the current one named.
-      const changed = yield* startSaved("intent-2").pipe(Effect.flip);
+      const changed = yield* startSaved("intent-2").pipe(Effect.flip, Effect.orDie);
       expect(changed).toMatchObject({ code: "conflict" });
       expect(changed.message).toContain("revision 2");
       expect(yield* list()).toHaveLength(1);
@@ -124,6 +127,7 @@ it.effect("starts one saved revision across a lost response and a later catalog 
       // A cancel decided against an older snapshot is refused rather than applied blindly.
       const stale = yield* command("cancel", first.id, "cancel-0", first.revision).pipe(
         Effect.flip,
+        Effect.orDie,
       );
       expect(stale).toMatchObject({ code: "conflict" });
       const canceled = yield* command("cancel", first.id, "cancel-1", launched.revision).pipe(
@@ -196,7 +200,7 @@ it.effect(
             expectedRevision: gated.revision - 1,
             decision: "approve",
           })
-          .pipe(Effect.flip);
+          .pipe(Effect.flip, Effect.orDie);
         expect(stale).toMatchObject({ code: "conflict" });
         expect((yield* test.query(started.id)).revision).toBe(gated.revision);
         const approve = () =>
@@ -216,6 +220,7 @@ it.effect(
         // Cancel racing the completed run is refused with the run left as it settled.
         const late = yield* command("cancel", started.id, "late-cancel", gated.revision).pipe(
           Effect.flip,
+          Effect.orDie,
         );
         expect(late).toMatchObject({ code: "conflict" });
 
@@ -275,6 +280,7 @@ it.effect("exposes Resume and Retry only with their server-owned recovery target
       // Resume is no longer allowed once the retry superseded the interrupted attempt.
       const resume = yield* command("resume", started.id, "resume", retried.revision).pipe(
         Effect.flip,
+        Effect.orDie,
       );
       expect(resume).toMatchObject({ code: "unsupported" });
       yield* test.reconcile;
@@ -412,6 +418,7 @@ it.effect.each(["completion-first", "cancel-first"] as const)(
           yield* test.wait(started.id, (run) => run.state === "completed");
           const cancel = yield* command("cancel", started.id, "cancel", observed.revision).pipe(
             Effect.flip,
+            Effect.orDie,
           );
           expect(cancel).toMatchObject({ code: "conflict" });
           expect(cancel.message).toContain("revision changed");
