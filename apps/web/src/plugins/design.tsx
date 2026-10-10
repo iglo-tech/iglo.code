@@ -93,7 +93,7 @@ function NavigationGuard({
 }
 
 const crumbButtonClass =
-  "inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
+  "inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
 
 function Crumb({ item, current }: { item: PluginBreadcrumbItem; current: boolean }) {
   const text = (
@@ -411,7 +411,7 @@ export const pluginDesign: PluginDesign = {
               type="button"
               aria-label={openLabel ?? title}
               onClick={onOpen}
-              className="min-w-0 flex-1 cursor-pointer rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-w-0 flex-1 cursor-pointer rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
               {body}
             </button>
