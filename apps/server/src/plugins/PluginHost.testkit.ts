@@ -39,7 +39,7 @@ import * as Compiled from "./compiled.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as McpSessions from "../mcp/McpSessionRegistry.ts";
-import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import { BunPtyRuntime } from "../terminal/BunPtyAdapter.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -283,15 +283,16 @@ export const makePluginToolFixture = (
         worktreePath: null,
       });
     }
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => ProviderSessions.clearMcpProviderSession(threadId)),
-    );
+    // The environment's session map: adapters under test must read this instance
+    // so the credentials they publish are the ones the environment's tools see.
+    const mcpSessions = Context.get(server.context, McpProviderSessions.McpProviderSessions);
+    yield* Effect.addFinalizer(() => mcpSessions.clear(threadId));
     const issue = Effect.gen(function* () {
       const credential = yield* Context.get(server.context, McpSessions.McpSessionRegistry).issue({
         threadId,
         providerInstanceId: ProviderInstanceId.make(provider),
       });
-      ProviderSessions.setMcpProviderSession(credential.config);
+      yield* mcpSessions.set(credential.config);
       return credential.config;
     });
     const http = Context.get(server.context, HttpClient.HttpClient);
@@ -363,5 +364,5 @@ export const makePluginToolFixture = (
         expect(result).toContain(encode(threadId));
         expect(result).toContain(encode(host.environmentId));
       });
-    return { issue, report, threadId };
+    return { issue, report, threadId, mcpSessions };
   });

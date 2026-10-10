@@ -13,7 +13,7 @@ import * as Schema from "effect/Schema";
 import { DeviceToolVersions } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as ProcessRunner from "../src/processRunner.ts";
 import {
   AGENT_DEVICE_VERSION,
@@ -110,7 +110,7 @@ try {
   const tools = await Effect.runPromise(
     Effect.all([ensureDeviceHub(scratch), ensureAgentDevice(scratch)]).pipe(
       Effect.provide(ProcessRunner.layer),
-      Effect.provideService(HostProcessEnvironment, env),
+      Effect.provideService(HostProcess.Environment, env),
       Effect.provide(NodeServices.layer),
     ),
   );

@@ -5,7 +5,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { previewBrowserRelease } from "../../src/preview/PreviewBrowser.ts";
 import { DEVICE_HUB_VERSION } from "../../src/device/DeviceToolchain.ts";
 
@@ -71,8 +71,8 @@ export async function prepareWebDependencies(
   await NodeFSP.writeFile(NodePath.join(hub, ".install-complete"), `${DEVICE_HUB_VERSION}\n`);
   const deviceMode = NodePath.join(paths.scratch, "device-mode");
   await NodeFSP.writeFile(deviceMode, "ready");
-  const platform = HostProcessPlatform.defaultValue();
-  const release = previewBrowserRelease(platform, HostProcessArchitecture.defaultValue());
+  const platform = HostProcess.Platform.defaultValue();
+  const release = previewBrowserRelease(platform, HostProcess.Architecture.defaultValue());
   NodeAssert.ok(release, "This acceptance runner needs a supported Chromium platform.");
   const browserRoot = NodePath.join(
     paths.home,

@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - only node:perf_hooks exposes the event loop delay histogram.
 import * as NodePerfHooks from "node:perf_hooks";
 
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -33,7 +33,7 @@ export interface EventLoopReadings {
 // readings since the previous read and resets the histogram. Bun does not implement
 // eventLoopUtilization, so its zero counters cannot distinguish stalls from sleep.
 const makeBunSampler = Effect.gen(function* () {
-  const platform = yield* HostProcessPlatform;
+  const platform = yield* HostProcess.Platform;
   const clock = yield* Clock.Clock;
   const histogram = yield* Effect.acquireRelease(
     Effect.sync(() => {

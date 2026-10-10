@@ -4,11 +4,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NetService from "@t3tools/shared/Net";
-import {
-  HostProcessEnvironment,
-  HostProcessPlatform,
-  HostProcessWorkingDirectory,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
@@ -773,7 +769,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       return Effect.gen(function* () {
         const error = yield* runDevRunnerWithInput(devServerInput).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-          Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcess.Platform, "linux"),
           Effect.flip,
         );
 
@@ -832,7 +828,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           host: "192.168.1.10",
         }).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-          Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcess.Platform, "linux"),
           Effect.flip,
         );
 
@@ -867,7 +863,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           host: "0.0.0.0",
         }).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-          Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcess.Platform, "linux"),
         );
 
         assert.equal(spawnCount, 1);
@@ -892,7 +888,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           host: "192.168.1.10",
         }).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-          Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcess.Platform, "linux"),
         );
 
         assert.equal(spawnCount, 1);
@@ -952,9 +948,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             share: true,
           }).pipe(
             Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-            Effect.provideService(HostProcessPlatform, "linux"),
+            Effect.provideService(HostProcess.Platform, "linux"),
             Effect.provideService(
-              HostProcessEnvironment,
+              HostProcess.Environment,
               input.ambientBundledDev === undefined
                 ? {}
                 : { T3CODE_BUNDLED_DEV: input.ambientBundledDev },
@@ -999,8 +995,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             port: undefined,
           }).pipe(
             Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-            Effect.provideService(HostProcessPlatform, "linux"),
-            Effect.provideService(HostProcessEnvironment, {}),
+            Effect.provideService(HostProcess.Platform, "linux"),
+            Effect.provideService(HostProcess.Environment, {}),
           );
 
           assert.equal(captured?.T3CODE_BUNDLED_DEV, undefined);
@@ -1027,7 +1023,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           share: true,
         }).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-          Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcess.Platform, "linux"),
         );
 
         assert.equal(spawnCount, 0);
@@ -1043,7 +1039,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       return Effect.gen(function* () {
         const error = yield* runDevRunnerWithInput(devServerInput).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-          Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcess.Platform, "linux"),
           Effect.flip,
         );
 
@@ -1076,7 +1072,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       return Effect.gen(function* () {
         const error = yield* runDevRunnerWithInput(devServerInput).pipe(
           Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-          Effect.provideService(HostProcessPlatform, "linux"),
+          Effect.provideService(HostProcess.Platform, "linux"),
           Effect.flip,
         );
 
@@ -1129,10 +1125,10 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
           yield* runDevRunnerWithInput({ ...devServerInput, t3Home: input.t3Home }).pipe(
             Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
-            Effect.provideService(HostProcessPlatform, "linux"),
-            Effect.provideService(HostProcessWorkingDirectory, input.cwd),
+            Effect.provideService(HostProcess.Platform, "linux"),
+            Effect.provideService(HostProcess.WorkingDirectory, input.cwd),
             Effect.provideService(
-              HostProcessEnvironment,
+              HostProcess.Environment,
               input.ambientHome === undefined ? {} : { T3CODE_HOME: input.ambientHome },
             ),
           );

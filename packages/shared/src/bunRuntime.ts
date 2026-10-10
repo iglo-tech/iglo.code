@@ -18,12 +18,7 @@ export const isSupportedBunVersion = (version: string | undefined): boolean => {
   );
 };
 
-import {
-  HostProcessArguments,
-  HostProcessEnvironment,
-  HostProcessExecutablePath,
-  HostProcessIsExecutable,
-} from "./hostProcess.ts";
+import * as HostProcess from "./HostProcess.ts";
 import { CommandResolutionCache, resolveCommandPath } from "./shell.ts";
 
 const BunRuntimeFeature = Schema.Literals([
@@ -63,11 +58,11 @@ export interface SelfInvocation {
  * assemble the pair themselves.
  */
 export const resolveSelfInvocation = Effect.fn("bunRuntime.resolveSelfInvocation")(function* () {
-  const command = yield* HostProcessExecutablePath;
-  if (yield* HostProcessIsExecutable)
+  const command = yield* HostProcess.ExecutablePath;
+  if (yield* HostProcess.IsExecutable)
     return { command, entrypoint: undefined } satisfies SelfInvocation;
   const path = yield* Path.Path;
-  const entry = (yield* HostProcessArguments)[1];
+  const entry = (yield* HostProcess.Arguments)[1];
   // Children spawn from their own working directory, so the script path must be absolute.
   return {
     command,
@@ -87,12 +82,12 @@ export const resolveBunExecutable = Effect.fn("bunRuntime.resolveBunExecutable")
   feature: typeof BunRuntimeFeature.Type,
   environment?: NodeJS.ProcessEnv,
 ) {
-  const executablePath = yield* HostProcessExecutablePath;
-  if (!(yield* HostProcessIsExecutable)) return executablePath;
+  const executablePath = yield* HostProcess.ExecutablePath;
+  if (!(yield* HostProcess.IsExecutable)) return executablePath;
 
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const env = environment ?? (yield* HostProcessEnvironment);
+  const env = environment ?? (yield* HostProcess.Environment);
   const bundledRuntime = path.join(path.dirname(executablePath), "runtime", "bun");
   const bunPath = env.T3_BUN_EXECUTABLE
     ? path.resolve(env.T3_BUN_EXECUTABLE)

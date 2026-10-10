@@ -9,14 +9,7 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import { resolveSelfInvocation, selfInvocationArgs } from "@t3tools/shared/bunRuntime";
-import {
-  HostProcessArguments,
-  HostProcessEnvironment,
-  HostProcessExecutablePath,
-  HostProcessIsExecutable,
-  HostProcessPlatform,
-  resolveHostModuleUrl,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as BunPtyAdapter from "../../src/terminal/BunPtyAdapter.ts";
 import type { PtyExitEvent, PtyProcess } from "@t3tools/shared/PtyAdapter";
 import * as WorkspaceSearchIndex from "../../src/workspace/WorkspaceSearchIndex.ts";
@@ -27,9 +20,9 @@ import {
 } from "../../src/provider/antigravityAuthSupport.ts";
 
 const workspace = process.env.T3_NATIVE_SMOKE_WORKSPACE!;
-const platform = await Effect.runPromise(HostProcessPlatform);
+const platform = await Effect.runPromise(HostProcess.Platform);
 NodeAssert.strict.equal(
-  await Effect.runPromise(HostProcessIsExecutable),
+  await Effect.runPromise(HostProcess.IsExecutable),
   process.env.T3_NATIVE_SMOKE_COMPILED === "true",
 );
 for (const [name, pinned] of [
@@ -156,7 +149,7 @@ await Effect.runPromise(
 );
 process.stdout.write("Pinned fff native path/content search and scoped index disposal passed.\n");
 
-const requireNative = NodeModule.createRequire(resolveHostModuleUrl(import.meta.url));
+const requireNative = NodeModule.createRequire(HostProcess.resolveHostModuleUrl(import.meta.url));
 const keyring = requireNative("@napi-rs/keyring") as typeof import("@napi-rs/keyring");
 // Read only a new, absent identity. Never inspect, write or delete a user's credentials.
 try {
@@ -184,10 +177,10 @@ const application = process.env.T3_NATIVE_SMOKE_APPLICATION!;
 const hostExecutable = compiled ? application : process.execPath;
 const provideHost = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
-    Effect.provideService(HostProcessExecutablePath, hostExecutable),
-    Effect.provideService(HostProcessIsExecutable, compiled),
-    Effect.provideService(HostProcessArguments, [hostExecutable, application]),
-    Effect.provideService(HostProcessEnvironment, process.env),
+    Effect.provideService(HostProcess.ExecutablePath, hostExecutable),
+    Effect.provideService(HostProcess.IsExecutable, compiled),
+    Effect.provideService(HostProcess.Arguments, [hostExecutable, application]),
+    Effect.provideService(HostProcess.Environment, process.env),
     Effect.provide(NodeServices.layer),
   );
 const invocation = await Effect.runPromise(provideHost(resolveSelfInvocation()));

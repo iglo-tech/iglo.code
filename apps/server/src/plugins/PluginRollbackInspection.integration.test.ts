@@ -488,7 +488,7 @@ it.live("inspection excludes abandoned background work after native rollback", (
         ],
       };
       let opened = 0;
-      const adapter = Codex.makeCodexAdapterV2({
+      const adapter = yield* Codex.makeCodexAdapterV2({
         crypto: yield* Crypto.Crypto,
         instanceId: selection.instanceId,
         settings: yield* decodeCodexSettings({}),
@@ -504,7 +504,7 @@ it.live("inspection excludes abandoned background work after native rollback", (
               return Context.get(replay, CodexClient.CodexAppServerClient);
             }).pipe(Effect.orDie),
         },
-      });
+      }).pipe(Effect.provide(context));
       const managerContext = yield* Layer.build(
         Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
           Layer.provide(AdapterRegistry.layerFromAdapters([adapter])),

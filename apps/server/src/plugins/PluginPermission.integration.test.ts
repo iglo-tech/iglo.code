@@ -20,7 +20,7 @@ import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderRepl
 import * as Projects from "../project/ProjectService.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Sessions from "../mcp/McpSessionRegistry.ts";
-import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Claude from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import type { ProviderAdapterV2RuntimePolicy } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as Providers from "../provider/ProviderRegistry.ts";
@@ -132,13 +132,15 @@ it.live.each(cases)(
           threadId,
           providerInstanceId: instanceId,
         });
-        ProviderSessions.setMcpProviderSession({ ...credential.config, runtimePolicy });
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => ProviderSessions.clearMcpProviderSession(threadId)),
-        );
+        const mcpSessions = Context.get(server.context, McpProviderSessions.McpProviderSessions);
+        yield* mcpSessions.set({ ...credential.config, runtimePolicy });
+        yield* Effect.addFinalizer(() => mcpSessions.clear(threadId));
         if (policyCase.driver === "claudeAgent" && policyCase.allowed) {
           expect(
-            Claude.claudeMcpQueryOverrides({ threadId, readOnlySandbox: false }).allowedTools,
+            Claude.claudeMcpQueryOverrides({
+              mcpSession: yield* mcpSessions.read(threadId),
+              readOnlySandbox: false,
+            }).allowedTools,
           ).toContain("mcp__t3-code__*");
         }
         const http = Context.get(server.context, HttpClient.HttpClient);

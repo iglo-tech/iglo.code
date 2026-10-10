@@ -8,12 +8,7 @@ import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import {
-  HostProcessArguments,
-  HostProcessExecutablePath,
-  HostProcessIsExecutable,
-  HostProcessPlatform,
-} from "./hostProcess.ts";
+import * as HostProcess from "./HostProcess.ts";
 import {
   isSupportedBunVersion,
   resolveBunExecutable,
@@ -48,9 +43,9 @@ describe("Self invocation", () => {
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const invocation = yield* resolveSelfInvocation().pipe(
-        Effect.provideService(HostProcessExecutablePath, "/runtime/bun"),
-        Effect.provideService(HostProcessIsExecutable, false),
-        Effect.provideService(HostProcessArguments, ["/runtime/bun", "dist/bin.mjs", "serve"]),
+        Effect.provideService(HostProcess.ExecutablePath, "/runtime/bun"),
+        Effect.provideService(HostProcess.IsExecutable, false),
+        Effect.provideService(HostProcess.Arguments, ["/runtime/bun", "dist/bin.mjs", "serve"]),
       );
       expect(invocation.command).toBe("/runtime/bun");
       expect(invocation.entrypoint).toBe(path.resolve("dist/bin.mjs"));
@@ -65,9 +60,9 @@ describe("Self invocation", () => {
     Effect.gen(function* () {
       // Bun points argv[1] at its embedded virtual filesystem entrypoint.
       const invocation = yield* resolveSelfInvocation().pipe(
-        Effect.provideService(HostProcessExecutablePath, "/packaged/t3"),
-        Effect.provideService(HostProcessIsExecutable, true),
-        Effect.provideService(HostProcessArguments, ["bun", "/$bunfs/root/t3", "serve"]),
+        Effect.provideService(HostProcess.ExecutablePath, "/packaged/t3"),
+        Effect.provideService(HostProcess.IsExecutable, true),
+        Effect.provideService(HostProcess.Arguments, ["bun", "/$bunfs/root/t3", "serve"]),
       );
       expect(invocation).toEqual({ command: "/packaged/t3", entrypoint: undefined });
       expect(selfInvocationArgs(invocation, ["acp-mcp-bridge"])).toEqual(["acp-mcp-bridge"]);
@@ -81,8 +76,8 @@ describe("Bun helper runtime selection", () => {
       for (const executable of ["/runtime/bun"]) {
         expect(
           yield* resolveBunExecutable("Local device support", { PATH: "" }).pipe(
-            Effect.provideService(HostProcessExecutablePath, executable),
-            Effect.provideService(HostProcessIsExecutable, false),
+            Effect.provideService(HostProcess.ExecutablePath, executable),
+            Effect.provideService(HostProcess.IsExecutable, false),
           ),
         ).toBe(executable);
       }
@@ -98,8 +93,8 @@ describe("Bun helper runtime selection", () => {
         }),
       ).toBe(bunExecutable);
     }).pipe(
-      Effect.provideService(HostProcessExecutablePath, "/packaged/t3"),
-      Effect.provideService(HostProcessIsExecutable, true),
+      Effect.provideService(HostProcess.ExecutablePath, "/packaged/t3"),
+      Effect.provideService(HostProcess.IsExecutable, true),
       Effect.provide(NodeServices.layer),
     ),
   );
@@ -113,7 +108,7 @@ describe("Bun helper runtime selection", () => {
       expect(error.message).toContain("Local device support requires Bun");
       expect(error.message).toContain("Install Bun");
     }).pipe(
-      Effect.provideService(HostProcessIsExecutable, true),
+      Effect.provideService(HostProcess.IsExecutable, true),
       Effect.provide(NodeServices.layer),
     ),
   );
@@ -123,7 +118,7 @@ describe("Bun helper runtime selection", () => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const directory = yield* fs.makeTempDirectoryScoped();
-      const platform = yield* HostProcessPlatform;
+      const platform = yield* HostProcess.Platform;
       const node = path.join(directory, platform === "win32" ? "bun.exe" : "bun");
       const env = { PATH: directory };
       expect(
@@ -136,8 +131,8 @@ describe("Bun helper runtime selection", () => {
       expect(yield* resolveBunExecutable("Local device support", env)).toBe(node);
     }).pipe(
       Effect.scoped,
-      Effect.provideService(HostProcessExecutablePath, "/packaged/t3"),
-      Effect.provideService(HostProcessIsExecutable, true),
+      Effect.provideService(HostProcess.ExecutablePath, "/packaged/t3"),
+      Effect.provideService(HostProcess.IsExecutable, true),
       Effect.provide(NodeServices.layer),
     ),
   );
@@ -147,21 +142,21 @@ describe("Bun helper runtime selection", () => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const directory = yield* fs.makeTempDirectoryScoped();
-      const platform = yield* HostProcessPlatform;
+      const platform = yield* HostProcess.Platform;
       const executable = path.join(directory, platform === "win32" ? "t3.exe" : "t3");
       const node = path.join(directory, platform === "win32" ? "bun.exe" : "bun");
       yield* fs.writeFileString(executable, "standalone executable fixture");
       yield* fs.chmod(executable, 0o755);
       yield* fs.link(executable, node);
       const error = yield* resolveBunExecutable("Local device support", { PATH: directory }).pipe(
-        Effect.provideService(HostProcessExecutablePath, executable),
+        Effect.provideService(HostProcess.ExecutablePath, executable),
         Effect.flip,
       );
       expect(error._tag).toBe("BunRuntimeUnavailableError");
       expect(error.message).toContain("Install Bun");
     }).pipe(
       Effect.scoped,
-      Effect.provideService(HostProcessIsExecutable, true),
+      Effect.provideService(HostProcess.IsExecutable, true),
       Effect.provide(NodeServices.layer),
     ),
   );
@@ -171,14 +166,14 @@ describe("Bun helper runtime selection", () => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const directory = yield* fs.makeTempDirectoryScoped();
-      const platform = yield* HostProcessPlatform;
+      const platform = yield* HostProcess.Platform;
       const node = path.join(directory, platform === "win32" ? "bun.exe" : "bun");
       yield* fs.symlink(bunExecutable, node);
       expect(yield* resolveBunExecutable("Local device support", { PATH: directory })).toBe(node);
     }).pipe(
       Effect.scoped,
-      Effect.provideService(HostProcessExecutablePath, "/packaged/t3"),
-      Effect.provideService(HostProcessIsExecutable, true),
+      Effect.provideService(HostProcess.ExecutablePath, "/packaged/t3"),
+      Effect.provideService(HostProcess.IsExecutable, true),
       Effect.provide(NodeServices.layer),
     ),
   );
@@ -190,7 +185,7 @@ describe("Bun helper runtime selection", () => {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const directory = yield* fs.makeTempDirectoryScoped();
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         const node = path.join(directory, platform === "win32" ? "bun.exe" : "bun");
         yield* fs.symlink(bunExecutable, node);
         const error = yield* resolveBunExecutable("Local device support", {
@@ -199,8 +194,8 @@ describe("Bun helper runtime selection", () => {
         expect(error.message).toContain("Install Bun");
       }).pipe(
         Effect.scoped,
-        Effect.provideService(HostProcessIsExecutable, true),
-        Effect.provideService(HostProcessExecutablePath, bunExecutable),
+        Effect.provideService(HostProcess.IsExecutable, true),
+        Effect.provideService(HostProcess.ExecutablePath, bunExecutable),
         Effect.provide(NodeServices.layer),
       ),
   );
@@ -221,8 +216,8 @@ it.effect("runs arbitrary helpers using the archive interpreter with no runtime 
       "console.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),value:process.env.HELPER_VALUE}))",
     );
     const runtime = yield* resolveBunExecutable("Device automation", { PATH: "" }).pipe(
-      Effect.provideService(HostProcessExecutablePath, path.join(directory, "t3")),
-      Effect.provideService(HostProcessIsExecutable, true),
+      Effect.provideService(HostProcess.ExecutablePath, path.join(directory, "t3")),
+      Effect.provideService(HostProcess.IsExecutable, true),
     );
     const output = yield* spawner.string(
       ChildProcess.make(runtime, [helper, "a path with spaces"], {
@@ -245,8 +240,8 @@ it.effect("rejects a Node interpreter configured for first-party helpers", () =>
       PATH: "",
       T3_BUN_EXECUTABLE: nodeExecutable,
     }).pipe(
-      Effect.provideService(HostProcessExecutablePath, "/packaged/t3"),
-      Effect.provideService(HostProcessIsExecutable, true),
+      Effect.provideService(HostProcess.ExecutablePath, "/packaged/t3"),
+      Effect.provideService(HostProcess.IsExecutable, true),
       Effect.flip,
     );
     expect(error._tag).toBe("BunRuntimeUnavailableError");

@@ -46,7 +46,7 @@ import {
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { delegatedTaskProgress } from "@t3tools/provider-core/server/subagentProjection";
 import * as ProcessRunner from "../../../apps/server/src/processRunner.ts";
-import * as McpSessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { latestUnheldRun, runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
@@ -100,6 +100,7 @@ const make = Effect.gen(function* () {
   const events = yield* Events.OrchestrationEventStore;
   const providers = yield* Providers.ProviderRegistry;
   const settings = yield* Settings.ServerSettingsService;
+  const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const git = yield* Git.GitVcsDriver;
   const pullRequests = yield* PullRequests.PullRequestService;
   const processRunner = yield* ProcessRunner.ProcessRunner;
@@ -568,7 +569,7 @@ const make = Effect.gen(function* () {
         };
         collect(configuration, Settings.redactServerSettingsForClient(configuration));
         for (const threadId of input.threadIds) {
-          const session = McpSessions.readMcpProviderSession(threadId);
+          const session = yield* mcpSessions.read(threadId);
           if (session) {
             secrets.add(session.authorizationHeader);
             secrets.add(session.authorizationHeader.replace(/^Bearer /, ""));

@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off globalFetchInEffect:off - verifies generated remote scripts using real shell and Bun processes.
 import * as Effect from "effect/Effect";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
@@ -20,7 +20,7 @@ const bunPath = process.env.T3_BUN_EXECUTABLE ?? "bun";
 
 it.effect("finds Android Studio Java for a non-interactive SSH session", () =>
   Effect.gen(function* () {
-    if ((yield* HostProcessPlatform) === "win32") return;
+    if ((yield* HostProcess.Platform) === "win32") return;
     yield* Effect.promise(async () => {
       const home = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-ssh-java-"));
       try {
@@ -44,7 +44,7 @@ it.effect("finds Android Studio Java for a non-interactive SSH session", () =>
 
 it.effect("preserves shell metacharacters and newlines in remote arguments", () =>
   Effect.gen(function* () {
-    if ((yield* HostProcessPlatform) === "win32") return;
+    if ((yield* HostProcess.Platform) === "win32") return;
     yield* Effect.promise(async () => {
       const value = "quotes ' \" ; $(echo expanded) $HOME\nnext line";
       const result = await exec("sh", ["-c", `printf %s ${quoteRemoteArg(value)}`]);
@@ -90,7 +90,7 @@ it.each(["1.3.14", "1.4.0", "1.4.1"])(
 describe("remote helper lifecycle", () => {
   it.effect("reuses its own healthy helpers and stops only its own runtime", () =>
     Effect.gen(function* () {
-      if ((yield* HostProcessPlatform) === "win32") return;
+      if ((yield* HostProcess.Platform) === "win32") return;
       yield* Effect.promise(async () => {
         const home = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-remote-script-"));
         const bin = NodePath.join(home, "bin");

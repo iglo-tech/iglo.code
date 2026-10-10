@@ -19,7 +19,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpBody from "effect/http/HttpBody";
-import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpSessions from "../mcp/McpSessionRegistry.ts";
 import { Run, RunSummary } from "@t3tools/plugin-workflows/contracts";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
@@ -191,10 +191,9 @@ it.live("accepts one report for a reserved workflow attempt and returns its rece
         providerInstanceId: ProviderInstanceId.make("codex"),
       });
       const first = (yield* issue).config;
-      ProviderSessions.setMcpProviderSession(first);
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => ProviderSessions.clearMcpProviderSession(threadId)),
-      );
+      const mcpSessions = Context.get(context, McpProviderSessions.McpProviderSessions);
+      yield* mcpSessions.set(first);
+      yield* Effect.addFinalizer(() => mcpSessions.clear(threadId));
       const report = Effect.fnUntraced(function* (connection: typeof first) {
         const headers = {
           authorization: connection.authorizationHeader,
@@ -254,7 +253,7 @@ it.live("accepts one report for a reserved workflow attempt and returns its rece
       expect(yield* report(first)).toBe(accepted);
       yield* sessions.revokeProviderSession(first.providerSessionId);
       const refreshed = (yield* issue).config;
-      ProviderSessions.setMcpProviderSession(refreshed);
+      yield* mcpSessions.set(refreshed);
       const revoked = yield* http.post(first.endpoint, {
         headers: { authorization: first.authorizationHeader },
         body: HttpBody.text("{}", "application/json"),

@@ -34,7 +34,7 @@ import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as Ingestor from "../orchestration-v2/ProviderEventIngestor.ts";
 import * as Executor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
-import * as Sessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import packageJson from "../../package.json" with { type: "json" };
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const settings = Schema.decodeSync(CodexSettings)({});
@@ -59,6 +59,7 @@ it.live("denies mutation before a native Codex turn applies the requested permis
         traceTimingEnabled: false,
       };
       const server = yield* startEnvironment(config, [plugin]);
+      const mcpSessions = Context.get(server.context, McpProviderSessions.McpProviderSessions);
       const host = Context.get(server.context, Host);
       const projectId = ProjectId.make("codex-policy-project");
       const threadId = ThreadId.make("codex-policy-thread");
@@ -99,7 +100,7 @@ it.live("denies mutation before a native Codex turn applies the requested permis
         sandbox: { type: "readOnly", networkAccess: false },
       };
       let sentParams: ReturnType<typeof Codex.codexThreadRuntimeParams> | undefined;
-      const adapter = Codex.makeCodexAdapterV2({
+      const adapter = yield* Codex.makeCodexAdapterV2({
         crypto: yield* Crypto.Crypto,
         instanceId,
         settings,
@@ -111,7 +112,7 @@ it.live("denies mutation before a native Codex turn applies the requested permis
           open: (input) =>
             Effect.gen(function* () {
               sentParams = Codex.codexThreadRuntimeParams({
-                threadId,
+                mcpSession: yield* mcpSessions.read(threadId),
                 modelSelection: selection,
                 runtimePolicy: requestedPolicy,
               });
@@ -215,7 +216,7 @@ it.live("denies mutation before a native Codex turn applies the requested permis
               return Context.get(replay, Client.CodexAppServerClient);
             }),
         },
-      });
+      }).pipe(Effect.provideService(McpProviderSessions.McpProviderSessions, mcpSessions));
       const managerContext = yield* Layer.build(
         Manager.layerWithOptions({ idleTimeoutMs: 600000 }).pipe(
           Layer.provide(Registry.layerFromAdapters([adapter])),
@@ -228,14 +229,14 @@ it.live("denies mutation before a native Codex turn applies the requested permis
         modelSelection: selection,
         runtimePolicy: requestedPolicy,
       });
-      expect(Sessions.readMcpProviderSession(threadId)?.runtimePolicy).toBeUndefined();
+      expect((yield* mcpSessions.read(threadId))?.runtimePolicy).toBeUndefined();
       yield* runtime.ensureThread({
         threadId,
         modelSelection: selection,
         runtimePolicy: requestedPolicy,
       });
 
-      const credential = Sessions.readMcpProviderSession(threadId)!;
+      const credential = (yield* mcpSessions.read(threadId))!;
       const http = Context.get(server.context, HttpClient.HttpClient);
       const headers = {
         authorization: credential.authorizationHeader,

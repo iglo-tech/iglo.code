@@ -5,7 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import { expect, test } from "@effect/vitest";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 test("Bun Browser stream upgrades and delivers the controlled host-setup close frame", () => {
   const child = NodeChildProcess.spawnSync(
@@ -78,7 +78,7 @@ export default defineConfig({pack: {
         { encoding: "utf8", timeout: 30_000 },
       ),
     );
-    if (HostProcessPlatform.defaultValue() === "darwin")
+    if (HostProcess.Platform.defaultValue() === "darwin")
       successful(
         NodeChildProcess.spawnSync("/usr/bin/codesign", ["--force", "--sign", "-", executable], {
           encoding: "utf8",
