@@ -13,6 +13,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.serverRunStorageCleanup]: AuthSettingsWriteScope,
   "plugins.fixture.resolve": AuthOrchestrationOperateScope,
   "plugins.fixture.schedule": AuthOrchestrationOperateScope,
+  "plugins.workflows.save": AuthOrchestrationOperateScope,
+  "plugins.workflows.replace": AuthOrchestrationOperateScope,
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsUpdate]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsComment]: AuthSourceControlWriteScope,

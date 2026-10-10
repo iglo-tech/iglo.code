@@ -472,6 +472,13 @@ const make = Effect.gen(function* () {
         return {
           instanceId: provider.instanceId,
           driver,
+          ...(provider.displayName === undefined ? {} : { displayName: provider.displayName }),
+          models: provider.models.map((model) => ({
+            slug: model.slug,
+            name: model.name,
+            isCustom: model.isCustom,
+            optionDescriptors: model.capabilities?.optionDescriptors ?? [],
+          })),
           toolsSupported: capability.supported,
           available:
             provider.enabled &&
@@ -611,7 +618,7 @@ const make = Effect.gen(function* () {
         const snapshots = yield* providers.refreshWorkspaceSnapshot({
           instanceId: input.providerInstanceId,
           cwd: workspace.workspaceRoot,
-          fresh: true,
+          fresh: input.fresh ?? true,
         });
         const found = snapshots.find(
           (provider) => provider.instanceId === input.providerInstanceId,

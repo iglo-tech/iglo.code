@@ -45,8 +45,16 @@ export const plugin: ServerPlugin = {
     const handlers = {
       catalog: (input: typeof rpcs.catalog.payloadSchema.Type) => catalog.list(input),
       validate: (input: typeof rpcs.validate.payloadSchema.Type) =>
-        catalog.validate(input, input.definition),
+        // Authoring feedback reuses cached skill snapshots; save and start rescan.
+        catalog.validate(input, input.definition, { fresh: false }),
       save: (input: typeof rpcs.save.payloadSchema.Type) => catalog.save(input),
+      library: (input: typeof rpcs.library.payloadSchema.Type) => catalog.library(input),
+      read: (input: typeof rpcs.read.payloadSchema.Type) => catalog.read(input),
+      replace: (input: typeof rpcs.replace.payloadSchema.Type) => catalog.replace(input),
+      capabilities: (input: typeof rpcs.capabilities.payloadSchema.Type) =>
+        catalog.capabilities(input),
+      skills: (input: typeof rpcs.skills.payloadSchema.Type) => catalog.skills(input),
+      projects: (input: typeof rpcs.projects.payloadSchema.Type) => catalog.projects(input),
       start: workflows.start,
       get: workflows.get,
       list: workflows.list,

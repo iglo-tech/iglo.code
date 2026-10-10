@@ -107,7 +107,8 @@ const workspace = (value: PluginLaunchInput["workspace"], text: Text) =>
     : value.type === "exact-ref" && value.branch !== undefined
       ? { ...value, branch: text(value.branch, Infinity) }
       : value;
-const definition = (value: Definition, text: Text): Definition => ({
+/** Map every authored text of a definition; identities and protocol values are untouched. */
+export const projectDefinition = (value: Definition, text: Text): Definition => ({
   ...value,
   title: title(value.title, text),
   nodes: value.nodes.map((node) => {
@@ -144,7 +145,7 @@ const definition = (value: Definition, text: Text): Definition => ({
 export const displayRun = (host: Host["Service"], run: Run) =>
   redact(host, threadIds(run), (text) => ({
     ...run,
-    definition: definition(run.definition, text),
+    definition: projectDefinition(run.definition, text),
     input: data(run.input, text),
     reason: run.reason === null ? null : text(run.reason, Infinity),
     workspace: workspace(run.workspace, text),
@@ -220,14 +221,28 @@ export const displaySummary = (host: Host["Service"], run: Run, summary: RunSumm
     })),
   }));
 
+/** Redact independent display texts in one host call, preserving order. */
+export const displayTexts = (host: Host["Service"], texts: ReadonlyArray<string>) =>
+  texts.length === 0
+    ? Effect.succeed<ReadonlyArray<string>>([])
+    : redact(host, [], (text) => texts.map((value) => text(value, Infinity)));
+
 export const displayCatalog = (host: Host["Service"], entries: ReadonlyArray<CatalogEntry>) =>
   protect(
     "display",
     redact(host, [], (text) =>
       entries.map((entry) => ({
         ...entry,
-        definition: entry.definition === null ? null : definition(entry.definition, text),
+        definition: entry.definition === null ? null : projectDefinition(entry.definition, text),
         reasons: entry.reasons.map((reason) => text(reason, Infinity)),
+        ...(entry.problems === undefined
+          ? {}
+          : {
+              problems: entry.problems.map((problem) => ({
+                ...problem,
+                message: text(problem.message, Infinity),
+              })),
+            }),
       })),
     ).pipe(Effect.flatMap(decodeCatalog)),
   );
