@@ -162,7 +162,7 @@ function PluginDialog({
 }
 
 const crumbButtonClass =
-  "inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
+  "-mx-1.5 -my-0.5 inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
 
 function Crumb({ item, current }: { item: PluginBreadcrumbItem; current: boolean }) {
   const text = (

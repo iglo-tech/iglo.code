@@ -53,6 +53,9 @@ describe("workflow graph", () => {
     const x = (id: string) => layout.positions.get(id)!.x;
     expect(new Set(lanes.map(y)).size).toBe(1);
     expect(new Set(lanes.map(x)).size).toBe(3);
+    // Lanes keep definition order left to right.
+    expect(x(lanes[0]!)).toBeLessThan(x(lanes[1]!));
+    expect(x(lanes[1]!)).toBeLessThan(x(lanes[2]!));
     expect(y("implement")).toBeLessThan(y("checks"));
     expect(y("reviews")).toBeLessThan(y(lanes[0]!));
     expect(y(lanes[0]!)).toBeLessThan(y("join"));

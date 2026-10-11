@@ -79,7 +79,13 @@ type RouteData = {
 type RouteEdge = Edge<RouteData, "route">;
 
 const kindText = (kind: FlowNode["kind"]) =>
-  kind === "branch" ? "Reviewer" : kind === "missing" ? "Missing step" : kindLabels[kind];
+  kind === "branch"
+    ? "Reviewer"
+    : kind === "parallel"
+      ? "Parallel"
+      : kind === "missing"
+        ? "Missing step"
+        : kindLabels[kind];
 const tileTone: Record<FlowNode["kind"], string> = {
   agent: "bg-info/10 text-info",
   branch: "bg-info/10 text-info",
@@ -427,10 +433,13 @@ export function Graph({
     const byNode = new Map<string, { errors: number; warnings: number }>();
     for (const problem of problems) {
       if (problem.nodeId === undefined) continue;
-      const count = byNode.get(problem.nodeId) ?? { errors: 0, warnings: 0 };
+      // A reviewer's problems count on its own box, keyed like the box id.
+      const lane = /^branches\.(\d+)(?:\.|$)/.exec(problem.control ?? "")?.[1];
+      const key = lane === undefined ? problem.nodeId : `${problem.nodeId}#${lane}`;
+      const count = byNode.get(key) ?? { errors: 0, warnings: 0 };
       if (problem.severity === "error") count.errors++;
       else count.warnings++;
-      byNode.set(problem.nodeId, count);
+      byNode.set(key, count);
     }
     return byNode;
   }, [problems]);
@@ -438,7 +447,9 @@ export function Graph({
     () => [
       ...graph.nodes.map((node): StepNode => {
         const size = layout.sizes.get(node.id)!;
-        const count = node.kind === "branch" ? undefined : counts.get(node.stepId);
+        const count = counts.get(
+          node.lane === undefined ? node.stepId : `${node.stepId}#${node.lane}`,
+        );
         return {
           id: node.id,
           type: "step",
@@ -451,7 +462,7 @@ export function Graph({
           measured: size,
           data: {
             node,
-            selected: selected === node.stepId,
+            selected: node.kind !== "branch" && selected === node.stepId,
             errors: count?.errors ?? 0,
             warnings: count?.warnings ?? 0,
           },

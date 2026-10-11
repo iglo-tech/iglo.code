@@ -11,6 +11,8 @@ export interface FlowNode {
   readonly kind: Node["kind"] | "branch" | "missing";
   readonly title: string;
   readonly detail: string | null;
+  /** Position of a reviewer lane within its group, matching `branches.<index>` problem controls. */
+  readonly lane?: number;
   readonly entry: boolean;
   /** The run's At limit destination for the whole-run visit bound. */
   readonly runLimit: boolean;
@@ -100,7 +102,7 @@ export function flowGraph(definition: Definition): FlowGraph {
       runLimit: definition.atLimit === node.id,
     });
     if (node.kind === "parallel") {
-      for (const branch of node.branches) {
+      for (const [lane, branch] of node.branches.entries()) {
         const id = `${node.id}/${branch.id}`;
         nodes.push({
           id,
@@ -108,6 +110,7 @@ export function flowGraph(definition: Definition): FlowGraph {
           kind: "branch",
           title: branch.title || branch.id,
           detail: branch.skill ?? null,
+          lane,
           entry: false,
           runLimit: false,
         });
@@ -229,7 +232,13 @@ export function layoutFlow(graph: FlowGraph): FlowLayout {
   });
   layout.setDefaultEdgeLabel(() => ({}));
   for (const node of graph.nodes) layout.setNode(node.id, { ...nodeSize(node) });
-  for (const edge of graph.edges) {
+  // dagre places a node's siblings in reverse of the order their edges were added, so fork
+  // edges are fed last-to-first to leave reviewer lanes in definition order, left to right.
+  const edges = [...graph.edges];
+  const forks = edges.filter((edge) => edge.kind === "fork").reverse();
+  let nextFork = 0;
+  const ordered = edges.map((edge) => (edge.kind === "fork" ? forks[nextFork++]! : edge));
+  for (const edge of ordered) {
     if (edge.back) continue;
     layout.setEdge(
       edge.source,
