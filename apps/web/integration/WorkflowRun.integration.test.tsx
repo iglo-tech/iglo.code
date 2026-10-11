@@ -868,41 +868,45 @@ it.live(
         const promise = <A,>(run: () => Promise<A>) => Effect.promise(run);
         const { tracked } = first;
 
-        // Library entry point: Run opens the shared start dialog with the saved workflow.
+        // Library entry point: Run opens the shared start dialog in place with the saved workflow.
         yield* promise(mount);
         yield* promise(() => tracked.settle("projects"));
         yield* promise(() => tracked.settle("library"));
         yield* promise(() => click("Run Implement and review"));
-        yield* promise(flush);
-        expect(router.state.location.pathname).toContain("workflows.runs");
-        expect(router.state.location.search).toMatchObject({
-          pluginState: { start: "1", workflow: "sequence" },
-        });
-        yield* promise(() => tracked.settle("projects"));
         yield* promise(() => tracked.settle("library"));
         yield* promise(() => tracked.settle("preview"));
-        yield* promise(() => tracked.listed((runs) => runs.length === 0));
+        expect(router.state.location.pathname).toContain("workflows.library");
         const libraryDialog = page();
         expect(libraryDialog).toContain("Run workflow");
         expect(libraryDialog).toContain("Saved revision 1");
         expect(libraryDialog).toContain("Work: Codex · gpt-5.4 · approval-required");
         expect(libraryDialog).toContain(`From main at ${HEAD.slice(0, 12)}`);
-        expect(libraryDialog).toContain("No runs yet");
         expect(
           labelled("Run workflow").filter((node) => node.props.role === "dialog"),
         ).toHaveLength(1);
         // A read-only pairing cannot start until operate access is granted.
         expect(libraryDialog).toContain("This connection cannot start workflows.");
         expect(buttons("Run workflow").at(-1)!.props.disabled).toBe(true);
+        // Cancel keeps the library where it was.
+        yield* promise(() => click("Cancel"));
+        expect(
+          labelled("Run workflow").filter((node) => node.props.role === "dialog"),
+        ).toHaveLength(0);
+        expect(router.state.location.pathname).toContain("workflows.library");
 
         // Project entry point: the same dialog and service, choosing the workflow explicitly.
+        // The chat header opens its dialog in place; its link is the Runs page deep link.
         const projectAction = workflowsWeb.projectActions.find(
           (item) => item.id === "workflows.project-run",
         )!;
+        expect(projectAction.dialog).toBeDefined();
         const link = projectAction.link(projectId);
         expect(link).toEqual({ pageId: "workflows.runs", projectId, state: { start: "1" } });
         yield* promise(() => go(first.environmentId, link.pageId, link.state));
+        yield* promise(() => tracked.settle("projects"));
         yield* promise(() => tracked.settle("library"));
+        yield* promise(() => tracked.listed((runs) => runs.length === 0));
+        expect(page()).toContain("No runs yet");
         expect(control(pluginDesign.Combobox, "Workflow").props.value).toBe("");
         yield* promise(() => choose("Workflow", "sequence"));
         yield* promise(() => tracked.settle("preview"));

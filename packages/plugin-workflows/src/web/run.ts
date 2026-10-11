@@ -10,16 +10,17 @@ export const runStateLabels: Record<Run["state"], string> = {
   failed: "Failed",
   canceled: "Canceled",
 };
-export const runStateVariant = (state: Run["state"]) =>
-  state === "completed"
-    ? ("success" as const)
-    : state === "failed"
-      ? ("error" as const)
-      : state === "running"
-        ? ("info" as const)
-        : state === "canceled"
-          ? ("secondary" as const)
-          : ("warning" as const);
+// One badge per state, matching the state icon's tone. Canceled is neutral but bordered, so it
+// still reads as a badge beside the tinted ones.
+const runStateVariants = {
+  running: "info",
+  "awaiting-review": "warning",
+  unresolved: "warning",
+  completed: "success",
+  failed: "error",
+  canceled: "outline",
+} as const satisfies Record<Run["state"], string>;
+export const runStateVariant = (state: Run["state"]) => runStateVariants[state];
 
 /** Execution status of one visit, independent of whether a report was accepted. */
 export const phaseLabels: Record<Attempt["phase"], string> = {

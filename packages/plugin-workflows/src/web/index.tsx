@@ -18,9 +18,12 @@ const loadLibrary = loader(() => import("./Library.tsx"));
 const loadEditor = loader(() => import("./Editor.tsx"));
 const loadRuns = loader(() => import("./Runs.tsx"));
 const loadThread = loader(() => import("./ThreadContext.tsx"));
+const loadStart = loader(() => import("./Start.tsx"));
 /** Load the page modules ahead of navigation (for example on hover, or in tests). */
 export const preloadWorkflowPages = () =>
-  Promise.all([loadLibrary(), loadEditor(), loadRuns(), loadThread()]).then(() => undefined);
+  Promise.all([loadLibrary(), loadEditor(), loadRuns(), loadThread(), loadStart()]).then(
+    () => undefined,
+  );
 const LibraryPageView = lazy(() =>
   loadLibrary().then((module) => ({ default: module.LibraryPageView })),
 );
@@ -28,6 +31,9 @@ const EditorPageView = lazy(() =>
   loadEditor().then((module) => ({ default: module.EditorPageView })),
 );
 const RunsPageView = lazy(() => loadRuns().then((module) => ({ default: module.RunsPageView })));
+const ProjectStartDialog = lazy(() =>
+  loadStart().then((module) => ({ default: module.ProjectStartDialog })),
+);
 const ThreadContextView = lazy(() =>
   loadThread().then((module) => ({ default: module.ThreadContextView })),
 );
@@ -60,6 +66,8 @@ export const web: WebPlugin<WorkflowClient> = {
       title: "Run workflow",
       icon: "play",
       link: (projectId) => ({ pageId: "workflows.runs", projectId, state: { start: "1" } }),
+      // Opens over the chat view; only a started run navigates.
+      dialog: ProjectStartDialog,
     },
   ],
   threadContext: [

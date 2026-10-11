@@ -62,6 +62,7 @@ function Runs(props: PageProps) {
         projectTitle={
           projects.projects?.find((project) => project.id === projectId)?.title ?? projectId
         }
+        workflow={pageState.workflow}
         permissions={permissions}
         onClose={() =>
           props.navigate({

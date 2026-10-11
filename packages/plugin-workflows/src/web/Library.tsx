@@ -31,6 +31,7 @@ import {
 } from "./common.tsx";
 import { authoringTimings, debounce } from "./timings.ts";
 import { importYaml, newDefinition, slug } from "./editing.ts";
+import { StartDialogInPlace } from "./Start.tsx";
 
 const PAGE_SIZE = 20;
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -68,6 +69,8 @@ function Library(props: PageProps) {
   const [removing, setRemoving] = useState<LibraryEntry | null>(null);
   const [permissions, setPermissions] = useState<WorkflowPermissions>(noPermissions);
   useEffect(() => client.subscribePermissions(setPermissions), [client]);
+  // The workflow whose Run dialog is open over the library.
+  const [running, setRunning] = useState<string | null>(null);
   const offline = connection === "disconnected";
   const [localDrafts, setLocalDrafts] = useState(() =>
     projectId === null ? [] : projectDrafts(props.drafts, projectId),
@@ -486,13 +489,7 @@ function Library(props: PageProps) {
                             ariaLabel={`Run ${label}`}
                             tooltip="Run workflow"
                             disabled={offline}
-                            onClick={() =>
-                              props.navigate({
-                                pageId: "workflows.runs",
-                                projectId,
-                                state: { start: "1", workflow: entry.definitionId! },
-                              })
-                            }
+                            onClick={() => setRunning(entry.definitionId)}
                           >
                             <PlayIcon />
                           </Button>
@@ -590,6 +587,18 @@ function Library(props: PageProps) {
           )}
         </div>
       </div>
+      {running === null ? null : (
+        <StartDialogInPlace
+          key={running}
+          props={props}
+          projectId={projectId}
+          projectTitle={
+            projects.projects?.find((project) => project.id === projectId)?.title ?? projectId
+          }
+          workflow={running}
+          onClose={() => setRunning(null)}
+        />
+      )}
     </>
   );
 }

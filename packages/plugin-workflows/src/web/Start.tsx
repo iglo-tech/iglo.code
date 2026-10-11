@@ -8,7 +8,7 @@ import {
   type StartSavedInput,
   type WorkflowPermissions,
 } from "../contracts.ts";
-import { errorMessage, rejected, type PageProps } from "./common.tsx";
+import { errorMessage, rejected, usePermissions, useProjects, type PageProps } from "./common.tsx";
 import { authoringTimings, debounce } from "./timings.ts";
 import { short } from "./run.ts";
 
@@ -52,12 +52,15 @@ export function StartDialog({
   props,
   projectId,
   projectTitle,
+  workflow,
   permissions,
   onClose,
 }: {
   readonly props: PageProps;
   readonly projectId: ProjectId;
   readonly projectTitle: string;
+  /** Preselected workflow, for example the library row it was opened from. */
+  readonly workflow?: string | undefined;
   readonly permissions: WorkflowPermissions;
   readonly onClose: () => void;
 }) {
@@ -65,7 +68,7 @@ export function StartDialog({
   const offline = connection === "disconnected";
   const [intent, setIntent] = useState<Intent | null>(() => readIntent(props, projectId));
   const [definitionId, setDefinitionId] = useState<string | null>(
-    intent?.definitionId ?? props.pageState.workflow ?? null,
+    intent?.definitionId ?? workflow ?? null,
   );
   const [task, setTask] = useState(intent?.task ?? "");
   const [workspace, setWorkspace] = useState<Intent["workspace"]>(
@@ -162,7 +165,7 @@ export function StartDialog({
   // It is resent automatically only when this dialog was opened for the same workflow;
   // opening Run for another workflow shows it for an explicit Retry or Discard instead.
   const reconciled = useRef(false);
-  const requested = props.pageState.workflow;
+  const requested = workflow;
   const other = intent !== null && requested !== undefined && requested !== intent.definitionId;
   useEffect(() => {
     // Each reconnection reconciles a still-pending intent once.
@@ -300,7 +303,9 @@ export function StartDialog({
             {entriesError}
           </Alert>
         )}
-        {definitionId === null ? null : previewError !== null ? (
+        {/* Workspace and Task stay in place while a workflow is picked and loads, so the
+            dialog does not grow under the pointer; only the summary line fills in. */}
+        {definitionId !== null && previewError !== null ? (
           <Alert
             variant="error"
             title="Could not load this workflow"
@@ -316,104 +321,107 @@ export function StartDialog({
           >
             {previewError}
           </Alert>
-        ) : preview === null ? (
-          offline ? null : (
-            <p role="status" className="text-xs text-muted-foreground">
-              Loading the saved workflow…
-            </p>
-          )
         ) : (
-          <>
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <Badge variant="outline">Saved revision {preview.revision}</Badge>
-              {intent !== null && intent.revision !== preview.revision ? (
-                <Badge variant="warning">Requested revision {intent.revision}</Badge>
-              ) : null}
-              {preview.packaged ? <Badge variant="secondary">Packaged</Badge> : null}
-              {preview.runnable ? null : <Badge variant="warning">Cannot run</Badge>}
-              <span className="min-w-0 truncate text-xs text-muted-foreground">
-                {preview.source}
-              </span>
-            </div>
-            {preview.reasons.length === 0 ? null : (
-              <Alert variant="error" title="This workflow cannot run">
-                <ul aria-label="Why this workflow cannot run" className="flex flex-col gap-0.5">
-                  {preview.reasons.map((reason, index) => (
-                    <li key={index}>{reason}</li>
-                  ))}
-                </ul>
-              </Alert>
-            )}
-            {preview.agents.length === 0 ? null : (
-              <ul aria-label="Agents" className="flex flex-col gap-1 text-xs">
-                {preview.agents.map((agent) => (
-                  <li
-                    key={`${agent.nodeId}:${agent.branchId ?? ""}`}
-                    className="flex min-w-0 items-center gap-2"
-                  >
-                    <BotIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 truncate">
-                      {agent.title}: {agent.providerName ?? agent.providerInstanceId} ·{" "}
-                      {agent.model} · {agent.runtimeMode}
-                      {agent.interactionMode === "plan" ? " · plan mode" : ""}
-                      {agent.skill ? ` · skill ${agent.skill}` : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Workspace</span>
-              {locked ? (
-                <p className="text-sm">
-                  {workspace === "new-worktree" ? "New worktree" : "Current checkout"}
+          <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-1.5">
+            {preview === null ? (
+              definitionId === null || offline ? null : (
+                <p role="status" className="text-xs text-muted-foreground">
+                  Loading the saved workflow…
                 </p>
-              ) : (
-                <div>
-                  <SegmentedControl
-                    ariaLabel="Workspace"
-                    value={workspace}
-                    onChange={(value) => setWorkspace(value as Intent["workspace"])}
-                    options={[
-                      { value: "new-worktree", label: "New worktree" },
-                      { value: "current", label: "Current checkout" },
-                    ]}
-                  />
-                </div>
-              )}
-              <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+              )
+            ) : (
+              <>
+                <Badge variant="outline">Saved revision {preview.revision}</Badge>
+                {intent !== null && intent.revision !== preview.revision ? (
+                  <Badge variant="warning">Requested revision {intent.revision}</Badge>
+                ) : null}
+                {preview.packaged ? <Badge variant="secondary">Packaged</Badge> : null}
+                {preview.runnable ? null : <Badge variant="warning">Cannot run</Badge>}
+                <span className="min-w-0 truncate text-xs text-muted-foreground">
+                  {preview.source}
+                </span>
+              </>
+            )}
+          </div>
+        )}
+        {preview === null || preview.reasons.length === 0 ? null : (
+          <Alert variant="error" title="This workflow cannot run">
+            <ul aria-label="Why this workflow cannot run" className="flex flex-col gap-0.5">
+              {preview.reasons.map((reason, index) => (
+                <li key={index}>{reason}</li>
+              ))}
+            </ul>
+          </Alert>
+        )}
+        {preview === null || preview.agents.length === 0 ? null : (
+          <ul aria-label="Agents" className="flex flex-col gap-1 text-xs">
+            {preview.agents.map((agent) => (
+              <li
+                key={`${agent.nodeId}:${agent.branchId ?? ""}`}
+                className="flex min-w-0 items-center gap-2"
+              >
+                <BotIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">
+                  {agent.title}: {agent.providerName ?? agent.providerInstanceId} · {agent.model} ·{" "}
+                  {agent.runtimeMode}
+                  {agent.interactionMode === "plan" ? " · plan mode" : ""}
+                  {agent.skill ? ` · skill ${agent.skill}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted-foreground">Workspace</span>
+          {locked ? (
+            <p className="text-sm">
+              {workspace === "new-worktree" ? "New worktree" : "Current checkout"}
+            </p>
+          ) : (
+            <div>
+              <SegmentedControl
+                ariaLabel="Workspace"
+                value={workspace}
+                onChange={(value) => setWorkspace(value as Intent["workspace"])}
+                options={[
+                  { value: "new-worktree", label: "New worktree" },
+                  { value: "current", label: "Current checkout" },
+                ]}
+              />
+            </div>
+          )}
+          <p className="flex min-h-4 min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {where === null ? null : (
+              <>
                 {workspace === "new-worktree" ? (
                   <GitBranchIcon aria-hidden className="size-3.5 shrink-0" />
                 ) : (
                   <FolderIcon aria-hidden className="size-3.5 shrink-0" />
                 )}
                 <span className="min-w-0 truncate">{where}</span>
-              </p>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-baseline justify-between gap-2">
-                <label
-                  htmlFor="wf-start-task"
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  Task
-                </label>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {task.length}/{taskLimit}
-                </span>
-              </div>
-              <Textarea
-                id="wf-start-task"
-                ariaLabel="Task"
-                rows={4}
-                readOnly={locked}
-                value={task}
-                onChange={(value) => setTask(value.slice(0, taskLimit))}
-                placeholder="Optional · what this run should accomplish"
-              />
-            </div>
-          </>
-        )}
+              </>
+            )}
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-baseline justify-between gap-2">
+            <label htmlFor="wf-start-task" className="text-xs font-medium text-muted-foreground">
+              Task
+            </label>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {task.length}/{taskLimit}
+            </span>
+          </div>
+          <Textarea
+            id="wf-start-task"
+            ariaLabel="Task"
+            rows={4}
+            readOnly={locked}
+            value={task}
+            onChange={(value) => setTask(value.slice(0, taskLimit))}
+            placeholder="Optional · what this run should accomplish"
+          />
+        </div>
         {other && intent !== null ? (
           <Alert
             variant="warning"
@@ -440,5 +448,52 @@ export function StartDialog({
         ) : null}
       </div>
     </props.Dialog>
+  );
+}
+
+/**
+ * The dialog opened in place over another view (a library row, the chat header). Cancel leaves
+ * that view as it was; only a started run navigates, to the run.
+ */
+export function StartDialogInPlace({
+  props,
+  projectId,
+  projectTitle,
+  workflow,
+  onClose,
+}: {
+  readonly props: PageProps;
+  readonly projectId: ProjectId;
+  readonly projectTitle: string;
+  readonly workflow?: string | undefined;
+  readonly onClose: () => void;
+}) {
+  const permissions = usePermissions(props.client);
+  return (
+    <StartDialog
+      props={props}
+      projectId={projectId}
+      projectTitle={projectTitle}
+      workflow={workflow}
+      permissions={permissions}
+      onClose={onClose}
+    />
+  );
+}
+
+/** The project action's dialog, over the chat view of the current project. */
+export function ProjectStartDialog(props: PageProps & { readonly onClose: () => void }) {
+  const projects = useProjects(props);
+  const { projectId } = props;
+  if (projectId === null) return null;
+  return (
+    <StartDialogInPlace
+      props={props}
+      projectId={projectId}
+      projectTitle={
+        projects.projects?.find((project) => project.id === projectId)?.title ?? projectId
+      }
+      onClose={props.onClose}
+    />
   );
 }

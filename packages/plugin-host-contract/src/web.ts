@@ -303,6 +303,14 @@ export interface WebPlugin<Client> {
     readonly title: string;
     readonly icon: PluginIconName;
     readonly link: (projectId: ProjectId) => PluginPageLink;
+    /**
+     * Opens this dialog over the current view instead of navigating to `link`, so dismissing it
+     * keeps the user where they were. The dialog calls `onClose` when dismissed and navigates
+     * itself when its action leads somewhere.
+     */
+    readonly dialog?: ComponentType<
+      PluginWebContext & { readonly client: Client; readonly onClose: () => void }
+    >;
   }>;
   readonly threadContext: ReadonlyArray<{
     readonly id: string;

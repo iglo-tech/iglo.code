@@ -22,7 +22,19 @@ export function bind<Client>(plugin: WebPlugin<Client>, client: Client) {
         ),
     })),
     navigation: plugin.navigation,
-    projectActions: plugin.projectActions,
+    projectActions: plugin.projectActions.map(({ dialog, ...action }) => ({
+      ...action,
+      ...(dialog === undefined
+        ? {}
+        : {
+            dialog: (context: PluginWebContext, onClose: () => void) =>
+              createElement(
+                Suspense,
+                { fallback: null },
+                createElement(dialog, { ...context, client, onClose }),
+              ),
+          }),
+    })),
     threadContext: plugin.threadContext.map((contribution) => ({
       id: contribution.id,
       render: (context: PluginWebContext) => contribution.render({ ...context, client }),

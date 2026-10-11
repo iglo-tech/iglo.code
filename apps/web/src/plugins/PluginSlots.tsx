@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, PluginPageState, PluginTarget, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
 import { Button } from "../components/ui/button";
 import {
@@ -253,27 +253,40 @@ export function PluginProjectActions({
   projectId: ProjectId;
 }) {
   const { contributions } = usePluginContributions(environmentId, projectId);
+  // The action whose dialog is open over the current view.
+  const [open, setOpen] = useState<{ pluginId: string; actionId: string } | null>(null);
   return (
     <div className="[app-region:no-drag] flex shrink-0 items-center gap-0.5">
       {contributions.flatMap((plugin) =>
         plugin.projectActions
           .filter((item) => plugin.context.descriptor.manifest.web.projectActions.includes(item.id))
           .map((item) => (
-            <Tooltip key={item.id}>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={item.title}
-                    onClick={() => plugin.context.navigate(item.link(projectId))}
-                  >
-                    <PluginIcon name={item.icon} />
-                  </Button>
-                }
-              />
-              <TooltipPopup side="bottom">{item.title}</TooltipPopup>
-            </Tooltip>
+            <Fragment key={item.id}>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={item.title}
+                      onClick={() =>
+                        item.dialog === undefined
+                          ? plugin.context.navigate(item.link(projectId))
+                          : setOpen({ pluginId: plugin.manifest.id, actionId: item.id })
+                      }
+                    >
+                      <PluginIcon name={item.icon} />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="bottom">{item.title}</TooltipPopup>
+              </Tooltip>
+              {item.dialog !== undefined &&
+              open?.pluginId === plugin.manifest.id &&
+              open.actionId === item.id
+                ? item.dialog(plugin.context, () => setOpen(null))
+                : null}
+            </Fragment>
           )),
       )}
     </div>
