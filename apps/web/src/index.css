@@ -694,11 +694,19 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   ::after {
     outline-offset: -2px;
   }
-  :where([data-slot="menu-popup"], [data-slot="select-popup"], [data-slot="popover-popup"]):focus,
   :where(
     [data-slot="menu-popup"],
     [data-slot="select-popup"],
-    [data-slot="popover-popup"]
+    [data-slot="popover-popup"],
+    [data-slot="sheet-popup"],
+    [data-slot="dialog-popup"]
+  ):focus,
+  :where(
+    [data-slot="menu-popup"],
+    [data-slot="select-popup"],
+    [data-slot="popover-popup"],
+    [data-slot="sheet-popup"],
+    [data-slot="dialog-popup"]
   ):focus-visible {
     @apply outline-none ring-0;
   }

@@ -298,7 +298,7 @@ function layoutComponent(nodes: ReadonlyArray<FlowNode>, allEdges: ReadonlyArray
   const members = new Set(nodes.map((node) => node.id));
   // dagre places a node's siblings in reverse of the order their edges were added, so fork
   // edges are fed last-to-first to leave reviewer lanes in definition order, left to right.
-  const edges = allEdges.filter((edge) => members.has(edge.source));
+  const edges = allEdges.filter((edge) => members.has(edge.source) && members.has(edge.target));
   const forks = edges.filter((edge) => edge.kind === "fork").reverse();
   let nextFork = 0;
   const ordered = edges.map((edge) => (edge.kind === "fork" ? forks[nextFork++]! : edge));
@@ -342,7 +342,8 @@ function layoutComponent(nodes: ReadonlyArray<FlowNode>, allEdges: ReadonlyArray
 /**
  * Layered layout. Repeat routes are left out so they never push steps around. Boxes the entry
  * cannot reach are laid out as their own sets, stacked below the main graph, so they never share
- * a rank with its loops and edges. Their routes into the main graph are drawn without a path.
+ * a rank with its loops and edges. Edges between two sets have no routed path; the renderer draws
+ * them with its smoothstep fallback.
  */
 export function layoutFlow(graph: FlowGraph): FlowLayout {
   const reached = new Set<string>();

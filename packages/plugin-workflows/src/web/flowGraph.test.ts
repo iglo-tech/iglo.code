@@ -203,6 +203,8 @@ describe("workflow graph", () => {
       ...ids.filter((id) => id !== "orphan" && id !== "lonely").map((id) => box(id).bottom),
     );
     expect(box("orphan").top).toBeGreaterThan(mainBottom);
+    // The orphan's edge into the main graph crosses sets, so it gets no routed path.
+    expect(layout.routes.has("orphan->done")).toBe(false);
     // No main-graph loop's legs or vertical run touch a detached box.
     for (const [id, loop] of repeatLoops(graph, layout)) {
       const owner = graph.edges.find((item) => item.id === id)!;
