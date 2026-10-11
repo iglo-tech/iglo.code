@@ -8,6 +8,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import type { PluginDesign, PluginWebContext } from "@t3tools/plugin-host-contract/web";
+import { toastManager } from "../components/ui/toast";
 import { pluginDesign } from "./design";
 import { createPluginDraftStore } from "./drafts";
 
@@ -59,6 +60,7 @@ export function createPluginWebContext(input: {
       environmentId,
       descriptor.manifest.id,
     ),
+    notify: (title) => toastManager.add({ type: "success", title }),
     navigate: openPage,
     openThread: (target) => {
       if (target.environmentId !== environmentId) return;

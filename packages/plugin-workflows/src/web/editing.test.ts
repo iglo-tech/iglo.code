@@ -10,6 +10,7 @@ import {
   newDefinition,
   problemText,
   removeStep,
+  reviewerAt,
   routeList,
   stepTitle,
 } from "./editing.ts";
@@ -146,5 +147,44 @@ describe("workflow authoring", () => {
       message: "orphan: this step is unreachable from the entry step.",
       nodeId: "orphan",
     });
+  });
+
+  it("keeps the Start step when adding and moves it to the successor when removed", () => {
+    const one = addStep(newDefinition("Flow"), "agent", null, capabilities);
+    expect(one.definition.entry).toBe(one.id);
+    // An unselected add appends to the entry's sequence instead of taking over the Start.
+    const two = addStep(one.definition, "agent", null, capabilities);
+    expect(two.definition.entry).toBe(one.id);
+    expect(routeList(two.definition).map((route) => [route.from.id, route.to])).toEqual([
+      [one.id, two.id],
+      [two.id, "done"],
+    ]);
+    expect(addStep(two.definition, "end", null, capabilities).definition.entry).toBe(one.id);
+    expect(removeStep(two.definition, one.id).entry).toBe(two.id);
+    // Without a successor the Start is left unset, which validation reports.
+    const lone = removeStep({ ...one.definition, entry: "done" }, "done");
+    expect(lone.entry).toBe("done");
+    expect(localProblems(lone)).toContainEqual(
+      expect.objectContaining({ control: "entry", severity: "error" }),
+    );
+  });
+
+  it("warns about unreachable steps of every kind, including the run limit destination", () => {
+    const entryIsEnd = { ...developmentReview, entry: "done" };
+    const warned = localProblems(entryIsEnd)
+      .filter((problem) => problem.severity === "warning")
+      .map((problem) => problem.nodeId);
+    expect(warned).toEqual(expect.arrayContaining(["implement", developmentReview.atLimit]));
+    expect(localProblems(developmentReview).filter((p) => p.severity === "warning")).toEqual([]);
+  });
+
+  it("names the field of a workflow-level problem and finds a selected reviewer", () => {
+    const limit = localProblems({ ...newDefinition("Flow"), maxVisits: 0 })[0]!;
+    expect(problemText(limit, () => "x")).toMatch(/^Run visit limit: /);
+    expect(problemText(limit, null)).toBe(limit.message);
+    const group = developmentReview.nodes.find((node) => node.kind === "parallel")!;
+    const lane = group.kind === "parallel" ? group.branches[1]! : undefined;
+    expect(reviewerAt(developmentReview, `${group.id}/${lane?.id}`)).toMatchObject({ lane: 1 });
+    expect(reviewerAt(developmentReview, group.id)).toBeUndefined();
   });
 });

@@ -81,12 +81,18 @@ export function projectCrumb(
 ): PluginBreadcrumbItem {
   const { projectId, connection } = props;
   const current = projects?.find((project) => project.id === projectId);
+  // Same-titled projects are told apart by their folder.
+  const name = (project: ProjectSummary) =>
+    projects?.some((other) => other.id !== project.id && other.title === project.title) === true
+      ? `${project.title} · ${project.location}`
+      : project.title;
   return {
-    label: current?.title ?? (projectId === null ? "Choose a project" : projectId),
+    label:
+      current === undefined ? (projectId === null ? "Choose a project" : projectId) : name(current),
     ariaLabel: "Project",
     value: projectId ?? "",
     disabled: connection === "disconnected" || projects === null,
-    options: (projects ?? []).map((project) => ({ value: project.id, label: project.title })),
+    options: (projects ?? []).map((project) => ({ value: project.id, label: name(project) })),
     onChange: (value) => props.navigate({ pageId, projectId: value as ProjectId }),
   };
 }

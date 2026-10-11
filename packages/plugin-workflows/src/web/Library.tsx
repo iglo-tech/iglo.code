@@ -5,13 +5,14 @@ import {
   FileCodeIcon,
   FilePenLineIcon,
   FolderIcon,
+  Trash2Icon,
   PlusIcon,
   UploadIcon,
   WorkflowIcon,
   WrenchIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Definition, LibraryEntry, LibraryPage } from "../contracts.ts";
+import type { Definition, LibraryEntry, LibraryPage, WorkflowPermissions } from "../contracts.ts";
 import {
   draftKey,
   ProjectsAlert,
@@ -48,7 +49,7 @@ export function LibraryPageView(props: PageProps) {
 
 function Library(props: PageProps) {
   const { client, projectId, connection, Button, Input, Badge, Textarea, Menu } = props;
-  const { ListGroup, ListRow, Empty, Alert, PageHeader, Dialog } = props;
+  const { ListGroup, ListRow, Empty, Alert, PageHeader, Dialog, ConfirmDialog } = props;
   const projects = useProjects(props);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -60,6 +61,13 @@ function Library(props: PageProps) {
   const [name, setName] = useState<string | null>(null);
   const [importText, setImportText] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<LibraryEntry | null>(null);
+  const [permissions, setPermissions] = useState<WorkflowPermissions>({
+    save: false,
+    replace: false,
+    remove: false,
+  });
+  useEffect(() => client.subscribePermissions(setPermissions), [client]);
   const offline = connection === "disconnected";
   const [localDrafts, setLocalDrafts] = useState(() =>
     projectId === null ? [] : projectDrafts(props.drafts, projectId),
@@ -145,6 +153,17 @@ function Library(props: PageProps) {
       })
       .catch((cause: unknown) => setActionError(errorMessage(cause)));
   };
+  const remove = (entry: LibraryEntry) => {
+    if (projectId === null) return;
+    setActionError(null);
+    client
+      .remove({ projectId, source: entry.source, fingerprint: entry.fingerprint })
+      .then(() => {
+        props.notify(`Deleted ${entry.title ?? entry.source}`);
+        setAttempt((value) => value + 1);
+      })
+      .catch((cause: unknown) => setActionError(errorMessage(cause)));
+  };
   const create = () => {
     if (name?.trim()) openDraft(newDefinition(name));
   };
@@ -209,9 +228,22 @@ function Library(props: PageProps) {
     );
   const entries = page?.entries ?? [];
   const searching = search.trim() !== "";
+  const visibleDrafts = searching
+    ? localDrafts.filter((draft) => draft.title.toLowerCase().includes(search.trim().toLowerCase()))
+    : localDrafts;
   return (
     <>
       {header}
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(null);
+        }}
+        title={`Delete ${removing?.title ?? removing?.source ?? "workflow"}?`}
+        description="The workflow file is removed from this project. Past runs keep their snapshot."
+        confirmLabel="Delete"
+        onConfirm={() => removing !== null && remove(removing)}
+      />
       <Dialog
         open={name !== null}
         onOpenChange={(open) => {
@@ -315,9 +347,9 @@ function Library(props: PageProps) {
               placeholder="Search workflows"
             />
           </div>
-          {localDrafts.length === 0 ? null : (
+          {visibleDrafts.length === 0 ? null : (
             <ListGroup title="Unsaved drafts" ariaLabel="Unsaved drafts">
-              {localDrafts.map((draft) => (
+              {visibleDrafts.map((draft) => (
                 <ListRow
                   key={draft.key}
                   title={draft.title}
@@ -389,7 +421,7 @@ function Library(props: PageProps) {
             )
           ) : (
             <ListGroup
-              {...(localDrafts.length === 0 ? {} : { title: "Workflows" })}
+              {...(visibleDrafts.length === 0 ? {} : { title: "Workflows" })}
               ariaLabel="Workflows"
               busy={loading}
             >
@@ -455,6 +487,17 @@ function Library(props: PageProps) {
                             icon: <FileCodeIcon />,
                             onSelect: () => open(entry, { view: "yaml" }),
                           },
+                          ...(entry.packaged
+                            ? []
+                            : [
+                                {
+                                  label: "Delete",
+                                  icon: <Trash2Icon />,
+                                  destructive: true,
+                                  disabled: !permissions.remove,
+                                  onSelect: () => setRemoving(entry),
+                                },
+                              ]),
                         ]}
                       />
                     }

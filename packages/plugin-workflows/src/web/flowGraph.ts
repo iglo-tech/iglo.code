@@ -1,3 +1,4 @@
+import { getViewportForBounds } from "@xyflow/react";
 import dagre, { type EdgeLabel, type GraphLabel, type NodeLabel } from "@dagrejs/dagre";
 import type { Definition, Node } from "../contracts.ts";
 import { routeControls } from "../definition.ts";
@@ -180,7 +181,13 @@ export function flowGraph(definition: Definition): FlowGraph {
       entry: false,
       runLimit: false,
     });
-  return { nodes, edges };
+  // A route back to its own step is drawn as a loop beside the box, never through the layers.
+  return {
+    nodes,
+    edges: edges.map((edge) =>
+      edge.source === edge.target && !edge.back ? { ...edge, back: true } : edge,
+    ),
+  };
 }
 
 export interface Point {
@@ -216,9 +223,53 @@ export function layoutSignature(graph: FlowGraph): string {
   ]);
 }
 
-/** Changes only when boxes are added or removed, the moments the canvas refits the whole graph. */
+/**
+ * Changes when boxes are added or removed or a route's ends move, the moments the canvas refits
+ * the whole graph. Labels, titles and rule values are left out so editing them keeps the view.
+ */
 export const refitKey = (graph: FlowGraph): string =>
-  JSON.stringify(graph.nodes.map((node) => node.id));
+  JSON.stringify([
+    graph.nodes.map((node) => node.id),
+    graph.edges.map((edge) => [edge.id, edge.source, edge.target]),
+  ]);
+
+export interface Bounds {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+export const fitPadding = 0.16;
+/** The zoom floor of the canvas itself, which the manual Fit button falls back to. */
+export const canvasMinZoom = 0.2;
+const readableZoom = 0.9;
+
+/**
+ * The viewport the canvas opens on. Width always fits, so nothing clips sideways, but the
+ * vertical fit never zooms below a readable level: a tall graph opens readable and anchored at
+ * its entry (the top rank) rather than shrunk to illegibility. The Fit button still shows all.
+ */
+export function autoFitViewport(bounds: Bounds, width: number, height: number) {
+  const fitsWidth = getViewportForBounds(
+    { ...bounds, height: 1 },
+    width,
+    height,
+    canvasMinZoom,
+    1,
+    fitPadding,
+  ).zoom;
+  const viewport = getViewportForBounds(
+    bounds,
+    width,
+    height,
+    Math.min(readableZoom, fitsWidth),
+    1,
+    fitPadding,
+  );
+  return bounds.height * viewport.zoom + 48 > height
+    ? { ...viewport, y: 24 - bounds.y * viewport.zoom }
+    : viewport;
+}
 
 /** Approximate drawn width of an edge label (11px medium text plus padding). */
 export const labelWidth = (label: string) => label.length * 6.5 + 16;

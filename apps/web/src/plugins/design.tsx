@@ -9,7 +9,7 @@ import {
   SearchIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { Fragment, useLayoutEffect, type ComponentProps } from "react";
+import { Fragment, useLayoutEffect, type ComponentProps, type ReactElement } from "react";
 import { SettingsGroup } from "../components/settings/SettingsGroup";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../components/ui/alert";
 import {
@@ -139,6 +139,43 @@ function PluginDialog({
   );
 }
 
+function ConfirmDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  confirmLabel,
+  onConfirm,
+}: ComponentProps<PluginDesign["ConfirmDialog"]>) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogPopup>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          {description === undefined ? null : (
+            <AlertDialogDescription>{description}</AlertDialogDescription>
+          )}
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <Button variant="outline" size="sm" autoFocus onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              onOpenChange(false);
+              onConfirm();
+            }}
+          >
+            {confirmLabel}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogPopup>
+    </AlertDialog>
+  );
+}
+
 const crumbButtonClass =
   "-mx-1.5 -my-0.5 inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
 
@@ -148,23 +185,35 @@ function Crumb({ item, current }: { item: PluginBreadcrumbItem; current: boolean
       {item.label}
     </WorkspaceBreadcrumbText>
   );
+  // A crumb can truncate, so it carries its full label as a tooltip. Tooltips need a window.
+  const withTooltip = (trigger: ReactElement) =>
+    typeof window === "undefined" ? (
+      trigger
+    ) : (
+      <Tooltip>
+        <TooltipTrigger render={trigger} />
+        <TooltipPopup side="bottom">{item.label}</TooltipPopup>
+      </Tooltip>
+    );
   if (item.options !== undefined && item.onChange !== undefined) {
     const onChange = item.onChange;
     return (
       <Menu>
-        <MenuTrigger
-          disabled={item.disabled}
-          aria-label={item.ariaLabel ?? item.label}
-          render={
-            <button
-              type="button"
-              className={current ? `${crumbButtonClass} text-foreground` : crumbButtonClass}
-            />
-          }
-        >
-          {text}
-          <ChevronDownIcon aria-hidden className="size-3.5 shrink-0 opacity-64" />
-        </MenuTrigger>
+        {withTooltip(
+          <MenuTrigger
+            disabled={item.disabled}
+            aria-label={item.ariaLabel ?? item.label}
+            render={
+              <button
+                type="button"
+                className={current ? `${crumbButtonClass} text-foreground` : crumbButtonClass}
+              />
+            }
+          >
+            {text}
+            <ChevronDownIcon aria-hidden className="size-3.5 shrink-0 opacity-64" />
+          </MenuTrigger>,
+        )}
         <MenuPopup align="start">
           {item.options.map((option) => (
             <MenuItem key={option.value} onClick={() => onChange(option.value)}>
@@ -177,7 +226,7 @@ function Crumb({ item, current }: { item: PluginBreadcrumbItem; current: boolean
     );
   }
   if (item.onSelect !== undefined && !current)
-    return (
+    return withTooltip(
       <button
         type="button"
         aria-label={item.ariaLabel}
@@ -186,9 +235,9 @@ function Crumb({ item, current }: { item: PluginBreadcrumbItem; current: boolean
         className={crumbButtonClass}
       >
         {text}
-      </button>
+      </button>,
     );
-  return <h1 className="min-w-0 text-sm font-medium">{text}</h1>;
+  return withTooltip(<h1 className="min-w-0 text-sm font-medium">{text}</h1>);
 }
 
 /** The connection notice a page shows while its environment is not reconciled. */
@@ -236,8 +285,9 @@ function PageHeader({ breadcrumb, children }: ComponentProps<PluginDesign["PageH
               <Fragment key={index}>
                 <WorkspaceBreadcrumbItem
                   current={current}
-                  // The current page keeps its width first; parents truncate before it does.
-                  className={current ? "min-w-10 shrink" : `min-w-6 shrink-[8] ${leading}`}
+                  // The current page takes the free space, like the chat header's thread title,
+                  // so crumbs truncate only when the bar is out of room; parents give way first.
+                  className={current ? "min-w-10 flex-1" : `min-w-6 shrink-[8] ${leading}`}
                 >
                   <Crumb item={item} current={current} />
                 </WorkspaceBreadcrumbItem>
@@ -302,7 +352,7 @@ export const pluginDesign: PluginDesign = {
           <InputGroupAddon>
             <SearchIcon aria-hidden />
           </InputGroupAddon>
-          <InputGroupInput {...input} nativeInput />
+          <InputGroupInput {...input} />
         </InputGroup>
       );
     return <Input {...input} nativeInput />;
@@ -500,5 +550,6 @@ export const pluginDesign: PluginDesign = {
     </Sheet>
   ),
   Dialog: PluginDialog,
+  ConfirmDialog,
   NavigationGuard,
 };

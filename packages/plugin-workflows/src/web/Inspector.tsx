@@ -1,12 +1,22 @@
 import { Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ProviderInstanceId, RuntimeMode } from "@t3tools/plugin-host-contract/schema";
-import type { Capabilities, Definition, Field, Node, Problem, Route, Skill } from "../contracts.ts";
+import type {
+  Agent,
+  Capabilities,
+  Definition,
+  Field,
+  Node,
+  Problem,
+  Route,
+  Skill,
+} from "../contracts.ts";
 import { Labeled, errorMessage, type PageProps } from "./common.tsx";
 import {
   isProtected,
   kindLabels,
   problemText,
+  reviewerAt,
   routeList,
   updateNode,
   upstreamFields,
@@ -51,35 +61,62 @@ interface InspectorProps {
   readonly onChange: (definition: Definition) => void;
   /** Set when the selected step can be removed. */
   readonly onRemove?: (stepId: string) => void;
+  /** The surrounding panel already titles the inspector (a sheet), so the heading is spoken only. */
+  readonly hideHeading?: boolean;
 }
 
 export function Inspector(input: InspectorProps) {
   const node = input.definition.nodes.find((item) => item.id === input.selected);
+  const reviewer = reviewerAt(input.definition, input.selected);
+  const heading =
+    reviewer !== undefined
+      ? "Reviewer"
+      : node === undefined
+        ? "Workflow settings"
+        : kindLabels[node.kind];
+  const removable = node !== undefined && input.onRemove !== undefined;
   return (
     <section aria-labelledby="wf-inspector-title" className="flex min-w-0 flex-col gap-4">
-      <div className="flex min-h-7 items-center gap-2">
-        <h2
-          id="wf-inspector-title"
-          className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium"
-        >
-          {node === undefined ? null : (
-            <KindIcon kind={node.kind} className="size-4 text-muted-foreground" />
-          )}
-          {node === undefined ? "Workflow settings" : kindLabels[node.kind]}
+      {input.hideHeading === true && !removable ? (
+        <h2 id="wf-inspector-title" className="sr-only">
+          {heading}
         </h2>
-        {node === undefined || input.onRemove === undefined ? null : (
-          <input.props.Button
-            size="icon-xs"
-            variant="ghost"
-            tooltip="Remove step"
-            ariaLabel={`Remove ${node.title || node.id}`}
-            onClick={() => input.onRemove?.(node.id)}
+      ) : (
+        <div className="flex min-h-7 items-center gap-2">
+          <h2
+            id="wf-inspector-title"
+            className={`flex min-w-0 flex-1 items-center gap-2 text-sm font-medium ${input.hideHeading === true ? "sr-only" : ""}`}
           >
-            <Trash2Icon />
-          </input.props.Button>
-        )}
-      </div>
-      {node === undefined ? (
+            {node === undefined && reviewer === undefined ? null : (
+              <KindIcon
+                kind={reviewer === undefined ? node!.kind : "agent"}
+                className="size-4 text-muted-foreground"
+              />
+            )}
+            {heading}
+          </h2>
+          {removable ? (
+            <input.props.Button
+              size="icon-xs"
+              variant="ghost"
+              tooltip="Remove step"
+              ariaLabel={`Remove ${node.title || node.id}`}
+              onClick={() => input.onRemove?.(node.id)}
+            >
+              <Trash2Icon />
+            </input.props.Button>
+          ) : null}
+        </div>
+      )}
+      {reviewer !== undefined ? (
+        <ReviewerInspector
+          key={input.selected}
+          {...input}
+          group={reviewer.group}
+          reviewer={reviewer.branch}
+          lane={reviewer.lane}
+        />
+      ) : node === undefined ? (
         <WorkflowSettings {...input} />
       ) : node.kind === "agent" ? (
         <AgentInspector key={node.id} {...input} node={node} />
@@ -92,6 +129,78 @@ export function Inspector(input: InspectorProps) {
   );
 }
 
+/**
+ * One reviewer lane of a parallel group, read-only: what it is, which model runs it and what it
+ * is asked to do. Editing reviewers arrives with the group's own editor.
+ */
+function ReviewerInspector({
+  props,
+  group,
+  reviewer,
+  lane,
+  problems,
+}: InspectorProps & {
+  readonly group: Extract<Node, { kind: "parallel" }>;
+  readonly reviewer: Extract<Node, { kind: "parallel" }>["branches"][number];
+  readonly lane: number;
+}) {
+  const { Input, Textarea, Badge } = props;
+  const id = (control: string) => controlId(`${group.id}/${reviewer.id}`, control);
+  const mine = problems.filter(
+    (problem) => problem.nodeId === group.id && matches(problem, group.id, `branches.${lane}`),
+  );
+  const row = (control: string, label: string, value: string) => (
+    <Labeled id={id(control)} label={label}>
+      <Input id={id(control)} value={value} readOnly disabled onChange={() => {}} />
+    </Labeled>
+  );
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="min-w-0 truncate font-medium">{reviewer.title || reviewer.id}</span>
+        <Badge variant="secondary">Read-only</Badge>
+      </div>
+      {row(
+        "model",
+        "Model",
+        `${reviewer.modelSelection.instanceId} · ${reviewer.modelSelection.model}`,
+      )}
+      {row("runtimeMode", "Runtime mode", runtimeLabels[reviewer.runtimeMode])}
+      {reviewer.skill === undefined ? null : row("skill", "Installed skill", reviewer.skill)}
+      <Labeled id={id("instruction")} label="Instructions">
+        <Textarea
+          id={id("instruction")}
+          rows={6}
+          value={reviewer.instruction}
+          readOnly
+          disabled
+          onChange={() => {}}
+        />
+      </Labeled>
+      {reviewer.report.fields.length === 0
+        ? null
+        : row(
+            "report",
+            "Report fields",
+            reviewer.report.fields.map((field) => field.name).join(", "),
+          )}
+      {mine.length === 0 ? null : (
+        <ul className="text-xs">
+          {mine.map((problem, index) => (
+            <li
+              key={index}
+              className={
+                problem.severity === "error" ? "text-destructive" : "text-warning-foreground"
+              }
+            >
+              {problemText(problem, null)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 function Problems({
   problems,
   nodeId,

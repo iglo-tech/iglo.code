@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 import { developmentReview, examples } from "../examples.ts";
-import { flowGraph, layoutFlow, layoutSignature, refitKey, repeatLoops } from "./flowGraph.ts";
+import {
+  autoFitViewport,
+  flowGraph,
+  layoutFlow,
+  layoutSignature,
+  refitKey,
+  repeatLoops,
+} from "./flowGraph.ts";
 import { stepButtonId } from "./Flow.tsx";
 
 const edge = (graph: ReturnType<typeof flowGraph>, source: string, target: string) =>
@@ -75,8 +82,11 @@ describe("workflow graph", () => {
     expect(edge(graph, "review", "implement")).toMatchObject([
       { kind: "repeat", label: "changes · repeat ×1", back: true },
     ]);
-    expect(edge(graph, "review", "review")).toMatchObject([{ kind: "atLimit" }]);
-    expect(layoutFlow(graph).routes.get("review:changes.repeat")?.points.length).toBeGreaterThan(1);
+    expect(edge(graph, "review", "review")).toMatchObject([{ kind: "atLimit", back: true }]);
+    // The self-route is a loop beside the box, not a layered edge.
+    const layout = layoutFlow(graph);
+    expect(layout.routes.has("review:changes.repeat")).toBe(false);
+    expect(repeatLoops(graph, layout).has("review:changes.repeat")).toBe(true);
   });
 
   it("keeps a dangling route visible against a missing step", () => {
@@ -122,6 +132,45 @@ describe("workflow graph", () => {
       nodes: developmentReview.nodes.filter((node) => node.id !== "unresolved"),
     };
     expect(refitKey(flowGraph(shorter))).not.toBe(key);
+    // A route's target moving is structure; its label (rule value) is not.
+    const rerouted = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.id === "implement" && node.kind === "agent" ? { ...node, next: { to: "done" } } : node,
+      ),
+    };
+    expect(refitKey(flowGraph(rerouted))).not.toBe(key);
+    const graph = flowGraph(developmentReview);
+    const relabeledEdges = { ...graph, edges: graph.edges.map((e) => ({ ...e, label: "x" })) };
+    expect(refitKey(relabeledEdges)).toBe(key);
+  });
+
+  it("draws a route to its own step as a loop beside the box", () => {
+    const self = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.kind === "human" ? { ...node, changes: { to: node.id } } : node,
+      ),
+    };
+    const graph = flowGraph(self);
+    const human = self.nodes.find((node) => node.kind === "human")!;
+    const loop = edge(graph, human.id, human.id);
+    expect(loop.length).toBeGreaterThan(0);
+    expect(loop.every((item) => item.back)).toBe(true);
+    const loops = repeatLoops(graph, layoutFlow(graph));
+    for (const item of loop) expect(loops.has(item.id)).toBe(true);
+  });
+
+  it("opens tall graphs readable at the entry and wide graphs at full width", () => {
+    const tall = autoFitViewport({ x: 0, y: 100, width: 232, height: 2000 }, 800, 600);
+    expect(tall.zoom).toBe(0.9);
+    expect(tall.y).toBeCloseTo(24 - 100 * 0.9);
+    const wide = autoFitViewport({ x: 0, y: 0, width: 1400, height: 400 }, 600, 500);
+    expect(wide.zoom).toBeLessThan(0.9);
+    expect(1400 * wide.zoom).toBeLessThanOrEqual(600);
+    const small = autoFitViewport({ x: 0, y: 0, width: 232, height: 200 }, 800, 600);
+    expect(small.zoom).toBe(1);
+    expect(small.y).toBeGreaterThan(0);
   });
 
   it("gives every box a distinct focus id", () => {

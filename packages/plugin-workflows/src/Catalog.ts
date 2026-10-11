@@ -26,6 +26,7 @@ import {
   type Problem,
   type ProjectSummary,
   type ReadInput,
+  type RemoveInput,
   type ReplaceInput,
   type SaveInput,
   type ScopeInput,
@@ -62,6 +63,8 @@ export class Catalog extends Context.Service<
     readonly read: (input: ReadInput) => Effect.Effect<AuthoringEntry, PluginError>;
     readonly save: (input: SaveInput) => Effect.Effect<AuthoringEntry, PluginError>;
     readonly replace: (input: ReplaceInput) => Effect.Effect<AuthoringEntry, PluginError>;
+    /** Delete one authored workflow file; packaged workflows cannot be deleted. */
+    readonly remove: (input: RemoveInput) => Effect.Effect<void, PluginError>;
     readonly capabilities: (input: Scope) => Effect.Effect<Capabilities, PluginError>;
     readonly skills: (
       input: Scope & { readonly providerInstanceId: ProviderInstanceId },
@@ -591,6 +594,27 @@ const make = Effect.gen(function* () {
         return yield* written(input, input.source, text, entry.definition);
       }).pipe(lock.withPermits(1)),
     );
+  const remove = (input: RemoveInput) =>
+    protect(
+      "remove",
+      Effect.gen(function* () {
+        const directory = yield* root(input);
+        const current = (yield* scan(input)).find((entry) => entry.source === input.source);
+        if (!current || current.packaged)
+          return yield* error(
+            "remove",
+            "Only an authored workflow file in this project catalog can be deleted.",
+            "unavailable",
+          );
+        if (current.fingerprint !== input.fingerprint)
+          return yield* error(
+            "remove",
+            "The workflow file changed since it was read. Reload it before deleting.",
+            "conflict",
+          );
+        yield* fs.remove(path.join(directory, path.basename(input.source)));
+      }).pipe(lock.withPermits(1)),
+    );
   const capabilities = (input: Scope) =>
     protect(
       "capabilities",
@@ -638,7 +662,17 @@ const make = Effect.gen(function* () {
       "projects",
       environment(input.environmentId, "projects").pipe(
         Effect.andThen(host.projects()),
-        Effect.map((projects) => projects.map(({ id, title }) => ({ id, title }))),
+        Effect.map((projects) =>
+          projects.map(({ id, title, workspaceRoot }) => ({
+            id,
+            title,
+            location: workspaceRoot
+              .split(/[\\/]+/)
+              .filter(Boolean)
+              .slice(-2)
+              .join("/"),
+          })),
+        ),
       ),
     );
   const displayEntry = (entry: CatalogEntry) =>
@@ -658,6 +692,7 @@ const make = Effect.gen(function* () {
     read,
     save,
     replace,
+    remove,
     capabilities,
     skills,
     projects,

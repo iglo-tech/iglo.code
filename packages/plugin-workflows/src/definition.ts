@@ -305,16 +305,29 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
       }
   for (const id of nodes.keys())
     if (!reachable.has(id)) add(`${id}: no terminal path.`, { nodeId: id });
-  // The engine also routes to the run At limit destination when the visit bound is reached.
+  // The run At limit destination is only reached when a bounded repeat can exhaust the visit
+  // bound, so it counts as entered only when the entry's flow contains a repeat route.
   const entered = new Set(nodes.has(definition.entry) ? [definition.entry] : []);
-  if (nodes.has(definition.atLimit)) entered.add(definition.atLimit);
   const frontier = [...entered];
-  for (let index = 0; index < frontier.length; index++)
-    for (const destination of destinations(nodes.get(frontier[index]!)!))
+  let repeats = false;
+  for (let index = 0; index < frontier.length; index++) {
+    const node = nodes.get(frontier[index]!)!;
+    if (routes(node).some((route) => route.repeat)) repeats = true;
+    for (const destination of destinations(node))
       if (nodes.has(destination) && !entered.has(destination)) {
         entered.add(destination);
         frontier.push(destination);
       }
+    if (
+      index === frontier.length - 1 &&
+      repeats &&
+      nodes.has(definition.atLimit) &&
+      !entered.has(definition.atLimit)
+    ) {
+      entered.add(definition.atLimit);
+      frontier.push(definition.atLimit);
+    }
+  }
   for (const node of definition.nodes)
     if (!entered.has(node.id))
       add(

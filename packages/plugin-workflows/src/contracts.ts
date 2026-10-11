@@ -484,6 +484,14 @@ export const ReplaceInput = Schema.Struct({
   definition: Definition,
 });
 export type ReplaceInput = typeof ReplaceInput.Type;
+/** Delete exactly one authored file whose content still has the observed fingerprint. */
+export const RemoveInput = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  source: sourceText,
+  fingerprint,
+});
+export type RemoveInput = typeof RemoveInput.Type;
 export const ProviderCapability = Schema.Struct({
   instanceId: Schema.String,
   driver: Schema.String,
@@ -525,7 +533,12 @@ export const Skill = Schema.Struct({
   enabled: Schema.Boolean,
 });
 export type Skill = typeof Skill.Type;
-export const ProjectSummary = Schema.Struct({ id: ProjectId, title: Schema.String });
+export const ProjectSummary = Schema.Struct({
+  id: ProjectId,
+  title: Schema.String,
+  /** The workspace folder's last two path segments, to tell same-titled projects apart. */
+  location: Schema.String,
+});
 export type ProjectSummary = typeof ProjectSummary.Type;
 export const ScopeInput = Schema.Struct({ environmentId: EnvironmentId, projectId: ProjectId });
 export const StartInput = Schema.Struct({
@@ -591,6 +604,11 @@ export const rpcs = {
     success: AuthoringEntry,
     error,
   }),
+  remove: Rpc.make("plugins.workflows.remove", {
+    payload: RemoveInput,
+    success: Schema.Void,
+    error,
+  }),
   capabilities: Rpc.make("plugins.workflows.capabilities", {
     payload: ScopeInput,
     success: Capabilities,
@@ -642,6 +660,7 @@ export const apiScopes = {
   [rpcs.library._tag]: AuthOrchestrationReadScope,
   [rpcs.read._tag]: AuthOrchestrationReadScope,
   [rpcs.replace._tag]: AuthOrchestrationOperateScope,
+  [rpcs.remove._tag]: AuthOrchestrationOperateScope,
   [rpcs.capabilities._tag]: AuthOrchestrationReadScope,
   [rpcs.skills._tag]: AuthOrchestrationReadScope,
   [rpcs.projects._tag]: AuthOrchestrationReadScope,
@@ -694,6 +713,7 @@ export const manifest = {
 export interface WorkflowPermissions {
   readonly save: boolean;
   readonly replace: boolean;
+  readonly remove: boolean;
 }
 type Scoped<I> = Omit<I, "environmentId">;
 /** Environment-bound client the host supplies to workflow pages; rejections carry `_tag`/`message`. */
@@ -710,6 +730,7 @@ export interface WorkflowClient {
   }) => Promise<CatalogEntry>;
   readonly save: (input: Scoped<SaveInput>) => Promise<AuthoringEntry>;
   readonly replace: (input: Scoped<ReplaceInput>) => Promise<AuthoringEntry>;
+  readonly remove: (input: Scoped<RemoveInput>) => Promise<void>;
   readonly capabilities: (projectId: ProjectId) => Promise<Capabilities>;
   readonly skills: (input: {
     readonly projectId: ProjectId;

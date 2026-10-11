@@ -307,3 +307,51 @@ it.effect("names an existing identity when a new workflow would take it over", (
     }),
   ).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it.effect("deletes an authored workflow only through its observed fingerprint", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture;
+      const fs = yield* FileSystem.FileSystem;
+      const scope = { environmentId: test.environmentId, projectId: test.projectId };
+      const directory = `${test.directory}/.t3code/workflows`;
+      yield* fs.makeDirectory(directory, { recursive: true });
+      const doomed = `${directory}/doomed.yaml`;
+      const neighbour = `${directory}/neighbour.yaml`;
+      yield* fs.writeFileString(doomed, Yaml.stringify({ ...sequence, id: "doomed" }));
+      const kept = Yaml.stringify({ ...sequence, id: "neighbour" });
+      yield* fs.writeFileString(neighbour, kept);
+      const source = ".t3code/workflows/doomed.yaml";
+      const observed = yield* test
+        .invoke("read", { ...scope, source })
+        .pipe(Effect.flatMap(decodeAuthoring));
+      // An external edit since the read conflicts and keeps the file.
+      yield* fs.writeFileString(
+        doomed,
+        Yaml.stringify({ ...sequence, id: "doomed", title: "Edited" }),
+      );
+      const stale = yield* test
+        .invoke("remove", { ...scope, source, fingerprint: observed.fingerprint })
+        .pipe(Effect.result);
+      expect(stale).toMatchObject({ _tag: "Failure", failure: { code: "conflict" } });
+      expect(yield* fs.exists(doomed)).toBe(true);
+      const current = yield* test
+        .invoke("read", { ...scope, source })
+        .pipe(Effect.flatMap(decodeAuthoring));
+      yield* test.invoke("remove", { ...scope, source, fingerprint: current.fingerprint });
+      expect(yield* fs.exists(doomed)).toBe(false);
+      expect(yield* fs.readFileString(neighbour)).toBe(kept);
+      // Gone, packaged and out-of-catalog sources are unavailable, never silently ignored.
+      for (const missing of [
+        source,
+        "packaged:implementation",
+        ".t3code/workflows/../escape.yaml",
+      ]) {
+        const result = yield* test
+          .invoke("remove", { ...scope, source: missing, fingerprint: current.fingerprint })
+          .pipe(Effect.result);
+        expect(result).toMatchObject({ _tag: "Failure", failure: { code: "unavailable" } });
+      }
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);

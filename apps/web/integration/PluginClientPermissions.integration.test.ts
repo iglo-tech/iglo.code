@@ -224,6 +224,12 @@ it.live(
               fingerprint: "0".repeat(64),
               definition,
             }),
+          () =>
+            workflows.remove({
+              projectId,
+              source: ".t3code/workflows/guarded.yaml",
+              fingerprint: "0".repeat(64),
+            }),
         ]) {
           yield* Effect.promise(() =>
             expect(command()).rejects.toMatchObject({ _tag: "EnvironmentAuthorizationError" }),
@@ -236,6 +242,7 @@ it.live(
               "plugins.fixture.schedule",
               "plugins.workflows.save",
               "plugins.workflows.replace",
+              "plugins.workflows.remove",
             ].includes(method),
           ),
         ).toEqual([]);

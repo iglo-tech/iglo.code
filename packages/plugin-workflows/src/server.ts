@@ -51,6 +51,7 @@ export const plugin: ServerPlugin = {
       library: (input: typeof rpcs.library.payloadSchema.Type) => catalog.library(input),
       read: (input: typeof rpcs.read.payloadSchema.Type) => catalog.read(input),
       replace: (input: typeof rpcs.replace.payloadSchema.Type) => catalog.replace(input),
+      remove: (input: typeof rpcs.remove.payloadSchema.Type) => catalog.remove(input),
       capabilities: (input: typeof rpcs.capabilities.payloadSchema.Type) =>
         catalog.capabilities(input),
       skills: (input: typeof rpcs.skills.payloadSchema.Type) => catalog.skills(input),

@@ -131,6 +131,8 @@ export const handlers = (registry: Registry.PluginRegistry["Service"]) => ({
     request(registry, workflowRpcs.read._tag, input, AuthoringEntry),
   [workflowRpcs.replace._tag]: (input: typeof workflowRpcs.replace.payloadSchema.Type) =>
     request(registry, workflowRpcs.replace._tag, input, AuthoringEntry),
+  [workflowRpcs.remove._tag]: (input: typeof workflowRpcs.remove.payloadSchema.Type) =>
+    request(registry, workflowRpcs.remove._tag, input, Schema.Void),
   [workflowRpcs.capabilities._tag]: (input: typeof workflowRpcs.capabilities.payloadSchema.Type) =>
     request(registry, workflowRpcs.capabilities._tag, input, Capabilities),
   [workflowRpcs.skills._tag]: (input: typeof workflowRpcs.skills.payloadSchema.Type) =>

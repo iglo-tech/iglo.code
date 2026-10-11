@@ -11,7 +11,6 @@ import {
   ReactFlow,
   ReactFlowProvider,
   getSmoothStepPath,
-  getViewportForBounds,
   useReactFlow,
   useStore,
   useStoreApi,
@@ -35,6 +34,9 @@ import {
 import type { Definition, Problem } from "../contracts.ts";
 import { editableKinds, kindLabels } from "./editing.ts";
 import {
+  autoFitViewport,
+  canvasMinZoom,
+  fitPadding,
   flowGraph,
   layoutFlow,
   layoutSignature,
@@ -42,6 +44,7 @@ import {
   loopPath,
   repeatLoops,
   splinePath,
+  type Bounds,
   type FlowEdge,
   type FlowGraph,
   type FlowNode,
@@ -175,7 +178,9 @@ function StepCard({
         isConnectable={false}
         style={hiddenHandle}
       />
-      <WithTooltip label={node.title}>
+      <WithTooltip
+        label={`${node.title} · ${kindText(node.kind)}${node.detail === null ? "" : ` · ${node.detail}`}`}
+      >
         <button
           type="button"
           id={stepButtonId(node.id)}
@@ -273,10 +278,14 @@ function RouteLine({
   if (data.loop !== null) {
     // Repeat routes leave and re-enter on the right, outside every box they pass, so the
     // return reads as a loop back up; the label sits beside the loop's vertical run.
-    path = loopPath({ x: sourceX, y: sourceY }, { x: targetX, y: targetY }, data.loop.x, {
-      source: data.loop.sourceDetour,
-      target: data.loop.targetDetour,
-    });
+    // A route to its own step leaves above the card's middle and returns below it.
+    const own = data.edge.source === data.edge.target ? 10 : 0;
+    path = loopPath(
+      { x: sourceX, y: sourceY - own },
+      { x: targetX, y: targetY + own },
+      data.loop.x,
+      { source: data.loop.sourceDetour, target: data.loop.targetDetour },
+    );
     label = data.edge.label === "" ? null : { x: data.loop.x, y: (sourceY + targetY) / 2 };
     beside = true;
   } else if (data.points === null) {
@@ -328,8 +337,9 @@ function RouteLine({
 
 const nodeTypes = { step: StepCard, bounds: () => null };
 const edgeTypes = { route: RouteLine };
-const fitOptions = { padding: 0.16, maxZoom: 1 };
-const minZoom = 0.2;
+// The Fit button shows the whole graph, down to the canvas zoom floor.
+const manualFit = { padding: fitPadding, maxZoom: 1 };
+const minZoom = canvasMinZoom;
 // App tokens drive React Flow's own chrome so light and dark themes follow the app.
 const theme = {
   "--xy-background-color": "transparent",
@@ -351,8 +361,9 @@ const laidOut = (graph: FlowGraph, key: string) => {
 };
 
 /**
- * Fit the whole graph, loops included, on load, when steps are added or removed, and when the
- * canvas is resized (narrow layouts, the inspector opening). The viewport is computed from the
+ * Fit the graph, loops included, on load, when the structure changes, and when the canvas is
+ * resized (narrow layouts, the inspector opening). The vertical zoom has a readable floor (see
+ * `autoFitViewport`); the Fit button shows everything. The viewport is computed from the
  * layout directly, so it never waits on React Flow measuring the boxes.
  */
 function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: string }) {
@@ -368,26 +379,11 @@ function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: s
   const height = useStore((state) => state.height);
   useEffect(() => {
     if (!ready || width <= 0 || height <= 0) return;
-    void setViewport(
-      getViewportForBounds(
-        latest.current,
-        width,
-        height,
-        minZoom,
-        fitOptions.maxZoom,
-        fitOptions.padding,
-      ),
-    );
+    void setViewport(autoFitViewport(latest.current, width, height));
   }, [fitKey, ready, width, height, setViewport]);
   return null;
 }
 
-interface Bounds {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
 function graphBounds(
   layout: ReturnType<typeof layoutFlow>,
   loops: ReadonlyMap<string, RepeatLoop>,
@@ -476,7 +472,7 @@ export function Graph({
           measured: size,
           data: {
             node,
-            selected: node.kind !== "branch" && selected === node.stepId,
+            selected: selected === node.id,
             errors: count?.errors ?? 0,
             warnings: count?.warnings ?? 0,
           },
@@ -564,12 +560,13 @@ export function Graph({
           panOnScroll
           onPaneClick={() => onSelect(null)}
           onNodeClick={(_, node) => {
-            if (node.type === "step") onSelect(node.data.node.stepId);
+            // A reviewer lane selects itself, not its group; steps use their own id.
+            if (node.type === "step") onSelect(node.data.node.id);
           }}
           attributionPosition="bottom-right"
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-          <Controls showInteractive={false} position="bottom-left" fitViewOptions={fitOptions} />
+          <Controls showInteractive={false} position="bottom-left" fitViewOptions={manualFit} />
           <Refit bounds={bounds} fitKey={fitKey} />
         </ReactFlow>
       </ReactFlowProvider>

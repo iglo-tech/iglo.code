@@ -84,6 +84,25 @@ export function defaultAgent(capabilities: Capabilities | null): Agent {
 }
 
 /**
+ * Where an unselected add lands: after the last step of the entry's plain sequence, so the
+ * Start step never changes implicitly. Null when the entry is not an agent step (an empty
+ * workflow), where the new step becomes the Start.
+ */
+function tail(definition: Definition): string | null {
+  const seen = new Set<string>();
+  let current = definition.nodes.find((node) => node.id === definition.entry);
+  let last: string | null = null;
+  while (current?.kind === "agent" && !seen.has(current.id)) {
+    seen.add(current.id);
+    last = current.id;
+    const next = current.next;
+    if (next.repeat) break;
+    current = definition.nodes.find((node) => node.id === next.to);
+  }
+  return last;
+}
+
+/**
  * Add a step after `after` (or before the entry when nothing is selected) and keep the
  * sequence connected: the new step inherits the previous outgoing route.
  */
@@ -100,7 +119,7 @@ export function addStep(
   }
   const id = uniqueId(definition, "agent");
   const count = definition.nodes.filter((node) => node.kind === "agent").length + 1;
-  const previous = definition.nodes.find((node) => node.id === after);
+  const previous = definition.nodes.find((node) => node.id === (after ?? tail(definition)));
   const target =
     previous?.kind === "agent" || previous?.kind === "check"
       ? previous.next.to
@@ -123,7 +142,9 @@ export function addStep(
       ...definition,
       entry: previous === undefined ? id : definition.entry,
       nodes: nodes.map((item) =>
-        item.id === after && (item.kind === "agent" || item.kind === "check") && !item.next.repeat
+        item.id === previous?.id &&
+        (item.kind === "agent" || item.kind === "check") &&
+        !item.next.repeat
           ? { ...item, next: { to: id } }
           : item,
       ),
@@ -150,13 +171,16 @@ export function removeStep(definition: Definition, id: string): Definition {
   const removed = definition.nodes.find((node) => node.id === id);
   if (!removed || definition.nodes.length === 1) return definition;
   const replacement = removed.kind === "agent" && !removed.next.repeat ? removed.next.to : null;
+  // The Start moves to the removed step's successor, or is left dangling so validation names it.
+  const successor =
+    replacement ?? routeControls(removed).find(({ route }) => route.to !== id)?.route.to ?? null;
   const reroute = (route: Route): Route =>
     replacement !== null && route.to === id && !route.repeat
       ? { ...route, to: replacement }
       : route;
   return {
     ...definition,
-    entry: definition.entry === id && replacement !== null ? replacement : definition.entry,
+    entry: definition.entry === id && successor !== null ? successor : definition.entry,
     nodes: definition.nodes
       .filter((node) => node.id !== id)
       .map((node) =>
@@ -169,6 +193,20 @@ export function removeStep(definition: Definition, id: string): Definition {
           : node,
       ),
   };
+}
+
+/**
+ * A selected box id names a step, or a reviewer lane as `<group>/<reviewer>` (the same id the
+ * graph draws it with). Returns the reviewer and the group that owns it.
+ */
+export function reviewerAt(definition: Definition, selected: string | null) {
+  const slash = selected?.indexOf("/") ?? -1;
+  if (selected === null || slash < 0) return undefined;
+  const group = definition.nodes.find((node) => node.id === selected.slice(0, slash));
+  if (group?.kind !== "parallel") return undefined;
+  const lane = group.branches.findIndex((branch) => branch.id === selected.slice(slash + 1));
+  const branch = group.branches[lane];
+  return branch === undefined ? undefined : { group, branch, lane };
 }
 
 export function updateNode(definition: Definition, id: string, update: (node: Node) => Node) {
@@ -204,6 +242,15 @@ export function schemaLocation(
   return control === "" ? { nodeId } : { nodeId, control };
 }
 
+/** Workflow settings fields, as labeled in the inspector. */
+const workflowFields: Readonly<Record<string, string>> = {
+  title: "Name",
+  id: "Workflow ID",
+  entry: "Start at",
+  maxVisits: "Run visit limit",
+  atLimit: "At limit",
+};
+
 /**
  * A problem's message for display. Server reasons name steps by identity (`agent-1: ...`);
  * `stepTitle` names the step by title instead, and `null` drops the name inside that step's
@@ -213,6 +260,9 @@ export function problemText(
   problem: Problem,
   stepTitle: ((stepId: string) => string) | null,
 ): string {
+  // A workflow-level problem names its field the way a step problem names its step.
+  const field = problem.nodeId === undefined ? workflowFields[problem.control ?? ""] : undefined;
+  if (field !== undefined && stepTitle !== null) return `${field}: ${problem.message}`;
   const prefix = problem.nodeId === undefined ? null : `${problem.nodeId}: `;
   if (prefix === null || !problem.message.startsWith(prefix)) return problem.message;
   const rest = problem.message.slice(prefix.length);

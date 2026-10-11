@@ -105,6 +105,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const [permissions, setPermissions] = useState<WorkflowPermissions>({
     save: false,
     replace: false,
+    remove: false,
   });
   const [view, setView] = useState<View>(() =>
     pageState.import === "1" || pageState.view === "yaml" ? "yaml" : defaultView(),
@@ -285,13 +286,27 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     setDraft(next);
   };
   // Stable so the graph's memoized handlers survive edits.
+  const latestDraft = useRef(draft);
+  useEffect(() => {
+    latestDraft.current = draft;
+  });
+  const { notify } = props;
   const removeSelected = useCallback(
     (id: string) => {
-      if (readOnly) return;
-      setDraft((current) => (current === null ? current : removeStep(current, id)));
-      setSelected((current) => (current === id ? null : current));
+      const current = latestDraft.current;
+      if (readOnly || current === null) return;
+      const next = removeStep(current, id);
+      setDraft(next);
+      setSelected((now) => (now === id || now?.startsWith(`${id}/`) ? null : now));
+      // The Start moves with its step's successor; say so instead of moving it silently.
+      if (current.entry === id)
+        notify(
+          next.nodes.some((node) => node.id === next.entry)
+            ? `Start moved to ${stepTitle(next)(next.entry)}`
+            : "Start step removed · choose a new one",
+        );
     },
-    [readOnly],
+    [readOnly, notify],
   );
   const select = useCallback(
     (id: string | null) => {
@@ -300,6 +315,13 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     },
     [narrow],
   );
+  // Leaving the import pane drops its text, error and preview so reopening starts clean.
+  const closeImport = () => {
+    setImporting(false);
+    setImportText("");
+    setImportError(null);
+    setCandidate(null);
+  };
   const discard = () => {
     forget();
     setDraft(server?.definition ?? null);
@@ -392,9 +414,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           ? { mode: "new", source: null, fingerprint: null, revision: null }
           : { ...baseOf(server), mode: "replace" },
       );
-    setCandidate(null);
-    setImportText("");
-    setImporting(false);
+    closeImport();
     setView(defaultView());
     setSelected(null);
   };
@@ -482,7 +502,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       </Badge>
     ) : (
       <span className="max-sm:hidden">
-        <Badge variant="outline">
+        <Badge variant={base?.revision != null ? "success" : "secondary"}>
           {base?.revision != null ? `Saved revision ${base.revision}` : "Not saved yet"}
         </Badge>
       </span>
@@ -510,7 +530,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     draft.nodes.length > 1 &&
     selectedKind !== undefined &&
     (editableKinds as ReadonlyArray<string>).includes(selectedKind);
-  const inspector =
+  const inspectorPanel = (inSheet: boolean) =>
     draft === null ? null : (
       <div className="flex flex-col gap-5">
         {selected === null && problems.length > 0 ? (
@@ -558,6 +578,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           identityEditable={base?.mode !== "edit"}
           onChange={change}
           {...(selectedRemovable ? { onRemove: removeSelected } : {})}
+          hideHeading={inSheet && selected === null}
         />
       </div>
     );
@@ -668,7 +689,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
               onClick={() => {
                 compareLatest();
                 setView("yaml");
-                setImporting(false);
+                closeImport();
               }}
             >
               Compare
@@ -761,7 +782,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           {candidate === null ? (
             <div className="flex flex-wrap justify-end gap-2">
               {draft === null ? null : (
-                <Button variant="ghost" onClick={() => setImporting(false)}>
+                <Button variant="ghost" onClick={closeImport}>
                   Cancel
                 </Button>
               )}
@@ -819,7 +840,11 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
               <Button
                 size="xs"
                 variant="ghost"
-                onClick={() => void navigator.clipboard?.writeText(exported.text)}
+                onClick={() =>
+                  void navigator.clipboard
+                    ?.writeText(exported.text)
+                    .then(() => notify("YAML copied"))
+                }
               >
                 <CopyIcon />
                 Copy
@@ -860,7 +885,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           !offline &&
           validationUnavailable === null ? (
             <span className="max-sm:hidden">
-              <Badge variant="outline">Checking…</Badge>
+              <Badge variant="secondary">Checking…</Badge>
             </span>
           ) : null}
           {!offline && !saveAllowed && !readOnly ? (
@@ -888,7 +913,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                     label: "Export YAML",
                     icon: <FileCodeIcon />,
                     onSelect: () => {
-                      setImporting(false);
+                      closeImport();
                       setView("yaml");
                     },
                   },
@@ -1012,7 +1037,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             aria-labelledby="wf-inspector-title"
             className="w-80 shrink-0 overflow-y-auto border-l border-border bg-card/40 p-4"
           >
-            {inspector}
+            {inspectorPanel(false)}
           </aside>
         )}
       </div>
@@ -1031,7 +1056,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             onOpenChange={setInspectorOpen}
             title={selected === null ? "Workflow settings" : "Inspector"}
           >
-            {inspector}
+            {inspectorPanel(true)}
           </props.Sheet>
         </>
       ) : null}

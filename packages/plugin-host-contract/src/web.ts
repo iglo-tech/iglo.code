@@ -56,7 +56,7 @@ export interface PluginMenuItem {
 /** One header breadcrumb segment; the last one is the current page. */
 export interface PluginBreadcrumbItem {
   readonly label: string;
-  /** Makes the segment a link back to its page. */
+  /** Makes the segment a link back to its page. Truncated labels show in full on hover. */
   readonly onSelect?: () => void;
   /** Makes the segment a switcher, like the project segment of a page with a project. */
   readonly options?: ReadonlyArray<{ readonly value: string; readonly label: string }>;
@@ -201,6 +201,15 @@ export interface PluginDesign {
     readonly children: ReactNode;
     readonly footer?: ReactNode;
   }>;
+  /** A destructive-action confirmation (no close button): Cancel, or the confirm action. */
+  readonly ConfirmDialog: ComponentType<{
+    readonly open: boolean;
+    readonly onOpenChange: (open: boolean) => void;
+    readonly title: string;
+    readonly description?: string;
+    readonly confirmLabel: string;
+    readonly onConfirm: () => void;
+  }>;
   /**
    * Holds in-app navigation while `when` is true and offers Keep editing or Discard, plus
    * `keepLabel` to leave while keeping a stored draft. `protectReload` also asks before a
@@ -230,6 +239,8 @@ export interface PluginWebContext extends PluginDesign {
   readonly navigate: (link: PluginPageLink, options?: { readonly replace?: boolean }) => void;
   readonly openThread: (target: PluginTarget) => void;
   readonly drafts: PluginDraftStore;
+  /** A short confirmation toast, such as "Copied". */
+  readonly notify: (message: string) => void;
 }
 
 /** The host supplies an authenticated, environment-bound typed client to each contribution. */

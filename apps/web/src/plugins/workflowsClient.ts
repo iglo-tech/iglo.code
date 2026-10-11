@@ -3,6 +3,7 @@ import type {
   CatalogEntry,
   LibraryInput,
   ReadInput,
+  RemoveInput,
   ReplaceInput,
   SaveInput,
   WorkflowClient,
@@ -96,10 +97,19 @@ const replace = createEnvironmentRpcCommand(connectionAtomRuntime, {
       Effect.andThen(requestGuarded("plugins.workflows.replace", input)),
     ),
 });
+const remove = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "plugins.workflows.remove",
+  tag: "plugins.workflows.remove",
+  execute: (input: RemoveInput) =>
+    authorize(input.environmentId, "plugins.workflows.remove").pipe(
+      Effect.andThen(requestGuarded("plugins.workflows.remove", input)),
+    ),
+});
 const permissionsAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get) => ({
     save: get(save.permissionAtom(environmentId)),
     replace: get(replace.permissionAtom(environmentId)),
+    remove: get(remove.permissionAtom(environmentId)),
   })),
 );
 
@@ -115,6 +125,7 @@ export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowCli
     validate: async (input) => settle(await validate.run(appAtomRegistry, target(input))),
     save: async (input) => settle(await save.run(appAtomRegistry, target(input))),
     replace: async (input) => settle(await replace.run(appAtomRegistry, target(input))),
+    remove: async (input) => settle(await remove.run(appAtomRegistry, target(input))),
     capabilities: async (projectId) =>
       settle(await capabilities.run(appAtomRegistry, target({ projectId }))),
     skills: async (input) => settle(await skills.run(appAtomRegistry, target(input))),
