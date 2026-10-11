@@ -23,8 +23,10 @@ it.live.each(["full-title", "summary-title", "unrelated-control"] as const)(
         const test = yield* makeCoreWorkflowFixture;
         const settings = Context.get(test.context, Settings.ServerSettingsService);
         yield* settings.updateSettings({
-          bitbucket: {
-            accessToken: scenario === "unrelated-control" ? "unused-fixture-marker" : "x",
+          sourceControlHosts: {
+            bitbucket: {
+              accessToken: scenario === "unrelated-control" ? "unused-fixture-marker" : "x",
+            },
           },
         });
         const title =
@@ -61,7 +63,7 @@ it.live.each(["full-title", "summary-title", "unrelated-control"] as const)(
         const retained = yield* runtime
           .invoke("get", { ...test.scope, runId: id })
           .pipe(Effect.result);
-        yield* settings.updateSettings({ bitbucket: { accessToken: "" } });
+        yield* settings.updateSettings({ sourceControlHosts: { bitbucket: { accessToken: "" } } });
         const restored = yield* runtime
           .invoke("get", { ...test.scope, runId: id })
           .pipe(Effect.flatMap(decodeRun));
