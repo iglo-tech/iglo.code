@@ -10,6 +10,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  getViewportForBounds,
   getSmoothStepPath,
   useReactFlow,
   useStore,
@@ -38,11 +39,12 @@ import {
   canvasMinZoom,
   fitPadding,
   flowGraph,
+  graphBounds,
+  labelWidth,
   layoutFlow,
   layoutSignature,
   refitKey,
   loopPath,
-  roundedPath,
   repeatLoops,
   splinePath,
   type Bounds,
@@ -72,13 +74,13 @@ type StepData = {
 };
 type StepNode =
   | FlowCanvasNode<StepData, "step">
-  // An empty box at the far edge of each repeat loop and its label, so fitting the view keeps
-  // loops on screen (fit only measures nodes).
+  // Empty boxes at the complete drawn bounds, because React Flow's Fit only measures nodes.
   | FlowCanvasNode<Record<string, never>, "bounds">;
 type RouteData = {
   readonly edge: FlowEdge;
   readonly points: ReadonlyArray<Point> | null;
-  readonly orthogonal: boolean;
+  readonly labelText: string;
+  readonly fullLabel: string;
   readonly label: Point | null;
   /** For repeat back edges: the loop's vertical run and detours, clear of every box. */
   readonly loop: RepeatLoop | null;
@@ -202,9 +204,7 @@ function StepCard({
           >
             <KindIcon kind={node.kind} className="size-4" />
           </span>
-          {/* The title keeps its line to itself (only the problem count shares it); markers sit
-              on the subtitle line and wrap below it rather than squeeze it. Markers stay inside the card: route
-              arrows land anywhere along its top edge. */}
+          {/* Fixed two-line metadata; markers share one column so they never add a third row. */}
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
               <span className="min-w-0 flex-1 truncate text-sm font-medium leading-5">
@@ -220,23 +220,25 @@ function StepCard({
                 </span>
               ) : null}
             </span>
-            <span className="flex flex-wrap items-center gap-x-1.5">
-              <span className="min-w-0 max-w-full truncate text-xs leading-4 text-muted-foreground">
-                {kindText(node.kind)}
-                {node.detail === null ? "" : ` · ${node.detail}`}
-              </span>
+            <span className="block truncate text-xs leading-4 text-muted-foreground">
+              {kindText(node.kind)}
+              {node.detail === null ? "" : ` · ${node.detail}`}
+            </span>
+          </span>
+          {node.entry || node.runLimit ? (
+            <span className="flex shrink-0 flex-col items-end gap-0.5">
               {node.entry ? (
-                <span className="shrink-0 rounded-full border border-primary/24 px-1.5 text-[10px] font-medium leading-4 text-primary">
+                <span className="rounded-full border border-primary/24 px-1.5 text-[10px] font-medium leading-4 text-primary">
                   Start
                 </span>
               ) : null}
               {node.runLimit ? (
-                <span className="shrink-0 rounded-full border border-warning/32 px-1.5 text-[10px] font-medium leading-4 text-warning-foreground">
+                <span className="rounded-full border border-warning/32 px-1.5 text-[10px] font-medium leading-4 text-warning-foreground">
                   Run limit
                 </span>
               ) : null}
             </span>
-          </span>
+          ) : null}
         </button>
       </WithTooltip>
       <Handle
@@ -289,14 +291,11 @@ function RouteLine({
     // Repeat routes leave and re-enter on the right, outside every box they pass, so the
     // return reads as a loop back up; the label sits beside the loop's vertical run.
     // A route to its own step leaves above the card's middle and returns below it.
-    const own = data.edge.source === data.edge.target ? 10 : 0;
-    path = loopPath(
-      { x: sourceX, y: sourceY - own + data.loop.sourceOffset },
-      { x: targetX, y: targetY + own },
-      data.loop.x,
-      { source: data.loop.sourceDetour, target: data.loop.targetDetour },
-    );
-    label = data.edge.label === "" ? null : { x: data.loop.x, y: (sourceY + targetY) / 2 };
+    path = loopPath(data.loop.source, data.loop.target, data.loop.x, {
+      source: data.loop.sourceDetour,
+      target: data.loop.targetDetour,
+    });
+    label = data.labelText === "" ? null : { x: data.loop.x, y: data.loop.y };
     beside = true;
   } else if (data.points === null) {
     const [smooth, labelX, labelY] = getSmoothStepPath({
@@ -307,9 +306,9 @@ function RouteLine({
       borderRadius: 12,
     });
     path = smooth;
-    label = data.edge.label === "" ? null : { x: labelX, y: labelY };
+    label = data.labelText === "" ? null : { x: labelX, y: labelY };
   } else {
-    path = data.orthogonal ? roundedPath(data.points, 12) : splinePath(data.points);
+    path = splinePath(data.points);
     label = data.label;
   }
   return (
@@ -326,17 +325,18 @@ function RouteLine({
       />
       {label === null ? null : (
         <EdgeLabelRenderer>
-          <WithTooltip label={data.edge.fullLabel} needed={data.edge.fullLabel !== data.edge.label}>
+          <WithTooltip label={data.fullLabel}>
             <div
-              tabIndex={data.edge.fullLabel === data.edge.label ? undefined : 0}
+              tabIndex={data.fullLabel === data.labelText ? undefined : 0}
               style={{
+                width: labelWidth(data.labelText),
                 transform: beside
                   ? `translate(${label.x + 6}px, ${label.y}px) translateY(-50%)`
                   : `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`,
               }}
-              className={`nopan ${data.edge.fullLabel === data.edge.label ? "" : "pointer-events-auto "}absolute whitespace-nowrap rounded-md border bg-background px-1.5 text-[11px] font-medium leading-[18px] ${labelTone[data.edge.kind] ?? "border-border text-muted-foreground"}`}
+              className={`nopan pointer-events-auto absolute truncate rounded-md border bg-background px-1.5 text-center text-[11px] font-medium leading-[18px] ${labelTone[data.edge.kind] ?? "border-border text-muted-foreground"}`}
             >
-              {data.edge.label}
+              {data.labelText}
             </div>
           </WithTooltip>
         </EdgeLabelRenderer>
@@ -347,9 +347,8 @@ function RouteLine({
 
 const nodeTypes = { step: StepCard, bounds: () => null };
 const edgeTypes = { route: RouteLine };
-// The Fit button shows the whole graph, down to the canvas zoom floor.
+// The Fit button includes the complete bounds; Refit lowers the zoom floor when necessary.
 const manualFit = { padding: fitPadding, maxZoom: 1 };
-const minZoom = canvasMinZoom;
 // App tokens drive React Flow's own chrome so light and dark themes follow the app.
 const theme = {
   "--xy-background-color": "transparent",
@@ -367,7 +366,7 @@ const theme = {
 const laidOut = (graph: FlowGraph, key: string) => {
   const layout = layoutFlow(graph);
   const loops = repeatLoops(graph, layout);
-  return { key, layout, loops, bounds: graphBounds(layout, loops) };
+  return { key, layout, loops, bounds: graphBounds(graph, layout, loops) };
 };
 
 /**
@@ -376,59 +375,33 @@ const laidOut = (graph: FlowGraph, key: string) => {
  * `autoFitViewport`); the Fit button shows everything. The viewport is computed from the
  * layout directly, so it never waits on React Flow measuring the boxes.
  */
-function Refit({
-  bounds,
-  entryX,
-  fitKey,
-}: {
-  readonly bounds: Bounds;
-  readonly entryX: number | undefined;
-  readonly fitKey: string;
-}) {
+function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: string }) {
   const { setViewport } = useReactFlow();
+  const store = useStoreApi();
   // Edits that only move or resize boxes must not undo the user's pan and zoom, so the effect
   // reads the latest bounds without depending on them.
-  const latest = useRef({ bounds, entryX });
+  const latest = useRef(bounds);
   useEffect(() => {
-    latest.current = { bounds, entryX };
+    latest.current = bounds;
   });
   const ready = useStore((state) => state.panZoom !== null);
   const width = useStore((state) => state.width);
   const height = useStore((state) => state.height);
   useEffect(() => {
     if (!ready || width <= 0 || height <= 0) return;
-    void setViewport(autoFitViewport(latest.current.bounds, width, height, latest.current.entryX));
-  }, [fitKey, ready, width, height, setViewport]);
+    const viewport = autoFitViewport(latest.current, width, height);
+    // Width fits initially; allow the Fit button to show the full height below the usual floor.
+    store
+      .getState()
+      .setMinZoom(
+        Math.min(
+          canvasMinZoom,
+          getViewportForBounds(latest.current, width, height, 0, 1, fitPadding).zoom,
+        ),
+      );
+    void setViewport(viewport);
+  }, [fitKey, ready, width, height, setViewport, store]);
   return null;
-}
-
-const attributionReserve = 32;
-
-function graphBounds(
-  layout: ReturnType<typeof layoutFlow>,
-  loops: ReadonlyMap<string, RepeatLoop>,
-): Bounds {
-  let left = Infinity;
-  let top = Infinity;
-  let right = -Infinity;
-  let bottom = -Infinity;
-  for (const [id, position] of layout.positions) {
-    const size = layout.sizes.get(id)!;
-    left = Math.min(left, position.x);
-    top = Math.min(top, position.y);
-    right = Math.max(right, position.x + size.width);
-    bottom = Math.max(bottom, position.y + size.height);
-  }
-  for (const loop of loops.values()) right = Math.max(right, loop.x + 12 + loop.labelWidth);
-  // Routes that run outside the boxes (into the main graph from a detached set) extend the view.
-  for (const route of layout.routes.values())
-    if (route.orthogonal === true)
-      for (const point of route.points) left = Math.min(left, point.x - 40);
-  // The attribution sits over the canvas's bottom-right corner; the extra height keeps the
-  // fitted graph clear of it.
-  return left === Infinity
-    ? { x: 0, y: 0, width: 1, height: 1 }
-    : { x: left, y: top, width: right - left, height: bottom - top + attributionReserve };
 }
 
 /**
@@ -465,10 +438,6 @@ export function Graph({
     setCached(current);
   }
   const { layout, loops, bounds } = current;
-  const entryId = graph.nodes.find((node) => node.entry)?.id;
-  const entryAt = entryId === undefined ? undefined : layout.positions.get(entryId);
-  const entryX =
-    entryAt === undefined ? undefined : entryAt.x + layout.sizes.get(entryId!)!.width / 2;
   const counts = useMemo(() => {
     const byNode = new Map<string, { errors: number; warnings: number }>();
     for (const problem of problems) {
@@ -508,10 +477,13 @@ export function Graph({
           },
         };
       }),
-      ...[...loops].map(([id, loop]): StepNode => ({
-        id: `bounds:${id}`,
+      ...[
+        { x: bounds.x, y: bounds.y },
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+      ].map((position, index): StepNode => ({
+        id: `bounds:${index}`,
         type: "bounds",
-        position: { x: loop.x + 12 + loop.labelWidth, y: loop.y },
+        position,
         width: 1,
         height: 1,
         measured: { width: 1, height: 1 },
@@ -520,7 +492,7 @@ export function Graph({
         data: {},
       })),
     ],
-    [graph, layout, loops, counts, selected],
+    [graph, layout, bounds, counts, selected],
   );
   const edges = useMemo<RouteEdge[]>(() => {
     const titles = new Map(graph.nodes.map((node) => [node.id, node.title]));
@@ -539,7 +511,8 @@ export function Graph({
         data: {
           edge,
           points: route?.points ?? null,
-          orthogonal: route?.orthogonal ?? false,
+          labelText: route?.stub?.label ?? edge.label,
+          fullLabel: route?.stub?.fullLabel ?? edge.fullLabel,
           label: route?.label ?? null,
           loop: loops.get(edge.id) ?? null,
         },
@@ -577,7 +550,7 @@ export function Graph({
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          minZoom={minZoom}
+          minZoom={canvasMinZoom}
           maxZoom={1.5}
           nodesDraggable={false}
           nodesConnectable={false}
@@ -598,7 +571,7 @@ export function Graph({
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Controls showInteractive={false} position="bottom-left" fitViewOptions={manualFit} />
-          <Refit bounds={bounds} entryX={entryX} fitKey={fitKey} />
+          <Refit bounds={bounds} fitKey={fitKey} />
         </ReactFlow>
       </ReactFlowProvider>
     </GraphActionsContext>

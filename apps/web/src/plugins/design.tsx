@@ -133,14 +133,7 @@ const PluginSheet: PluginDesign["Sheet"] = ({
   const popup = useRef<HTMLDivElement>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetPopup
-        ref={popup}
-        initialFocus={popup}
-        // A sheet that hands over to another one (add a step, then its inspector) must not pull
-        // focus back to its opener once the next sheet has taken it.
-        finalFocus={() => document.querySelector('[data-slot="sheet-popup"][data-open]') === null}
-        side={side}
-      >
+      <SheetPopup ref={popup} initialFocus={popup} side={side}>
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
         </SheetHeader>

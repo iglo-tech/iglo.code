@@ -703,7 +703,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             </Button>
           </>
         }
-      ></Alert>
+      />
     ) : null,
   ].filter((alert) => alert !== null);
   const yaml = (
@@ -1008,16 +1008,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             ) : null}
           </div>
           {alerts.length === 0 ? null : (
-            // Over the graph the alerts float on the canvas, so showing one never moves it.
-            <div
-              className={
-                view === "graph"
-                  ? "pointer-events-none absolute inset-x-3 top-14 z-10 flex flex-col gap-2 *:pointer-events-auto"
-                  : "flex shrink-0 flex-col gap-2 border-b border-border p-3"
-              }
-            >
-              {alerts}
-            </div>
+            <div className="flex shrink-0 flex-col gap-2 border-b border-border p-3">{alerts}</div>
           )}
           {draft === null && (view !== "yaml" || server === null) ? (
             readError === null && !offline ? (

@@ -1,17 +1,55 @@
 import { describe, expect, it } from "vite-plus/test";
+import { getViewportForBounds } from "@xyflow/react";
 import { developmentReview, examples } from "../examples.ts";
 import {
   autoFitViewport,
+  canvasMinZoom,
+  fitPadding,
   flowGraph,
+  graphBounds,
   layoutFlow,
   layoutSignature,
+  labelWidth,
+  loopPath,
   refitKey,
   repeatLoops,
+  type FlowGraph,
+  type RepeatLoop,
 } from "./flowGraph.ts";
 import { stepButtonId } from "./Flow.tsx";
 
 const edge = (graph: ReturnType<typeof flowGraph>, source: string, target: string) =>
   graph.edges.filter((item) => item.source === source && item.target === target);
+
+const drawnExit = (loop: RepeatLoop) =>
+  Number(loopPath(loop.source, loop.target, loop.x).match(/^M[^,]+,([^ ]+)/)![1]);
+
+const detachedGraph: FlowGraph = {
+  nodes: ["a", "b", "c", "o", "p", "q"].map((id) => ({
+    id,
+    stepId: id,
+    kind: "human",
+    title: id === "c" ? "Done" : id,
+    detail: null,
+    entry: id === "a",
+    runLimit: false,
+  })),
+  edges: [
+    ["a", "b", ""],
+    ["b", "c", ""],
+    ["o", "c", "changes requested"],
+    ["p", "b", "approved by reviewer"],
+    ["q", "a", "x"],
+  ].map(([source, target, label]) => ({
+    id: `${source}:${label}`,
+    source: source!,
+    target: target!,
+    label: label!,
+    fullLabel: label!,
+    kind: "next",
+    back: false,
+  })),
+};
 
 describe("workflow graph", () => {
   it("draws every route kind with its label, including repeat back edges and At limit", () => {
@@ -88,10 +126,12 @@ describe("workflow graph", () => {
     expect(layout.routes.has("review:changes.repeat")).toBe(false);
     const loops = repeatLoops(graph, layout);
     expect(loops.has("review:changes.repeat")).toBe(true);
-    // The repeat and the self-route leave the box at different heights, so they never merge.
-    expect(loops.get("review:changes")!.sourceOffset).toBeLessThan(
-      loops.get("review:changes.repeat")!.sourceOffset - 10,
-    );
+    // Check the path's actual exits, rather than offsets that miss drawing adjustments.
+    expect(
+      Math.abs(
+        drawnExit(loops.get("review:changes")!) - drawnExit(loops.get("review:changes.repeat")!),
+      ),
+    ).toBeGreaterThanOrEqual(8);
   });
 
   it("keeps a dangling route visible against a missing step", () => {
@@ -170,15 +210,278 @@ describe("workflow graph", () => {
     const tall = autoFitViewport({ x: 0, y: 100, width: 232, height: 2000 }, 800, 600);
     expect(tall.zoom).toBe(0.9);
     expect(tall.y).toBeCloseTo(24 - 100 * 0.9);
-    // Wider than the canvas: readable zoom, centered on the entry rather than shrunk to fit.
-    const wide = autoFitViewport({ x: 0, y: 0, width: 1400, height: 400 }, 600, 500, 700);
-    expect(wide.zoom).toBe(0.8);
-    expect(700 * wide.zoom + wide.x).toBeCloseTo(300);
-    const edge = autoFitViewport({ x: 0, y: 0, width: 1400, height: 400 }, 600, 500, 10);
-    expect(edge.x).toBeCloseTo(24);
+    // Width always fits; only height may deliberately continue below the visible canvas.
+    const wide = autoFitViewport({ x: 0, y: 0, width: 1400, height: 400 }, 600, 500);
+    expect(wide.x).toBeGreaterThanOrEqual(0);
+    expect(wide.x + 1400 * wide.zoom).toBeLessThanOrEqual(600);
     const small = autoFitViewport({ x: 0, y: 0, width: 232, height: 200 }, 800, 600);
     expect(small.zoom).toBe(1);
     expect(small.y).toBeGreaterThan(0);
+  });
+
+  it("keeps detached route labels near their own source and inside fit bounds", () => {
+    const layout = layoutFlow(detachedGraph);
+    const loops = repeatLoops(detachedGraph, layout);
+    const bounds = graphBounds(detachedGraph, layout, loops);
+    const labels = detachedGraph.edges
+      .filter((e) => ["o", "p", "q"].includes(e.source))
+      .map((e) => {
+        const label = layout.routes.get(e.id)!.label!;
+        const source = layout.positions.get(e.source)!;
+        const size = layout.sizes.get(e.source)!;
+        expect(Math.abs(label.y - (source.y + size.height / 2))).toBeLessThanOrEqual(24);
+        const route = layout.routes.get(e.id)!;
+        expect(route.stub?.fullLabel).toContain(
+          `→ ${detachedGraph.nodes.find((n) => n.id === e.target)!.title}`,
+        );
+        const width = labelWidth(route.stub!.label);
+        expect(label.x - width / 2).toBeGreaterThanOrEqual(bounds.x);
+        expect(label.x + width / 2).toBeLessThanOrEqual(bounds.x + bounds.width);
+        return { top: label.y - 10, bottom: label.y + 10 };
+      });
+    for (const [index, label] of labels.entries())
+      for (const other of labels.slice(index + 1))
+        expect(label.bottom <= other.top || other.bottom <= label.top).toBe(true);
+  });
+
+  it("gives multiple detached routes separate short exits, without reaching other nodes", () => {
+    const graph = {
+      ...detachedGraph,
+      edges: [
+        ...detachedGraph.edges,
+        {
+          id: "o:no",
+          source: "o",
+          target: "b",
+          kind: "next" as const,
+          label: "no",
+          fullLabel: "no",
+          back: false,
+        },
+      ],
+    };
+    const layout = layoutFlow(graph);
+    const routes = graph.edges.filter((e) => e.source === "o").map((e) => layout.routes.get(e.id)!);
+    const source = layout.positions.get("o")!;
+    const size = layout.sizes.get("o")!;
+    expect(new Set(routes.map((r) => r.points[0]!.y)).size).toBe(routes.length);
+    for (const route of routes) {
+      expect(route.points).toHaveLength(2);
+      for (const point of route.points) {
+        expect(Math.abs(point.x - source.x)).toBeLessThanOrEqual(32);
+        expect(point.y).toBeGreaterThanOrEqual(source.y);
+        expect(point.y).toBeLessThanOrEqual(source.y + size.height);
+      }
+    }
+    expect(Math.abs(routes[0]!.label!.y - routes[1]!.label!.y)).toBeGreaterThanOrEqual(20);
+  });
+
+  it("keeps three repeat exits and a self-route separated within a 44px source card", () => {
+    const graph: FlowGraph = {
+      nodes: ["a", "b", "c", "source"].map((id) => ({
+        id,
+        stepId: id,
+        kind: id === "source" ? "missing" : "human",
+        title: id,
+        detail: null,
+        entry: false,
+        runLimit: false,
+      })),
+      edges: ["a", "b", "c", "source"].map((target) => ({
+        id: `source:${target}`,
+        source: "source",
+        target,
+        kind: target === "source" ? "atLimit" : "repeat",
+        label: "repeat",
+        fullLabel: "repeat",
+        back: true,
+      })),
+    };
+    const layout = layoutFlow(graph);
+    const top = layout.positions.get("source")!.y;
+    const height = layout.sizes.get("source")!.height;
+    const exits = [...repeatLoops(graph, layout).values()].map(drawnExit).sort((a, b) => a - b);
+    for (const [index, exit] of exits.entries()) {
+      expect(exit).toBeGreaterThanOrEqual(top);
+      expect(exit).toBeLessThanOrEqual(top + height);
+      if (index > 0) expect(exit - exits[index - 1]!).toBeGreaterThanOrEqual(8);
+    }
+    const self = repeatLoops(graph, layout).get("source:source")!;
+    for (const exit of exits) expect(Math.abs(exit - self.target.y)).toBeGreaterThanOrEqual(8);
+  });
+
+  it("reserves space for long labels and many stubs beside sibling detached nodes", () => {
+    const title = "Done with an exceptionally long workflow outcome name".repeat(3);
+    const graph: FlowGraph = {
+      nodes: detachedGraph.nodes.map((node) => (node.id === "c" ? { ...node, title } : node)),
+      edges: [
+        ...detachedGraph.edges,
+        ...["o", "p"].map((target) => ({
+          id: `q:${target}`,
+          source: "q",
+          target,
+          kind: "next" as const,
+          label: "next",
+          fullLabel: "next",
+          back: false,
+        })),
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `o:rule-${index}`,
+          source: "o",
+          target: "c",
+          kind: "rule" as const,
+          label: `approved by reviewer ${index}`,
+          fullLabel: `approved by reviewer ${index}`,
+          back: false,
+        })),
+      ],
+    };
+    const layout = layoutFlow(graph);
+    const bounds = graphBounds(graph, layout, repeatLoops(graph, layout));
+    const stubs = [...layout.routes.values()].filter((route) => route.stub !== undefined);
+    const sourceRoutes = graph.edges
+      .filter((edge) => edge.source === "o")
+      .map((edge) => layout.routes.get(edge.id)!)
+      .filter((route) => route.stub !== undefined);
+    for (const [index, route] of sourceRoutes.entries()) {
+      expect(route.points).toHaveLength(2);
+      for (const other of sourceRoutes.slice(index + 1)) {
+        // Straight stubs with the same x range cross only when their vertical order reverses.
+        expect(route.points[0]!.x).toBe(other.points[0]!.x);
+        expect(route.points[1]!.x).toBe(other.points[1]!.x);
+        const start = route.points[0]!.y - other.points[0]!.y;
+        const end = route.points[1]!.y - other.points[1]!.y;
+        expect(start * end).toBeGreaterThan(0);
+      }
+    }
+    const labels = stubs.map((route) => {
+      const width = labelWidth(route.stub!.label);
+      return {
+        left: route.label!.x - width / 2,
+        right: route.label!.x + width / 2,
+        top: route.label!.y - 10,
+        bottom: route.label!.y + 10,
+      };
+    });
+    const hits = (a: (typeof labels)[number], b: (typeof labels)[number]) =>
+      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    for (const [index, label] of labels.entries()) {
+      expect(label.left).toBeGreaterThanOrEqual(bounds.x);
+      expect(label.right).toBeLessThanOrEqual(bounds.x + bounds.width);
+      expect(label.top).toBeGreaterThanOrEqual(bounds.y);
+      expect(label.bottom).toBeLessThanOrEqual(bounds.y + bounds.height);
+      for (const other of labels.slice(index + 1)) expect(hits(label, other)).toBe(false);
+      for (const [id, at] of layout.positions) {
+        const size = layout.sizes.get(id)!;
+        expect(
+          hits(label, {
+            left: at.x,
+            right: at.x + size.width,
+            top: at.y,
+            bottom: at.y + size.height,
+          }),
+          id,
+        ).toBe(false);
+      }
+    }
+    for (const route of stubs) {
+      const [from, to] = route.points;
+      const leg = {
+        left: Math.min(from!.x, to!.x),
+        right: Math.max(from!.x, to!.x),
+        top: Math.min(from!.y, to!.y),
+        bottom: Math.max(from!.y, to!.y),
+      };
+      for (const [id, at] of layout.positions) {
+        const size = layout.sizes.get(id)!;
+        expect(
+          hits(leg, {
+            left: at.x,
+            right: at.x + size.width,
+            top: at.y,
+            bottom: at.y + size.height,
+          }),
+          id,
+        ).toBe(false);
+      }
+    }
+    expect(layout.routes.get("o:rule-0")!.stub!.fullLabel).toContain(title);
+    expect(layout.routes.get("o:rule-0")!.stub!.label).toContain("…");
+    const renamed = {
+      ...graph,
+      nodes: graph.nodes.map((node) => (node.id === "c" ? { ...node, title: "Finished" } : node)),
+    };
+    expect(layoutSignature(renamed)).not.toBe(layoutSignature(graph));
+    expect(layoutFlow(renamed).routes.get("o:rule-0")!.stub!.label).toContain("→ Finished");
+    // Presentation never rewrites the graph's canonical target or label.
+    expect(graph.edges.find((e) => e.id === "o:rule-0")!.target).toBe("c");
+    expect(graph.edges.find((e) => e.id === "o:rule-0")!.label).toBe("approved by reviewer 0");
+  });
+
+  it("keeps eight back-route exits inside a source card with at least 8px drawn separation", () => {
+    const graph: FlowGraph = {
+      nodes: detachedGraph.nodes,
+      edges: Array.from({ length: 8 }, (_, index) => ({
+        id: `o:${index}`,
+        source: "o",
+        target: index === 0 ? "o" : "a",
+        kind: "repeat",
+        label: "repeat",
+        fullLabel: "repeat",
+        back: true,
+      })),
+    };
+    const layout = layoutFlow(graph);
+    const at = layout.positions.get("o")!;
+    const height = layout.sizes.get("o")!.height;
+    const loops = repeatLoops(graph, layout);
+    const exits = [...loops.values()].map(drawnExit).sort((a, b) => a - b);
+    for (const [index, exit] of exits.entries()) {
+      expect(exit).toBeGreaterThanOrEqual(at.y);
+      expect(exit).toBeLessThanOrEqual(at.y + height);
+      if (index > 0) expect(exit - exits[index - 1]!).toBeGreaterThanOrEqual(8);
+      expect(Math.abs(exit - loops.get("o:0")!.target.y)).toBeGreaterThanOrEqual(8);
+    }
+  });
+
+  it("opens the packaged large graph with every route and label inside the horizontal viewport", () => {
+    const graph = flowGraph(developmentReview);
+    const layout = layoutFlow(graph);
+    const loops = repeatLoops(graph, layout);
+    const bounds = graphBounds(graph, layout, loops);
+    for (const width of [674, 514, 320]) {
+      const viewport = autoFitViewport(bounds, width, 720);
+      const visible = (x: number) => {
+        expect(x * viewport.zoom + viewport.x).toBeGreaterThanOrEqual(0);
+        expect(x * viewport.zoom + viewport.x).toBeLessThanOrEqual(width);
+      };
+      for (const route of layout.routes.values())
+        for (const point of route.points) visible(point.x);
+      for (const e of graph.edges) {
+        const label = layout.routes.get(e.id)?.label;
+        if (label) {
+          visible(label.x - labelWidth(e.label) / 2);
+          visible(label.x + labelWidth(e.label) / 2);
+        }
+      }
+      for (const loop of loops.values()) {
+        visible(loop.x);
+        visible(loop.x + 6 + loop.labelWidth);
+      }
+    }
+  });
+
+  it("keeps tall continuations top-anchored while allowing Fit to reveal the whole graph", () => {
+    const bounds = { x: -120, y: 16, width: 500, height: 6000 };
+    const initial = autoFitViewport(bounds, 800, 600);
+    expect(bounds.y * initial.zoom + initial.y).toBeCloseTo(24);
+    expect((bounds.y + bounds.height) * initial.zoom + initial.y).toBeGreaterThan(600);
+    const fitted = getViewportForBounds(bounds, 800, 600, 0, 1, fitPadding);
+    expect(fitted.zoom).toBeLessThan(canvasMinZoom);
+    expect(bounds.y * fitted.zoom + fitted.y).toBeGreaterThanOrEqual(0);
+    expect((bounds.y + bounds.height) * fitted.zoom + fitted.y).toBeLessThanOrEqual(600);
+    expect(bounds.x * fitted.zoom + fitted.x).toBeGreaterThanOrEqual(0);
+    expect((bounds.x + bounds.width) * fitted.zoom + fitted.x).toBeLessThanOrEqual(800);
   });
 
   it("lays a detached step out clear of every box and loop of the main graph", () => {
@@ -208,16 +511,16 @@ describe("workflow graph", () => {
       ...ids.filter((id) => id !== "orphan" && id !== "lonely").map((id) => box(id).bottom),
     );
     expect(box("orphan").top).toBeGreaterThan(mainBottom);
-    // The orphan's edge into the main graph runs up a lane outside every box and enters the
-    // target from its side, never through a box.
+    // Only a short stub leaves the orphan; the semantic edge still names its real target.
     const route = layout.routes.get("orphan:next")!;
     const points = route.points;
     const end = points[points.length - 1]!;
-    const done = box("done");
-    expect(end).toEqual({ x: done.left, y: (done.top + done.bottom) / 2 });
-    expect(Math.min(...points.map((point) => point.x))).toBeLessThan(
-      Math.min(...ids.map((id) => box(id).left)),
-    );
+    expect(end).toEqual({
+      x: box("orphan").left - 24,
+      y: (box("orphan").top + box("orphan").bottom) / 2,
+    });
+    expect(route.stub?.label).toBe("next → Done");
+    expect(edge(graph, "orphan", "done")).toHaveLength(1);
     for (const [index, from] of points.slice(0, -1).entries()) {
       const to = points[index + 1]!;
       const leg = {
