@@ -21,6 +21,7 @@ layer("055_OrchestrationV2", (it) => {
       assert.deepStrictEqual(yield* runMigrations(), [
         [61, "McpAppModelContext"],
         [62, "ThreadSnapshotWindowIndexes"],
+        [63, "PullRequestReviewGuides"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
@@ -70,6 +71,7 @@ layer("055_OrchestrationV2", (it) => {
           [59, "ScheduledTaskDelivery"],
           [61, "McpAppModelContext"],
           [62, "ThreadSnapshotWindowIndexes"],
+          [63, "PullRequestReviewGuides"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -82,6 +84,7 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 60, name: "ScheduleDispatchTargets" },
             { migration_id: 61, name: "McpAppModelContext" },
             { migration_id: 62, name: "ThreadSnapshotWindowIndexes" },
+            { migration_id: 63, name: "PullRequestReviewGuides" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -103,6 +106,7 @@ layer("055_OrchestrationV2", (it) => {
         [59, "ScheduledTaskDelivery"],
         [61, "McpAppModelContext"],
         [62, "ThreadSnapshotWindowIndexes"],
+        [63, "PullRequestReviewGuides"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -121,6 +125,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 60, name: "ScheduleDispatchTargets" },
         { migration_id: 61, name: "McpAppModelContext" },
         { migration_id: 62, name: "ThreadSnapshotWindowIndexes" },
+        { migration_id: 63, name: "PullRequestReviewGuides" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
