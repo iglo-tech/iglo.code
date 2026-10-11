@@ -290,6 +290,7 @@ export const openCode2ReplayRuntime = (
     readonly external?: boolean;
     readonly borrowers?: { current: number };
     readonly threadId?: ThreadId;
+    readonly replayGate?: ProviderReplayGate;
   },
 ) =>
   Effect.gen(function* () {
