@@ -536,7 +536,7 @@ export type Skill = typeof Skill.Type;
 export const ProjectSummary = Schema.Struct({
   id: ProjectId,
   title: Schema.String,
-  /** The workspace folder's last two path segments, to tell same-titled projects apart. */
+  /** The workspace folder's trailing path, at least two segments and as many as tell it apart. */
   location: Schema.String,
 });
 export type ProjectSummary = typeof ProjectSummary.Type;

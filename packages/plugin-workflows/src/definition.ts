@@ -305,8 +305,17 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
       }
   for (const id of nodes.keys())
     if (!reachable.has(id)) add(`${id}: no terminal path.`, { nodeId: id });
-  // The run At limit destination is only reached when a bounded repeat can exhaust the visit
-  // bound, so it counts as entered only when the entry's flow contains a repeat route.
+  // The run At limit destination is reached when the visit bound is exhausted: by a bounded
+  // repeat, or by a flow with more step visits than the limit allows.
+  const visitsPossible = (ids: Iterable<string>) => {
+    let total = 0;
+    for (const id of ids) {
+      const node = nodes.get(id);
+      if (node === undefined || node.kind === "end" || node.kind === "human") continue;
+      total += node.kind === "parallel" ? node.branches.length + 1 : 1;
+    }
+    return total;
+  };
   const entered = new Set(nodes.has(definition.entry) ? [definition.entry] : []);
   const frontier = [...entered];
   let repeats = false;
@@ -320,7 +329,7 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
       }
     if (
       index === frontier.length - 1 &&
-      repeats &&
+      (repeats || visitsPossible(entered) > (definition.maxVisits ?? 100)) &&
       nodes.has(definition.atLimit) &&
       !entered.has(definition.atLimit)
     ) {

@@ -662,17 +662,25 @@ const make = Effect.gen(function* () {
       "projects",
       environment(input.environmentId, "projects").pipe(
         Effect.andThen(host.projects()),
-        Effect.map((projects) =>
-          projects.map(({ id, title, workspaceRoot }) => ({
-            id,
-            title,
-            location: workspaceRoot
-              .split(/[\\/]+/)
-              .filter(Boolean)
-              .slice(-2)
-              .join("/"),
-          })),
-        ),
+        Effect.map((projects) => {
+          // Two checkouts of one repository share their last folders, so each location grows by
+          // whole segments until no other project's location is the same.
+          const folders = projects.map(({ workspaceRoot }) =>
+            workspaceRoot.split(/[\\/]+/).filter(Boolean),
+          );
+          const tail = (index: number, count: number) => folders[index]!.slice(-count).join("/");
+          return projects.map(({ id, title }, index) => {
+            let count = Math.min(2, folders[index]!.length);
+            while (
+              count < folders[index]!.length &&
+              folders.some(
+                (_, other) => other !== index && tail(other, count) === tail(index, count),
+              )
+            )
+              count++;
+            return { id, title, location: tail(index, count) };
+          });
+        }),
       ),
     );
   const displayEntry = (entry: CatalogEntry) =>

@@ -200,33 +200,41 @@ function StepCard({
           >
             <KindIcon kind={node.kind} className="size-4" />
           </span>
+          {/* The title keeps its line to itself (only the problem count shares it); markers sit
+              on the subtitle line, which truncates first. Markers stay inside the card: route
+              arrows land anywhere along its top edge. */}
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium leading-5">{node.title}</span>
-            <span className="block truncate text-xs leading-4 text-muted-foreground">
-              {kindText(node.kind)}
-              {node.detail === null ? "" : ` · ${node.detail}`}
+            <span className="flex items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate text-sm font-medium leading-5">
+                {node.title}
+              </span>
+              {errors > 0 || warnings > 0 ? (
+                <span
+                  className={`flex shrink-0 items-center gap-0.5 text-xs tabular-nums ${errors > 0 ? "text-destructive" : "text-warning"}`}
+                >
+                  <CircleAlertIcon aria-hidden className="size-3.5" />
+                  <span>{errors > 0 ? errors : warnings}</span>
+                  <span className="sr-only">{errors > 0 ? "problems to fix" : "warnings"}</span>
+                </span>
+              ) : null}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate text-xs leading-4 text-muted-foreground">
+                {kindText(node.kind)}
+                {node.detail === null ? "" : ` · ${node.detail}`}
+              </span>
+              {node.entry ? (
+                <span className="shrink-0 rounded-full border border-primary/24 px-1.5 text-[10px] font-medium leading-4 text-primary">
+                  Start
+                </span>
+              ) : null}
+              {node.runLimit ? (
+                <span className="shrink-0 rounded-full border border-warning/32 px-1.5 text-[10px] font-medium leading-4 text-warning-foreground">
+                  Run limit
+                </span>
+              ) : null}
             </span>
           </span>
-          {/* Markers sit inside the card: route arrows land anywhere along its top edge. */}
-          {node.entry ? (
-            <span className="shrink-0 rounded-full border border-primary/24 px-1.5 text-[10px] font-medium leading-4 text-primary">
-              Start
-            </span>
-          ) : null}
-          {node.runLimit ? (
-            <span className="shrink-0 rounded-full border border-warning/32 px-1.5 text-[10px] font-medium leading-4 text-warning-foreground">
-              Run limit
-            </span>
-          ) : null}
-          {errors > 0 || warnings > 0 ? (
-            <span
-              className={`flex shrink-0 items-center gap-0.5 text-xs tabular-nums ${errors > 0 ? "text-destructive" : "text-warning"}`}
-            >
-              <CircleAlertIcon aria-hidden className="size-3.5" />
-              <span>{errors > 0 ? errors : warnings}</span>
-              <span className="sr-only">{errors > 0 ? "problems to fix" : "warnings"}</span>
-            </span>
-          ) : null}
         </button>
       </WithTooltip>
       <Handle

@@ -239,8 +239,8 @@ export interface PluginWebContext extends PluginDesign {
   readonly navigate: (link: PluginPageLink, options?: { readonly replace?: boolean }) => void;
   readonly openThread: (target: PluginTarget) => void;
   readonly drafts: PluginDraftStore;
-  /** A short confirmation toast, such as "Copied". */
-  readonly notify: (message: string) => void;
+  /** A short toast, such as "Copied"; `warning` for something the user should look at. */
+  readonly notify: (message: string, tone?: "success" | "warning") => void;
 }
 
 /** The host supplies an authenticated, environment-bound typed client to each contribution. */

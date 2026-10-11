@@ -84,15 +84,15 @@ export function defaultAgent(capabilities: Capabilities | null): Agent {
 }
 
 /**
- * Where an unselected add lands: after the last step of the entry's plain sequence, so the
- * Start step never changes implicitly. Null when the entry is not an agent step (an empty
- * workflow), where the new step becomes the Start.
+ * Where an unselected add lands: after the last agent or check step of the entry's plain
+ * sequence, so the Start step never changes implicitly. Null when the Start is anything else
+ * (an end for an empty workflow, or a group, decision or gate that has no single sequence).
  */
 function tail(definition: Definition): string | null {
   const seen = new Set<string>();
   let current = definition.nodes.find((node) => node.id === definition.entry);
   let last: string | null = null;
-  while (current?.kind === "agent" && !seen.has(current.id)) {
+  while ((current?.kind === "agent" || current?.kind === "check") && !seen.has(current.id)) {
     seen.add(current.id);
     last = current.id;
     const next = current.next;
@@ -100,6 +100,12 @@ function tail(definition: Definition): string | null {
     current = definition.nodes.find((node) => node.id === next.to);
   }
   return last;
+}
+
+/** The first `<label> N` not already used as a step title. */
+function freshTitle(definition: Definition, label: string) {
+  const used = new Set(definition.nodes.map((node) => node.title));
+  for (let index = 1; ; index++) if (!used.has(`${label} ${index}`)) return `${label} ${index}`;
 }
 
 /**
@@ -118,29 +124,36 @@ export function addStep(
     return { definition: { ...definition, nodes: [...definition.nodes, node] }, id };
   }
   const id = uniqueId(definition, "agent");
-  const count = definition.nodes.filter((node) => node.kind === "agent").length + 1;
   const previous = definition.nodes.find((node) => node.id === (after ?? tail(definition)));
+  // Only an empty workflow (Start is an end) hands the Start to the new step; any other Start
+  // stays and an unplaced step is added unconnected for validation to flag.
+  const startIsEnd = definition.nodes.find((node) => node.id === definition.entry)?.kind === "end";
+  const unplaced = previous === undefined && !startIsEnd;
   const target =
     previous?.kind === "agent" || previous?.kind === "check"
       ? previous.next.to
-      : previous === undefined
+      : previous === undefined && !unplaced
         ? definition.entry
         : (definition.nodes.find((node) => node.kind === "end")?.id ?? definition.entry);
   const node: AgentNode = {
     id,
     kind: "agent",
-    title: `Agent step ${count}`,
+    title: freshTitle(definition, kindLabels.agent),
     ...defaultAgent(capabilities),
     next: { to: target },
   };
-  const index = previous ? definition.nodes.indexOf(previous) + 1 : 0;
+  const index = previous
+    ? definition.nodes.indexOf(previous) + 1
+    : unplaced
+      ? definition.nodes.length
+      : 0;
   const nodes = [...definition.nodes];
   nodes.splice(index, 0, node);
   return {
     id,
     definition: {
       ...definition,
-      entry: previous === undefined ? id : definition.entry,
+      entry: previous === undefined && !unplaced ? id : definition.entry,
       nodes: nodes.map((item) =>
         item.id === previous?.id &&
         (item.kind === "agent" || item.kind === "check") &&

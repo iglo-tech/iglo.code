@@ -304,6 +304,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           next.nodes.some((node) => node.id === next.entry)
             ? `Start moved to ${stepTitle(next)(next.entry)}`
             : "Start step removed · choose a new one",
+          next.nodes.some((node) => node.id === next.entry) ? "success" : "warning",
         );
     },
     [readOnly, notify],

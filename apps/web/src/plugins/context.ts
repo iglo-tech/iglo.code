@@ -60,7 +60,7 @@ export function createPluginWebContext(input: {
       environmentId,
       descriptor.manifest.id,
     ),
-    notify: (title) => toastManager.add({ type: "success", title }),
+    notify: (title, tone = "success") => toastManager.add({ type: tone, title }),
     navigate: openPage,
     openThread: (target) => {
       if (target.environmentId !== environmentId) return;

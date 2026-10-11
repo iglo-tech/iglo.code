@@ -176,8 +176,10 @@ function ConfirmDialog({
   );
 }
 
+// No `max-w-full`: with the negative margins it clamps the button to its own li's intrinsic
+// width, which is narrower than the button, so the label truncated with room to spare.
 const crumbButtonClass =
-  "-mx-1.5 -my-0.5 inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
+  "-mx-1.5 -my-0.5 inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
 
 function Crumb({ item, current }: { item: PluginBreadcrumbItem; current: boolean }) {
   const text = (
@@ -499,7 +501,7 @@ export const pluginDesign: PluginDesign = {
           {badges}
         </span>
         {description === undefined || description === null ? null : (
-          <span className="mt-0.5 block truncate text-xs text-muted-foreground/80">
+          <span className="mt-0.5 line-clamp-2 text-xs break-words text-muted-foreground/80">
             {description}
           </span>
         )}

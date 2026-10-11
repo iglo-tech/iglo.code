@@ -18,6 +18,7 @@ import {
   ProjectsAlert,
   projectCrumb,
   projectDrafts,
+  readDraft,
   unusedWorkflowId,
   errorMessage,
   useProjects,
@@ -159,6 +160,21 @@ function Library(props: PageProps) {
     client
       .remove({ projectId, source: entry.source, fingerprint: entry.fingerprint })
       .then(() => {
+        // Unsaved edits of the deleted file would fail to save against a source that is gone;
+        // keep them as a new unsaved workflow instead.
+        const key = draftKey(projectId, entry.source);
+        const stale = readDraft(props.drafts, key);
+        if (stale !== null) {
+          const moved: DraftEnvelope = {
+            ...stale,
+            base: { mode: "new", source: null, fingerprint: null, revision: null },
+            updatedAt: Date.now(),
+          };
+          const workflow = `new:${stale.definition.id}:${Date.now().toString(36)}`;
+          if (writeDraft(props.drafts, draftKey(projectId, workflow), moved))
+            props.drafts.remove(key);
+          setLocalDrafts(projectDrafts(props.drafts, projectId));
+        }
         props.notify(`Deleted ${entry.title ?? entry.source}`);
         setAttempt((value) => value + 1);
       })
@@ -240,7 +256,7 @@ function Library(props: PageProps) {
           if (!open) setRemoving(null);
         }}
         title={`Delete ${removing?.title ?? removing?.source ?? "workflow"}?`}
-        description="The workflow file is removed from this project. Past runs keep their snapshot."
+        description="This can't be undone. Past runs keep their snapshot."
         confirmLabel="Delete"
         onConfirm={() => removing !== null && remove(removing)}
       />

@@ -169,6 +169,68 @@ describe("workflow authoring", () => {
     );
   });
 
+  it("keeps a non-agent Start and appends after check steps", () => {
+    const onCheck = addStep({ ...developmentReview, entry: "checks" }, "agent", null, capabilities);
+    expect(onCheck.definition.entry).toBe("checks");
+    expect(routeList(onCheck.definition)).toContainEqual(
+      expect.objectContaining({ control: "next", to: onCheck.id }),
+    );
+    const onHuman = addStep({ ...developmentReview, entry: "human" }, "agent", null, capabilities);
+    expect(onHuman.definition.entry).toBe("human");
+    expect(localProblems(onHuman.definition)).toContainEqual(
+      expect.objectContaining({ nodeId: onHuman.id, severity: "warning" }),
+    );
+    // agent -> check -> end appends after the whole sequence.
+    const chain = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.kind === "check" ? { ...node, next: { to: "human" } } : node,
+      ),
+    } satisfies typeof developmentReview;
+    const appended = addStep(chain, "agent", null, capabilities);
+    expect(appended.definition.entry).toBe("implement");
+    const checks = appended.definition.nodes.find((node) => node.id === "checks");
+    expect(checks?.kind === "check" && checks.next.to).toBe(appended.id);
+  });
+
+  it("names new steps with the first unused number", () => {
+    const one = addStep(newDefinition("Flow"), "agent", null, capabilities);
+    const two = addStep(one.definition, "agent", null, capabilities);
+    const without = removeStep(two.definition, one.id);
+    const three = addStep(without, "agent", null, capabilities);
+    const titles = three.definition.nodes.filter((n) => n.kind === "agent").map((n) => n.title);
+    expect(new Set(titles).size).toBe(2);
+    expect(titles).toContain("Agent step 1");
+  });
+
+  it("counts the run limit destination reachable when the flow can exceed a small limit", () => {
+    const stop = developmentReview.nodes.find((node) => node.id === "done")!;
+    const agent = developmentReview.nodes.find((node) => node.id === "implement")!;
+    const chain = (maxVisits: number) =>
+      ({
+        ...developmentReview,
+        maxVisits,
+        entry: "a",
+        atLimit: "stop",
+        nodes: [
+          ...["a", "b", "c"].map((id, index) => ({
+            ...agent,
+            id,
+            title: id,
+            next: { to: ["b", "c", "done"][index]! },
+          })),
+          stop,
+          { ...stop, id: "stop", title: "Stop", outcome: "failed" },
+        ],
+      }) as typeof developmentReview;
+    const stopWarnings = (maxVisits: number) =>
+      localProblems(chain(maxVisits)).filter(
+        (p) => p.severity === "warning" && p.nodeId === "stop",
+      );
+    expect(stopWarnings(2)).toEqual([]);
+    expect(stopWarnings(10)).toHaveLength(1);
+  });
+
   it("warns about unreachable steps of every kind, including the run limit destination", () => {
     const entryIsEnd = { ...developmentReview, entry: "done" };
     const warned = localProblems(entryIsEnd)
