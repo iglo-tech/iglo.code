@@ -315,7 +315,7 @@ function RouteLine({
                   ? `translate(${label.x + 6}px, ${label.y}px) translateY(-50%)`
                   : `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`,
               }}
-              className={`nopan pointer-events-auto absolute whitespace-nowrap rounded-md border bg-background px-1.5 text-[11px] font-medium leading-[18px] ${labelTone[data.edge.kind] ?? "border-border text-muted-foreground"}`}
+              className={`nopan ${data.edge.fullLabel === data.edge.label ? "" : "pointer-events-auto "}absolute whitespace-nowrap rounded-md border bg-background px-1.5 text-[11px] font-medium leading-[18px] ${labelTone[data.edge.kind] ?? "border-border text-muted-foreground"}`}
             >
               {data.edge.label}
             </div>
