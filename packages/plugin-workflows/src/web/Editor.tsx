@@ -100,6 +100,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   // Reads may finish after typing or even after a later save settles. Only the current
   // draft operation may replace the draft or advance its conflict/recovery baseline.
   const editVersion = useRef(0);
+  // Background reads still supply metadata during typing, but baseline operations
+  // supersede them. Save settlement also invalidates reads begun while saving.
+  const baselineVersion = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -138,10 +141,12 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   useEffect(() => {
     if (projectId === null || source === null || offline) return;
     let active = true;
+    const version = baselineVersion.current;
+    const isCurrent = () => active && baselineVersion.current === version && !saving.current;
     setReadError(null);
     client.read({ projectId, source }).then(
       (entry) => {
-        if (!active) return;
+        if (!isCurrent()) return;
         setServer(entry);
         // A recovered local draft wins; otherwise edit the saved definition.
         setDraft((current) => current ?? entry.definition);
@@ -153,7 +158,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         }
       },
       (cause: unknown) => {
-        if (active) setReadError(errorMessage(cause));
+        if (isCurrent()) setReadError(errorMessage(cause));
       },
     );
     return () => {
@@ -341,6 +346,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const discard = () => {
     if (saving.current) return;
     editVersion.current++;
+    baselineVersion.current++;
+    if (server === null) setReadAttempt((value) => value + 1);
     forget();
     setDraft(server?.definition ?? null);
     setBase(server === null ? null : baseOf(server));
@@ -350,10 +357,12 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const reload = () => {
     if (saving.current || projectId === null || source === null) return;
     const version = ++editVersion.current;
+    baselineVersion.current++;
     client.read({ projectId, source }).then(
       (entry) => {
         if (editVersion.current !== version || !mounted.current) return;
         editVersion.current++;
+        baselineVersion.current++;
         forget();
         setServer(entry);
         setDraft(entry.definition);
@@ -383,10 +392,12 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const keepMine = () => {
     if (saving.current || projectId === null || source === null || base === null) return;
     const version = ++editVersion.current;
+    baselineVersion.current++;
     client.read({ projectId, source }).then(
       (entry) => {
         if (editVersion.current !== version || !mounted.current) return;
         editVersion.current++;
+        baselineVersion.current++;
         setServer(entry);
         setBase({
           ...baseOf(entry),
@@ -403,6 +414,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const save = () => {
     if (saving.current || draft === null || base === null || projectId === null) return;
     editVersion.current++;
+    baselineVersion.current++;
     saving.current = true;
     setStatus({ kind: "saving" });
     const request =
@@ -422,6 +434,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     request.then(
       (entry) => {
         if (!mounted.current) return;
+        baselineVersion.current++;
         saving.current = false;
         forget();
         setServer(entry);
@@ -432,7 +445,11 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       },
       (cause: unknown) => {
         if (!mounted.current) return;
+        baselineVersion.current++;
         saving.current = false;
+        // A recovered draft may be saved before its initial read returns. On failure,
+        // replace the superseded read so identity and conflict metadata can still load.
+        if (server === null) setReadAttempt((value) => value + 1);
         setStatus(
           errorCode(cause) === "conflict"
             ? { kind: "conflict", message: errorMessage(cause) }
@@ -444,6 +461,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const adopt = (definition: Definition) => {
     if (readOnly || saving.current) return;
     editVersion.current++;
+    baselineVersion.current++;
+    if (server === null) setReadAttempt((value) => value + 1);
     // Editing an existing file keeps its identity and expected revision.
     const next =
       base?.mode === "edit" && draft !== null
@@ -1038,6 +1057,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           // Leaving during a request keeps recovery data; an unmounted response cannot erase it.
           if (!saving.current) {
             editVersion.current++;
+            baselineVersion.current++;
             forget();
           }
         }}

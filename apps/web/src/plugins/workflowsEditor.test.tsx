@@ -142,7 +142,10 @@ function controlledEntry() {
   return { promise, resolve, reject };
 }
 
-async function open(mode: "save" | "replace") {
+async function open(
+  mode: "save" | "replace",
+  options: { read?: WorkflowClient["read"]; recovered?: Definition } = {},
+) {
   const response = controlledEntry();
   const values = new Map<string, string>();
   const drafts = {
@@ -156,6 +159,21 @@ async function open(mode: "save" | "replace") {
     },
     keys: () => [...values.keys()],
   };
+  if (options.recovered !== undefined)
+    drafts.write(
+      key,
+      JSON.stringify({
+        version: 1,
+        base: {
+          mode: mode === "save" ? "edit" : "replace",
+          source,
+          fingerprint: "observed",
+          revision: mode === "save" ? 1 : null,
+        },
+        definition: options.recovered,
+        updatedAt: 1,
+      }),
+    );
   const client = {
     subscribePermissions: (listener) => {
       listener({ save: true, replace: true, remove: true });
@@ -167,7 +185,7 @@ async function open(mode: "save" | "replace") {
       providers: [],
       discoveryError: null,
     }),
-    read: vi.fn(async () => entry(mode === "save" ? original : null)),
+    read: vi.fn(options.read ?? (async () => entry(mode === "save" ? original : null))),
     validate: async ({ definition }) => ({
       source,
       definition,
@@ -210,7 +228,7 @@ async function open(mode: "save" | "replace") {
       </Suspense>,
     );
   });
-  if (mode === "replace") {
+  if (mode === "replace" && options.recovered === undefined) {
     await act(async () => {
       input("wf-import").props.onChange({ currentTarget: { value: yaml(original) } });
     });
@@ -235,6 +253,417 @@ async function rename(title: string) {
     input("wf-workflow-title").props.onChange({ currentTarget: { value: title } });
   });
 }
+
+async function reconnect(props: PageProps) {
+  await act(async () => {
+    renderer!.update(
+      <Suspense fallback="Loading editor">
+        <EditorPageView {...props} connection="disconnected" />
+      </Suspense>,
+    );
+  });
+  await act(async () => {
+    renderer!.update(
+      <Suspense fallback="Loading editor">
+        <EditorPageView {...props} />
+      </Suspense>,
+    );
+  });
+}
+
+const alert = (title: string) => renderer!.root.findAllByProps({ "aria-label": title });
+const savedRevision = (revision: number) =>
+  renderer!.root
+    .findByProps({ role: "status" })
+    .findAll((node) => node.children.includes(`Saved revision ${revision}`));
+
+it.each([
+  { mode: "save", start: "before", outcome: "saved" },
+  { mode: "save", start: "before", outcome: "invalid" },
+  { mode: "save", start: "before", outcome: "failure" },
+  { mode: "save", start: "during", outcome: "saved" },
+  { mode: "save", start: "during", outcome: "invalid" },
+  { mode: "save", start: "during", outcome: "failure" },
+  { mode: "replace", start: "before", outcome: "saved" },
+  { mode: "replace", start: "before", outcome: "invalid" },
+  { mode: "replace", start: "before", outcome: "failure" },
+  { mode: "replace", start: "during", outcome: "saved" },
+  { mode: "replace", start: "during", outcome: "invalid" },
+  { mode: "replace", start: "during", outcome: "failure" },
+] as const)(
+  "ignores a background $outcome response begun $start a successful $mode",
+  async ({ mode, start, outcome }) => {
+    const read = controlledEntry();
+    const test = await open(mode, {
+      recovered: newDefinition("Recovered local draft"),
+      ...(start === "before" ? { read: () => read.promise } : {}),
+    });
+    // A real initial invalid-file read opens repair. Leave that pane before saving
+    // so a later obsolete response must not reopen it.
+    if (mode === "replace" && start === "during") await click("Routes");
+    await click(mode === "save" ? "Save" : "Validate and replace file");
+    if (start === "during") {
+      test.client.read.mockImplementationOnce(() => read.promise);
+      await reconnect(test.props);
+    }
+    const submitted = test.client[mode].mock.lastCall![0].definition;
+    await act(async () => {
+      test.response.resolve({ ...entry(submitted), fingerprint: "saved" });
+      await test.response.promise;
+    });
+    expect(savedRevision(submitted.revision)).toHaveLength(1);
+    expect(test.drafts.keys()).toEqual([]);
+    await act(async () => {
+      if (outcome === "failure") read.reject({ message: "Superseded background error" });
+      else {
+        read.resolve(entry(outcome === "invalid" ? null : original));
+        await read.promise;
+      }
+    });
+    expect(input("wf-workflow-title").props.value).toBe("Recovered local draft");
+    expect(button("Save").props.disabled).toBe(true);
+    expect(savedRevision(submitted.revision)).toHaveLength(1);
+    expect(test.drafts.keys()).toEqual([]);
+    expect(alert("Changed on the server")).toHaveLength(0);
+    expect(alert("Could not load this workflow")).toHaveLength(0);
+    expect(alert("This file is not a valid workflow")).toHaveLength(0);
+    expect(button("Discard navigation draft")).toBeUndefined();
+    expect(renderer!.root.findAllByProps({ id: "wf-import" })).toHaveLength(0);
+    await rename("Continued after publication");
+    expect(readDraft(test.drafts)).toMatchObject({
+      definition: { title: "Continued after publication" },
+      base: { mode: "edit", fingerprint: "saved", revision: submitted.revision },
+    });
+    const nextSave = controlledEntry();
+    test.client.save.mockImplementationOnce(() => nextSave.promise);
+    await click("Save");
+    expect(test.client.save.mock.lastCall?.[0]).toMatchObject({
+      expectedRevision: submitted.revision,
+      fingerprint: "saved",
+      definition: { title: "Continued after publication", revision: submitted.revision + 1 },
+    });
+  },
+);
+
+it("ignores a Retry read begun during Save even when edits continue after publication", async () => {
+  const test = await open("save", {
+    recovered: newDefinition("Recovered local draft"),
+    read: async () => {
+      throw new Error("Initial load failed");
+    },
+  });
+  const read = controlledEntry();
+  test.client.read.mockImplementationOnce(() => read.promise);
+  await click("Save");
+  await click("Retry");
+  const submitted = test.client.save.mock.lastCall![0].definition;
+  await act(async () => {
+    test.response.resolve({ ...entry(submitted), fingerprint: "saved" });
+    await test.response.promise;
+  });
+  await rename("Edited after saving");
+  const recovered = readDraft(test.drafts);
+  await act(async () => {
+    read.resolve(entry(original));
+    await read.promise;
+  });
+  expect(input("wf-workflow-title").props.value).toBe("Edited after saving");
+  expect(readDraft(test.drafts)).toEqual(recovered);
+  expect(recovered).toMatchObject({ base: { fingerprint: "saved", revision: 2 } });
+  expect(alert("Changed on the server")).toHaveLength(0);
+  expect(alert("Could not load this workflow")).toHaveLength(0);
+  expect(button("Save").props.disabled).toBe(false);
+});
+
+it.each(["conflict", "service"])(
+  "retains edits after a %s save failure and reconciles a fresh read rather than an older error",
+  async (code) => {
+    const test = await open("save");
+    await rename("Unsaved local draft");
+    await click("Save");
+    const read = controlledEntry();
+    test.client.read.mockImplementationOnce(() => read.promise);
+    await reconnect(test.props);
+    const recovered = readDraft(test.drafts);
+    await act(async () => {
+      test.response.reject({ code, message: "Save did not complete" });
+    });
+    await act(async () => {
+      read.reject({ message: "Older background error" });
+    });
+    expect(input("wf-workflow-title").props.value).toBe("Unsaved local draft");
+    expect(readDraft(test.drafts)).toEqual(recovered);
+    expect(alert("Could not load this workflow")).toHaveLength(0);
+    expect(
+      alert(code === "conflict" ? "Changed on the server" : "Not saved · edits kept"),
+    ).toHaveLength(1);
+    test.client.read.mockResolvedValue({
+      ...entry({ ...original, revision: 5, title: "Current remote workflow" }),
+      fingerprint: "remote",
+    });
+    await reconnect(test.props);
+    expect(input("wf-workflow-title").props.value).toBe("Unsaved local draft");
+    expect(readDraft(test.drafts)).toEqual(recovered);
+    expect(alert("Changed on the server")).toHaveLength(1);
+    await click("Compare");
+    expect(input("wf-compare-draft").props.value).toContain("Unsaved local draft");
+    expect(input("wf-compare-server").props.value).toContain("Current remote workflow");
+  },
+);
+
+it.each(["conflict", "service"])(
+  "replaces a superseded initial read after a %s save failure so recovery still gets metadata",
+  async (code) => {
+    const initial = controlledEntry();
+    const test = await open("save", {
+      recovered: newDefinition("Recovered local draft"),
+      read: () => initial.promise,
+    });
+    const fresh = controlledEntry();
+    test.client.read.mockImplementationOnce(() => fresh.promise);
+    await click("Save");
+    const recovered = readDraft(test.drafts);
+    await act(async () => {
+      test.response.reject({ code, message: "Save did not complete" });
+    });
+    expect(test.client.read).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      initial.resolve(entry(null));
+      await initial.promise;
+    });
+    expect(input("wf-workflow-title").props.value).toBe("Recovered local draft");
+    expect(readDraft(test.drafts)).toEqual(recovered);
+    expect(renderer!.root.findAllByProps({ id: "wf-import" })).toHaveLength(0);
+    await act(async () => {
+      fresh.resolve({ ...entry({ ...original, revision: 5 }), fingerprint: "remote" });
+      await fresh.promise;
+    });
+    expect(input("wf-workflow-title").props.value).toBe("Recovered local draft");
+    expect(readDraft(test.drafts)).toEqual(recovered);
+    expect(alert("Changed on the server")).toHaveLength(1);
+    expect(input("wf-workflow-title").props.disabled).toBe(false);
+  },
+);
+
+it.each(["Discard changes", "Replace draft"])(
+  "loads fresh metadata after %s supersedes an initial read without a server snapshot",
+  async (action) => {
+    const initial = controlledEntry();
+    const test = await open("save", {
+      recovered: newDefinition("Recovered local draft"),
+      read: () => initial.promise,
+    });
+    const fresh = controlledEntry();
+    test.client.read.mockImplementationOnce(() => fresh.promise);
+    if (action === "Replace draft") {
+      await click("Import YAML");
+      await act(async () => {
+        input("wf-import").props.onChange({
+          currentTarget: { value: yaml(newDefinition("Imported draft")) },
+        });
+      });
+      await click("Preview import");
+    }
+    await click(action);
+    expect(test.client.read).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      initial.resolve(entry(null));
+      await initial.promise;
+    });
+    expect(alert("This file is not a valid workflow")).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ id: "wf-import" })).toHaveLength(0);
+    await act(async () => {
+      fresh.resolve({
+        ...entry({ ...original, revision: 5, title: "Fresh remote workflow" }),
+        fingerprint: "remote",
+      });
+      await fresh.promise;
+    });
+    expect(input("wf-workflow-title").props.value).toBe(
+      action === "Replace draft" ? "Imported draft" : "Fresh remote workflow",
+    );
+    if (action === "Replace draft") {
+      expect(readDraft(test.drafts)).toMatchObject({
+        definition: { title: "Imported draft" },
+        base: { fingerprint: "observed", revision: 1 },
+      });
+      expect(alert("Changed on the server")).toHaveLength(1);
+    } else {
+      expect(savedRevision(5)).toHaveLength(1);
+      expect(test.drafts.keys()).toEqual([]);
+      expect(button("Save").props.disabled).toBe(true);
+    }
+  },
+);
+
+it.each(["invalid", "failure"])(
+  "ignores a background %s response delivered while Save is still pending",
+  async (outcome) => {
+    const test = await open("save");
+    await rename("Draft being saved");
+    await click("Save");
+    const read = controlledEntry();
+    test.client.read.mockImplementationOnce(() => read.promise);
+    await reconnect(test.props);
+    await act(async () => {
+      if (outcome === "failure") read.reject({ message: "Older read error" });
+      else {
+        read.resolve(entry(null));
+        await read.promise;
+      }
+    });
+    expect(alert("Could not load this workflow")).toHaveLength(0);
+    expect(alert("This file is not a valid workflow")).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ id: "wf-import" })).toHaveLength(0);
+    expect(input("wf-workflow-title").props.value).toBe("Draft being saved");
+    expect(input("wf-workflow-title").props.disabled).toBe(true);
+    const submitted = test.client.save.mock.lastCall![0].definition;
+    await act(async () => {
+      test.response.resolve({ ...entry(submitted), fingerprint: "saved" });
+      await test.response.promise;
+    });
+    expect(savedRevision(2)).toHaveLength(1);
+    expect(button("Save").props.disabled).toBe(true);
+    expect(test.drafts.keys()).toEqual([]);
+  },
+);
+
+it.each(["Reload", "Keep my draft", "Discard changes"])(
+  "ignores an older reconnect read after %s establishes the draft baseline",
+  async (action) => {
+    const test = await conflict();
+    const background = controlledEntry();
+    test.client.read.mockReset().mockImplementationOnce(() => background.promise);
+    await reconnect(test.props);
+    test.client.read.mockResolvedValueOnce({
+      ...entry({ ...original, title: "Latest remote workflow", revision: 5 }),
+      fingerprint: "remote",
+    });
+    await click(action);
+    const title = input("wf-workflow-title").props.value;
+    const recovered = readDraft(test.drafts);
+    await act(async () => {
+      background.resolve(entry(null));
+      await background.promise;
+    });
+    expect(input("wf-workflow-title").props.value).toBe(title);
+    expect(readDraft(test.drafts)).toEqual(recovered);
+    expect(alert("Changed on the server")).toHaveLength(0);
+    expect(alert("This file is not a valid workflow")).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ id: "wf-import" })).toHaveLength(0);
+    if (action === "Keep my draft")
+      expect(recovered).toMatchObject({ base: { fingerprint: "remote", revision: 5 } });
+    else expect(button("Save").props.disabled).toBe(true);
+  },
+);
+
+it("keeps an adopted YAML draft when an older background read returns an invalid file", async () => {
+  const test = await open("save");
+  const read = controlledEntry();
+  test.client.read.mockImplementationOnce(() => read.promise);
+  await reconnect(test.props);
+  await click("Import YAML");
+  await act(async () => {
+    input("wf-import").props.onChange({
+      currentTarget: { value: yaml(newDefinition("Imported draft")) },
+    });
+  });
+  await click("Preview import");
+  await click("Replace draft");
+  const recovered = readDraft(test.drafts);
+  await act(async () => {
+    read.resolve(entry(null));
+    await read.promise;
+  });
+  expect(input("wf-workflow-title").props.value).toBe("Imported draft");
+  expect(readDraft(test.drafts)).toEqual(recovered);
+  expect(alert("This file is not a valid workflow")).toHaveLength(0);
+  expect(renderer!.root.findAllByProps({ id: "wf-import" })).toHaveLength(0);
+  expect(button("Save").props.disabled).toBe(false);
+});
+
+it.each(["initial", "reconnect"])(
+  "reconciles an ordinary %s read during typing without losing edits or the recovery base",
+  async (start) => {
+    const read = controlledEntry();
+    const test = await open("save", {
+      recovered: newDefinition("Recovered draft"),
+      ...(start === "initial" ? { read: () => read.promise } : {}),
+    });
+    if (start === "reconnect") {
+      test.client.read.mockImplementationOnce(() => read.promise);
+      await reconnect(test.props);
+    }
+    await rename("Typed while reading");
+    const recovered = readDraft(test.drafts);
+    await act(async () => {
+      read.resolve({ ...entry({ ...original, revision: 5 }), fingerprint: "remote" });
+      await read.promise;
+    });
+    expect(input("wf-workflow-title").props.value).toBe("Typed while reading");
+    expect(readDraft(test.drafts)).toEqual(recovered);
+    expect(alert("Changed on the server")).toHaveLength(1);
+    expect(button("Save").props.disabled).toBe(false);
+    await click("Save");
+    expect(test.client.save.mock.lastCall?.[0]).toMatchObject({
+      expectedRevision: 1,
+      fingerprint: "observed",
+      definition: { title: "Typed while reading", revision: 2 },
+    });
+  },
+);
+
+it("adopts packaged identity from an ordinary initial read even when the recovered draft was edited", async () => {
+  const read = controlledEntry();
+  const test = await open("save", {
+    recovered: newDefinition("Recovered packaged draft"),
+    read: () => read.promise,
+  });
+  await rename("Typed before packaged metadata arrived");
+  await act(async () => {
+    read.resolve({ ...entry(original), packaged: true });
+    await read.promise;
+  });
+  expect(input("wf-workflow-title").props.value).toBe("Typed before packaged metadata arrived");
+  expect(input("wf-workflow-title").props.disabled).toBe(true);
+  expect(button("Save")).toBeUndefined();
+  expect(button("Clone to edit").props.disabled).toBe(false);
+  expect(test.client.save).not.toHaveBeenCalled();
+});
+
+it.each(["invalid", "failure"])(
+  "ignores an unmounted background %s response after recovery and continued editing",
+  async (outcome) => {
+    const read = controlledEntry();
+    const test = await open("save", {
+      recovered: newDefinition("Recovered draft"),
+      read: () => read.promise,
+    });
+    await act(async () => renderer!.unmount());
+    test.client.read.mockResolvedValueOnce(entry(original));
+    await act(async () => {
+      renderer = create(
+        <Suspense fallback="Loading editor">
+          <EditorPageView {...test.props} />
+        </Suspense>,
+      );
+    });
+    await rename("Continued in reopened editor");
+    const recovered = readDraft(test.drafts);
+    await act(async () => {
+      if (outcome === "failure") read.reject({ message: "Unmounted read error" });
+      else {
+        read.resolve(entry(null));
+        await read.promise;
+      }
+    });
+    expect(input("wf-workflow-title").props.value).toBe("Continued in reopened editor");
+    expect(readDraft(test.drafts)).toEqual(recovered);
+    expect(alert("Could not load this workflow")).toHaveLength(0);
+    expect(alert("This file is not a valid workflow")).toHaveLength(0);
+    expect(button("Save").props.disabled).toBe(false);
+  },
+);
 
 async function conflict(action = "Reload") {
   const test = await open("save");
