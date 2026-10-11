@@ -275,6 +275,7 @@ function track(client: WorkflowClient) {
     validate: (input) => record("validate", client.validate(input)),
     save: (input) => record("save", client.save(input)),
     replace: (input) => record("replace", client.replace(input)),
+    remove: (input) => record("remove", client.remove(input)),
     capabilities: (input) => record("capabilities", client.capabilities(input)),
     skills: (input) => record("skills", client.skills(input)),
   };
@@ -331,6 +332,26 @@ it.live(
   () =>
     Effect.scoped(
       Effect.gen(function* () {
+        const events = new EventTarget();
+        const eventMethods = ["addEventListener", "removeEventListener", "dispatchEvent"] as const;
+        const eventDescriptors = eventMethods.map(
+          (method) => [method, Object.getOwnPropertyDescriptor(globalThis, method)] as const,
+        );
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            vi.unstubAllGlobals();
+            for (const [method, descriptor] of eventDescriptors) {
+              if (descriptor === undefined) Reflect.deleteProperty(globalThis, method);
+              else Object.defineProperty(globalThis, method, descriptor);
+            }
+          }),
+        );
+        // Keep page lifecycle events through navigation helpers that unstub other globals.
+        for (const method of eventMethods)
+          Object.defineProperty(globalThis, method, {
+            configurable: true,
+            value: events[method].bind(events),
+          });
         vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
         // Requests coalesced while typing are issued immediately, so tests await each request.
         const timings = { ...authoringTimings };
@@ -541,7 +562,6 @@ it.live(
           Effect.promise(async () => {
             await unmount();
             appAtomRegistry.dispose();
-            vi.unstubAllGlobals();
           }),
         );
         const root = () => renderer!.root;
