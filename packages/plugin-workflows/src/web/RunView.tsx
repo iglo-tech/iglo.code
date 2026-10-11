@@ -291,6 +291,8 @@ export function RunView({
   };
   // Totals come from the server's complete snapshot, not from the loaded history page.
   const overview = run.overview;
+  // Read once here: the compiler would hoist `overview!.review!.fork` out of the handler.
+  const reviewFork = overview?.review?.fork;
   const firstVisit = run.history?.offset ?? 0;
   const recovery = run.recovery;
   const gateNode = run.gate ? definition.nodes.find((node) => node.id === run.gate!.nodeId) : null;
@@ -567,9 +569,10 @@ export function RunView({
         select({ node: attempt.nodeId, attempt: attempt.id, branch: attempt.branchId })
       }
       onTraceOffset={setTraceOffset}
-      onSelectReviewer={(attemptId, branchId) =>
-        select({ node: overview!.review!.fork, attempt: attemptId, branch: branchId })
-      }
+      onSelectReviewer={(attemptId, branchId) => {
+        if (reviewFork !== undefined)
+          select({ node: reviewFork, attempt: attemptId, branch: branchId });
+      }}
       elsewhere={
         elsewhere ? (
           <Alert
@@ -1428,6 +1431,7 @@ function ReviewSummary({
         {review.branches.map((branch) => {
           const authored = branches.find((item) => item.id === branch.id);
           const name = authored?.title ?? branch.id;
+          const threadId = branch.threadId;
           const report = branch.report
             ? `Report accepted (${branch.report.outcome} claim)`
             : isActive(branch)
@@ -1435,30 +1439,32 @@ function ReviewSummary({
               : "No accepted report";
           return (
             <li key={branch.attemptId} className="flex min-w-0 items-center gap-0.5">
-              <Button
-                size="row"
-                variant={selected === branch.attemptId ? "outline" : "ghost"}
-                ariaPressed={selected === branch.attemptId}
-                ariaLabel={`Show the evidence of reviewer ${name}`}
-                tooltip={[
-                  authored?.instruction,
-                  branch.deadline === null ? null : `Deadline ${formatTime(branch.deadline)}`,
-                  branch.workspace
-                    ? `Isolated worktree ${branch.workspace.path}${branch.workspace.frozenHead ? ` at ${short(branch.workspace.frozenHead)}` : ""}`
-                    : "Isolated worktree not prepared yet",
-                  branch.reason === null ? null : `Stop reason: ${branch.reason}`,
-                ]
-                  .filter((part) => part != null && part !== "")
-                  .join("\n")}
-                onClick={() => onSelect(branch.attemptId, branch.id)}
-              >
-                <StatusIcon status={phaseStatus(branch.phase)} className="size-3.5" />
-                <span className="truncate">{name}</span>
-                <span className="ml-auto truncate text-muted-foreground">
-                  {phaseLabels[branch.phase]} · {report}
-                </span>
-              </Button>
-              {branch.threadId ? (
+              <span className="flex min-w-0 flex-1">
+                <Button
+                  size="row"
+                  variant={selected === branch.attemptId ? "outline" : "ghost"}
+                  ariaPressed={selected === branch.attemptId}
+                  ariaLabel={`Show the evidence of reviewer ${name}`}
+                  tooltip={[
+                    authored?.instruction,
+                    branch.deadline === null ? null : `Deadline ${formatTime(branch.deadline)}`,
+                    branch.workspace
+                      ? `Isolated worktree ${branch.workspace.path}${branch.workspace.frozenHead ? ` at ${short(branch.workspace.frozenHead)}` : ""}`
+                      : "Isolated worktree not prepared yet",
+                    branch.reason === null ? null : `Stop reason: ${branch.reason}`,
+                  ]
+                    .filter((part) => part != null && part !== "")
+                    .join("\n")}
+                  onClick={() => onSelect(branch.attemptId, branch.id)}
+                >
+                  <StatusIcon status={phaseStatus(branch.phase)} className="size-3.5" />
+                  <span className="truncate">{name}</span>
+                  <span className="ml-auto truncate text-muted-foreground">
+                    {phaseLabels[branch.phase]} · {report}
+                  </span>
+                </Button>
+              </span>
+              {threadId ? (
                 <Button
                   size="icon-xs"
                   variant="ghost"
@@ -1468,7 +1474,7 @@ function ReviewSummary({
                     props.openThread({
                       environmentId: run.environmentId,
                       projectId,
-                      threadId: branch.threadId!,
+                      threadId,
                     })
                   }
                 >

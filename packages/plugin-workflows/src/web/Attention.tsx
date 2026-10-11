@@ -1,8 +1,9 @@
 import type { PluginBreadcrumbItem } from "@t3tools/plugin-host-contract/web";
 import type { ProjectId } from "@t3tools/plugin-host-contract/schema";
 import {
+  ArrowUpRightIcon,
   CircleAlertIcon,
-  GavelIcon,
+  FolderIcon,
   InboxIcon,
   MessageCircleQuestionIcon,
   MessageSquareIcon,
@@ -10,14 +11,8 @@ import {
 import { useEffect, useState } from "react";
 import { limits, type AttentionItem, type AttentionPage, type AttentionRun } from "../contracts.ts";
 import { ProjectsAlert, useProjects, type PageProps } from "./common.tsx";
-import {
-  attentionLabels,
-  attentionText,
-  formatTime,
-  relativeTime,
-  runStateLabels,
-  runStateVariant,
-} from "./run.ts";
+import { KindIcon } from "./kinds.tsx";
+import { attentionLabels, attentionText, formatTime, relativeTime } from "./run.ts";
 
 const PAGE = limits.attentionRuns;
 /** The server's bound on one attention read. */
@@ -100,11 +95,6 @@ function Attention(props: PageProps) {
     <>
       <PageHeader breadcrumb={crumbs}>
         <span role="status" aria-live="polite" className="flex items-center gap-1.5">
-          {latest === null || latest.total === 0 ? null : (
-            <Badge variant="warning">
-              {latest.total} {latest.total === 1 ? "run" : "runs"}
-            </Badge>
-          )}
           {stale ? <Badge variant="warning">Last loaded</Badge> : null}
         </span>
       </PageHeader>
@@ -187,32 +177,34 @@ function RunGroup({
   readonly projectTitle: string | null;
   readonly onProject: () => void;
 }) {
-  const { Button, Badge, ListGroup, ListRow, Tooltip } = props;
+  const { Button, ListGroup, ListRow, Tooltip } = props;
   const title = run.workflowTitle || run.runId;
   return (
     <ListGroup
       title={title}
       ariaLabel={`Attention for ${title}`}
       action={
-        <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <Badge variant={runStateVariant(run.state)}>{runStateLabels[run.state]}</Badge>
+        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           {projectTitle === null ? null : (
             <Button
               size="xs"
               variant="ghost"
               ariaLabel={`Show workflow attention for project ${projectTitle}`}
+              tooltip="Show this project's attention"
               onClick={onProject}
             >
+              <FolderIcon />
               {projectTitle}
             </Button>
           )}
-          <span className="flex shrink-0 tabular-nums">
+          <span className="flex shrink-0 px-1 tabular-nums">
             <Tooltip content={formatTime(run.createdAt)}>{relativeTime(run.createdAt)}</Tooltip>
           </span>
           <Button
-            size="xs"
+            size="icon-xs"
             variant="ghost"
             ariaLabel={`Open run ${run.workflowTitle} from ${formatTime(run.createdAt)}`}
+            tooltip="Open run"
             onClick={() =>
               props.navigate({
                 pageId: "workflows.runs",
@@ -221,7 +213,7 @@ function RunGroup({
               })
             }
           >
-            Open run
+            <ArrowUpRightIcon />
           </Button>
         </span>
       }
@@ -267,12 +259,13 @@ function Item({
     run.allowedActions.includes("retry") ? "Retry" : null,
   ].filter((action) => action !== null);
   const stopped = item.kind !== "needs-review" && item.kind !== "needs-input";
+  const { attemptId, threadId } = item;
   return (
     <ListRow
       title={item.title}
       leading={
         item.kind === "needs-review" ? (
-          <GavelIcon />
+          <KindIcon kind="human" />
         ) : item.kind === "needs-input" ? (
           <MessageCircleQuestionIcon />
         ) : (
@@ -295,10 +288,10 @@ function Item({
           <Button size="xs" variant="outline" onClick={() => open({ node: item.nodeId })}>
             Open gate
           </Button>
-        ) : item.kind === "needs-input" && item.threadId !== null ? (
+        ) : item.kind === "needs-input" && threadId !== null ? (
           <>
-            {item.attemptId === null ? null : (
-              <Button size="xs" variant="ghost" onClick={() => open({ attempt: item.attemptId! })}>
+            {attemptId === null ? null : (
+              <Button size="xs" variant="ghost" onClick={() => open({ attempt: attemptId })}>
                 Show in run
               </Button>
             )}
@@ -310,7 +303,7 @@ function Item({
                 props.openThread({
                   environmentId: props.environmentId,
                   projectId: run.projectId,
-                  threadId: item.threadId!,
+                  threadId,
                 })
               }
             >

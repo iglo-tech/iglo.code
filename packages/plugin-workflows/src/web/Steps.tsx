@@ -371,8 +371,9 @@ export function DecisionInspector(input: StepProps<DecisionNode>) {
             <span className="truncate">{fork?.title || node.fork}</span>
             {fork?.kind === "parallel" ? (
               <Badge variant="outline">
-                Wait for all · {fork.branches.length}{" "}
-                {fork.branches.length === 1 ? "reviewer" : "reviewers"}
+                {fork.branches.length === 1
+                  ? "1 reviewer"
+                  : `All ${fork.branches.length} reviewers`}
               </Badge>
             ) : (
               <Badge variant="warning">Missing parallel group</Badge>

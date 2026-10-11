@@ -637,7 +637,6 @@ it.live(
         yield* reconcile;
         yield* promise(() => tracked.attention((value) => value.runs[0]?.items.length === 3));
         const listed = page();
-        expect(listed).toContain("1 run");
         // Each request keeps its native queue position in its own thread.
         expect(listed).toContain(
           "Reviewers · CodeNeeds inputApproval request 1 of 2 · answered next",
@@ -814,7 +813,6 @@ it.live(
         yield* promise(() =>
           tracked.attention((value) => value.total === 27 && value.runs.length === 25),
         );
-        expect(page()).toContain("27 runs");
         expect(page()).toContain("Newest 25 of 27");
         expect(page()).not.toContain("Frozen review");
         // Widening keeps the current runs on screen until the wider snapshot arrives.
@@ -880,7 +878,6 @@ it.live(
           yield* promise(() => act(async () => buttons("Load older runs")[0]!.props.onClick()));
           yield* promise(() => tracked.attention((value) => value.runs.length === expected));
         }
-        expect(page()).toContain("102 runs");
         expect(page()).toContain("Newest 100 of 102 · open a run's project to see the rest");
         expect(buttons("Load older runs")).toHaveLength(0);
         // The guidance is actionable: a run's project opens that project's attention.

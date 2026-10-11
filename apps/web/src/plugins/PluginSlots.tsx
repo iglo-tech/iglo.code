@@ -16,6 +16,7 @@ import {
 import { toastManager } from "../components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { PluginIcon } from "./pluginIcons";
+import { formatRelativeTimeLabel } from "../timestampFormat";
 import { projectFor, useRouteProject, type RouteProject } from "./routeProject";
 import { useConnectedEnvironmentIds, useEnvironment } from "../state/environments";
 import {
@@ -181,6 +182,12 @@ export function PluginSidebarItems() {
 /** Newest items listed in the sidebar; the plugin's attention view lists the rest. */
 const ATTENTION_SHOWN = 5;
 
+/** The compact age sidebar thread rows show ("now", "5m", "1d"). */
+const sidebarAge = (at: number) => {
+  const label = formatRelativeTimeLabel(new Date(at).toISOString());
+  return label === "just now" ? "now" : label.replace(/ ago$/, "");
+};
+
 function EnvironmentPluginAttention({
   environmentId,
   labelEnvironment,
@@ -265,6 +272,11 @@ function EnvironmentPluginAttention({
               <span className="ml-auto min-w-0 shrink-[3] truncate text-muted-foreground">
                 {item.reason}
               </span>
+              {item.at === undefined ? null : (
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {sidebarAge(item.at)}
+                </span>
+              )}
             </SidebarMenuButton>
           </SidebarMenuItem>
         );

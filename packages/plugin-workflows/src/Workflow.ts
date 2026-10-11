@@ -736,6 +736,7 @@ const make = Effect.gen(function* () {
           summary: run.workflowTitle || run.runId,
           severity: "warning" as const,
           reason: attentionReason(run).slice(0, 500),
+          at: run.createdAt,
           link: {
             pageId: "workflows.runs",
             projectId: run.projectId,

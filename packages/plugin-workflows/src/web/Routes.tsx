@@ -27,6 +27,8 @@ export interface InspectorProps {
   readonly onRemove?: (stepId: string) => void;
   /** The surrounding panel already titles the inspector (a sheet), so the heading is spoken only. */
   readonly hideHeading?: boolean;
+  /** The control id the editor is about to focus, so nested controls can be revealed first. */
+  readonly reveal?: string | null;
 }
 
 export const controlId = (nodeId: string | null, control: string) =>

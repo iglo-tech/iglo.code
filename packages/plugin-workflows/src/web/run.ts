@@ -417,6 +417,14 @@ export function takenEdges(
   return taken;
 }
 
+/** "just now", "5m ago", "3h ago", "2d ago": the app's own relative time labels. */
+export function relativeTime(at: number, now = Date.now()): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h ago`;
+  return `${Math.floor(minutes / (24 * 60))}d ago`;
+}
 export const clockTime = (at: number) =>
   new Date(at).toLocaleTimeString(undefined, { timeStyle: "short" });
 export const formatTime = (at: number) =>

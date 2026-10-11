@@ -1069,14 +1069,30 @@ function AgentFields({
 function ParallelInspector(
   input: InspectorProps & { readonly node: ParallelNode; readonly initialReviewerId?: string },
 ) {
-  const { props, definition, node, problems, readOnly, onChange, capabilities } = input;
+  const { props, definition, node, problems, readOnly, onChange, capabilities, reveal } = input;
   const { Input, Button, Badge } = props;
-  const [selected, setSelected] = useState(() =>
-    Math.max(
-      0,
-      node.branches.findIndex((branch) => branch.id === input.initialReviewerId),
-    ),
-  );
+  // Showing a reviewer's problem selects that reviewer before the editor focuses its control.
+  const revealed = (target: string | null | undefined) => {
+    if (!target) return -1;
+    return node.branches.findIndex((_, position) =>
+      target.startsWith(`${controlId(node.id, `branches.${position}`)}-`),
+    );
+  };
+  const [selected, setSelected] = useState(() => {
+    const position = revealed(reveal);
+    return position !== -1
+      ? position
+      : Math.max(
+          0,
+          node.branches.findIndex((branch) => branch.id === input.initialReviewerId),
+        );
+  });
+  const [lastReveal, setLastReveal] = useState(reveal);
+  if (reveal !== lastReveal) {
+    setLastReveal(reveal);
+    const position = revealed(reveal);
+    if (position !== -1) setSelected(position);
+  }
   const index = Math.min(selected, node.branches.length - 1);
   const branch = node.branches[index]!;
   const set = (update: (current: ParallelNode) => ParallelNode) =>
@@ -1111,8 +1127,7 @@ function ParallelInspector(
         <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm">
           <span className="truncate">{join ? join.title || join.id : "Missing join"}</span>
           <Badge variant={join ? "outline" : "warning"}>
-            Wait for all · {node.branches.length}{" "}
-            {node.branches.length === 1 ? "reviewer" : "reviewers"}
+            {node.branches.length === 1 ? "1 reviewer" : `All ${node.branches.length} reviewers`}
           </Badge>
         </span>
       </div>
@@ -1198,24 +1213,27 @@ function ParallelInspector(
             ).length;
             return (
               <li key={item.id} className="flex min-w-0 items-center gap-0.5">
-                <Button
-                  size="row"
-                  variant={position === index ? "outline" : "ghost"}
-                  ariaPressed={position === index}
-                  ariaLabel={`Edit reviewer ${name} (${item.id})${issues ? `, ${issues} to fix` : ""}`}
-                  onClick={() => setSelected(position)}
-                >
-                  <KindIcon kind="branch" className="size-3.5 text-muted-foreground" />
-                  <span className="truncate">{name}</span>
-                  <span className="truncate text-muted-foreground">
-                    {item.skill ? item.skill : item.id}
-                  </span>
-                  {issues ? (
-                    <span className="ml-auto flex shrink-0">
-                      <Badge variant="error">{issues} to fix</Badge>
+                {/* Rows fill the space their actions leave; the button itself never shrinks. */}
+                <span className="flex min-w-0 flex-1">
+                  <Button
+                    size="row"
+                    variant={position === index ? "outline" : "ghost"}
+                    ariaPressed={position === index}
+                    ariaLabel={`Edit reviewer ${name} (${item.id})${issues ? `, ${issues} to fix` : ""}`}
+                    onClick={() => setSelected(position)}
+                  >
+                    <KindIcon kind="branch" className="size-3.5 text-muted-foreground" />
+                    <span className="truncate">{name}</span>
+                    <span className="truncate text-muted-foreground">
+                      {item.skill ? item.skill : item.id}
                     </span>
-                  ) : null}
-                </Button>
+                    {issues ? (
+                      <span className="ml-auto flex shrink-0">
+                        <Badge variant="error">{issues} to fix</Badge>
+                      </span>
+                    ) : null}
+                  </Button>
+                </span>
                 <Button
                   size="icon-xs"
                   variant="ghost"

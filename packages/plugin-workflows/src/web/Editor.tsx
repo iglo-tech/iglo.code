@@ -522,11 +522,18 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     setSelected(problem.nodeId ?? null);
     if (view === "yaml" && problem.nodeId !== undefined) setView("graph");
     if (narrow) setInspectorOpen(true);
-    const target = controlId(problem.nodeId ?? null, problem.control ?? "title");
+    // A reviewer's controls render only once the inspector reveals that reviewer.
+    const reviewer = problem.control?.match(/^branches\.\d+(?=\.|$)/)?.[0];
+    const control =
+      reviewer !== undefined && reviewer === problem.control
+        ? `${reviewer}.title`
+        : (problem.control ?? "title");
+    const target = controlId(problem.nodeId ?? null, control);
     setFocus(
       problem.control === undefined && problem.nodeId !== undefined
         ? stepButtonId(problem.nodeId)
-        : typeof document !== "undefined" &&
+        : reviewer === undefined &&
+            typeof document !== "undefined" &&
             document.getElementById(target) === null &&
             problem.nodeId
           ? stepButtonId(problem.nodeId)
@@ -663,6 +670,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           onChange={change}
           {...(selectedRemovable ? { onRemove: removeSelected } : {})}
           hideHeading={inSheet && selected === null}
+          reveal={focus}
         />
       </div>
     );
