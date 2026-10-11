@@ -39,13 +39,19 @@ it.live.each(["sensitive-environment", "github-token", "bitbucket-control"] as c
           const client = Settings.redactServerSettingsForClient(yield* settings.getSettings);
           expect(client.providerInstances[fixtureInstance]?.environment?.[0]?.value).toBe("");
         } else if (scenario === "github-token") {
-          yield* settings.updateSettings({ github: { tokens: { "fixture.invalid": marker } } });
+          yield* settings.updateSettings({
+            sourceControlHosts: { github: { tokens: { "fixture.invalid": marker } } },
+          });
           expect(
-            Settings.redactServerSettingsForClient(yield* settings.getSettings).github.tokens[
-              "fixture.invalid"
-            ],
-          ).not.toBe(marker);
-        } else yield* settings.updateSettings({ bitbucket: { accessToken: marker } });
+            JSON.stringify(
+              Settings.redactServerSettingsForClient(yield* settings.getSettings)
+                .sourceControlHosts,
+            ),
+          ).not.toContain(marker);
+        } else
+          yield* settings.updateSettings({
+            sourceControlHosts: { bitbucket: { accessToken: marker } },
+          });
         const host = Host.of({ ...test.core, lifecycle: () => Stream.never });
         const runtime = yield* test.boot(host);
         const definition = yield* decodeDefinition({
@@ -102,7 +108,9 @@ it.live.each(["numeric-match", "numeric-control"] as const)(
         const test = yield* makeCoreWorkflowFixture;
         const settings = Context.get(test.context, Settings.ServerSettingsService);
         // Numeric fixture token is fake, stored only in this isolated temporary environment.
-        yield* settings.updateSettings({ bitbucket: { accessToken: "86420975" } });
+        yield* settings.updateSettings({
+          sourceControlHosts: { bitbucket: { accessToken: "86420975" } },
+        });
         const host = Host.of({ ...test.core, lifecycle: () => Stream.never });
         const runtime = yield* test.boot(host);
         const result = yield* runtime

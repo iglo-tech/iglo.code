@@ -25,7 +25,9 @@ it.live.each([
       const test = yield* makeCoreWorkflowFixture;
       const settings = Context.get(test.context, Settings.ServerSettingsService);
       const marker = scenario;
-      yield* settings.updateSettings({ bitbucket: { accessToken: marker } });
+      yield* settings.updateSettings({
+        sourceControlHosts: { bitbucket: { accessToken: marker } },
+      });
       const host = Host.of({ ...test.core, lifecycle: () => Stream.never });
       let runtime = yield* test.boot(host);
       const result = yield* runtime
@@ -67,7 +69,7 @@ it.live.each([
         );
         expect(String(projection.input.long).length).toBeLessThanOrEqual(4000);
       }
-      yield* settings.updateSettings({ bitbucket: { accessToken: "" } });
+      yield* settings.updateSettings({ sourceControlHosts: { bitbucket: { accessToken: "" } } });
       const recovered = yield* runtime
         .invoke("get", { ...test.scope, runId: id })
         .pipe(Effect.flatMap(decodeRun));

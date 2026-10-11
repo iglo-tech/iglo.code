@@ -28,7 +28,11 @@ it.live.each(["known-secret", "unrelated-control"] as const)(
         const marker = "fabricated-catalog-token";
         const settings = Context.get(test.context, Settings.ServerSettingsService);
         yield* settings.updateSettings({
-          bitbucket: { accessToken: scenario === "known-secret" ? marker : "unrelated-fake-token" },
+          sourceControlHosts: {
+            bitbucket: {
+              accessToken: scenario === "known-secret" ? marker : "unrelated-fake-token",
+            },
+          },
         });
         const definition = yield* decodeDefinition({
           ...sequence,
