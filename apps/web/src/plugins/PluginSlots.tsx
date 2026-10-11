@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, PluginPageState, PluginTarget, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
 import { RenderErrorBoundary } from "../components/RenderErrorBoundary";
 import { Button } from "../components/ui/button";
@@ -13,6 +13,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "../components/ui/sidebar";
+import { toastManager } from "../components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { PluginIcon } from "./pluginIcons";
 import { projectFor, useRouteProject, type RouteProject } from "./routeProject";
@@ -246,6 +247,15 @@ export function PluginSidebarAttention() {
   );
 }
 
+/** Tells the user a project action dialog failed, then closes it. */
+function ProjectActionFailed({ title, setOpen }: { title: string; setOpen: (open: null) => void }) {
+  useEffect(() => {
+    toastManager.add({ type: "error", title: `Couldn't open ${title}` });
+    setOpen(null);
+  }, [title, setOpen]);
+  return null;
+}
+
 export function PluginProjectActions({
   environmentId,
   projectId,
@@ -288,8 +298,11 @@ export function PluginProjectActions({
               {item.dialog !== undefined &&
               open?.pluginId === plugin.manifest.id &&
               open.actionId === item.id ? (
-                // A failed chunk or render closes into nothing; reopening resets it.
-                <RenderErrorBoundary fallback={null} resetKeys={[open]}>
+                // A failed chunk or render shows a toast and closes; reopening resets it.
+                <RenderErrorBoundary
+                  fallback={<ProjectActionFailed title={item.title} setOpen={setOpen} />}
+                  resetKeys={[open]}
+                >
                   {item.dialog(plugin.context, () => setOpen(null))}
                 </RenderErrorBoundary>
               ) : null}
