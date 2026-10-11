@@ -188,6 +188,7 @@ packageExtensions:
 patchedDependencies:
   "@effect/platform-node@4.0.2": patches/@effect__platform-node@4.0.2.patch
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
+  "@effect/platform-node-shared@4.0.2": patches/@effect__platform-node-shared@4.0.2.patch
   "@effect/vitest@4.0.2": patches/@effect__vitest@4.0.2.patch
   "@ff-labs/fff-node@0.11.0": patches/@ff-labs__fff-node@0.11.0.patch
   "@legendapp/list@3.3.5": patches/@legendapp__list@3.3.5.patch
