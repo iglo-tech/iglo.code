@@ -116,6 +116,61 @@ vi.mock("../src/connection/runtime", async () => {
     ),
   };
 });
+// Overlays portal into a document, which this node harness lacks. Swap them for in-place
+// doubles that keep the role, accessible name and blocker wiring the plugin flows rely on.
+vi.mock("../src/plugins/design", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/plugins/design")>();
+  const { useBlocker } = await import("@tanstack/react-router");
+  const Dialog: typeof actual.pluginDesign.Dialog = ({
+    open,
+    title,
+    description,
+    children,
+    footer,
+  }) =>
+    open ? (
+      <div role="dialog" aria-label={title}>
+        <p>{title}</p>
+        {description === undefined ? null : <p>{description}</p>}
+        {children}
+        {footer}
+      </div>
+    ) : null;
+  const NavigationGuard: typeof actual.pluginDesign.NavigationGuard = ({
+    when,
+    title,
+    description,
+    onDiscard,
+    keepLabel,
+  }) => {
+    const blocker = useBlocker({ shouldBlockFn: () => when, withResolver: true });
+    const { Button } = actual.pluginDesign;
+    return blocker.status === "blocked" ? (
+      <div role="alertdialog" aria-label={title}>
+        <p>{title}</p>
+        {description === undefined ? null : <p>{description}</p>}
+        <Button onClick={() => blocker.reset?.()}>Keep editing</Button>
+        {keepLabel === undefined ? null : (
+          <Button onClick={() => blocker.proceed?.()}>{keepLabel}</Button>
+        )}
+        <Button
+          onClick={() => {
+            onDiscard?.();
+            blocker.proceed?.();
+          }}
+        >
+          Discard
+        </Button>
+      </div>
+    ) : null;
+  };
+  const Tooltip: typeof actual.pluginDesign.Tooltip = ({ children }) => children;
+  return {
+    ...actual,
+    pluginDesign: { ...actual.pluginDesign, Dialog, NavigationGuard, Tooltip },
+  };
+});
+
 vi.mock("../src/state/session", async () => {
   const { Atom } = await import("effect/reactivity");
   const Option = await import("effect/Option");
