@@ -811,7 +811,7 @@ it.live(
         yield* promise(() => toggle("Rule 2 route", "repeat"));
         expect(select("wf-decision-1-rules-1").props.value).toBe("agent-1");
         expect(page()).toContain(
-          "decision-1: Rule 2 already repeats back to agent-1, and repeats from one step to the same step share one counter.",
+          "Rule 2 already repeats back to agent-1, and repeats from one step to the same step share one counter.",
         );
         expect(select("wf-decision-1-otherwise-repeat").props.invalid).toBe(true);
         expect(select("wf-decision-1-rules-1-repeat").props.invalid).toBe(false);
@@ -842,7 +842,7 @@ it.live(
         yield* promise(() => click("Decision: Decision 1"));
         // Locally invalid drafts are not sent for server validation; the shared rules locate them.
         yield* promise(() => choose("wf-decision-1-source", "agent-1"));
-        expect(page()).toContain("decision-1: unknown predicate path exitCode.");
+        expect(page()).toContain("Unknown predicate path exitCode.");
         expect(select("wf-decision-1-rules-0-when-1").props.invalid).toBe(true);
         expect(select("wf-decision-1-rules-0-when-1").props.options[0]).toEqual({
           value: "exitCode",
@@ -854,7 +854,7 @@ it.live(
         yield* promise(() => keyDown("end-1", "Delete"));
         expect(routesOf("human-1")).toContain("Request changes → end-1 (missing)");
         yield* promise(() => click("1 to fix"));
-        expect(page()).toContain("human-1: unknown route target end-1.");
+        expect(page()).toContain("Human gate 1: unknown route target end-1.");
         expect(button("Save").props.disabled).toBe(true);
         yield* promise(() => click("Show"));
         expect(select("wf-human-1-changes").props.invalid).toBe(true);
