@@ -311,8 +311,9 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
     let total = 0;
     for (const id of ids) {
       const node = nodes.get(id);
-      if (node === undefined || node.kind === "end" || node.kind === "human") continue;
-      total += node.kind === "parallel" ? node.branches.length + 1 : 1;
+      if (node === undefined || node.kind === "end") continue;
+      // The runtime admits every visited node; a group costs its branches plus open and join.
+      total += node.kind === "parallel" ? node.branches.length + 2 : 1;
     }
     return total;
   };

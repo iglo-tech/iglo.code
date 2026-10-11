@@ -486,11 +486,15 @@ const make = Effect.gen(function* () {
     );
   const write = Effect.fnUntraced(function* (directory: string, filename: string, text: string) {
     yield* fs.makeDirectory(directory, { recursive: true });
-    const temporary = yield* fs.makeTempFile({ directory, prefix: ".workflow-", suffix: ".yaml" });
-    yield* fs.writeFileString(temporary, text);
-    yield* fs
-      .rename(temporary, filename)
-      .pipe(Effect.ensuring(fs.remove(temporary).pipe(Effect.ignore)));
+    // The temporary directory is the only entry that can leak, so it is removed on every exit.
+    const staging = yield* fs.makeTempDirectory({ directory, prefix: ".workflow-" });
+    yield* Effect.gen(function* () {
+      const temporary = path.join(staging, "workflow.yaml");
+      yield* fs.writeFileString(temporary, text);
+      yield* fs.rename(temporary, filename);
+    }).pipe(
+      Effect.ensuring(fs.remove(staging, { recursive: true, force: true }).pipe(Effect.ignore)),
+    );
   });
   const written = (scope: Scope, source: string, text: string, definition: Definition) =>
     Effect.gen(function* () {

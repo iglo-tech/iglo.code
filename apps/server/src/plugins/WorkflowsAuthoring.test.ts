@@ -308,6 +308,35 @@ it.effect("names an existing identity when a new workflow would take it over", (
   ).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.effect("leaves only workflow files in the catalog directory after saving", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture;
+      const fs = yield* FileSystem.FileSystem;
+      const scope = { environmentId: test.environmentId, projectId: test.projectId };
+      const directory = `${test.directory}/.t3code/workflows`;
+      const saved = yield* test
+        .invoke("save", { ...scope, definition: sequence, expectedRevision: null })
+        .pipe(Effect.flatMap(decodeAuthoring));
+      expect(yield* fs.readDirectory(directory)).toEqual(["sequence.yaml"]);
+      // Conflicting and stale saves and a replace write nothing and stage nothing.
+      yield* test
+        .invoke("save", { ...scope, definition: sequence, expectedRevision: null })
+        .pipe(Effect.result);
+      yield* test
+        .invoke("save", { ...scope, definition: sequence, expectedRevision: 7 })
+        .pipe(Effect.result);
+      yield* test.invoke("replace", {
+        ...scope,
+        source: saved.source,
+        fingerprint: saved.fingerprint,
+        definition: { ...sequence, title: "Renamed" },
+      });
+      expect(yield* fs.readDirectory(directory)).toEqual(["sequence.yaml"]);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("deletes an authored workflow only through its observed fingerprint", () =>
   Effect.scoped(
     Effect.gen(function* () {

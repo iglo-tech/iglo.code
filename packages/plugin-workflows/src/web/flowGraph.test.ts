@@ -161,16 +161,56 @@ describe("workflow graph", () => {
     for (const item of loop) expect(loops.has(item.id)).toBe(true);
   });
 
-  it("opens tall graphs readable at the entry and wide graphs at full width", () => {
+  it("opens big graphs readable at the entry and small ones whole", () => {
     const tall = autoFitViewport({ x: 0, y: 100, width: 232, height: 2000 }, 800, 600);
     expect(tall.zoom).toBe(0.9);
     expect(tall.y).toBeCloseTo(24 - 100 * 0.9);
-    const wide = autoFitViewport({ x: 0, y: 0, width: 1400, height: 400 }, 600, 500);
-    expect(wide.zoom).toBeLessThan(0.9);
-    expect(1400 * wide.zoom).toBeLessThanOrEqual(600);
+    // Wider than the canvas: readable zoom, centered on the entry rather than shrunk to fit.
+    const wide = autoFitViewport({ x: 0, y: 0, width: 1400, height: 400 }, 600, 500, 700);
+    expect(wide.zoom).toBe(0.8);
+    expect(700 * wide.zoom + wide.x).toBeCloseTo(300);
+    const edge = autoFitViewport({ x: 0, y: 0, width: 1400, height: 400 }, 600, 500, 10);
+    expect(edge.x).toBeCloseTo(24);
     const small = autoFitViewport({ x: 0, y: 0, width: 232, height: 200 }, 800, 600);
     expect(small.zoom).toBe(1);
     expect(small.y).toBeGreaterThan(0);
+  });
+
+  it("lays a detached step out clear of every box and loop of the main graph", () => {
+    const agent = developmentReview.nodes.find((node) => node.id === "implement")!;
+    const definition = {
+      ...developmentReview,
+      entry: "checks",
+      nodes: [
+        ...developmentReview.nodes,
+        { ...agent, id: "orphan", title: "Orphan", next: { to: "done" } },
+        { ...agent, id: "lonely", title: "Lonely", next: { to: "lonely" } },
+      ],
+    } as typeof developmentReview;
+    const graph = flowGraph(definition);
+    const layout = layoutFlow(graph);
+    const box = (id: string) => {
+      const at = layout.positions.get(id)!;
+      const size = layout.sizes.get(id)!;
+      return { left: at.x, top: at.y, right: at.x + size.width, bottom: at.y + size.height };
+    };
+    const hits = (a: ReturnType<typeof box>, b: ReturnType<typeof box>) =>
+      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    const ids = graph.nodes.map((node) => node.id);
+    for (const [index, id] of ids.entries())
+      for (const other of ids.slice(index + 1)) expect(hits(box(id), box(other))).toBe(false);
+    const mainBottom = Math.max(
+      ...ids.filter((id) => id !== "orphan" && id !== "lonely").map((id) => box(id).bottom),
+    );
+    expect(box("orphan").top).toBeGreaterThan(mainBottom);
+    // No main-graph loop's legs or vertical run touch a detached box.
+    for (const [id, loop] of repeatLoops(graph, layout)) {
+      const owner = graph.edges.find((item) => item.id === id)!;
+      if (owner.source === "lonely") continue;
+      const source = box(owner.source);
+      const reach = { left: source.right, right: loop.x, top: source.top, bottom: source.bottom };
+      for (const detached of ["orphan", "lonely"]) expect(hits(reach, box(detached))).toBe(false);
+    }
   });
 
   it("gives every box a distinct focus id", () => {

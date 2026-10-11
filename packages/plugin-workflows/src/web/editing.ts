@@ -322,9 +322,17 @@ export function localProblems(definition: Definition): ReadonlyArray<Problem> {
     });
   }
   const decoded = decodeDefinition(definition);
-  if (decoded._tag === "Failure" && problems.length === 0)
+  if (decoded._tag === "Failure")
     for (const issue of schemaIssues(decoded.failure.issue).issues.slice(0, 5)) {
       const location = schemaLocation(definition, issue.path ?? []);
+      // A hand check on the same control already says it; do not repeat it.
+      if (
+        location.control !== undefined &&
+        problems.some(
+          (problem) => problem.nodeId === location.nodeId && problem.control === location.control,
+        )
+      )
+        continue;
       add(issue.message.slice(0, 500), location.nodeId, location.control);
     }
   // Graph rules only read structure, so they still guide an incomplete draft.

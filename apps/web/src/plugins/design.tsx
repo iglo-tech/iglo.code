@@ -9,7 +9,7 @@ import {
   SearchIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { Fragment, useLayoutEffect, type ComponentProps, type ReactElement } from "react";
+import { Fragment, useLayoutEffect, useRef, type ComponentProps, type ReactElement } from "react";
 import { SettingsGroup } from "../components/settings/SettingsGroup";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../components/ui/alert";
 import {
@@ -118,6 +118,30 @@ function NavigationGuard({
     </AlertDialog>
   );
 }
+
+/**
+ * A plugin panel's content decides what it holds, so it opens with focus on the panel itself:
+ * Enter on arrival never lands on a destructive control that happens to come first.
+ */
+const PluginSheet: PluginDesign["Sheet"] = ({
+  open,
+  onOpenChange,
+  title,
+  side = "right",
+  children,
+}) => {
+  const popup = useRef<HTMLDivElement>(null);
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetPopup ref={popup} initialFocus={popup} side={side}>
+        <SheetHeader>
+          <SheetTitle>{title}</SheetTitle>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">{children}</div>
+      </SheetPopup>
+    </Sheet>
+  );
+};
 
 function PluginDialog({
   open,
@@ -541,16 +565,7 @@ export const pluginDesign: PluginDesign = {
     );
   },
   PageHeader,
-  Sheet: ({ open, onOpenChange, title, side = "right", children }) => (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetPopup side={side}>
-        <SheetHeader>
-          <SheetTitle>{title}</SheetTitle>
-        </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">{children}</div>
-      </SheetPopup>
-    </Sheet>
-  ),
+  Sheet: PluginSheet,
   Dialog: PluginDialog,
   ConfirmDialog,
   NavigationGuard,

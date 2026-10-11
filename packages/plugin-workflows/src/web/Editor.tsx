@@ -870,6 +870,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       ) : null}
     </div>
   );
+  // The header keeps the title's room at narrow widths: icon and count, full words in the tooltip.
+  const problemsLabel =
+    errors > 0 ? `${errors} to fix` : `${warnings} ${warnings === 1 ? "warning" : "warnings"}`;
   const views = [
     ...(canvasSupported() ? [{ value: "graph", label: "Graph" }] : []),
     { value: "routes", label: "Routes" },
@@ -894,11 +897,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           ) : null}
         </span>
         {draft !== null && problems.length > 0 ? (
-          <Button size="xs" variant="ghost" onClick={showProblems}>
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={showProblems}
+            {...(narrow ? { tooltip: problemsLabel, ariaLabel: problemsLabel } : {})}
+          >
             <CircleAlertIcon />
-            {errors > 0
-              ? `${errors} to fix`
-              : `${warnings} ${warnings === 1 ? "warning" : "warnings"}`}
+            {narrow ? (errors > 0 ? errors : warnings) : problemsLabel}
           </Button>
         ) : null}
         <Menu

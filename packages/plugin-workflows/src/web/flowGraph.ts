@@ -242,40 +242,48 @@ export interface Bounds {
 export const fitPadding = 0.16;
 /** The zoom floor of the canvas itself, which the manual Fit button falls back to. */
 export const canvasMinZoom = 0.2;
-const readableZoom = 0.9;
+const readableHeightZoom = 0.9;
+const readableWidthZoom = 0.8;
+const fitMargin = 24;
 
 /**
- * The viewport the canvas opens on. Width always fits, so nothing clips sideways, but the
- * vertical fit never zooms below a readable level: a tall graph opens readable and anchored at
- * its entry (the top rank) rather than shrunk to illegibility. The Fit button still shows all.
+ * The viewport the canvas opens on, in the editor and the viewer alike. A graph that fits
+ * opens whole and centered. One too big for the canvas opens at a readable zoom instead of
+ * shrunk to illegibility: anchored at its top, and sideways centered on the entry box
+ * (`entryX`, its centre) so the start of the flow is what shows. The Fit button still shows all.
  */
-export function autoFitViewport(bounds: Bounds, width: number, height: number) {
-  const fitsWidth = getViewportForBounds(
-    { ...bounds, height: 1 },
-    width,
-    height,
-    canvasMinZoom,
+export function autoFitViewport(bounds: Bounds, width: number, height: number, entryX?: number) {
+  const fit = (box: Bounds) =>
+    getViewportForBounds(box, width, height, canvasMinZoom, 1, fitPadding).zoom;
+  const fitsWidth = fit({ ...bounds, height: 1 });
+  const fitsHeight = fit({ ...bounds, width: 1 });
+  const zoom = Math.min(
     1,
-    fitPadding,
-  ).zoom;
-  const viewport = getViewportForBounds(
-    bounds,
-    width,
-    height,
-    Math.min(readableZoom, fitsWidth),
-    1,
-    fitPadding,
+    Math.max(fitsWidth, readableWidthZoom),
+    Math.max(fitsHeight, readableHeightZoom),
   );
-  return bounds.height * viewport.zoom + 48 > height
-    ? { ...viewport, y: 24 - bounds.y * viewport.zoom }
-    : viewport;
+  const centered = {
+    x: (width - bounds.width * zoom) / 2 - bounds.x * zoom,
+    y: (height - bounds.height * zoom) / 2 - bounds.y * zoom,
+  };
+  const left = fitMargin - bounds.x * zoom;
+  const right = width - fitMargin - (bounds.x + bounds.width) * zoom;
+  const anchored = width / 2 - (entryX ?? bounds.x + bounds.width / 2) * zoom;
+  return {
+    zoom,
+    x:
+      bounds.width * zoom + 2 * fitMargin > width
+        ? Math.min(left, Math.max(right, anchored))
+        : centered.x,
+    y: bounds.height * zoom + 2 * fitMargin > height ? fitMargin - bounds.y * zoom : centered.y,
+  };
 }
 
 /** Approximate drawn width of an edge label (11px medium text plus padding). */
 export const labelWidth = (label: string) => label.length * 6.5 + 16;
 
-/** Top-to-bottom layered layout. Repeat routes are left out so they never push steps around. */
-export function layoutFlow(graph: FlowGraph): FlowLayout {
+/** Top-to-bottom layered layout of one connected set of boxes, from the origin. */
+function layoutComponent(nodes: ReadonlyArray<FlowNode>, allEdges: ReadonlyArray<FlowEdge>) {
   const layout = new dagre.graphlib.Graph<GraphLabel, NodeLabel, EdgeLabel>({ multigraph: true });
   layout.setGraph({
     rankdir: "TB",
@@ -286,10 +294,11 @@ export function layoutFlow(graph: FlowGraph): FlowLayout {
     marginy: 16,
   });
   layout.setDefaultEdgeLabel(() => ({}));
-  for (const node of graph.nodes) layout.setNode(node.id, { ...nodeSize(node) });
+  for (const node of nodes) layout.setNode(node.id, { ...nodeSize(node) });
+  const members = new Set(nodes.map((node) => node.id));
   // dagre places a node's siblings in reverse of the order their edges were added, so fork
   // edges are fed last-to-first to leave reviewer lanes in definition order, left to right.
-  const edges = [...graph.edges];
+  const edges = allEdges.filter((edge) => members.has(edge.source));
   const forks = edges.filter((edge) => edge.kind === "fork").reverse();
   let nextFork = 0;
   const ordered = edges.map((edge) => (edge.kind === "fork" ? forks[nextFork++]! : edge));
@@ -305,19 +314,8 @@ export function layoutFlow(graph: FlowGraph): FlowLayout {
     );
   }
   dagre.layout(layout);
-  const positions = new Map<string, Point>();
-  const sizes = new Map<string, { width: number; height: number }>();
-  for (const node of graph.nodes) {
-    const placed = layout.node(node.id);
-    const size = nodeSize(node);
-    sizes.set(node.id, size);
-    positions.set(node.id, {
-      x: (placed?.x ?? 0) - size.width / 2,
-      y: (placed?.y ?? 0) - size.height / 2,
-    });
-  }
   const routes = new Map<string, { points: ReadonlyArray<Point>; label: Point | null }>();
-  for (const edge of graph.edges) {
+  for (const edge of edges) {
     if (edge.back) continue;
     const routed = layout.edge({ v: edge.source, w: edge.target, name: edge.id });
     if (routed?.points === undefined) continue;
@@ -328,6 +326,71 @@ export function layoutFlow(graph: FlowGraph): FlowLayout {
           ? null
           : { x: routed.x, y: routed.y },
     });
+  }
+  const placed = nodes.map((node) => {
+    const at = layout.node(node.id);
+    const size = nodeSize(node);
+    return {
+      id: node.id,
+      size,
+      position: { x: (at?.x ?? 0) - size.width / 2, y: (at?.y ?? 0) - size.height / 2 },
+    };
+  });
+  return { placed, routes, height: layout.graph().height ?? 0 };
+}
+
+/**
+ * Layered layout. Repeat routes are left out so they never push steps around. Boxes the entry
+ * cannot reach are laid out as their own sets, stacked below the main graph, so they never share
+ * a rank with its loops and edges. Their routes into the main graph are drawn without a path.
+ */
+export function layoutFlow(graph: FlowGraph): FlowLayout {
+  const reached = new Set<string>();
+  const entry = graph.nodes.find((node) => node.entry);
+  const pending = entry === undefined ? [] : [entry.id];
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    if (reached.has(id)) continue;
+    reached.add(id);
+    for (const edge of graph.edges) if (edge.source === id) pending.push(edge.target);
+  }
+  // Without an entry there is no main graph to protect; everything lays out as one set.
+  const detached = graph.nodes.filter((node) => entry !== undefined && !reached.has(node.id));
+  const parent = new Map(detached.map((node) => [node.id, node.id]));
+  const find = (id: string): string => {
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    return root;
+  };
+  for (const edge of graph.edges)
+    if (parent.has(edge.source) && parent.has(edge.target))
+      parent.set(find(edge.source), find(edge.target));
+  const groups = new Map<string, FlowNode[]>();
+  for (const node of detached) {
+    const root = find(node.id);
+    groups.set(root, [...(groups.get(root) ?? []), node]);
+  }
+  const components = [
+    graph.nodes.filter((node) => entry === undefined || reached.has(node.id)),
+    ...groups.values(),
+  ].filter((nodes) => nodes.length > 0);
+
+  const positions = new Map<string, Point>();
+  const sizes = new Map<string, { width: number; height: number }>();
+  const routes = new Map<string, { points: ReadonlyArray<Point>; label: Point | null }>();
+  let top = 0;
+  for (const nodes of components) {
+    const component = layoutComponent(nodes, graph.edges);
+    for (const { id, size, position } of component.placed) {
+      sizes.set(id, size);
+      positions.set(id, { x: position.x, y: position.y + top });
+    }
+    for (const [id, route] of component.routes)
+      routes.set(id, {
+        points: route.points.map((point) => ({ x: point.x, y: point.y + top })),
+        label: route.label === null ? null : { x: route.label.x, y: route.label.y + top },
+      });
+    top += component.height;
   }
   return { positions, sizes, routes };
 }

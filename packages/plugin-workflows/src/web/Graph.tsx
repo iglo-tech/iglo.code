@@ -201,7 +201,7 @@ function StepCard({
             <KindIcon kind={node.kind} className="size-4" />
           </span>
           {/* The title keeps its line to itself (only the problem count shares it); markers sit
-              on the subtitle line, which truncates first. Markers stay inside the card: route
+              on the subtitle line and wrap below it rather than squeeze it. Markers stay inside the card: route
               arrows land anywhere along its top edge. */}
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
@@ -218,8 +218,8 @@ function StepCard({
                 </span>
               ) : null}
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="min-w-0 flex-1 truncate text-xs leading-4 text-muted-foreground">
+            <span className="flex flex-wrap items-center gap-x-1.5">
+              <span className="min-w-0 max-w-full truncate text-xs leading-4 text-muted-foreground">
                 {kindText(node.kind)}
                 {node.detail === null ? "" : ` · ${node.detail}`}
               </span>
@@ -374,20 +374,28 @@ const laidOut = (graph: FlowGraph, key: string) => {
  * `autoFitViewport`); the Fit button shows everything. The viewport is computed from the
  * layout directly, so it never waits on React Flow measuring the boxes.
  */
-function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: string }) {
+function Refit({
+  bounds,
+  entryX,
+  fitKey,
+}: {
+  readonly bounds: Bounds;
+  readonly entryX: number | undefined;
+  readonly fitKey: string;
+}) {
   const { setViewport } = useReactFlow();
   // Edits that only move or resize boxes must not undo the user's pan and zoom, so the effect
   // reads the latest bounds without depending on them.
-  const latest = useRef(bounds);
+  const latest = useRef({ bounds, entryX });
   useEffect(() => {
-    latest.current = bounds;
+    latest.current = { bounds, entryX };
   });
   const ready = useStore((state) => state.panZoom !== null);
   const width = useStore((state) => state.width);
   const height = useStore((state) => state.height);
   useEffect(() => {
     if (!ready || width <= 0 || height <= 0) return;
-    void setViewport(autoFitViewport(latest.current, width, height));
+    void setViewport(autoFitViewport(latest.current.bounds, width, height, latest.current.entryX));
   }, [fitKey, ready, width, height, setViewport]);
   return null;
 }
@@ -447,6 +455,10 @@ export function Graph({
     setCached(current);
   }
   const { layout, loops, bounds } = current;
+  const entryId = graph.nodes.find((node) => node.entry)?.id;
+  const entryAt = entryId === undefined ? undefined : layout.positions.get(entryId);
+  const entryX =
+    entryAt === undefined ? undefined : entryAt.x + layout.sizes.get(entryId!)!.width / 2;
   const counts = useMemo(() => {
     const byNode = new Map<string, { errors: number; warnings: number }>();
     for (const problem of problems) {
@@ -575,7 +587,7 @@ export function Graph({
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Controls showInteractive={false} position="bottom-left" fitViewOptions={manualFit} />
-          <Refit bounds={bounds} fitKey={fitKey} />
+          <Refit bounds={bounds} entryX={entryX} fitKey={fitKey} />
         </ReactFlow>
       </ReactFlowProvider>
     </GraphActionsContext>

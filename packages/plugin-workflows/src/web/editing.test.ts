@@ -231,6 +231,63 @@ describe("workflow authoring", () => {
     expect(stopWarnings(10)).toHaveLength(1);
   });
 
+  it("counts human gates and review groups at their runtime cost", () => {
+    const stop = developmentReview.nodes.find((node) => node.id === "done")!;
+    const agent = developmentReview.nodes.find((node) => node.id === "implement")!;
+    const human = developmentReview.nodes.find((node) => node.kind === "human")!;
+    const group = developmentReview.nodes.find((node) => node.kind === "parallel")!;
+    const warnings = (maxVisits: number, middle: ReadonlyArray<unknown>, first: string) =>
+      localProblems({
+        ...developmentReview,
+        maxVisits,
+        entry: "a",
+        atLimit: "stop",
+        nodes: [
+          { ...agent, id: "a", title: "a", next: { to: first } },
+          ...middle,
+          stop,
+          { ...stop, id: "stop", title: "Stop", outcome: "failed" },
+        ],
+      } as typeof developmentReview).filter((p) => p.severity === "warning" && p.nodeId === "stop");
+    // a, gate, b is three admitted visits against a limit of two.
+    expect(
+      warnings(
+        2,
+        [
+          { ...human, id: "gate", title: "Gate", approve: { to: "b" }, changes: { to: "b" } },
+          { ...agent, id: "b", title: "b", next: { to: "done" } },
+        ],
+        "gate",
+      ),
+    ).toEqual([]);
+    // a plus a two-reviewer group (open, two reviewers, join) is five against four.
+    expect(
+      warnings(
+        4,
+        [
+          {
+            ...group,
+            id: "group",
+            branches: group.kind === "parallel" ? group.branches.slice(0, 2) : [],
+            next: { to: "done" },
+          },
+        ],
+        "group",
+      ),
+    ).toEqual([]);
+  });
+
+  it("shows schema and hand-check problems together without repeating one", () => {
+    const { definition } = addStep(newDefinition("Flow"), "agent", null, capabilities);
+    const problems = localProblems({ ...definition, maxVisits: 0 });
+    expect(problems.map((problem) => problem.control)).toEqual(
+      expect.arrayContaining(["instruction", "maxVisits"]),
+    );
+    expect(problems.filter((problem) => problem.control === "maxVisits")).toHaveLength(1);
+    const unnamed = localProblems({ ...definition, title: "" });
+    expect(unnamed.filter((problem) => problem.control === "title")).toHaveLength(1);
+  });
+
   it("warns about unreachable steps of every kind, including the run limit destination", () => {
     const entryIsEnd = { ...developmentReview, entry: "done" };
     const warned = localProblems(entryIsEnd)
