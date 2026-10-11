@@ -3,7 +3,14 @@ import { useEffect, useState } from "react";
 import type { ProviderInstanceId, RuntimeMode } from "@t3tools/plugin-host-contract/schema";
 import type { Capabilities, Definition, Field, Node, Problem, Route, Skill } from "../contracts.ts";
 import { Labeled, errorMessage, type PageProps } from "./common.tsx";
-import { isProtected, kindLabels, routeList, updateNode, upstreamFields } from "./editing.ts";
+import {
+  isProtected,
+  kindLabels,
+  problemText,
+  routeList,
+  updateNode,
+  upstreamFields,
+} from "./editing.ts";
 import { KindIcon } from "./kinds.tsx";
 
 type AgentNode = Extract<Node, { kind: "agent" }>;
@@ -42,18 +49,36 @@ interface InspectorProps {
   readonly readOnly: boolean;
   readonly identityEditable: boolean;
   readonly onChange: (definition: Definition) => void;
+  /** Set when the selected step can be removed. */
+  readonly onRemove?: (stepId: string) => void;
 }
 
 export function Inspector(input: InspectorProps) {
   const node = input.definition.nodes.find((item) => item.id === input.selected);
   return (
     <section aria-labelledby="wf-inspector-title" className="flex min-w-0 flex-col gap-4">
-      <h2 id="wf-inspector-title" className="flex items-center gap-2 text-sm font-medium">
-        {node === undefined ? null : (
-          <KindIcon kind={node.kind} className="size-4 text-muted-foreground" />
+      <div className="flex min-h-7 items-center gap-2">
+        <h2
+          id="wf-inspector-title"
+          className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium"
+        >
+          {node === undefined ? null : (
+            <KindIcon kind={node.kind} className="size-4 text-muted-foreground" />
+          )}
+          {node === undefined ? "Workflow settings" : kindLabels[node.kind]}
+        </h2>
+        {node === undefined || input.onRemove === undefined ? null : (
+          <input.props.Button
+            size="icon-xs"
+            variant="ghost"
+            tooltip="Remove step"
+            ariaLabel={`Remove ${node.title || node.id}`}
+            onClick={() => input.onRemove?.(node.id)}
+          >
+            <Trash2Icon />
+          </input.props.Button>
         )}
-        {node === undefined ? "Workflow settings" : kindLabels[node.kind]}
-      </h2>
+      </div>
       {node === undefined ? (
         <WorkflowSettings {...input} />
       ) : node.kind === "agent" ? (
@@ -85,7 +110,7 @@ function Problems({
           key={index}
           className={problem.severity === "error" ? "text-destructive" : "text-warning-foreground"}
         >
-          {problem.message}
+          {problemText(problem, null)}
         </li>
       ))}
     </ul>
@@ -126,6 +151,7 @@ function WorkflowSettings({
           id={controlId(null, "title")}
           value={definition.title}
           readOnly={readOnly}
+          disabled={readOnly}
           invalid={invalid("title")}
           onChange={(title) => onChange({ ...definition, title })}
         />
@@ -136,6 +162,7 @@ function WorkflowSettings({
           id={controlId(null, "id")}
           value={definition.id}
           readOnly={readOnly || !identityEditable}
+          disabled={readOnly || !identityEditable}
           invalid={invalid("id")}
           onChange={(id) => onChange({ ...definition, id })}
         />
@@ -163,6 +190,8 @@ function WorkflowSettings({
           placeholder="100"
           value={definition.maxVisits === undefined ? "" : String(definition.maxVisits)}
           readOnly={readOnly}
+          disabled={readOnly}
+          invalid={invalid("maxVisits")}
           onChange={(value) => {
             const { maxVisits: _previous, ...rest } = definition;
             const parsed = Number.parseInt(value, 10);
@@ -170,6 +199,7 @@ function WorkflowSettings({
           }}
         />
       </Labeled>
+      <Problems problems={problems} nodeId={null} control="maxVisits" />
       <Labeled id={controlId(null, "atLimit")} label="At limit">
         <Select
           id={controlId(null, "atLimit")}
@@ -256,6 +286,7 @@ function EndInspector({
           id={controlId(node.id, "title")}
           value={node.title}
           readOnly={readOnly}
+          disabled={readOnly}
           onChange={(title) => set({ title })}
         />
       </Labeled>
@@ -401,6 +432,7 @@ function AgentInspector({
           id={controlId(node.id, "title")}
           value={node.title}
           readOnly={readOnly}
+          disabled={readOnly}
           invalid={invalid("title")}
           onChange={(title) => set((current) => ({ ...current, title }))}
         />
@@ -612,6 +644,7 @@ function AgentInspector({
           rows={6}
           value={node.instruction}
           readOnly={readOnly}
+          disabled={readOnly}
           invalid={invalid("instruction")}
           onChange={(instruction) => set((current) => ({ ...current, instruction }))}
         />
@@ -625,6 +658,7 @@ function AgentInspector({
             placeholder="120"
             value={minutes(node.timeoutMs)}
             readOnly={readOnly}
+            disabled={readOnly}
             invalid={invalid("timeoutMs")}
             onChange={(value) => timeout("timeoutMs", value)}
           />
@@ -635,10 +669,14 @@ function AgentInspector({
             type="number"
             value={minutes(node.humanTimeoutMs)}
             readOnly={readOnly}
+            disabled={readOnly}
+            invalid={invalid("humanTimeoutMs")}
             onChange={(value) => timeout("humanTimeoutMs", value)}
           />
         </Labeled>
       </div>
+      <Problems problems={problems} nodeId={node.id} control="timeoutMs" />
+      <Problems problems={problems} nodeId={node.id} control="humanTimeoutMs" />
       <fieldset className="flex flex-col gap-2 border-t border-border pt-4">
         <legend className="pb-1 text-xs font-medium text-muted-foreground">Inputs</legend>
         {(node.bindings ?? []).map((binding, index) => {
@@ -689,6 +727,7 @@ function AgentInspector({
                     id={`${id}-name`}
                     value={binding.name}
                     readOnly={readOnly}
+                    disabled={readOnly}
                     onChange={(name) =>
                       set((current) => ({
                         ...current,
@@ -756,48 +795,43 @@ function AgentInspector({
           const id = controlId(node.id, `report.fields.${index}`);
           return (
             <div key={index} className="flex flex-col gap-2 rounded-lg border border-border p-2">
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-32 flex-1">
-                  <Labeled id={id} label={`Field ${index + 1} name`}>
-                    <Input
-                      id={id}
-                      value={item.name}
-                      readOnly={readOnly}
-                      invalid={invalid(`report.fields.${index}`)}
-                      onChange={(name) => field(index, { name })}
-                    />
-                  </Labeled>
-                </div>
-                <div className="w-32">
-                  <Labeled id={`${id}-type`} label="Type">
-                    <Select
-                      id={`${id}-type`}
-                      value={item.type}
-                      disabled={readOnly}
-                      options={[
-                        { value: "boolean", label: "Yes/no" },
-                        { value: "string", label: "Text" },
-                        { value: "number", label: "Number" },
-                        { value: "enum", label: "One of" },
-                      ]}
-                      onChange={(type) => field(index, { type: type as Field["type"] })}
-                    />
-                  </Labeled>
-                </div>
-                <div className="w-32">
-                  <Labeled id={`${id}-required`} label="Presence">
-                    <Select
-                      id={`${id}-required`}
-                      value={item.required ? "required" : "optional"}
-                      disabled={readOnly}
-                      options={[
-                        { value: "required", label: "Required" },
-                        { value: "optional", label: "Optional" },
-                      ]}
-                      onChange={(value) => field(index, { required: value === "required" })}
-                    />
-                  </Labeled>
-                </div>
+              <Labeled id={id} label={`Field ${index + 1} name`}>
+                <Input
+                  id={id}
+                  value={item.name}
+                  readOnly={readOnly}
+                  disabled={readOnly}
+                  invalid={invalid(`report.fields.${index}`)}
+                  onChange={(name) => field(index, { name })}
+                />
+              </Labeled>
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2">
+                <Labeled id={`${id}-type`} label="Type">
+                  <Select
+                    id={`${id}-type`}
+                    value={item.type}
+                    disabled={readOnly}
+                    options={[
+                      { value: "boolean", label: "Yes/no" },
+                      { value: "string", label: "Text" },
+                      { value: "number", label: "Number" },
+                      { value: "enum", label: "One of" },
+                    ]}
+                    onChange={(type) => field(index, { type: type as Field["type"] })}
+                  />
+                </Labeled>
+                <Labeled id={`${id}-required`} label="Presence">
+                  <Select
+                    id={`${id}-required`}
+                    value={item.required ? "required" : "optional"}
+                    disabled={readOnly}
+                    options={[
+                      { value: "required", label: "Required" },
+                      { value: "optional", label: "Optional" },
+                    ]}
+                    onChange={(value) => field(index, { required: value === "required" })}
+                  />
+                </Labeled>
                 <Button
                   size="icon-sm"
                   variant="ghost"
@@ -824,6 +858,7 @@ function AgentInspector({
                     rows={3}
                     value={(item.values ?? []).join("\n")}
                     readOnly={readOnly}
+                    disabled={readOnly}
                     onChange={(text) =>
                       field(index, {
                         values: text
@@ -841,7 +876,7 @@ function AgentInspector({
           );
         })}
         <Problems problems={problems} nodeId={node.id} control="report.fields" />
-        <div className="flex flex-wrap items-end gap-2">
+        <div>
           <Button
             size="sm"
             variant="outline"
@@ -865,29 +900,27 @@ function AgentInspector({
           >
             Add report field
           </Button>
-          <div className="w-48">
-            <Labeled id={controlId(node.id, "evidenceRequired")} label="Evidence">
-              <Select
-                id={controlId(node.id, "evidenceRequired")}
-                value={node.report.evidenceRequired ? "required" : "optional"}
-                disabled={readOnly}
-                options={[
-                  { value: "optional", label: "Optional" },
-                  { value: "required", label: "Required" },
-                ]}
-                onChange={(value) =>
-                  set((current) => {
-                    const { evidenceRequired: _previous, ...report } = current.report;
-                    return {
-                      ...current,
-                      report: value === "required" ? { ...report, evidenceRequired: true } : report,
-                    };
-                  })
-                }
-              />
-            </Labeled>
-          </div>
         </div>
+        <Labeled id={controlId(node.id, "evidenceRequired")} label="Evidence">
+          <Select
+            id={controlId(node.id, "evidenceRequired")}
+            value={node.report.evidenceRequired ? "required" : "optional"}
+            disabled={readOnly}
+            options={[
+              { value: "optional", label: "Optional" },
+              { value: "required", label: "Required" },
+            ]}
+            onChange={(value) =>
+              set((current) => {
+                const { evidenceRequired: _previous, ...report } = current.report;
+                return {
+                  ...current,
+                  report: value === "required" ? { ...report, evidenceRequired: true } : report,
+                };
+              })
+            }
+          />
+        </Labeled>
       </fieldset>
       <div className="flex flex-col gap-3 border-t border-border pt-4">
         <RouteSelect

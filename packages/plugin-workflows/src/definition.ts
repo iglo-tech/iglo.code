@@ -316,9 +316,9 @@ export function definitionDiagnostics(definition: Definition): Problem[] {
         frontier.push(destination);
       }
   for (const node of definition.nodes)
-    if (node.kind === "end" && !entered.has(node.id))
+    if (!entered.has(node.id))
       add(
-        `${node.id}: this end is unreachable from the entry step.`,
+        `${node.id}: this ${node.kind === "end" ? "end" : "step"} is unreachable from the entry step.`,
         { nodeId: node.id },
         "warning",
       );

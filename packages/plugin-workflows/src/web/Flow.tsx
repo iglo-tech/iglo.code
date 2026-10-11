@@ -105,14 +105,18 @@ export function RouteList({
           (problem) => problem.nodeId === node.id && problem.severity === "warning",
         ).length;
         return (
-          <li key={node.id} onKeyDown={keys(node, index)} className="flex flex-col py-1">
+          <li
+            key={node.id}
+            onKeyDown={keys(node, index)}
+            className={`flex flex-col rounded-lg py-1 ${selected === node.id ? "bg-accent" : ""}`}
+          >
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
                 <KindIcon kind={node.kind} className="size-4" />
               </span>
               <Button
                 id={stepButtonId(node.id)}
-                variant={selected === node.id ? "outline" : "ghost"}
+                variant="ghost"
                 size="sm"
                 ariaPressed={selected === node.id}
                 ariaLabel={`${kindLabels[node.kind]}: ${node.title}`}
@@ -161,17 +165,25 @@ export function RouteList({
             <ul className="flex flex-col pl-9 text-xs text-muted-foreground">
               {routes
                 .filter((route) => route.from.id === node.id)
-                .map((route) => (
-                  <li key={route.control} className="flex min-w-0 items-center gap-1.5 leading-5">
-                    <CornerDownRightIcon aria-hidden className="size-3 shrink-0 opacity-64" />
-                    <span className="truncate">
-                      {route.label} → {title(definition, route.to)}
-                      {route.repeat
-                        ? ` · repeat ×${route.repeat.max}, at limit → ${title(definition, route.repeat.atLimit)}`
-                        : ""}
-                    </span>
-                  </li>
-                ))}
+                .map((route) => {
+                  const text = `${route.label} → ${title(definition, route.to)}${
+                    route.repeat
+                      ? ` · repeat ×${route.repeat.max}, at limit → ${title(definition, route.repeat.atLimit)}`
+                      : ""
+                  }`;
+                  return (
+                    <li key={route.control} className="flex min-w-0 items-center gap-1.5 leading-5">
+                      <CornerDownRightIcon aria-hidden className="size-3 shrink-0 opacity-64" />
+                      {text.length > 48 ? (
+                        <props.Tooltip label={text}>
+                          <span className="truncate">{text}</span>
+                        </props.Tooltip>
+                      ) : (
+                        <span className="truncate">{text}</span>
+                      )}
+                    </li>
+                  );
+                })}
             </ul>
           </li>
         );

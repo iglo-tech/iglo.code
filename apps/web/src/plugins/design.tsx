@@ -6,11 +6,20 @@ import {
   CircleAlertIcon,
   EllipsisIcon,
   InfoIcon,
+  SearchIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { Fragment, useEffect, useLayoutEffect, useRef, type ComponentProps } from "react";
+import { Fragment, useLayoutEffect, type ComponentProps } from "react";
 import { SettingsGroup } from "../components/settings/SettingsGroup";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import {
@@ -21,7 +30,16 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "../components/ui/empty";
+import {
+  Dialog,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../components/ui/input-group";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../components/ui/menu";
 import {
   Select,
@@ -44,6 +62,12 @@ import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { PluginIcon } from "./pluginIcons";
 import { pageStatusNotice, usePluginPageChrome, type PluginPageChrome } from "./pageChrome";
 
+/**
+ * Overlays portal into the document. Without a window (server or test rendering) the same
+ * content renders in place, keeping its role and accessible name.
+ */
+const canPortal = () => typeof window !== "undefined";
+
 function NavigationGuard({
   when,
   title,
@@ -58,37 +82,82 @@ function NavigationGuard({
     // Stored drafts survive a reload; plugins opt in when their edits would not.
     enableBeforeUnload: () => when && protectReload,
   });
-  const keep = useRef<HTMLButtonElement>(null);
   const blocked = blocker.status === "blocked";
-  useEffect(() => {
-    if (blocked) keep.current?.focus();
-  }, [blocked]);
-  if (!blocked) return null;
+  const actions = (
+    <>
+      <Button variant="outline" size="sm" autoFocus onClick={() => blocker.reset?.()}>
+        Keep editing
+      </Button>
+      {keepLabel === undefined ? null : (
+        <Button variant="outline" size="sm" onClick={() => blocker.proceed?.()}>
+          {keepLabel}
+        </Button>
+      )}
+      <Button
+        variant="destructive"
+        size="sm"
+        onClick={() => {
+          onDiscard?.();
+          blocker.proceed?.();
+        }}
+      >
+        Discard
+      </Button>
+    </>
+  );
+  if (!canPortal())
+    return blocked ? (
+      <div role="alertdialog" aria-label={title}>
+        <p>{title}</p>
+        {description === undefined ? null : <p>{description}</p>}
+        {actions}
+      </div>
+    ) : null;
   return (
-    <Alert variant="warning" role="alertdialog" aria-label={title}>
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>{description}</AlertDescription>
-      <AlertAction>
-        <Button ref={keep} variant="outline" size="sm" onClick={() => blocker.reset?.()}>
-          Keep editing
-        </Button>
-        {keepLabel === undefined ? null : (
-          <Button variant="outline" size="sm" onClick={() => blocker.proceed?.()}>
-            {keepLabel}
-          </Button>
-        )}
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => {
-            onDiscard?.();
-            blocker.proceed?.();
-          }}
-        >
-          Discard
-        </Button>
-      </AlertAction>
-    </Alert>
+    <AlertDialog
+      open={blocked}
+      onOpenChange={(open) => {
+        if (!open) blocker.reset?.();
+      }}
+    >
+      <AlertDialogPopup>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          {description === undefined ? null : (
+            <AlertDialogDescription>{description}</AlertDialogDescription>
+          )}
+        </AlertDialogHeader>
+        <AlertDialogFooter>{actions}</AlertDialogFooter>
+      </AlertDialogPopup>
+    </AlertDialog>
+  );
+}
+
+function PluginDialog({
+  open,
+  onOpenChange,
+  title,
+  children,
+  footer,
+}: ComponentProps<PluginDesign["Dialog"]>) {
+  if (!canPortal())
+    return open ? (
+      <div role="dialog" aria-label={title}>
+        <p>{title}</p>
+        {children}
+        {footer}
+      </div>
+    ) : null;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <DialogPanel>{children}</DialogPanel>
+        {footer === undefined ? null : <DialogFooter>{footer}</DialogFooter>}
+      </DialogPopup>
+    </Dialog>
   );
 }
 
@@ -97,7 +166,7 @@ const crumbButtonClass =
 
 function Crumb({ item, current }: { item: PluginBreadcrumbItem; current: boolean }) {
   const text = (
-    <WorkspaceBreadcrumbText className={current ? "max-w-60" : "max-w-28 sm:max-w-60"}>
+    <WorkspaceBreadcrumbText className={current ? undefined : "max-w-28 sm:max-w-60"}>
       {item.label}
     </WorkspaceBreadcrumbText>
   );
@@ -239,16 +308,27 @@ export const pluginDesign: PluginDesign = {
       </Tooltip>
     );
   },
-  Input: ({ ariaLabel, ariaDescribedBy, invalid, onChange, ...props }) => (
-    <Input
-      {...props}
-      aria-label={ariaLabel}
-      aria-describedby={ariaDescribedBy}
-      aria-invalid={invalid || undefined}
-      nativeInput
-      onChange={(event) => onChange(event.currentTarget.value)}
-    />
-  ),
+  Input: ({ ariaLabel, ariaDescribedBy, invalid, onChange, ...props }) => {
+    const input = {
+      ...props,
+      "aria-label": ariaLabel,
+      "aria-describedby": ariaDescribedBy,
+      "aria-invalid": invalid || undefined,
+      onChange: (event: { currentTarget: { value: string } }) =>
+        onChange(event.currentTarget.value),
+    };
+    // Search fields carry the app's leading search icon.
+    if (props.type === "search")
+      return (
+        <InputGroup>
+          <InputGroupAddon>
+            <SearchIcon aria-hidden />
+          </InputGroupAddon>
+          <InputGroupInput {...input} nativeInput />
+        </InputGroup>
+      );
+    return <Input {...input} nativeInput />;
+  },
   Textarea: ({ ariaLabel, ariaDescribedBy, invalid, onChange, ...props }) => (
     <Textarea
       {...props}
@@ -289,6 +369,15 @@ export const pluginDesign: PluginDesign = {
     </Select>
   ),
   Badge: ({ variant = "outline", children }) => <Badge variant={variant}>{children}</Badge>,
+  Tooltip: ({ label, children }) =>
+    typeof window === "undefined" ? (
+      children
+    ) : (
+      <Tooltip>
+        <TooltipTrigger render={children} />
+        <TooltipPopup side="top">{label}</TooltipPopup>
+      </Tooltip>
+    ),
   Icon: PluginIcon,
   Menu: ({ ariaLabel, items, trigger, disabled }) => (
     <Menu>
@@ -435,5 +524,6 @@ export const pluginDesign: PluginDesign = {
       </SheetPopup>
     </Sheet>
   ),
+  Dialog: PluginDialog,
   NavigationGuard,
 };

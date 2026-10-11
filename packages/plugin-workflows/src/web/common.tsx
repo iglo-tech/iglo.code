@@ -24,11 +24,14 @@ export function errorCode(cause: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
-/** Narrow layouts move the palette and inspector into labeled sheets. */
+/**
+ * Narrow layouts move the palette and inspector into labeled sheets. Docked, the two panels
+ * take ~32rem, so below this width (with the app sidebar open) the canvas would be cramped.
+ */
 const narrowQuery = () =>
   typeof window === "undefined" || typeof window.matchMedia !== "function"
     ? null
-    : window.matchMedia("(max-width: 1023px)");
+    : window.matchMedia("(max-width: 1279px)");
 export function useNarrow(): boolean {
   const [narrow, setNarrow] = useState(() => narrowQuery()?.matches ?? false);
   useEffect(() => {

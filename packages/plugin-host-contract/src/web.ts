@@ -1,4 +1,4 @@
-import type { ComponentType, KeyboardEvent, ReactNode } from "react";
+import type { ComponentType, KeyboardEvent, ReactElement, ReactNode } from "react";
 import type {
   EnvironmentId,
   PluginDescriptor,
@@ -101,6 +101,8 @@ export interface PluginDesign {
       readonly rows?: number;
       readonly placeholder?: string;
       readonly readOnly?: boolean;
+      /** `code` is monospace and fills its container's height, for source text such as YAML. */
+      readonly variant?: "default" | "code";
     }
   >;
   /** A native select: keyboard, touch and screen-reader behavior without a popup layer. */
@@ -119,6 +121,8 @@ export interface PluginDesign {
     readonly children: ReactNode;
     readonly variant?: "outline" | "secondary" | "info" | "success" | "warning" | "error";
   }>;
+  /** Shows `label` on hover and focus of its single child element, e.g. a truncated text. */
+  readonly Tooltip: ComponentType<{ readonly label: string; readonly children: ReactElement }>;
   /** A host-owned icon, for icon buttons in host slots such as the chat header. */
   readonly Icon: ComponentType<{ readonly name: PluginIconName }>;
   /** An overflow (`…`) menu, or a menu behind custom trigger content. */
@@ -189,6 +193,14 @@ export interface PluginDesign {
     readonly side?: "left" | "right" | "bottom";
     readonly children: ReactNode;
   }>;
+  /** A modal dialog with a title, its content and footer actions, such as a short form. */
+  readonly Dialog: ComponentType<{
+    readonly open: boolean;
+    readonly onOpenChange: (open: boolean) => void;
+    readonly title: string;
+    readonly children: ReactNode;
+    readonly footer?: ReactNode;
+  }>;
   /**
    * Holds in-app navigation while `when` is true and offers Keep editing or Discard, plus
    * `keepLabel` to leave while keeping a stored draft. `protectReload` also asks before a
@@ -197,7 +209,7 @@ export interface PluginDesign {
   readonly NavigationGuard: ComponentType<{
     readonly when: boolean;
     readonly title: string;
-    readonly description: string;
+    readonly description?: string;
     readonly onDiscard?: () => void;
     readonly keepLabel?: string;
     readonly protectReload?: boolean;

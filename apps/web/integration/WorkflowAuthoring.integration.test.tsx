@@ -754,9 +754,13 @@ it.live(
         yield* promise(flush);
         yield* promise(() => tracked.settle("read"));
         expect(page()).toContain("Saved revision 1");
+        // Reopening the saved file keeps the selected step in the inspector.
         expect(router.state.location.search).toMatchObject({
-          pluginState: { source: ".t3code/workflows/release-notes.yaml" },
+          pluginState: { source: ".t3code/workflows/release-notes.yaml", step: "agent-2" },
         });
+        expect(control(pluginDesign.Textarea, "wf-agent-2-instruction").props.value).toBe(
+          "Review the notes carefully",
+        );
         expect(storage.values.has(draftKeys[0]!)).toBe(false);
         const saved = decodeDefinition(
           Yaml.parse(yield* fs.readFileString(`${first.directory}/release-notes.yaml`)),
@@ -783,6 +787,7 @@ it.live(
         const sourceDraft = (key: string) =>
           key.endsWith(encodeURIComponent(`${projectId}:.t3code/workflows/release-notes.yaml`));
         authoringTimings.draftDelayMs = 60_000;
+        yield* promise(() => click("Agent step: Agent step 2"));
         yield* promise(() => type("wf-workflow-title", "Pending title"));
         expect([...storage.values.keys()].some(sourceDraft)).toBe(false);
         yield* promise(() => act(async () => void globalThis.dispatchEvent(new Event("pagehide"))));
@@ -810,7 +815,7 @@ it.live(
         // A failed import leaves the current draft untouched.
         yield* promise(() => select("Import YAML"));
         yield* promise(() => write("wf-import", "nodes: ["));
-        yield* promise(() => click("Load candidate"));
+        yield* promise(() => click("Preview import"));
         expect(page()).toContain("Not imported · current draft unchanged");
         expect(control(pluginDesign.Input, "wf-workflow-title").props.value).toBe(
           "Release notes v2",
@@ -865,8 +870,8 @@ it.live(
         yield* promise(() => tracked.settle("read"));
         expect(control(pluginDesign.Textarea, "wf-import").props.value).toContain("zz-broken");
         yield* promise(() => write("wf-import", Yaml.stringify(sequence("zz-broken", "Repaired"))));
-        yield* promise(() => click("Load candidate"));
-        yield* promise(() => click("Replace draft with candidate"));
+        yield* promise(() => click("Preview import"));
+        yield* promise(() => click("Replace draft"));
         yield* promise(() => tracked.settleLatest("validate"));
         yield* promise(() => click("Validate and replace file"));
         yield* promise(() => tracked.settle("replace"));

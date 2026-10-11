@@ -32,6 +32,8 @@ export interface FlowEdge {
   readonly target: string;
   readonly kind: FlowEdgeKind;
   readonly label: string;
+  /** The unshortened label, for its tooltip. */
+  readonly fullLabel: string;
   /** A repeat route back to an earlier step; drawn beside the flow instead of through it. */
   readonly back: boolean;
 }
@@ -51,7 +53,7 @@ function routeLabel(node: Node, control: string): { kind: FlowEdgeKind; label: s
   if (control === "changes") return { kind: "changes", label: "changes" };
   const index = Number(control.split(".")[1] ?? 0);
   const rule = node.kind === "decision" || node.kind === "join" ? node.rules[index] : undefined;
-  return { kind: "rule", label: rule === undefined ? control : clip(predicateSummary(rule.when)) };
+  return { kind: "rule", label: rule === undefined ? control : predicateSummary(rule.when) };
 }
 
 function detailOf(node: Node): string | null {
@@ -115,6 +117,7 @@ export function flowGraph(definition: Definition): FlowGraph {
           target: id,
           kind: "fork",
           label: "",
+          fullLabel: "",
           back: false,
         });
         edges.push({
@@ -123,6 +126,7 @@ export function flowGraph(definition: Definition): FlowGraph {
           target: target(node.next),
           kind: "join",
           label: "",
+          fullLabel: "",
           back: false,
         });
       }
@@ -136,17 +140,20 @@ export function flowGraph(definition: Definition): FlowGraph {
           source: node.id,
           target: target(route.to),
           kind,
-          label,
+          label: clip(label),
+          fullLabel: label,
           back: false,
         });
         continue;
       }
+      const repeatLabel = `${kind === "next" ? "repeat" : `${label} · repeat`} ×${route.repeat.max}`;
       edges.push({
         id: `${node.id}:${control}`,
         source: node.id,
         target: target(route.to),
         kind: "repeat",
-        label: `${kind === "next" ? "repeat" : `${label} · repeat`} ×${route.repeat.max}`,
+        label: kind === "rule" ? `${clip(label)} · repeat ×${route.repeat.max}` : repeatLabel,
+        fullLabel: repeatLabel,
         back: true,
       });
       edges.push({
@@ -155,6 +162,7 @@ export function flowGraph(definition: Definition): FlowGraph {
         target: target(route.repeat.atLimit),
         kind: "atLimit",
         label: "at limit",
+        fullLabel: "at limit",
         back: false,
       });
     }
@@ -283,12 +291,21 @@ export function splinePath(points: ReadonlyArray<Point>): string {
   return path;
 }
 
+/** How far a detoured loop leg runs outside its box: inside the gaps dagre leaves. */
+const detourGap = 14;
+
 export interface RepeatLoop {
   /** The x of the loop's vertical run. */
   readonly x: number;
   /** Vertical centre of the loop, where its label sits. */
   readonly y: number;
   readonly labelWidth: number;
+  /**
+   * Set when a box sits between a loop end and its vertical run: the leg then drops into the
+   * gap below the source (or above the target) at this y instead of crossing the box.
+   */
+  readonly sourceDetour: number | null;
+  readonly targetDetour: number | null;
 }
 
 /**
@@ -319,10 +336,29 @@ export function repeatLoops(graph: FlowGraph, layout: FlowLayout): ReadonlyMap<s
     for (const loop of loops.values())
       if (loop.top < bottom && loop.bottom > top)
         right = Math.max(right, loop.x + 6 + loop.labelWidth);
+    const x = right + 32;
+    // Whether a box other than the loop's ends lies on the straight leg at `y` from `from` to x.
+    const blocked = (from: number, y: number) =>
+      [...layout.positions].some(([id, position]) => {
+        if (id === edge.source || id === edge.target) return false;
+        const size = layout.sizes.get(id)!;
+        return (
+          position.x < x &&
+          position.x + size.width > from &&
+          position.y < y &&
+          position.y + size.height > y
+        );
+      });
+    const sourceY = source.y + sourceSize.height / 2;
+    const targetY = target.y + targetSize.height / 2;
     loops.set(edge.id, {
-      x: right + 32,
-      y: (source.y + sourceSize.height / 2 + target.y + targetSize.height / 2) / 2,
+      x,
+      y: (sourceY + targetY) / 2,
       labelWidth: edge.label === "" ? 0 : labelWidth(edge.label),
+      sourceDetour: blocked(source.x + sourceSize.width, sourceY)
+        ? source.y + sourceSize.height + detourGap
+        : null,
+      targetDetour: blocked(target.x + targetSize.width, targetY) ? target.y - detourGap : null,
       top,
       bottom,
     });
@@ -330,19 +366,58 @@ export function repeatLoops(graph: FlowGraph, layout: FlowLayout): ReadonlyMap<s
   return loops;
 }
 
-/** A rounded loop out to `x` and back, entering the target from the side. */
-export function loopPath(source: Point, target: Point, x: number): string {
-  const direction = target.y < source.y ? -1 : 1;
-  const radius = Math.max(
-    0,
-    Math.min(12, Math.abs(target.y - source.y) / 2, x - source.x, x - target.x),
-  );
-  return [
-    `M${source.x},${source.y}`,
-    `L${x - radius},${source.y}`,
-    `Q${x},${source.y} ${x},${source.y + direction * radius}`,
-    `L${x},${target.y - direction * radius}`,
-    `Q${x},${target.y} ${x - radius},${target.y}`,
-    `L${target.x},${target.y}`,
-  ].join(" ");
+/**
+ * A rounded orthogonal loop out to `x` and back, entering the target from the side. A detour
+ * steps the leg into the gap beside the box first, then runs along the gap between ranks.
+ */
+export function loopPath(
+  source: Point,
+  target: Point,
+  x: number,
+  detours: { readonly source: number | null; readonly target: number | null } = {
+    source: null,
+    target: null,
+  },
+): string {
+  const points: Point[] = [source];
+  if (detours.source === null) points.push({ x, y: source.y });
+  else
+    points.push(
+      { x: source.x + 12, y: source.y },
+      { x: source.x + 12, y: detours.source },
+      { x, y: detours.source },
+    );
+  if (detours.target === null) points.push({ x, y: target.y });
+  else
+    points.push(
+      { x, y: detours.target },
+      { x: target.x + 12, y: detours.target },
+      { x: target.x + 12, y: target.y },
+    );
+  points.push(target);
+  return roundedPath(points, 12);
+}
+
+/** An orthogonal polyline with each corner rounded by up to `radius`. */
+function roundedPath(points: ReadonlyArray<Point>, radius: number): string {
+  const parts = [`M${points[0]!.x},${points[0]!.y}`];
+  for (let index = 1; index < points.length - 1; index++) {
+    const previous = points[index - 1]!;
+    const corner = points[index]!;
+    const next = points[index + 1]!;
+    const into = Math.hypot(corner.x - previous.x, corner.y - previous.y);
+    const out = Math.hypot(next.x - corner.x, next.y - corner.y);
+    const r = Math.min(radius, into / 2, out / 2);
+    if (r <= 0 || into === 0 || out === 0) {
+      parts.push(`L${corner.x},${corner.y}`);
+      continue;
+    }
+    parts.push(
+      `L${corner.x - ((corner.x - previous.x) / into) * r},${corner.y - ((corner.y - previous.y) / into) * r}`,
+      `Q${corner.x},${corner.y} ${corner.x + ((next.x - corner.x) / out) * r},${corner.y + ((next.y - corner.y) / out) * r}`,
+    );
+  }
+  const last = points[points.length - 1]!;
+  parts.push(`L${last.x},${last.y}`);
+  return parts.join(" ");
 }

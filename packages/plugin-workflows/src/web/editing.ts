@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import * as SchemaIssue from "effect/SchemaIssue";
 import * as Yaml from "yaml";
 import type { ProviderInstanceId } from "@t3tools/plugin-host-contract/schema";
 import {
@@ -189,6 +190,40 @@ export function upstreamFields(
   );
 }
 
+const schemaIssues = SchemaIssue.makeFormatterStandardSchemaV1();
+/** The step and inspector control that own a schema issue's path. */
+export function schemaLocation(
+  definition: Definition,
+  path: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }>,
+): { readonly nodeId?: string; readonly control?: string } {
+  const keys = path.map((segment) => String(typeof segment === "object" ? segment.key : segment));
+  if (keys[0] !== "nodes") return keys.length === 0 ? {} : { control: keys.join(".") };
+  const nodeId = definition.nodes[Number(keys[1])]?.id;
+  if (nodeId === undefined) return {};
+  const control = keys.slice(2).join(".");
+  return control === "" ? { nodeId } : { nodeId, control };
+}
+
+/**
+ * A problem's message for display. Server reasons name steps by identity (`agent-1: ...`);
+ * `stepTitle` names the step by title instead, and `null` drops the name inside that step's
+ * own inspector.
+ */
+export function problemText(
+  problem: Problem,
+  stepTitle: ((stepId: string) => string) | null,
+): string {
+  const prefix = problem.nodeId === undefined ? null : `${problem.nodeId}: `;
+  if (prefix === null || !problem.message.startsWith(prefix)) return problem.message;
+  const rest = problem.message.slice(prefix.length);
+  return stepTitle === null
+    ? rest.charAt(0).toUpperCase() + rest.slice(1)
+    : `${stepTitle(problem.nodeId!)}: ${rest}`;
+}
+/** A step's display name: its title, else its identity. */
+export const stepTitle = (definition: Definition) => (stepId: string) =>
+  definition.nodes.find((node) => node.id === stepId)?.title || stepId;
+
 /** Local feedback while typing; the server remains authoritative for publication. */
 export function localProblems(definition: Definition): ReadonlyArray<Problem> {
   const problems: Problem[] = [];
@@ -225,7 +260,10 @@ export function localProblems(definition: Definition): ReadonlyArray<Problem> {
   }
   const decoded = decodeDefinition(definition);
   if (decoded._tag === "Failure" && problems.length === 0)
-    add(`The workflow does not match the schema: ${decoded.failure.message.slice(0, 500)}`);
+    for (const issue of schemaIssues(decoded.failure.issue).issues.slice(0, 5)) {
+      const location = schemaLocation(definition, issue.path ?? []);
+      add(issue.message.slice(0, 500), location.nodeId, location.control);
+    }
   // Graph rules only read structure, so they still guide an incomplete draft.
   return [...problems, ...definitionDiagnostics(definition)];
 }

@@ -36,9 +36,12 @@ import {
   importYaml,
   localProblems,
   moveStep,
+  editableKinds,
+  problemText,
   removeStep,
   sameDefinition,
   slug,
+  stepTitle,
   type EditableKind,
 } from "./editing.ts";
 import { Palette, RouteList, stepButtonId } from "./Flow.tsx";
@@ -89,7 +92,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const [readAttempt, setReadAttempt] = useState(0);
   const [draft, setDraft] = useState<Definition | null>(stored?.definition ?? null);
   const [base, setBase] = useState<DraftBase | null>(stored?.base ?? null);
-  const [selected, setSelected] = useState<string | null>(null);
+  // A save that gives a new workflow its file reopens the editor there; the step stays selected.
+  const [selected, setSelected] = useState<string | null>(pageState.step ?? null);
   const [statusKind, setStatus] = useState<Status>({ kind: "idle" });
   const [checked, setChecked] = useState<{
     readonly json: string;
@@ -267,10 +271,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     setSavedSource(null);
     if (savedSource !== source)
       props.navigate(
-        { pageId: "workflows.editor", projectId, state: { source: savedSource } },
+        {
+          pageId: "workflows.editor",
+          projectId,
+          state: { source: savedSource, ...(selected === null ? {} : { step: selected }) },
+        },
         { replace: true },
       );
-  }, [savedSource, dirty, projectId, source, props]);
+  }, [savedSource, dirty, projectId, source, selected, props]);
 
   const change = (next: Definition) => {
     if (readOnly) return;
@@ -495,6 +503,13 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     setImporting(true);
     setView("yaml");
   };
+  const selectedKind = draft?.nodes.find((node) => node.id === selected)?.kind;
+  const selectedRemovable =
+    !readOnly &&
+    draft !== null &&
+    draft.nodes.length > 1 &&
+    selectedKind !== undefined &&
+    (editableKinds as ReadonlyArray<string>).includes(selectedKind);
   const inspector =
     draft === null ? null : (
       <div className="flex flex-col gap-5">
@@ -519,7 +534,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                     <span className="sr-only">
                       {problem.severity === "error" ? "Blocks saving: " : "Warning: "}
                     </span>
-                    {problem.message}
+                    {problemText(problem, stepTitle(draft))}
                   </span>
                   {problem.nodeId !== undefined || problem.control !== undefined ? (
                     <Button size="xs" variant="ghost" onClick={() => goTo(problem)}>
@@ -542,6 +557,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           readOnly={readOnly}
           identityEditable={base?.mode !== "edit"}
           onChange={change}
+          {...(selectedRemovable ? { onRemove: removeSelected } : {})}
         />
       </div>
     );
@@ -673,7 +689,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     ) : null,
   ].filter((alert) => alert !== null);
   const yaml = (
-    <div className="flex flex-col gap-3 p-4">
+    <div className="flex h-full min-h-0 flex-col gap-3 p-4">
       {server !== null && server.definition === null ? (
         <Alert variant="error" title="This file is not a valid workflow">
           <ul className="flex flex-col gap-0.5">
@@ -684,8 +700,11 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         </Alert>
       ) : null}
       {compare !== null && draft !== null ? (
-        <div className="grid gap-3 md:grid-cols-2" aria-label="Compare versions">
-          <div className="flex flex-col gap-1.5">
+        <div
+          className="grid min-h-0 flex-1 gap-3 md:grid-cols-2 md:grid-rows-[minmax(0,1fr)_auto]"
+          aria-label="Compare versions"
+        >
+          <div className="flex min-h-64 flex-col gap-1.5">
             <label
               htmlFor="wf-compare-server"
               className="text-xs font-medium text-muted-foreground"
@@ -695,19 +714,19 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             </label>
             <Textarea
               id="wf-compare-server"
-              rows={14}
+              variant="code"
               readOnly
               value={compare.text}
               onChange={() => {}}
             />
           </div>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex min-h-64 flex-col gap-1.5">
             <label htmlFor="wf-compare-draft" className="text-xs font-medium text-muted-foreground">
               Your draft
             </label>
             <Textarea
               id="wf-compare-draft"
-              rows={14}
+              variant="code"
               readOnly
               value={exportYaml(draft).text}
               onChange={() => {}}
@@ -720,7 +739,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           </div>
         </div>
       ) : importing ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex min-h-64 flex-1 flex-col gap-2">
           <label htmlFor="wf-import" className="text-xs font-medium text-muted-foreground">
             {server?.definition === null ? "Repair YAML" : "Import YAML"}
           </label>
@@ -730,7 +749,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           <Textarea
             id="wf-import"
             ariaLabel="Workflow YAML to import"
-            rows={14}
+            variant="code"
             value={importText}
             onChange={setImportText}
           />
@@ -759,7 +778,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                   }
                 }}
               >
-                Load candidate
+                Preview import
               </Button>
             </div>
           ) : (
@@ -772,7 +791,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                     Keep current draft
                   </Button>
                   <Button size="xs" onClick={() => adopt(candidate)}>
-                    Replace draft with candidate
+                    Replace draft
                   </Button>
                 </>
               }
@@ -784,7 +803,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           )}
         </div>
       ) : exported !== null ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex min-h-64 flex-1 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <label htmlFor="wf-export" className="text-xs font-medium text-muted-foreground">
               Canonical YAML
@@ -816,7 +835,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           <Textarea
             id="wf-export"
             ariaLabel="Exported workflow YAML"
-            rows={18}
+            variant="code"
             readOnly
             value={exported.text}
             onChange={() => {}}
@@ -910,11 +929,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       <props.NavigationGuard
         when={dirty}
         title="Leave with unsaved workflow changes?"
-        description={
-          storageFailed
-            ? "This draft could not be kept on this device."
-            : "The draft stays on this device until you save or discard it."
-        }
+        {...(storageFailed ? { description: "This draft could not be kept on this device." } : {})}
         onDiscard={forget}
         {...(storageFailed ? {} : { keepLabel: "Leave and keep draft" })}
         protectReload={storageFailed || base?.mode === "new"}
@@ -972,6 +987,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                 readOnly={readOnly}
                 onSelect={select}
                 onRemove={removeSelected}
+                Tooltip={props.Tooltip}
               />
             </div>
           ) : view === "routes" && draft !== null ? (
@@ -988,7 +1004,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
               />
             </div>
           ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto">{yaml}</div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{yaml}</div>
           )}
         </section>
         {narrow || draft === null ? null : (

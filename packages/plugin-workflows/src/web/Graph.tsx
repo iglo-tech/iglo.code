@@ -11,7 +11,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   getSmoothStepPath,
-  useNodesInitialized,
+  getViewportForBounds,
   useReactFlow,
   useStore,
   useStoreApi,
@@ -20,8 +20,17 @@ import {
   type Node as FlowCanvasNode,
   type NodeProps,
 } from "@xyflow/react";
+import type { PluginDesign } from "@t3tools/plugin-host-contract/web";
 import { CircleAlertIcon } from "lucide-react";
-import { createContext, use, useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  createContext,
+  use,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+} from "react";
 import type { Definition, Problem } from "../contracts.ts";
 import { editableKinds, kindLabels } from "./editing.ts";
 import {
@@ -35,6 +44,7 @@ import {
   type FlowGraph,
   type FlowNode,
   type Point,
+  type RepeatLoop,
 } from "./flowGraph.ts";
 import { stepButtonId } from "./Flow.tsx";
 import { KindIcon } from "./kinds.tsx";
@@ -44,6 +54,7 @@ interface GraphActions {
   readonly removable: (stepId: string) => boolean;
   readonly onSelect: (stepId: string | null) => void;
   readonly onRemove: (stepId: string) => void;
+  readonly Tooltip: PluginDesign["Tooltip"] | undefined;
 }
 const GraphActionsContext = createContext<GraphActions | null>(null);
 
@@ -62,8 +73,8 @@ type RouteData = {
   readonly edge: FlowEdge;
   readonly points: ReadonlyArray<Point> | null;
   readonly label: Point | null;
-  /** For repeat back edges: the x of the loop's vertical run, clear of every box it passes. */
-  readonly loopX: number | null;
+  /** For repeat back edges: the loop's vertical run and detours, clear of every box. */
+  readonly loop: RepeatLoop | null;
 };
 type RouteEdge = Edge<RouteData, "route">;
 
@@ -81,6 +92,22 @@ const tileTone: Record<FlowNode["kind"], string> = {
   missing: "bg-transparent text-destructive",
 };
 const hiddenHandle: CSSProperties = { opacity: 0, pointerEvents: "none" };
+/** Titles longer than this may truncate in a box, so the box shows its full title on hover. */
+const titleFits = 22;
+
+/** `element` with `label` as its tooltip, when the host provides tooltips and one is needed. */
+function WithTooltip({
+  label,
+  needed,
+  children,
+}: {
+  readonly label: string;
+  readonly needed: boolean;
+  readonly children: ReactElement;
+}) {
+  const Tooltip = use(GraphActionsContext)?.Tooltip;
+  return Tooltip === undefined || !needed ? children : <Tooltip label={label}>{children}</Tooltip>;
+}
 
 function StepCard({
   data,
@@ -143,56 +170,55 @@ function StepCard({
         isConnectable={false}
         style={hiddenHandle}
       />
-      {node.entry || node.runLimit ? (
-        <span className="pointer-events-none absolute -top-2.5 left-3 flex gap-1">
+      <WithTooltip label={node.title} needed={node.title.length > titleFits}>
+        <button
+          type="button"
+          id={stepButtonId(node.id)}
+          aria-label={`${kindText(node.kind)}: ${node.title}`}
+          aria-pressed={selected}
+          onFocus={reveal}
+          aria-keyshortcuts={removable ? "Delete" : undefined}
+          onKeyDown={(event) => {
+            if (!removable || (event.key !== "Delete" && event.key !== "Backspace")) return;
+            event.preventDefault();
+            actions?.onRemove(node.stepId);
+          }}
+          className="nodrag nopan flex size-full cursor-pointer items-center gap-2.5 rounded-[inherit] px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span
+            className={`flex size-7 shrink-0 items-center justify-center rounded-lg ${tileTone[node.kind]}`}
+          >
+            <KindIcon kind={node.kind} className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium leading-5">{node.title}</span>
+            <span className="block truncate text-xs leading-4 text-muted-foreground">
+              {kindText(node.kind)}
+              {node.detail === null ? "" : ` · ${node.detail}`}
+            </span>
+          </span>
+          {/* Markers sit inside the card: route arrows land anywhere along its top edge. */}
           {node.entry ? (
-            <span className="rounded-full border border-primary/24 bg-background px-1.5 text-[10px] font-medium leading-4 text-primary">
+            <span className="shrink-0 rounded-full border border-primary/24 px-1.5 text-[10px] font-medium leading-4 text-primary">
               Start
             </span>
           ) : null}
           {node.runLimit ? (
-            <span className="rounded-full border border-warning/32 bg-background px-1.5 text-[10px] font-medium leading-4 text-warning-foreground">
+            <span className="shrink-0 rounded-full border border-warning/32 px-1.5 text-[10px] font-medium leading-4 text-warning-foreground">
               Run limit
             </span>
           ) : null}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        id={stepButtonId(node.id)}
-        aria-label={`${kindText(node.kind)}: ${node.title}`}
-        aria-pressed={selected}
-        onFocus={reveal}
-        aria-keyshortcuts={removable ? "Delete" : undefined}
-        onKeyDown={(event) => {
-          if (!removable || (event.key !== "Delete" && event.key !== "Backspace")) return;
-          event.preventDefault();
-          actions?.onRemove(node.stepId);
-        }}
-        className="nodrag nopan flex size-full cursor-pointer items-center gap-2.5 rounded-[inherit] px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <span
-          className={`flex size-7 shrink-0 items-center justify-center rounded-lg ${tileTone[node.kind]}`}
-        >
-          <KindIcon kind={node.kind} className="size-4" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium leading-5">{node.title}</span>
-          <span className="block truncate text-xs leading-4 text-muted-foreground">
-            {kindText(node.kind)}
-            {node.detail === null ? "" : ` · ${node.detail}`}
-          </span>
-        </span>
-        {errors > 0 || warnings > 0 ? (
-          <span
-            className={`flex shrink-0 items-center gap-0.5 text-xs tabular-nums ${errors > 0 ? "text-destructive" : "text-warning"}`}
-          >
-            <CircleAlertIcon aria-hidden className="size-3.5" />
-            <span>{errors > 0 ? errors : warnings}</span>
-            <span className="sr-only">{errors > 0 ? "problems to fix" : "warnings"}</span>
-          </span>
-        ) : null}
-      </button>
+          {errors > 0 || warnings > 0 ? (
+            <span
+              className={`flex shrink-0 items-center gap-0.5 text-xs tabular-nums ${errors > 0 ? "text-destructive" : "text-warning"}`}
+            >
+              <CircleAlertIcon aria-hidden className="size-3.5" />
+              <span>{errors > 0 ? errors : warnings}</span>
+              <span className="sr-only">{errors > 0 ? "problems to fix" : "warnings"}</span>
+            </span>
+          ) : null}
+        </button>
+      </WithTooltip>
       <Handle
         type="source"
         position={Position.Bottom}
@@ -239,11 +265,14 @@ function RouteLine({
   let path: string;
   let label: Point | null;
   let beside = false;
-  if (data.loopX !== null) {
+  if (data.loop !== null) {
     // Repeat routes leave and re-enter on the right, outside every box they pass, so the
     // return reads as a loop back up; the label sits beside the loop's vertical run.
-    path = loopPath({ x: sourceX, y: sourceY }, { x: targetX, y: targetY }, data.loopX);
-    label = data.edge.label === "" ? null : { x: data.loopX, y: (sourceY + targetY) / 2 };
+    path = loopPath({ x: sourceX, y: sourceY }, { x: targetX, y: targetY }, data.loop.x, {
+      source: data.loop.sourceDetour,
+      target: data.loop.targetDetour,
+    });
+    label = data.edge.label === "" ? null : { x: data.loop.x, y: (sourceY + targetY) / 2 };
     beside = true;
   } else if (data.points === null) {
     const [smooth, labelX, labelY] = getSmoothStepPath({
@@ -273,16 +302,18 @@ function RouteLine({
       />
       {label === null ? null : (
         <EdgeLabelRenderer>
-          <div
-            style={{
-              transform: beside
-                ? `translate(${label.x + 6}px, ${label.y}px) translateY(-50%)`
-                : `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`,
-            }}
-            className={`pointer-events-none absolute whitespace-nowrap rounded-md border bg-background px-1.5 text-[11px] font-medium leading-[18px] ${labelTone[data.edge.kind] ?? "border-border text-muted-foreground"}`}
-          >
-            {data.edge.label}
-          </div>
+          <WithTooltip label={data.edge.fullLabel} needed={data.edge.fullLabel !== data.edge.label}>
+            <div
+              style={{
+                transform: beside
+                  ? `translate(${label.x + 6}px, ${label.y}px) translateY(-50%)`
+                  : `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`,
+              }}
+              className={`nopan absolute whitespace-nowrap rounded-md border bg-background px-1.5 text-[11px] font-medium leading-[18px] ${labelTone[data.edge.kind] ?? "border-border text-muted-foreground"}`}
+            >
+              {data.edge.label}
+            </div>
+          </WithTooltip>
         </EdgeLabelRenderer>
       )}
     </>
@@ -292,6 +323,7 @@ function RouteLine({
 const nodeTypes = { step: StepCard, bounds: () => null };
 const edgeTypes = { route: RouteLine };
 const fitOptions = { padding: 0.16, maxZoom: 1 };
+const minZoom = 0.2;
 // App tokens drive React Flow's own chrome so light and dark themes follow the app.
 const theme = {
   "--xy-background-color": "transparent",
@@ -303,26 +335,59 @@ const theme = {
   "--xy-controls-button-border-color": "var(--border)",
   "--xy-controls-box-shadow": "0 1px 2px color-mix(in srgb, black 8%, transparent)",
   "--xy-edge-stroke-default": defaultStroke,
+  "--xy-attribution-background-color": "transparent",
 } as CSSProperties;
 
 const laidOut = (graph: FlowGraph, key: string) => {
   const layout = layoutFlow(graph);
-  return { key, layout, loops: repeatLoops(graph, layout) };
+  const loops = repeatLoops(graph, layout);
+  return { key, layout, loops, bounds: graphBounds(layout, loops) };
 };
 
 /**
- * Re-fit when steps are added or removed, once the new boxes are measured, and when the canvas
- * is resized (narrow layouts, the inspector opening).
+ * Fit the whole graph, loops included, on load, when steps are added or removed, and when the
+ * canvas is resized (narrow layouts, the inspector opening). The viewport is computed from the
+ * layout directly, so it never waits on React Flow measuring the boxes.
  */
-function Refit({ signature }: { readonly signature: string }) {
-  const { fitView } = useReactFlow();
-  const initialized = useNodesInitialized();
+function Refit({ bounds }: { readonly bounds: Bounds }) {
+  const { setViewport } = useReactFlow();
+  const ready = useStore((state) => state.panZoom !== null);
   const width = useStore((state) => state.width);
   const height = useStore((state) => state.height);
   useEffect(() => {
-    if (initialized && width > 0 && height > 0) void fitView(fitOptions);
-  }, [signature, initialized, width, height, fitView]);
+    if (!ready || width <= 0 || height <= 0) return;
+    void setViewport(
+      getViewportForBounds(bounds, width, height, minZoom, fitOptions.maxZoom, fitOptions.padding),
+    );
+  }, [bounds, ready, width, height, setViewport]);
   return null;
+}
+
+interface Bounds {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+function graphBounds(
+  layout: ReturnType<typeof layoutFlow>,
+  loops: ReadonlyMap<string, RepeatLoop>,
+): Bounds {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const [id, position] of layout.positions) {
+    const size = layout.sizes.get(id)!;
+    left = Math.min(left, position.x);
+    top = Math.min(top, position.y);
+    right = Math.max(right, position.x + size.width);
+    bottom = Math.max(bottom, position.y + size.height);
+  }
+  for (const loop of loops.values()) right = Math.max(right, loop.x + 12 + loop.labelWidth);
+  return left === Infinity
+    ? { x: 0, y: 0, width: 1, height: 1 }
+    : { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 /**
@@ -336,6 +401,7 @@ export function Graph({
   readOnly,
   onSelect,
   onRemove,
+  Tooltip,
 }: {
   readonly definition: Definition;
   readonly selected: string | null;
@@ -343,6 +409,8 @@ export function Graph({
   readonly readOnly: boolean;
   readonly onSelect: (stepId: string | null) => void;
   readonly onRemove?: (stepId: string) => void;
+  /** The host tooltip, for titles and route labels shortened to fit. */
+  readonly Tooltip?: PluginDesign["Tooltip"];
 }) {
   const graph = useMemo(() => flowGraph(definition), [definition]);
   // Layout is keyed on structure, not on the definition object: edits that only change text
@@ -354,7 +422,7 @@ export function Graph({
     current = laidOut(graph, key);
     setCached(current);
   }
-  const { layout, loops } = current;
+  const { layout, loops, bounds } = current;
   const counts = useMemo(() => {
     const byNode = new Map<string, { errors: number; warnings: number }>();
     for (const problem of problems) {
@@ -404,6 +472,7 @@ export function Graph({
     [graph, layout, loops, counts, selected],
   );
   const edges = useMemo<RouteEdge[]>(() => {
+    const titles = new Map(graph.nodes.map((node) => [node.id, node.title]));
     return graph.edges.map((edge) => {
       const route = layout.routes.get(edge.id);
       const color = markerColors[edge.kind] ?? "var(--muted-foreground)";
@@ -414,12 +483,13 @@ export function Graph({
         target: edge.target,
         sourceHandle: edge.back ? "back-out" : "out",
         targetHandle: edge.back ? "back-in" : "in",
+        ariaLabel: `${edge.fullLabel || "Route"} from ${titles.get(edge.source) ?? edge.source} to ${titles.get(edge.target) ?? edge.target}`,
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
         data: {
           edge,
           points: route?.points ?? null,
           label: route?.label ?? null,
-          loopX: loops.get(edge.id)?.x ?? null,
+          loop: loops.get(edge.id) ?? null,
         },
       };
     });
@@ -441,10 +511,10 @@ export function Graph({
       removable: (id) => removableIds.has(id),
       onSelect,
       onRemove: (id) => onRemove?.(id),
+      Tooltip,
     }),
-    [readOnly, removableIds, onSelect, onRemove],
+    [readOnly, removableIds, onSelect, onRemove, Tooltip],
   );
-  const signature = useMemo(() => graph.nodes.map((node) => node.id).join("\u0000"), [graph]);
   return (
     <GraphActionsContext value={actions}>
       <ReactFlowProvider>
@@ -455,9 +525,7 @@ export function Graph({
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          fitView
-          fitViewOptions={fitOptions}
-          minZoom={0.2}
+          minZoom={minZoom}
           maxZoom={1.5}
           nodesDraggable={false}
           nodesConnectable={false}
@@ -476,8 +544,8 @@ export function Graph({
           attributionPosition="bottom-right"
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-          <Controls showInteractive={false} position="bottom-left" />
-          <Refit signature={signature} />
+          <Controls showInteractive={false} position="bottom-left" fitViewOptions={fitOptions} />
+          <Refit bounds={bounds} />
         </ReactFlow>
       </ReactFlowProvider>
     </GraphActionsContext>

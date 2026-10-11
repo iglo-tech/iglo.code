@@ -110,4 +110,26 @@ describe("workflow graph", () => {
     expect(stepButtonId("reviews/code")).not.toBe(stepButtonId("reviews-code"));
     expect(stepButtonId("a_x002f")).not.toBe(stepButtonId("a/"));
   });
+
+  it("detours a loop leg around a box beside its source", () => {
+    const definition = examples[0]!;
+    const graph = flowGraph(definition);
+    const layout = layoutFlow(graph);
+    const source = layout.positions.get("review")!;
+    const size = layout.sizes.get("review")!;
+    // A box placed on the straight leg from the source's right side to the loop.
+    const blocked = {
+      ...layout,
+      positions: new Map([
+        ...layout.positions,
+        ["side", { x: source.x + size.width + 40, y: source.y }],
+      ]),
+      sizes: new Map([...layout.sizes, ["side", size]]),
+    };
+    const clear = repeatLoops(graph, layout).get("review:changes")!;
+    const loop = repeatLoops(graph, blocked).get("review:changes")!;
+    expect(clear.sourceDetour).toBeNull();
+    expect(loop.x).toBeGreaterThan(source.x + 2 * size.width + 40);
+    expect(loop.sourceDetour).toBeGreaterThan(source.y + size.height);
+  });
 });

@@ -48,7 +48,7 @@ export function LibraryPageView(props: PageProps) {
 
 function Library(props: PageProps) {
   const { client, projectId, connection, Button, Input, Badge, Textarea, Menu } = props;
-  const { ListGroup, ListRow, Empty, Alert, PageHeader } = props;
+  const { ListGroup, ListRow, Empty, Alert, PageHeader, Dialog } = props;
   const projects = useProjects(props);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -150,6 +150,7 @@ function Library(props: PageProps) {
   };
   const startImport = () => {
     setName(null);
+    setActionError(null);
     setImportText((value) => (value === null ? "" : value));
   };
   const startNew = () => {
@@ -211,68 +212,85 @@ function Library(props: PageProps) {
   return (
     <>
       {header}
+      <Dialog
+        open={name !== null}
+        onOpenChange={(open) => {
+          if (!open) setName(null);
+        }}
+        title="New workflow"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setName(null)}>
+              Cancel
+            </Button>
+            <Button disabled={!name?.trim()} onClick={create}>
+              Create
+            </Button>
+          </>
+        }
+      >
+        <form
+          aria-label="New workflow"
+          onSubmit={(event) => {
+            event.preventDefault();
+            create();
+          }}
+        >
+          <Input
+            id="workflow-new-name"
+            ariaLabel="Workflow name"
+            autoFocus
+            value={name ?? ""}
+            onChange={setName}
+            placeholder="Workflow name"
+          />
+        </form>
+      </Dialog>
+      <Dialog
+        open={importText !== null}
+        onOpenChange={(open) => {
+          if (!open) setImportText(null);
+        }}
+        title="Import YAML"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setImportText(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!importText?.trim()}
+              onClick={() => {
+                if (importText === null) return;
+                const result = importYaml(importText);
+                if (result._tag === "Failure") setActionError(result.message);
+                else openDraft(result.definition);
+              }}
+            >
+              Open as new draft
+            </Button>
+          </>
+        }
+      >
+        {actionError === null ? null : (
+          <Alert variant="error" title="Not imported">
+            {actionError}
+          </Alert>
+        )}
+        <div className="h-72">
+          <Textarea
+            id="workflow-import"
+            ariaLabel="Workflow YAML to import"
+            variant="code"
+            placeholder="version: 1"
+            value={importText ?? ""}
+            onChange={setImportText}
+          />
+        </div>
+      </Dialog>
       <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 pt-6 pb-12 sm:px-6">
-          {name === null ? null : (
-            <ListGroup title="New workflow" list={false}>
-              <form
-                aria-label="New workflow"
-                className="flex flex-wrap items-center gap-2 px-3 py-3 sm:px-4"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  create();
-                }}
-              >
-                <div className="min-w-48 flex-1">
-                  <Input
-                    id="workflow-new-name"
-                    ariaLabel="Workflow name"
-                    autoFocus
-                    value={name}
-                    onChange={setName}
-                    placeholder="Workflow name"
-                  />
-                </div>
-                <Button variant="ghost" onClick={() => setName(null)}>
-                  Cancel
-                </Button>
-                <Button disabled={!name.trim()} onClick={create}>
-                  Create
-                </Button>
-              </form>
-            </ListGroup>
-          )}
-          {importText === null ? null : (
-            <ListGroup title="Import YAML" list={false}>
-              <div className="flex flex-col gap-2 px-3 py-3 sm:px-4">
-                <Textarea
-                  id="workflow-import"
-                  ariaLabel="Workflow YAML to import"
-                  rows={8}
-                  placeholder="version: 1"
-                  value={importText}
-                  onChange={setImportText}
-                />
-                <div className="flex justify-end gap-2">
-                  <Button variant="ghost" onClick={() => setImportText(null)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    disabled={!importText.trim()}
-                    onClick={() => {
-                      const result = importYaml(importText);
-                      if (result._tag === "Failure") setActionError(result.message);
-                      else openDraft(result.definition);
-                    }}
-                  >
-                    Open as new draft
-                  </Button>
-                </div>
-              </div>
-            </ListGroup>
-          )}
           <ProjectsAlert props={props} projects={projects} />
-          {actionError === null ? null : (
+          {actionError === null || importText !== null ? null : (
             <Alert variant="error" title="Not opened">
               {actionError}
             </Alert>

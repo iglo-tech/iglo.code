@@ -8,8 +8,10 @@ import {
   localProblems,
   moveStep,
   newDefinition,
+  problemText,
   removeStep,
   routeList,
+  stepTitle,
 } from "./editing.ts";
 
 const capabilities = {
@@ -110,5 +112,39 @@ describe("workflow authoring", () => {
     ).toBe(1);
     expect(importYaml("nodes: [")._tag).toBe("Failure");
     expect(importYaml("version: 2")._tag).toBe("Failure");
+  });
+
+  it("locates schema issues at their control and names steps by title", () => {
+    const { definition, id } = addStep(newDefinition("Flow"), "agent", null, capabilities);
+    const ready = {
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node.kind === "agent" ? { ...node, instruction: "Do the work" } : node,
+      ),
+    };
+    expect(localProblems({ ...ready, maxVisits: 0 })).toEqual([
+      expect.objectContaining({ severity: "error", control: "maxVisits" }),
+    ]);
+    const missing = localProblems(definition).find((problem) => problem.control === "instruction")!;
+    expect(problemText(missing, stepTitle(definition))).toBe("Agent step 1: add instructions.");
+    expect(problemText(missing, null)).toBe("Add instructions.");
+    expect(missing.nodeId).toBe(id);
+  });
+
+  it("warns about a step the entry never reaches", () => {
+    const { definition } = addStep(newDefinition("Flow"), "agent", null, capabilities);
+    const agent = definition.nodes.find((node) => node.kind === "agent")!;
+    const orphan = {
+      ...agent,
+      id: "orphan",
+      title: "Orphan",
+      instruction: "Do",
+      next: { to: "done" },
+    };
+    expect(localProblems({ ...definition, nodes: [...definition.nodes, orphan] })).toContainEqual({
+      severity: "warning",
+      message: "orphan: this step is unreachable from the entry step.",
+      nodeId: "orphan",
+    });
   });
 });
