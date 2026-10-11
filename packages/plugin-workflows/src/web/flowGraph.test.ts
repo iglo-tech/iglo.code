@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { developmentReview, examples } from "../examples.ts";
-import { flowGraph, layoutFlow, layoutSignature, repeatLoops } from "./flowGraph.ts";
+import { flowGraph, layoutFlow, layoutSignature, refitKey, repeatLoops } from "./flowGraph.ts";
 import { stepButtonId } from "./Flow.tsx";
 
 const edge = (graph: ReturnType<typeof flowGraph>, source: string, target: string) =>
@@ -106,6 +106,22 @@ describe("workflow graph", () => {
       nodes: developmentReview.nodes.filter((node) => node.id !== "unresolved"),
     };
     expect(layoutSignature(flowGraph(shorter))).not.toBe(key);
+  });
+
+  it("refits only when boxes are added or removed", () => {
+    const key = refitKey(flowGraph(developmentReview));
+    const relabelled = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.map((node) =>
+        node.id === "implement" ? { ...node, title: "Renamed" } : node,
+      ),
+    };
+    expect(refitKey(flowGraph(relabelled))).toBe(key);
+    const shorter = {
+      ...developmentReview,
+      nodes: developmentReview.nodes.filter((node) => node.id !== "unresolved"),
+    };
+    expect(refitKey(flowGraph(shorter))).not.toBe(key);
   });
 
   it("gives every box a distinct focus id", () => {

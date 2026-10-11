@@ -174,13 +174,9 @@ export function RouteList({
                   return (
                     <li key={route.control} className="flex min-w-0 items-center gap-1.5 leading-5">
                       <CornerDownRightIcon aria-hidden className="size-3 shrink-0 opacity-64" />
-                      {text.length > 48 ? (
-                        <props.Tooltip label={text}>
-                          <span className="truncate">{text}</span>
-                        </props.Tooltip>
-                      ) : (
+                      <props.Tooltip label={text}>
                         <span className="truncate">{text}</span>
-                      )}
+                      </props.Tooltip>
                     </li>
                   );
                 })}

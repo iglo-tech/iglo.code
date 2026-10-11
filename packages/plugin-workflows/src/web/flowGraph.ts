@@ -216,6 +216,10 @@ export function layoutSignature(graph: FlowGraph): string {
   ]);
 }
 
+/** Changes only when boxes are added or removed, the moments the canvas refits the whole graph. */
+export const refitKey = (graph: FlowGraph): string =>
+  JSON.stringify(graph.nodes.map((node) => node.id));
+
 /** Approximate drawn width of an edge label (11px medium text plus padding). */
 export const labelWidth = (label: string) => label.length * 6.5 + 16;
 

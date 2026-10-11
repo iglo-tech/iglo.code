@@ -27,6 +27,7 @@ import {
   use,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactElement,
@@ -37,6 +38,7 @@ import {
   flowGraph,
   layoutFlow,
   layoutSignature,
+  refitKey,
   loopPath,
   repeatLoops,
   splinePath,
@@ -98,17 +100,14 @@ const tileTone: Record<FlowNode["kind"], string> = {
   missing: "bg-transparent text-destructive",
 };
 const hiddenHandle: CSSProperties = { opacity: 0, pointerEvents: "none" };
-/** Titles longer than this may truncate in a box, so the box shows its full title on hover. */
-const titleFits = 22;
-
-/** `element` with `label` as its tooltip, when the host provides tooltips and one is needed. */
+/** `children` with `label` as its tooltip when the host provides tooltips; mounts on hover only. */
 function WithTooltip({
   label,
-  needed,
+  needed = true,
   children,
 }: {
   readonly label: string;
-  readonly needed: boolean;
+  readonly needed?: boolean;
   readonly children: ReactElement;
 }) {
   const Tooltip = use(GraphActionsContext)?.Tooltip;
@@ -176,7 +175,7 @@ function StepCard({
         isConnectable={false}
         style={hiddenHandle}
       />
-      <WithTooltip label={node.title} needed={node.title.length > titleFits}>
+      <WithTooltip label={node.title}>
         <button
           type="button"
           id={stepButtonId(node.id)}
@@ -310,12 +309,13 @@ function RouteLine({
         <EdgeLabelRenderer>
           <WithTooltip label={data.edge.fullLabel} needed={data.edge.fullLabel !== data.edge.label}>
             <div
+              tabIndex={data.edge.fullLabel === data.edge.label ? undefined : 0}
               style={{
                 transform: beside
                   ? `translate(${label.x + 6}px, ${label.y}px) translateY(-50%)`
                   : `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`,
               }}
-              className={`nopan absolute whitespace-nowrap rounded-md border bg-background px-1.5 text-[11px] font-medium leading-[18px] ${labelTone[data.edge.kind] ?? "border-border text-muted-foreground"}`}
+              className={`nopan pointer-events-auto absolute whitespace-nowrap rounded-md border bg-background px-1.5 text-[11px] font-medium leading-[18px] ${labelTone[data.edge.kind] ?? "border-border text-muted-foreground"}`}
             >
               {data.edge.label}
             </div>
@@ -355,17 +355,30 @@ const laidOut = (graph: FlowGraph, key: string) => {
  * canvas is resized (narrow layouts, the inspector opening). The viewport is computed from the
  * layout directly, so it never waits on React Flow measuring the boxes.
  */
-function Refit({ bounds }: { readonly bounds: Bounds }) {
+function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: string }) {
   const { setViewport } = useReactFlow();
+  // Edits that only move or resize boxes must not undo the user's pan and zoom, so the effect
+  // reads the latest bounds without depending on them.
+  const latest = useRef(bounds);
+  useEffect(() => {
+    latest.current = bounds;
+  });
   const ready = useStore((state) => state.panZoom !== null);
   const width = useStore((state) => state.width);
   const height = useStore((state) => state.height);
   useEffect(() => {
     if (!ready || width <= 0 || height <= 0) return;
     void setViewport(
-      getViewportForBounds(bounds, width, height, minZoom, fitOptions.maxZoom, fitOptions.padding),
+      getViewportForBounds(
+        latest.current,
+        width,
+        height,
+        minZoom,
+        fitOptions.maxZoom,
+        fitOptions.padding,
+      ),
     );
-  }, [bounds, ready, width, height, setViewport]);
+  }, [fitKey, ready, width, height, setViewport]);
   return null;
 }
 
@@ -422,6 +435,7 @@ export function Graph({
   // Layout is keyed on structure, not on the definition object: edits that only change text
   // (a step title, instructions) keep the previous layout instead of re-running dagre.
   const key = layoutSignature(graph);
+  const fitKey = refitKey(graph);
   const [cached, setCached] = useState(() => laidOut(graph, key));
   let current = cached;
   if (cached.key !== key) {
@@ -556,7 +570,7 @@ export function Graph({
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Controls showInteractive={false} position="bottom-left" fitViewOptions={fitOptions} />
-          <Refit bounds={bounds} />
+          <Refit bounds={bounds} fitKey={fitKey} />
         </ReactFlow>
       </ReactFlowProvider>
     </GraphActionsContext>

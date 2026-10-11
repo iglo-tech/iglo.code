@@ -249,12 +249,21 @@ function Library(props: PageProps) {
       <Dialog
         open={importText !== null}
         onOpenChange={(open) => {
-          if (!open) setImportText(null);
+          if (!open) {
+            setImportText(null);
+            setActionError(null);
+          }
         }}
         title="Import YAML"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setImportText(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setImportText(null);
+                setActionError(null);
+              }}
+            >
               Cancel
             </Button>
             <Button

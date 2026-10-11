@@ -62,12 +62,6 @@ import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { PluginIcon } from "./pluginIcons";
 import { pageStatusNotice, usePluginPageChrome, type PluginPageChrome } from "./pageChrome";
 
-/**
- * Overlays portal into the document. Without a window (server or test rendering) the same
- * content renders in place, keeping its role and accessible name.
- */
-const canPortal = () => typeof window !== "undefined";
-
 function NavigationGuard({
   when,
   title,
@@ -105,14 +99,6 @@ function NavigationGuard({
       </Button>
     </>
   );
-  if (!canPortal())
-    return blocked ? (
-      <div role="alertdialog" aria-label={title}>
-        <p>{title}</p>
-        {description === undefined ? null : <p>{description}</p>}
-        {actions}
-      </div>
-    ) : null;
   return (
     <AlertDialog
       open={blocked}
@@ -140,14 +126,6 @@ function PluginDialog({
   children,
   footer,
 }: ComponentProps<PluginDesign["Dialog"]>) {
-  if (!canPortal())
-    return open ? (
-      <div role="dialog" aria-label={title}>
-        <p>{title}</p>
-        {children}
-        {footer}
-      </div>
-    ) : null;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup>
@@ -369,15 +347,12 @@ export const pluginDesign: PluginDesign = {
     </Select>
   ),
   Badge: ({ variant = "outline", children }) => <Badge variant={variant}>{children}</Badge>,
-  Tooltip: ({ label, children }) =>
-    typeof window === "undefined" ? (
-      children
-    ) : (
-      <Tooltip>
-        <TooltipTrigger render={children} />
-        <TooltipPopup side="top">{label}</TooltipPopup>
-      </Tooltip>
-    ),
+  Tooltip: ({ label, children }) => (
+    <Tooltip>
+      <TooltipTrigger render={children} />
+      <TooltipPopup side="top">{label}</TooltipPopup>
+    </Tooltip>
+  ),
   Icon: PluginIcon,
   Menu: ({ ariaLabel, items, trigger, disabled }) => (
     <Menu>
