@@ -851,7 +851,7 @@ it.live(
         yield* promise(() => type("wf-workflow-title", "Release notes v2"));
         yield* promise(() => click("Save"));
         yield* promise(() => tracked.settle("save"));
-        expect(page()).toContain("This workflow changed on the server");
+        expect(page()).toContain("Changed on the server");
         expect(control(pluginDesign.Input, "wf-workflow-title").props.value).toBe(
           "Release notes v2",
         );
@@ -868,7 +868,7 @@ it.live(
         expect(control(pluginDesign.Input, "wf-workflow-title").props.value).toBe(
           "Release notes v2",
         );
-        yield* promise(() => click("Reload saved version"));
+        yield* promise(() => click("Reload"));
         yield* promise(() => tracked.settle("read"));
         expect(control(pluginDesign.Input, "wf-workflow-title").props.value).toBe(
           "Edited elsewhere",

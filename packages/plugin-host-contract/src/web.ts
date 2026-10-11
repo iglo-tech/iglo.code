@@ -122,7 +122,12 @@ export interface PluginDesign {
     readonly variant?: "outline" | "secondary" | "info" | "success" | "warning" | "error";
   }>;
   /** Shows `label` on hover and focus of its single child element, e.g. a truncated text. */
-  readonly Tooltip: ComponentType<{ readonly label: string; readonly children: ReactElement }>;
+  readonly Tooltip: ComponentType<{
+    readonly label: string;
+    readonly children: ReactElement;
+    /** Suppresses the tooltip while keeping the child mounted, e.g. when nothing is truncated. */
+    readonly disabled?: boolean;
+  }>;
   /** A host-owned icon, for icon buttons in host slots such as the chat header. */
   readonly Icon: ComponentType<{ readonly name: PluginIconName }>;
   /** An overflow (`…`) menu, or a menu behind custom trigger content. */

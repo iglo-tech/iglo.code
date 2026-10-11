@@ -203,6 +203,17 @@ describe("workflow authoring", () => {
     expect(titles).toContain("Agent step 1");
   });
 
+  it("numbers added ends so each has a distinct title", () => {
+    const first = addStep(newDefinition("Flow"), "end", null, capabilities);
+    const second = addStep(first.definition, "end", null, capabilities);
+    const third = addStep(second.definition, "end", null, capabilities);
+    expect(third.definition.nodes.filter((n) => n.id !== "done").map((n) => n.title)).toEqual([
+      "End 1",
+      "End 2",
+      "End 3",
+    ]);
+  });
+
   it("counts the run limit destination reachable when the flow can exceed a small limit", () => {
     const stop = developmentReview.nodes.find((node) => node.id === "done")!;
     const agent = developmentReview.nodes.find((node) => node.id === "implement")!;

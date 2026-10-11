@@ -42,6 +42,7 @@ import {
   layoutSignature,
   refitKey,
   loopPath,
+  roundedPath,
   repeatLoops,
   splinePath,
   type Bounds,
@@ -77,6 +78,7 @@ type StepNode =
 type RouteData = {
   readonly edge: FlowEdge;
   readonly points: ReadonlyArray<Point> | null;
+  readonly orthogonal: boolean;
   readonly label: Point | null;
   /** For repeat back edges: the loop's vertical run and detours, clear of every box. */
   readonly loop: RepeatLoop | null;
@@ -289,7 +291,7 @@ function RouteLine({
     // A route to its own step leaves above the card's middle and returns below it.
     const own = data.edge.source === data.edge.target ? 10 : 0;
     path = loopPath(
-      { x: sourceX, y: sourceY - own },
+      { x: sourceX, y: sourceY - own + data.loop.sourceOffset },
       { x: targetX, y: targetY + own },
       data.loop.x,
       { source: data.loop.sourceDetour, target: data.loop.targetDetour },
@@ -307,7 +309,7 @@ function RouteLine({
     path = smooth;
     label = data.edge.label === "" ? null : { x: labelX, y: labelY };
   } else {
-    path = splinePath(data.points);
+    path = data.orthogonal ? roundedPath(data.points, 12) : splinePath(data.points);
     label = data.label;
   }
   return (
@@ -359,7 +361,7 @@ const theme = {
   "--xy-controls-button-border-color": "var(--border)",
   "--xy-controls-box-shadow": "0 1px 2px color-mix(in srgb, black 8%, transparent)",
   "--xy-edge-stroke-default": defaultStroke,
-  "--xy-attribution-background-color": "transparent",
+  "--xy-attribution-background-color": "color-mix(in srgb, var(--background) 80%, transparent)",
 } as CSSProperties;
 
 const laidOut = (graph: FlowGraph, key: string) => {
@@ -400,6 +402,8 @@ function Refit({
   return null;
 }
 
+const attributionReserve = 32;
+
 function graphBounds(
   layout: ReturnType<typeof layoutFlow>,
   loops: ReadonlyMap<string, RepeatLoop>,
@@ -416,9 +420,15 @@ function graphBounds(
     bottom = Math.max(bottom, position.y + size.height);
   }
   for (const loop of loops.values()) right = Math.max(right, loop.x + 12 + loop.labelWidth);
+  // Routes that run outside the boxes (into the main graph from a detached set) extend the view.
+  for (const route of layout.routes.values())
+    if (route.orthogonal === true)
+      for (const point of route.points) left = Math.min(left, point.x - 40);
+  // The attribution sits over the canvas's bottom-right corner; the extra height keeps the
+  // fitted graph clear of it.
   return left === Infinity
     ? { x: 0, y: 0, width: 1, height: 1 }
-    : { x: left, y: top, width: right - left, height: bottom - top };
+    : { x: left, y: top, width: right - left, height: bottom - top + attributionReserve };
 }
 
 /**
@@ -529,6 +539,7 @@ export function Graph({
         data: {
           edge,
           points: route?.points ?? null,
+          orthogonal: route?.orthogonal ?? false,
           label: route?.label ?? null,
           loop: loops.get(edge.id) ?? null,
         },

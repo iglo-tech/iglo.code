@@ -680,7 +680,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       <Alert
         key="conflict"
         variant="warning"
-        title="This workflow changed on the server"
+        title="Changed on the server"
         actions={
           <>
             <Button
@@ -696,18 +696,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
               Compare
             </Button>
             <Button size="xs" variant="outline" disabled={offline} onClick={reload}>
-              Reload saved version
+              Reload
             </Button>
-            <Button size="xs" variant="ghost" disabled={offline} onClick={keepMine}>
+            <Button size="xs" variant="outline" disabled={offline} onClick={keepMine}>
               Keep my draft
             </Button>
           </>
         }
-      >
-        {statusKind.kind === "conflict"
-          ? statusKind.message
-          : "Your draft is based on an older revision."}
-      </Alert>
+      ></Alert>
     ) : null,
   ].filter((alert) => alert !== null);
   const yaml = (
@@ -755,7 +751,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             />
           </div>
           <div>
-            <Button size="sm" variant="ghost" onClick={() => setCompare(null)}>
+            <Button size="xs" variant="outline" onClick={() => setCompare(null)}>
               Close comparison
             </Button>
           </div>
@@ -973,7 +969,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             {palette}
           </aside>
         )}
-        <section aria-label="Flow" className="flex min-w-0 flex-1 flex-col">
+        <section aria-label="Flow" className="relative flex min-w-0 flex-1 flex-col">
           <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
             <SegmentedControl
               ariaLabel="Workflow view"
@@ -984,7 +980,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             {narrow && draft !== null ? (
               <span className="ml-auto flex gap-1">
                 {readOnly ? null : (
-                  <Button size="xs" variant="ghost" onClick={() => setPaletteOpen(true)}>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      setInspectorOpen(false);
+                      setPaletteOpen(true);
+                    }}
+                  >
                     <PlusIcon />
                     Add a step
                   </Button>
@@ -994,7 +997,10 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                   variant="ghost"
                   ariaLabel={selected === null ? "Workflow settings" : "Inspector"}
                   tooltip={selected === null ? "Workflow settings" : "Inspector"}
-                  onClick={() => setInspectorOpen(true)}
+                  onClick={() => {
+                    setPaletteOpen(false);
+                    setInspectorOpen(true);
+                  }}
                 >
                   <PanelRightIcon />
                 </Button>
@@ -1002,7 +1008,16 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             ) : null}
           </div>
           {alerts.length === 0 ? null : (
-            <div className="flex shrink-0 flex-col gap-2 border-b border-border p-3">{alerts}</div>
+            // Over the graph the alerts float on the canvas, so showing one never moves it.
+            <div
+              className={
+                view === "graph"
+                  ? "pointer-events-none absolute inset-x-3 top-14 z-10 flex flex-col gap-2 *:pointer-events-auto"
+                  : "flex shrink-0 flex-col gap-2 border-b border-border p-3"
+              }
+            >
+              {alerts}
+            </div>
           )}
           {draft === null && (view !== "yaml" || server === null) ? (
             readError === null && !offline ? (

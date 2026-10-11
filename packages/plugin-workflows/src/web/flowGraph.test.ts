@@ -86,7 +86,12 @@ describe("workflow graph", () => {
     // The self-route is a loop beside the box, not a layered edge.
     const layout = layoutFlow(graph);
     expect(layout.routes.has("review:changes.repeat")).toBe(false);
-    expect(repeatLoops(graph, layout).has("review:changes.repeat")).toBe(true);
+    const loops = repeatLoops(graph, layout);
+    expect(loops.has("review:changes.repeat")).toBe(true);
+    // The repeat and the self-route leave the box at different heights, so they never merge.
+    expect(loops.get("review:changes")!.sourceOffset).toBeLessThan(
+      loops.get("review:changes.repeat")!.sourceOffset - 10,
+    );
   });
 
   it("keeps a dangling route visible against a missing step", () => {
@@ -203,8 +208,31 @@ describe("workflow graph", () => {
       ...ids.filter((id) => id !== "orphan" && id !== "lonely").map((id) => box(id).bottom),
     );
     expect(box("orphan").top).toBeGreaterThan(mainBottom);
-    // The orphan's edge into the main graph crosses sets, so it gets no routed path.
-    expect(layout.routes.has("orphan->done")).toBe(false);
+    // The orphan's edge into the main graph runs up a lane outside every box and enters the
+    // target from its side, never through a box.
+    const route = layout.routes.get("orphan:next")!;
+    const points = route.points;
+    const end = points[points.length - 1]!;
+    const done = box("done");
+    expect(end).toEqual({ x: done.left, y: (done.top + done.bottom) / 2 });
+    expect(Math.min(...points.map((point) => point.x))).toBeLessThan(
+      Math.min(...ids.map((id) => box(id).left)),
+    );
+    for (const [index, from] of points.slice(0, -1).entries()) {
+      const to = points[index + 1]!;
+      const leg = {
+        left: Math.min(from.x, to.x),
+        right: Math.max(from.x, to.x),
+        top: Math.min(from.y, to.y),
+        bottom: Math.max(from.y, to.y),
+      };
+      for (const id of ids) {
+        const b = box(id);
+        const inside =
+          leg.left < b.right && leg.right > b.left && leg.top < b.bottom && leg.bottom > b.top;
+        expect(inside, `${id} on leg ${index}`).toBe(false);
+      }
+    }
     // No main-graph loop's legs or vertical run touch a detached box.
     for (const [id, loop] of repeatLoops(graph, layout)) {
       const owner = graph.edges.find((item) => item.id === id)!;

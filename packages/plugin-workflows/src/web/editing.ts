@@ -120,7 +120,12 @@ export function addStep(
 ): { readonly definition: Definition; readonly id: string } {
   if (kind === "end") {
     const id = uniqueId(definition, "end");
-    const node: Node = { id, kind: "end", title: "End", outcome: "completed" };
+    const node: Node = {
+      id,
+      kind: "end",
+      title: freshTitle(definition, kindLabels.end),
+      outcome: "completed",
+    };
     return { definition: { ...definition, nodes: [...definition.nodes, node] }, id };
   }
   const id = uniqueId(definition, "agent");

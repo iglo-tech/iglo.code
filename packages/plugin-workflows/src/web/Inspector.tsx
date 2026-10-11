@@ -1,5 +1,5 @@
 import { Trash2Icon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import type { ProviderInstanceId, RuntimeMode } from "@t3tools/plugin-host-contract/schema";
 import type {
   Agent,
@@ -22,6 +22,38 @@ import {
   upstreamFields,
 } from "./editing.ts";
 import { KindIcon } from "./kinds.tsx";
+
+/**
+ * A text field whose full value is a tooltip while the text is cut off and the field is not
+ * being edited. Truncation is measured on hover, since the field's width is the host's.
+ */
+function FullValue({
+  props,
+  value,
+  children,
+}: {
+  readonly props: PageProps;
+  readonly value: string;
+  readonly children: ReactElement;
+}) {
+  const [cut, setCut] = useState(false);
+  const [editing, setEditing] = useState(false);
+  return (
+    <props.Tooltip label={value} disabled={!cut || editing}>
+      <span
+        className="block"
+        onPointerEnter={(event) => {
+          const input = event.currentTarget.querySelector("input");
+          setCut(input !== null && input.scrollWidth > input.clientWidth);
+        }}
+        onFocus={() => setEditing(true)}
+        onBlur={() => setEditing(false)}
+      >
+        {children}
+      </span>
+    </props.Tooltip>
+  );
+}
 
 type AgentNode = Extract<Node, { kind: "agent" }>;
 const runtimeModes: ReadonlyArray<RuntimeMode> = [
@@ -256,14 +288,16 @@ function WorkflowSettings({
   return (
     <div className="flex flex-col gap-3">
       <Labeled id={controlId(null, "title")} label="Name">
-        <Input
-          id={controlId(null, "title")}
-          value={definition.title}
-          readOnly={readOnly}
-          disabled={readOnly}
-          invalid={invalid("title")}
-          onChange={(title) => onChange({ ...definition, title })}
-        />
+        <FullValue props={props} value={definition.title}>
+          <Input
+            id={controlId(null, "title")}
+            value={definition.title}
+            readOnly={readOnly}
+            disabled={readOnly}
+            invalid={invalid("title")}
+            onChange={(title) => onChange({ ...definition, title })}
+          />
+        </FullValue>
       </Labeled>
       <Problems problems={problems} nodeId={null} control="title" />
       <Labeled id={controlId(null, "id")} label="Workflow ID">
@@ -537,14 +571,16 @@ function AgentInspector({
   return (
     <div className="flex flex-col gap-3">
       <Labeled id={controlId(node.id, "title")} label="Label">
-        <Input
-          id={controlId(node.id, "title")}
-          value={node.title}
-          readOnly={readOnly}
-          disabled={readOnly}
-          invalid={invalid("title")}
-          onChange={(title) => set((current) => ({ ...current, title }))}
-        />
+        <FullValue props={props} value={node.title}>
+          <Input
+            id={controlId(node.id, "title")}
+            value={node.title}
+            readOnly={readOnly}
+            disabled={readOnly}
+            invalid={invalid("title")}
+            onChange={(title) => set((current) => ({ ...current, title }))}
+          />
+        </FullValue>
       </Labeled>
       <Problems problems={problems} nodeId={node.id} control="title" />
       {capabilitiesError !== null || capabilities?.discoveryError ? (

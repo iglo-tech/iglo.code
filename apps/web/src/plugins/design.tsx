@@ -133,7 +133,14 @@ const PluginSheet: PluginDesign["Sheet"] = ({
   const popup = useRef<HTMLDivElement>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetPopup ref={popup} initialFocus={popup} side={side}>
+      <SheetPopup
+        ref={popup}
+        initialFocus={popup}
+        // A sheet that hands over to another one (add a step, then its inspector) must not pull
+        // focus back to its opener once the next sheet has taken it.
+        finalFocus={() => document.querySelector('[data-slot="sheet-popup"][data-open]') === null}
+        side={side}
+      >
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
         </SheetHeader>
@@ -423,8 +430,8 @@ export const pluginDesign: PluginDesign = {
     </Select>
   ),
   Badge: ({ variant = "outline", children }) => <Badge variant={variant}>{children}</Badge>,
-  Tooltip: ({ label, children }) => (
-    <Tooltip>
+  Tooltip: ({ label, children, disabled }) => (
+    <Tooltip disabled={disabled === true}>
       <TooltipTrigger render={children} />
       <TooltipPopup side="top">{label}</TooltipPopup>
     </Tooltip>

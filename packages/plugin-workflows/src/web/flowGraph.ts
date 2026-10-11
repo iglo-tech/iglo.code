@@ -201,7 +201,12 @@ export interface FlowLayout {
   /** Routed points and label centre for each forward edge; back edges are drawn beside the flow. */
   readonly routes: ReadonlyMap<
     string,
-    { readonly points: ReadonlyArray<Point>; readonly label: Point | null }
+    {
+      readonly points: ReadonlyArray<Point>;
+      readonly label: Point | null;
+      /** Axis-aligned legs with rounded corners, instead of a smoothed spline. */
+      readonly orthogonal?: boolean;
+    }
   >;
 }
 
@@ -282,6 +287,9 @@ export function autoFitViewport(bounds: Bounds, width: number, height: number, e
 /** Approximate drawn width of an edge label (11px medium text plus padding). */
 export const labelWidth = (label: string) => label.length * 6.5 + 16;
 
+/** How far a detoured leg runs outside its box: inside the gaps dagre leaves. */
+const detourGap = 14;
+
 /** Top-to-bottom layered layout of one connected set of boxes, from the origin. */
 function layoutComponent(nodes: ReadonlyArray<FlowNode>, allEdges: ReadonlyArray<FlowEdge>) {
   const layout = new dagre.graphlib.Graph<GraphLabel, NodeLabel, EdgeLabel>({ multigraph: true });
@@ -342,8 +350,8 @@ function layoutComponent(nodes: ReadonlyArray<FlowNode>, allEdges: ReadonlyArray
 /**
  * Layered layout. Repeat routes are left out so they never push steps around. Boxes the entry
  * cannot reach are laid out as their own sets, stacked below the main graph, so they never share
- * a rank with its loops and edges. Edges between two sets have no routed path; the renderer draws
- * them with its smoothstep fallback.
+ * a rank with its loops and edges. Edges from a detached set into the main graph are routed around the outside by
+ * `routeAcrossSets`.
  */
 export function layoutFlow(graph: FlowGraph): FlowLayout {
   const reached = new Set<string>();
@@ -378,7 +386,10 @@ export function layoutFlow(graph: FlowGraph): FlowLayout {
 
   const positions = new Map<string, Point>();
   const sizes = new Map<string, { width: number; height: number }>();
-  const routes = new Map<string, { points: ReadonlyArray<Point>; label: Point | null }>();
+  const routes = new Map<
+    string,
+    { points: ReadonlyArray<Point>; label: Point | null; orthogonal?: boolean }
+  >();
   let top = 0;
   for (const nodes of components) {
     const component = layoutComponent(nodes, graph.edges);
@@ -393,7 +404,82 @@ export function layoutFlow(graph: FlowGraph): FlowLayout {
       });
     top += component.height;
   }
+  routeAcrossSets(graph, positions, sizes, routes);
   return { positions, sizes, routes };
+}
+
+/**
+ * An edge from a detached set into the main graph climbs a lane left of every box and enters the
+ * target from its side, so it never cuts through the stacked sets between them. A leg that a
+ * box would block goes through the gaps between ranks and boxes instead.
+ */
+function routeAcrossSets(
+  graph: FlowGraph,
+  positions: ReadonlyMap<string, Point>,
+  sizes: ReadonlyMap<string, { readonly width: number; readonly height: number }>,
+  routes: Map<string, { points: ReadonlyArray<Point>; label: Point | null; orthogonal?: boolean }>,
+) {
+  const crossing = graph.edges.filter(
+    (edge) =>
+      !edge.back &&
+      !routes.has(edge.id) &&
+      positions.has(edge.source) &&
+      positions.has(edge.target) &&
+      edge.source !== edge.target,
+  );
+  if (crossing.length === 0) return;
+  const labels = new Map(graph.edges.map((edge) => [edge.id, edge.label]));
+  let left = Infinity;
+  for (const position of positions.values()) left = Math.min(left, position.x);
+  for (const [id, route] of routes)
+    if (route.label !== null)
+      left = Math.min(left, route.label.x - labelWidth(labels.get(id) ?? "") / 2);
+  const blocked = (x1: number, x2: number, y: number, except: string) =>
+    [...positions].some(([id, position]) => {
+      if (id === except) return false;
+      const size = sizes.get(id)!;
+      return (
+        position.x < Math.max(x1, x2) &&
+        position.x + size.width > Math.min(x1, x2) &&
+        position.y < y &&
+        position.y + size.height > y
+      );
+    });
+  for (const [index, edge] of crossing.entries()) {
+    const source = positions.get(edge.source)!;
+    const sourceSize = sizes.get(edge.source)!;
+    const target = positions.get(edge.target)!;
+    const targetSize = sizes.get(edge.target)!;
+    const lane = left - 32 - index * 16;
+    const sourceY = source.y + sourceSize.height / 2;
+    const targetY = target.y + targetSize.height / 2;
+    const points: Point[] = [];
+    if (blocked(lane, source.x, sourceY, edge.source)) {
+      const gap = source.y + sourceSize.height + detourGap;
+      const middle = source.x + sourceSize.width / 2;
+      points.push(
+        { x: middle, y: source.y + sourceSize.height },
+        { x: middle, y: gap },
+        { x: lane, y: gap },
+      );
+    } else points.push({ x: source.x, y: sourceY }, { x: lane, y: sourceY });
+    if (blocked(lane, target.x, targetY, edge.target)) {
+      // Down through the space dagre leaves beside the box, so the arrow still enters its side.
+      const gap = target.y - detourGap;
+      const beside = target.x - 20;
+      points.push(
+        { x: lane, y: gap },
+        { x: beside, y: gap },
+        { x: beside, y: targetY },
+        { x: target.x, y: targetY },
+      );
+    } else points.push({ x: lane, y: targetY }, { x: target.x, y: targetY });
+    routes.set(edge.id, {
+      points,
+      label: edge.label === "" ? null : { x: lane, y: (sourceY + targetY) / 2 },
+      orthogonal: true,
+    });
+  }
 }
 
 /** A smooth path through routed points (uniform B-spline, as d3's curveBasis). */
@@ -419,9 +505,6 @@ export function splinePath(points: ReadonlyArray<Point>): string {
   return path;
 }
 
-/** How far a detoured loop leg runs outside its box: inside the gaps dagre leaves. */
-const detourGap = 14;
-
 export interface RepeatLoop {
   /** The x of the loop's vertical run. */
   readonly x: number;
@@ -434,6 +517,11 @@ export interface RepeatLoop {
    */
   readonly sourceDetour: number | null;
   readonly targetDetour: number | null;
+  /**
+   * How far above the source's middle the loop leaves its side. Repeat routes leave higher than
+   * a self-route's loop (which straddles the middle), and each other, so they never share a leg.
+   */
+  readonly sourceOffset: number;
 }
 
 /**
@@ -443,6 +531,7 @@ export interface RepeatLoop {
 export function repeatLoops(graph: FlowGraph, layout: FlowLayout): ReadonlyMap<string, RepeatLoop> {
   const loops = new Map<string, RepeatLoop & { top: number; bottom: number }>();
   const labels = new Map(graph.edges.map((edge) => [edge.id, edge.label]));
+  const leaving = new Map<string, number>();
   for (const edge of graph.edges) {
     if (!edge.back) continue;
     const source = layout.positions.get(edge.source);
@@ -477,9 +566,14 @@ export function repeatLoops(graph: FlowGraph, layout: FlowLayout): ReadonlyMap<s
           position.y + size.height > y
         );
       });
-    const sourceY = source.y + sourceSize.height / 2;
+    const own = edge.source === edge.target;
+    const taken = leaving.get(edge.source) ?? 0;
+    if (!own) leaving.set(edge.source, taken + 1);
+    const sourceOffset = own ? 0 : -(14 + 8 * taken);
+    const sourceY = source.y + sourceSize.height / 2 + sourceOffset;
     const targetY = target.y + targetSize.height / 2;
     loops.set(edge.id, {
+      sourceOffset,
       x,
       y: (sourceY + targetY) / 2,
       labelWidth: edge.label === "" ? 0 : labelWidth(edge.label),
@@ -527,7 +621,7 @@ export function loopPath(
 }
 
 /** An orthogonal polyline with each corner rounded by up to `radius`. */
-function roundedPath(points: ReadonlyArray<Point>, radius: number): string {
+export function roundedPath(points: ReadonlyArray<Point>, radius: number): string {
   const parts = [`M${points[0]!.x},${points[0]!.y}`];
   for (let index = 1; index < points.length - 1; index++) {
     const previous = points[index - 1]!;
