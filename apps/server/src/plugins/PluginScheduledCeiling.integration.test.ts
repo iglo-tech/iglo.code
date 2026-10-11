@@ -197,6 +197,7 @@ it.live.each([
                   offer: () => Effect.void,
                   setModel: () => Effect.void,
                   setPermissionMode: () => Effect.void,
+                  stopTask: () => Effect.void,
                   interrupt: Effect.void,
                   close: Effect.sync(() => {}).pipe(Effect.andThen(Queue.shutdown(nativeFrames))),
                 };

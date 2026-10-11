@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalFetchInEffect:off - verifies generated remote scripts using real shell and Bun processes.
 import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
@@ -75,7 +76,7 @@ it("runs the remote stdin bootstrap using Bun in its default install location", 
   }
 });
 
-it.each(["1.3.14", "1.4.0", "1.4.1"])(
+it.each(["1.3.14", "1.4.0", "1.4.2"])(
   "rejects remote Bun %s with actionable SSH guidance",
   async (version) => {
     await expect(
@@ -83,7 +84,7 @@ it.each(["1.3.14", "1.4.0", "1.4.1"])(
         "-e",
         `Object.defineProperty(process.versions, 'bun', { value: '${version}' });\n${remoteDeviceScript("unsupported", "probe")}`,
       ]),
-    ).rejects.toThrow("Bun 1.4.2 or newer is required on the device host");
+    ).rejects.toThrow(`Bun ${BUN_VERSION} or newer is required on the device host`);
   },
 );
 

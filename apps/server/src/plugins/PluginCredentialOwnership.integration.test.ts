@@ -141,6 +141,7 @@ it.live.each(["late predecessor", "cancelled predecessor"] as const)(
                   offer: () => Effect.void,
                   setModel: () => Effect.void,
                   setPermissionMode: () => Effect.void,
+                  stopTask: () => Effect.void,
                   interrupt: Effect.void,
                   close: Queue.shutdown(frames),
                 };
