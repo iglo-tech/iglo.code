@@ -54,6 +54,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import type { Atom } from "effect/reactivity";
 import { act, useMemo, useSyncExternalStore } from "react";
 import { create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import * as Yaml from "yaml";
@@ -72,6 +73,7 @@ import { makeReplayServerConfig } from "../../server/src/orchestration-v2/testki
 const binding = vi.hoisted(() => ({
   configs: new Map<string, ServerConfig>(),
   contexts: new Map<string, Context.Context<Supervisor.EnvironmentSupervisor>>(),
+  prepared: new Map<string, Atom.Writable<Option.Option<boolean>>>(),
 }));
 
 // Bind the production client to each test environment's authenticated server session.
@@ -181,7 +183,11 @@ vi.mock("../src/state/session", async () => {
   const Option = await import("effect/Option");
   return {
     environmentSession: {
-      preparedConnectionValueAtom: Atom.family(() => Atom.make(Option.some(true))),
+      preparedConnectionValueAtom: Atom.family((environmentId: string) => {
+        const value = Atom.make<Option.Option<boolean>>(Option.some(true));
+        binding.prepared.set(environmentId, value);
+        return value;
+      }),
       initialConfigValueAtom: Atom.family((environmentId: string) =>
         Atom.make(binding.configs.get(environmentId) ?? null),
       ),
@@ -195,7 +201,6 @@ import { bind } from "../src/plugins/contributions";
 import { pluginDesign } from "../src/plugins/design";
 import { PluginPageContent } from "../src/plugins/PluginPageContent";
 import { PluginProjectActions } from "../src/plugins/PluginSlots";
-import { environmentSession } from "../src/state/session";
 import { validatePluginSearch } from "../src/plugins/pageLink";
 import { availableCatalogAtom } from "../src/plugins/runtime";
 import { AppAtomRegistryProvider, appAtomRegistry } from "../src/rpc/atomRegistry";
@@ -983,7 +988,8 @@ it.live(
                 typeof node.type === "string" &&
                 node.props.role === "dialog",
             );
-          const prepared = environmentSession.preparedConnectionValueAtom(first.environmentId);
+          const prepared = binding.prepared.get(first.environmentId);
+          if (prepared === undefined) throw new Error("Expected the mounted header connection");
           // The mounted header subscribes to the catalog stream; wait for its first snapshot.
           yield* promise(
             () =>

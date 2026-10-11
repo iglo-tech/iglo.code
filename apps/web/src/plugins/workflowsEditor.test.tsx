@@ -49,6 +49,21 @@ const design: PluginDesign = {
       onChange={(event) => onChange(event.currentTarget.value)}
     />
   ),
+  Combobox: ({ id, value, onChange, disabled, options }) => (
+    <select
+      id={id}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.currentTarget.value)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value} disabled={option.disabled}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  ),
+  toast: vi.fn<PluginDesign["toast"]>(),
   Badge: ({ children }) => <span>{children}</span>,
   Tooltip: ({ children }) => children,
   Icon: () => null,
@@ -145,6 +160,13 @@ function controlledEntry() {
   return { promise, resolve, reject };
 }
 
+const unexpectedRunOperation = async () => {
+  throw new Error("Run operations are not requested by this editor fixture");
+};
+const unexpectedRunSubscription = () => {
+  throw new Error("Run subscriptions are not requested by this editor fixture");
+};
+
 async function open(
   mode: "save" | "replace",
   options: { read?: WorkflowClient["read"]; recovered?: Definition } = {},
@@ -179,7 +201,16 @@ async function open(
     );
   const client = {
     subscribePermissions: (listener) => {
-      listener({ save: true, replace: true, remove: true });
+      listener({
+        save: true,
+        replace: true,
+        remove: true,
+        start: false,
+        cancel: false,
+        retry: false,
+        resume: false,
+        gate: false,
+      });
       return () => {};
     },
     projects: async () => [{ id: projectId, title: "Project", location: "workspace" }],
@@ -203,6 +234,16 @@ async function open(
     },
     remove: async () => {},
     skills: async () => [],
+    preview: unexpectedRunOperation,
+    startSaved: unexpectedRunOperation,
+    runs: unexpectedRunOperation,
+    subscribeRuns: unexpectedRunSubscription,
+    watchRun: unexpectedRunSubscription,
+    watchThread: unexpectedRunSubscription,
+    cancel: unexpectedRunOperation,
+    retry: unexpectedRunOperation,
+    resume: unexpectedRunOperation,
+    gate: unexpectedRunOperation,
   } satisfies WorkflowClient;
   const props: PageProps = {
     ...design,
