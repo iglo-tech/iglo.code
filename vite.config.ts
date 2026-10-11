@@ -1,5 +1,6 @@
 import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
+import * as NodeModule from "node:module";
 import * as NodeURL from "node:url";
 
 /** Import restrictions every file keeps, including the one module exempt from the glyph rule. */
@@ -53,7 +54,33 @@ const RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS = {
     "Pick a glyph by meaning from PullRequestGlyph in apps/web/src/components/pullRequest/pullRequestIcons.tsx so every surface draws the same pull request the same way.",
 };
 
+/**
+ * `vp test` from the repo root runs this config, not apps/web/vite.config.ts or
+ * apps/web/integration/vite.config.ts, so the web integration tests render uncompiled JSX
+ * unless it applies the app's React Compiler here. It is scoped to shipped web sources so
+ * tests render the same compiled output users do (compiler bailouts and crashes included).
+ */
+const webRequire = NodeModule.createRequire(new URL("./apps/web/package.json", import.meta.url));
+const { default: reactCompilerBabel } = (await import(
+  NodeURL.pathToFileURL(webRequire.resolve("@rolldown/plugin-babel")).href
+)) as typeof import("@rolldown/plugin-babel");
+
 export default defineConfig({
+  plugins: [
+    reactCompilerBabel({
+      include: [/\/apps\/web\/src\/.*\.tsx$/, /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/],
+      exclude: [/\.test\.tsx$/, /\/node_modules\//],
+      parserOpts: { plugins: ["typescript", "jsx"] },
+      presets: [
+        {
+          preset: () => ({
+            plugins: [[webRequire.resolve("babel-plugin-react-compiler"), {}]],
+          }),
+          rolldown: { filter: { code: /\b[A-Z]|\buse/ } },
+        },
+      ],
+    }),
+  ],
   resolve: {
     alias: {
       "~": NodeURL.fileURLToPath(new URL("./apps/web/src", import.meta.url)),

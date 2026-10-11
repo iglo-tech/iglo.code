@@ -221,7 +221,10 @@ function EnvironmentPluginAttention({
                 <SidebarMenuButton
                   size="sm"
                   aria-label={countLabel}
-                  onClick={() => plugin.context.navigate(target.link)}
+                  onClick={() => {
+                    if (isMobile) setOpenMobile(false);
+                    plugin.context.navigate(target.link);
+                  }}
                 >
                   <span className="min-w-0 truncate">
                     {prefix}
@@ -285,7 +288,13 @@ function EnvironmentPluginAttention({
         ? [
             <SidebarMenuItem key={`${summary.pluginId}:more`}>
               {target !== null ? (
-                <SidebarMenuButton size="sm" onClick={() => plugin.context.navigate(target.link)}>
+                <SidebarMenuButton
+                  size="sm"
+                  onClick={() => {
+                    if (isMobile) setOpenMobile(false);
+                    plugin.context.navigate(target.link);
+                  }}
+                >
                   <span className="min-w-0 truncate text-muted-foreground">
                     {more}
                     {count === null ? "+" : ""} more
