@@ -734,8 +734,8 @@ it.live(
         yield* promise(() => click("Check"));
         yield* promise(() => type("wf-check-1-command", "project-check"));
         yield* promise(() => write("wf-check-1-args", "--ci"));
-        // Unsupported check policies are visible but unavailable.
-        expect(select("wf-check-1-retry").props.disabled).toBe(true);
+        // Unsupported check policies are listed but unavailable.
+        expect(select("wf-check-1-retry").props.value).toBe("manual");
         expect(select("wf-check-1-retry").props.options).toContainEqual({
           value: "automatic",
           label: "Retry automatically (not available)",
@@ -784,6 +784,12 @@ it.live(
             (option: { value: string }) => option.value,
           ),
         ).toEqual(["eq", "ne", "gt", "gte", "lt", "lte", "present", "absent"]);
+        // Going straight back to itself is not offered; that is what Repeat is for.
+        expect(
+          select("wf-decision-1-otherwise").props.options.map(
+            (option: { value: string }) => option.value,
+          ),
+        ).not.toContain("decision-1");
         // Otherwise repeats the implementation once, then goes to the human gate.
         yield* promise(() => toggle("Otherwise route", "repeat"));
         expect(select("wf-decision-1-otherwise").props.value).toBe("agent-1");
@@ -792,7 +798,7 @@ it.live(
         // Repeat once means two visits in total.
         expect(select("wf-decision-1-otherwise-max").props.options[0]).toEqual({
           value: "1",
-          label: "×1 · 2 visits",
+          label: "repeat ×1 · 2 visits",
         });
         // Rule order is first-match order; a rule back to the agent without a repeat bound is an
         // unbounded cycle and blocks saving until it is removed.
@@ -811,7 +817,7 @@ it.live(
         expect(select("wf-decision-1-rules-1-repeat").props.invalid).toBe(false);
         yield* promise(() => click("Move rule 2 up"));
         expect(routesOf("decision-1")).toContain(
-          "Rule 1 outcome = completed ↩ Agent step 1repeat ×1 (2 visits)at limit → Done",
+          "Rule 1 outcome = completed ↩ Agent step 1repeat ×1 · 2 visitsat limit → Done",
         );
         expect(routesOf("decision-1")).toContain(
           "Rule 2 outcome = completed and +2 → Human gate 1",
@@ -828,7 +834,7 @@ it.live(
           "Rule 1 outcome = completed and +2 → Human gate 1",
         );
         expect(routesOf("decision-1")).toContain(
-          "Otherwise ↩ Agent step 1repeat ×1 (2 visits)at limit → Human gate 1",
+          "Otherwise ↩ Agent step 1repeat ×1 · 2 visitsat limit → Human gate 1",
         );
         expect(routesOf("human-1")).toContain("Request changes → Changes requested");
 

@@ -187,47 +187,45 @@ export function CheckInspector(input: StepProps<CheckNode>) {
         />
       </Labeled>
       <Problems problems={problems} nodeId={node.id} control="args" />
-      <div className="grid grid-cols-2 gap-2">
-        <Labeled id={controlId(node.id, "timeoutMs")} label="Timeout (min)">
-          <Input
-            id={controlId(node.id, "timeoutMs")}
-            type="number"
-            placeholder="120"
-            value={minutes(node.timeoutMs)}
-            readOnly={readOnly}
-            disabled={readOnly}
-            invalid={invalid("timeoutMs")}
-            onChange={(value) =>
-              set((current) => {
-                const { timeoutMs: _previous, ...rest } = current;
-                const parsed = Number.parseFloat(value);
-                return Number.isFinite(parsed)
-                  ? { ...rest, timeoutMs: Math.round(parsed * 60_000) }
-                  : rest;
-              })
-            }
-          />
-        </Labeled>
-        {/* Workspace and retry policy are fixed by the backend; other choices show as unavailable. */}
-        <Labeled id={controlId(node.id, "retry")} label="Retry">
-          <Select
-            id={controlId(node.id, "retry")}
-            value="manual"
-            disabled
-            options={[
-              { value: "manual", label: "Manual" },
-              { value: "automatic", label: "Retry automatically (not available)", disabled: true },
-            ]}
-            onChange={() => {}}
-          />
-        </Labeled>
-      </div>
+      <Labeled id={controlId(node.id, "timeoutMs")} label="Timeout (min)">
+        <Input
+          id={controlId(node.id, "timeoutMs")}
+          type="number"
+          placeholder="120"
+          value={minutes(node.timeoutMs)}
+          readOnly={readOnly}
+          disabled={readOnly}
+          invalid={invalid("timeoutMs")}
+          onChange={(value) =>
+            set((current) => {
+              const { timeoutMs: _previous, ...rest } = current;
+              const parsed = Number.parseFloat(value);
+              return Number.isFinite(parsed)
+                ? { ...rest, timeoutMs: Math.round(parsed * 60_000) }
+                : rest;
+            })
+          }
+        />
+      </Labeled>
       <Problems problems={problems} nodeId={node.id} control="timeoutMs" />
+      {/* Workspace and retry policy are fixed by the backend; other choices list as unavailable. */}
+      <Labeled id={controlId(node.id, "retry")} label="Retry">
+        <Select
+          id={controlId(node.id, "retry")}
+          value="manual"
+          disabled={readOnly}
+          options={[
+            { value: "manual", label: "Manual" },
+            { value: "automatic", label: "Retry automatically (not available)", disabled: true },
+          ]}
+          onChange={() => {}}
+        />
+      </Labeled>
       <Labeled id={controlId(node.id, "workspace")} label="Runs in">
         <Select
           id={controlId(node.id, "workspace")}
           value="run"
-          disabled
+          disabled={readOnly}
           options={[
             { value: "run", label: "The run's workspace" },
             { value: "other", label: "A separate workspace (not available)", disabled: true },

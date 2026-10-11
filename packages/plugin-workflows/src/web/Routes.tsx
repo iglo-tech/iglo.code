@@ -7,7 +7,7 @@ import {
   type Route,
 } from "../contracts.ts";
 import { Labeled, type PageProps } from "./common.tsx";
-import { kindLabels, problemText } from "./editing.ts";
+import { kindLabels, problemText, repeatBadge } from "./editing.ts";
 
 export const minutes = (value: number | undefined) =>
   value === undefined ? "" : String(Math.round(value / 60_000));
@@ -160,7 +160,7 @@ export function RouteEditor({
       </div>
       {repeat ? (
         <>
-          <Labeled id={id} label="↩ Return to">
+          <Labeled id={id} label="Return to">
             <Select
               id={id}
               value={route!.to}
@@ -184,10 +184,10 @@ export function RouteEditor({
                 options={withCurrent(
                   repeatCounts.map((count) => ({
                     value: String(count),
-                    label: `×${count} · ${count + 1} visits`,
+                    label: repeatBadge({ max: count }),
                   })),
                   String(repeat.max),
-                  `×${repeat.max} (outside 1–${limits.repeats})`,
+                  `${repeatBadge(repeat)} (outside 1–${limits.repeats})`,
                 )}
                 onChange={(max) =>
                   onRoute({ to: route!.to, repeat: { ...repeat, max: Number(max) } })
@@ -219,7 +219,11 @@ export function RouteEditor({
           disabled={readOnly}
           invalid={invalid(control)}
           options={withCurrent(
-            [...(optional ? [{ value: "", label: "Not set" }] : []), ...nodeOptions(definition)],
+            [
+              ...(optional ? [{ value: "", label: "Not set" }] : []),
+              // A step never goes straight back to itself; repeating it is the Repeat mode.
+              ...nodeOptions(definition, (item) => item.id !== node.id || item.id === route?.to),
+            ],
             route?.to ?? "",
             `${route?.to ?? ""} (missing)`,
           )}

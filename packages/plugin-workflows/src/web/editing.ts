@@ -572,9 +572,12 @@ export function routeText(
   if (!route.repeat) return `${route.label}${when} → ${titleOf(definition, route.to)}`;
   return `${route.label}${when} ↩ ${titleOf(definition, route.to)} · ${repeatBadge(route.repeat)} · at limit → ${titleOf(definition, route.repeat.atLimit)}`;
 }
-/** `repeat ×1 (2 visits)`: the maximum counts repeats after the first visit. */
-export const repeatBadge = (repeat: NonNullable<Route["repeat"]>) =>
-  `repeat ×${repeat.max} (${repeat.max + 1} visits)`;
+/**
+ * `repeat ×1 · 2 visits`, the one phrasing of a repeat bound in the flow, Route list and
+ * inspector: the maximum counts repeats after the first visit.
+ */
+export const repeatBadge = (repeat: Pick<NonNullable<Route["repeat"]>, "max">) =>
+  `repeat ×${repeat.max} · ${repeat.max + 1} visits`;
 
 export const sameDefinition = (left: Definition | null, right: Definition | null) =>
   JSON.stringify(left) === JSON.stringify(right);

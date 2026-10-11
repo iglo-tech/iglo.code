@@ -365,7 +365,7 @@ describe("decision and repeat authoring", () => {
       (route) => `${route.from.title} — ${routeText(developmentReview, route)}`,
     );
     expect(lines).toContain(
-      "Bounded rework — Otherwise ↩ Implement · repeat ×1 (2 visits) · at limit → Human review",
+      "Bounded rework — Otherwise ↩ Implement · repeat ×1 · 2 visits · at limit → Human review",
     );
     expect(lines).toContain("Human review — Approve → Done");
     expect(developmentReview.atLimit).toBe("human");
@@ -386,6 +386,19 @@ describe("decision and repeat authoring", () => {
     expect(readsAs(predicate, fields)).toBe(
       "timedOut equals false and (exitCode does not equal 0 (false when exitCode is absent) or exitCode is absent)",
     );
+    // A nested group keeps its parentheses with a single term.
+    expect(
+      readsAs(
+        {
+          op: "all",
+          terms: [
+            { op: "eq", path: "timedOut", value: false },
+            { op: "any", terms: [{ op: "absent", path: "exitCode" }] },
+          ],
+        },
+        fields,
+      ),
+    ).toBe("timedOut equals false and (exitCode is absent)");
     expect(readsAs({ op: "eq", path: "data.gone", value: 1 }, fields)).toBe(
       "data.gone (missing field) equals 1",
     );
@@ -409,7 +422,7 @@ describe("decision and repeat authoring", () => {
     );
     const otherwise = routeList(repeating).find((route) => route.control === "otherwise")!;
     expect(routeText(repeating, otherwise)).toBe(
-      "Otherwise ↩ Agent step 1 · repeat ×1 (2 visits) · at limit → Human gate 1",
+      "Otherwise ↩ Agent step 1 · repeat ×1 · 2 visits · at limit → Human gate 1",
     );
     const rule = routeList(repeating).find((route) => route.control === "rules.0")!;
     expect(routeText(repeating, rule)).toBe(
@@ -421,6 +434,13 @@ describe("decision and repeat authoring", () => {
         .filter((problem) => problem.severity === "error")
         .map((problem) => problem.control),
     ).toEqual(["instruction", "command"]);
+    // A gate added after a step whose continuing route repeats has no way in, and says so.
+    const orphan = addStep(repeating, "human", built.decision, capabilities);
+    expect(localProblems(orphan.definition)).toContainEqual({
+      severity: "warning",
+      message: `${orphan.id}: this step is unreachable from the entry step.`,
+      nodeId: orphan.id,
+    });
     // Removing the At limit destination leaves the repeat in place with a located error.
     const withoutLimit = removeStep(repeating, built.human);
     expect(node(withoutLimit, built.decision, "decision").otherwise.repeat?.atLimit).toBe(

@@ -75,8 +75,8 @@ describe("workflow graph", () => {
     expect(edge(graph, "rework", "implement")).toMatchObject([
       {
         kind: "repeat",
-        label: "otherwise\n↩ ×1 · 2 visits",
-        fullLabel: "otherwise · ↩ repeat ×1 (2 visits)",
+        label: "otherwise\nrepeat ×1 · 2 visits",
+        fullLabel: "otherwise · repeat ×1 · 2 visits",
         back: true,
         route: { stepId: "rework", control: "otherwise" },
       },
@@ -135,7 +135,7 @@ describe("workflow graph", () => {
   it("draws a human gate's repeat and its At limit self-route", () => {
     const graph = flowGraph(examples[0]!);
     expect(edge(graph, "review", "implement")).toMatchObject([
-      { kind: "repeat", label: "changes\n↩ ×1 · 2 visits", back: true },
+      { kind: "repeat", label: "changes\nrepeat ×1 · 2 visits", back: true },
     ]);
     expect(edge(graph, "review", "review")).toMatchObject([{ kind: "atLimit", back: true }]);
     // The self-route is a loop beside the box, not a layered edge.

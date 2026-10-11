@@ -74,7 +74,7 @@ function detailOf(node: Node): string | null {
     case "agent":
       return node.skill ?? null;
     case "check":
-      return clip([node.command, ...node.args].join(" "), 32);
+      return clip([node.command, ...node.args].join(" ").trim(), 32) || null;
     case "parallel":
       return `${node.branches.length} reviewer${node.branches.length === 1 ? "" : "s"}`;
     case "join":
@@ -172,14 +172,14 @@ export function flowGraph(definition: Definition): FlowGraph {
       // The back edge names its direction and bound; its At limit is a separate dashed edge,
       // prefixed with the route only when the step has more than one repeat to tell apart.
       const prefix = kind === "next" ? "" : `${label} · `;
-      const bound = `↩ ×${route.repeat.max} · ${route.repeat.max + 1} visits`;
+      const bound = repeatBadge(route.repeat);
       edges.push({
         id: `${node.id}:${control}`,
         source: node.id,
         target: target(route.to),
         kind: "repeat",
         label: kind === "next" ? bound : `${label}\n${bound}`,
-        fullLabel: `${kind === "next" ? "" : `${title} · `}↩ ${repeatBadge(route.repeat)}`,
+        fullLabel: `${kind === "next" ? "" : `${title} · `}${bound}`,
         back: true,
         route: owner,
         dangling: !ids.has(route.to),
@@ -190,7 +190,7 @@ export function flowGraph(definition: Definition): FlowGraph {
         target: target(route.repeat.atLimit),
         kind: "atLimit",
         label: repeats > 1 ? `${prefix}at limit` : "at limit",
-        fullLabel: `${kind === "next" ? "" : `${title} · `}at limit after ${repeatBadge(route.repeat)}`,
+        fullLabel: `${kind === "next" ? "" : `${title} · `}at limit after ${bound}`,
         back: false,
         route: { stepId: node.id, control: `${control}.repeat` },
         dangling: !ids.has(route.repeat.atLimit),

@@ -146,7 +146,8 @@ export function readsAs(
     const joined = terms
       .map((term) => readsAs(term, fields, true))
       .join(predicate.op === "all" ? " and " : " or ");
-    return nested && terms.length > 1 ? `(${joined})` : joined;
+    // A nested group keeps its parentheses even with one term, so the nesting stays visible.
+    return nested ? `(${joined})` : joined;
   }
   const path = predicate.path ?? "";
   const field = fields?.get(path);
