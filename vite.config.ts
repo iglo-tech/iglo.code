@@ -73,7 +73,7 @@ const loadWebReactCompiler = async (): Promise<Plugin> => {
       exclude: RegExp[];
       parserOpts: { plugins: string[] };
       presets: object[];
-    }) => Plugin;
+    }) => Promise<Plugin>;
   } = await import(NodeURL.pathToFileURL(webRequire.resolve("@rolldown/plugin-babel")).href);
   return reactCompilerBabel({
     include: [/\/apps\/web\/src\/.*\.tsx$/, /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/],
