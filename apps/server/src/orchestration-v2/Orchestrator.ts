@@ -1279,7 +1279,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ]);
     });
 
-  const startNextQueuedRun = (threadId: ThreadId, options?: { readonly failedRunId?: RunId }) =>
+  const startNextQueuedRun = (
+    threadId: ThreadId,
+    options?: { readonly failedRunId?: RunId; readonly endedRunId?: RunId },
+  ) =>
     Effect.gen(function* () {
       // Every terminal run checks the queue. Only a deliverable queued run
       // needs the transcript for provider handoff and legacy import context.
@@ -1314,15 +1317,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       // Hold the queue so the user decides when to resume it. Validation
       // failures (setup, unsupported handoff) belong to that message alone,
       // and a message queued for another provider is how users recover.
+      // A message queued behind a worktree that was cancelled or never created
+      // would run in the project checkout instead, so it waits for the user.
       const failedRun = latestExecutedRun(projection.runs);
       const failureClass =
         failedRun?.id === options?.failedRunId
           ? latestRootProviderFailure(failedRun, projection.turnItems)?.class
           : undefined;
+      const worktreeMissing =
+        failedRun?.id === options?.endedRunId &&
+        failedRun?.workspacePreparation?.type === "worktree" &&
+        projection.thread.worktreePath === null;
       if (
-        failureClass !== undefined &&
-        failureClass !== "validation_error" &&
-        failedRun?.providerInstanceId === queuedRun.providerInstanceId
+        worktreeMissing ||
+        (failureClass !== undefined &&
+          failureClass !== "validation_error" &&
+          failedRun?.providerInstanceId === queuedRun.providerInstanceId)
       ) {
         const now = yield* DateTime.now;
         yield* writeSystemEvents(
@@ -4902,10 +4912,23 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const activeProviderThread = projection.providerThreads.find(
         (candidate) => candidate.id === projection.thread.activeProviderThreadId,
       );
+      const activeRun = projection.runs.find(isBlockingRun);
+      // A message queued during worktree setup can arrive after that setup failed
+      // without a worktree. It waits, held, like the messages queued before the
+      // failure, instead of starting in the project checkout.
+      const latestRun = latestExecutedRun(projection.runs);
+      const worktreeMissingRun =
+        activeRun === undefined &&
+        dispatchMode.type === "queue_after_active" &&
+        (latestRun?.status === "failed" || latestRun?.status === "interrupted") &&
+        latestRun.workspacePreparation?.type === "worktree" &&
+        projection.thread.worktreePath === null
+          ? latestRun
+          : undefined;
       // Queue admission must respect the same blocks as queue promotion.
       // A limited terminal run or a held queue has no active run to wait for.
       const queueBlocker =
-        projection.runs.find(isBlockingRun) ??
+        activeRun ??
         (dispatchMode.type === "queue_after_active"
           ? (usageLimitBlockedRun(
               projection.runs,
@@ -4913,7 +4936,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               projection.providerSessions.find(
                 (session) => session.id === activeProviderThread?.providerSessionId,
               )?.lastError ?? null,
-            ) ?? projection.runs.find((run) => run.status === "queued" && run.queueHeld === true))
+            ) ??
+            projection.runs.find((run) => run.status === "queued" && run.queueHeld === true) ??
+            worktreeMissingRun)
           : undefined);
       const pendingMergeBackTransfers = pendingMergeBackTransfersForThread(projection);
       const shouldQueue =
@@ -4992,7 +5017,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const attemptId = idAllocator.derive.runAttempt({ runId, attemptOrdinal: 1 });
         const rootNodeId = idAllocator.derive.rootNode({ runId });
         const checkpointScope =
-          queueBlocker.status === "preparing"
+          queueBlocker.status === "preparing" || worktreeMissingRun !== undefined
             ? null
             : yield* runtimePolicy.resolve({ thread: projection.thread, modelSelection }).pipe(
                 Effect.flatMap((resolvedRuntimePolicy) =>
@@ -5029,7 +5054,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           rootNodeId,
           activeAttemptId: attemptId,
           status: "queued",
-          ...(projection.runs.some(
+          ...(worktreeMissingRun !== undefined ||
+          projection.runs.some(
             (candidate) => candidate.status === "queued" && candidate.queueHeld === true,
           )
             ? { queueHeld: true }
@@ -8343,6 +8369,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         type: "run.updated",
         payload: { ...state.run, status: "preparing", completedAt: null },
       });
+      // Messages held when this preparation failed follow the run again. A hold
+      // from a later run (a stop, say) is not this failure's to release.
+      const failureOwnsQueue = latestExecutedRun(projection.runs)?.id === state.run.id;
+      for (const run of projection.runs) {
+        if (!failureOwnsQueue || run.status !== "queued" || run.queueHeld !== true) continue;
+        yield* emitEvent({
+          type: "run.updated",
+          threadId: command.threadId,
+          runId: run.id,
+          providerInstanceId: run.providerInstanceId,
+          occurredAt: now,
+          payload: { ...run, queueHeld: false },
+        });
+      }
     });
 
   /**
@@ -8434,7 +8474,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             OrchestrationV2ThreadProjection,
             "nodes" | "subagents" | "turnItems"
           >;
-          readonly subagent: Extract<OrchestrationV2TurnItem, { readonly type: "subagent" }>;
+          readonly subagent: Pick<
+            Extract<OrchestrationV2TurnItem, { readonly type: "subagent" }>,
+            "subagentId" | "origin" | "childThreadId" | "providerInstanceId"
+          >;
         }> = [{ projection: input.projection, subagent: item }];
         for (const { projection, subagent } of dying) {
           const ended = yield* endOrphanedNativeSubagent({
@@ -8478,6 +8521,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           yield* Ref.update(input.events, (events) => [...events, ...childEnded]);
           for (const nested of child.turnItems) {
             if (nested.type === "subagent") dying.push({ projection: child, subagent: nested });
+          }
+          // Workflow members have records and child roots without subagent turn items.
+          for (const nested of child.subagents) {
+            if (nested.origin === "provider_native" && nested.runId === null) {
+              dying.push({
+                projection: child,
+                subagent: {
+                  subagentId: nested.id,
+                  origin: nested.origin,
+                  childThreadId: nested.childThreadId,
+                  providerInstanceId: nested.providerInstanceId,
+                },
+              });
+            }
           }
         }
       }
@@ -11111,8 +11168,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId,
           startNextQueuedRun(
             threadId,
-            stored.event.type === "run.updated" && stored.event.payload.status === "failed"
-              ? { failedRunId: stored.event.payload.id }
+            stored.event.type === "run.updated"
+              ? {
+                  endedRunId: stored.event.payload.id,
+                  ...(stored.event.payload.status === "failed"
+                    ? { failedRunId: stored.event.payload.id }
+                    : {}),
+                }
               : undefined,
           ),
         )

@@ -47,6 +47,10 @@ relative to the config file. `bundles` controls which generated manifests includ
 supplies the label shown to users. Use `includeInBundles` when those differ, such as an optional
 server tool that should appear in the client manifest without being bundled into the client.
 
+The `agent-device` and `expo-device-hub` custom notices take their versions from the
+[installer pins](../../apps/server/src/device/deviceToolVersions.json). Keep their package names
+in the config; their versions do not need manual updates.
+
 Use `packageOverrides` only when an installed npm archive omits its notice or has incorrect
 metadata:
 
