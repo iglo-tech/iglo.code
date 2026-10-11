@@ -2,6 +2,7 @@ import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
 import * as Yaml from "yaml";
 import {
@@ -18,6 +19,62 @@ const decodeAuthoring = Schema.decodeUnknownEffect(AuthoringEntry);
 const decodeEntry = Schema.decodeUnknownEffect(CatalogEntry);
 const decodeCapabilities = Schema.decodeUnknownEffect(Capabilities);
 const decodeDefinition = Schema.decodeUnknownSync(Definition);
+
+it.effect.each(["target-edit", "identity-collision"] as const)(
+  "retains external catalog writes during replacement validation: %s",
+  (scenario) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const test = yield* fixture;
+        const fs = yield* FileSystem.FileSystem;
+        const scope = { environmentId: test.environmentId, projectId: test.projectId };
+        const source = ".t3code/workflows/kept-name.yml";
+        const filename = `${test.directory}/${source}`;
+        yield* fs.makeDirectory(`${test.directory}/.t3code/workflows`, { recursive: true });
+        const original = "version: [";
+        yield* fs.writeFileString(filename, original);
+        const observed = yield* test
+          .invoke("read", { ...scope, source })
+          .pipe(Effect.flatMap(decodeAuthoring));
+        test.holdProviders();
+        const pending = yield* test
+          .invoke("replace", {
+            ...scope,
+            source: observed.source,
+            fingerprint: observed.fingerprint,
+            definition: sequence,
+          })
+          .pipe(Effect.result, Effect.forkChild);
+        yield* test.providersStarted;
+        const external =
+          scenario === "target-edit"
+            ? "# External edit during validation\nversion: [external"
+            : Yaml.stringify({ ...sequence, title: "External workflow" });
+        const externalFile =
+          scenario === "target-edit"
+            ? filename
+            : `${test.directory}/.t3code/workflows/external.yaml`;
+        yield* fs.writeFileString(externalFile, external);
+        yield* test.releaseProviders;
+        const result = yield* Fiber.join(pending);
+        expect(result).toMatchObject({
+          _tag: "Failure",
+          failure: {
+            code: "conflict",
+            message:
+              scenario === "target-edit"
+                ? "The workflow file changed since it was read. Reload it before replacing."
+                : "Another workflow file already uses the identity sequence.",
+          },
+        });
+        expect(yield* fs.readFileString(externalFile)).toBe(external);
+        expect(yield* fs.readFileString(filename)).toBe(
+          scenario === "target-edit" ? external : original,
+        );
+        expect(yield* fs.exists(`${test.directory}/.t3code/workflows/sequence.yaml`)).toBe(false);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.effect("pages and searches the entire catalog beyond the display cap", () =>
   Effect.scoped(

@@ -563,6 +563,12 @@ const make = Effect.gen(function* () {
       "replace",
       Effect.gen(function* () {
         const directory = yield* root(input);
+        const restored = yield* restore(input, input.definition);
+        const entry = yield* validate(input, restored);
+        if (!entry.runnable) return yield* error("replace", entry.reasons.join(" "));
+        const text = Yaml.stringify(entry.definition);
+        // External writers do not share our semaphore. Check the source and identity after
+        // asynchronous restoration and provider validation, immediately before the write.
         const sources = yield* scan(input);
         const current = sources.find((entry) => entry.source === input.source);
         if (!current || current.packaged)
@@ -577,9 +583,6 @@ const make = Effect.gen(function* () {
             "The workflow file changed since it was read. Reload it before replacing.",
             "conflict",
           );
-        const restored = yield* restore(input, input.definition);
-        const entry = yield* validate(input, restored);
-        if (!entry.runnable) return yield* error("replace", entry.reasons.join(" "));
         if (
           sources.some(
             (other) =>
@@ -593,7 +596,6 @@ const make = Effect.gen(function* () {
             `Another workflow file already uses the identity ${restored.id}.`,
             "conflict",
           );
-        const text = Yaml.stringify(entry.definition);
         yield* write(directory, path.join(directory, path.basename(input.source)), text);
         return yield* written(input, input.source, text, entry.definition);
       }).pipe(lock.withPermits(1)),

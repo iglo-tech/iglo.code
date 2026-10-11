@@ -63,6 +63,9 @@ export const fixture = Effect.gen(function* () {
   const sendStarted = yield* Deferred.make<void>();
   const sendReleased = yield* Deferred.make<void>();
   let holdSend = false;
+  const providersStarted = yield* Deferred.make<void>();
+  const providersReleased = yield* Deferred.make<void>();
+  let holdProviders = false;
   const checkStarts = yield* Queue.unbounded<string>();
   yield* Effect.addFinalizer(() => Queue.shutdown(checkStarts));
   const host = Host.of({
@@ -72,16 +75,23 @@ export const fixture = Effect.gen(function* () {
     projects: () =>
       Effect.succeed([{ id: projectId, title: "Workflow", workspaceRoot: directory }]),
     providers: () =>
-      Effect.succeed([
-        {
-          instanceId: ProviderInstanceId.make("codex"),
-          driver: "codex",
-          toolsSupported: true,
-          available: providerAvailable,
-          reason: null,
-          runtimeModes: ["approval-required", "full-access"],
-        },
-      ]),
+      Effect.gen(function* () {
+        if (holdProviders) {
+          holdProviders = false;
+          yield* Deferred.succeed(providersStarted, undefined);
+          yield* Deferred.await(providersReleased);
+        }
+        return [
+          {
+            instanceId: ProviderInstanceId.make("codex"),
+            driver: "codex",
+            toolsSupported: true,
+            available: providerAvailable,
+            reason: null,
+            runtimeModes: ["approval-required", "full-access"],
+          },
+        ];
+      }),
     skills: () => Effect.succeed([{ name: "code-review", path: skillPath, enabled: true }]),
     workspace: () => Effect.succeed({ path: directory, branch: "main", head }),
     resolveRef: () => Effect.succeed(head),
@@ -279,6 +289,11 @@ export const fixture = Effect.gen(function* () {
     report,
     launches,
     commands,
+    holdProviders: () => {
+      holdProviders = true;
+    },
+    providersStarted: Deferred.await(providersStarted),
+    releaseProviders: Deferred.succeed(providersReleased, undefined),
     setSkillPath: (path: string) => {
       skillPath = path;
     },

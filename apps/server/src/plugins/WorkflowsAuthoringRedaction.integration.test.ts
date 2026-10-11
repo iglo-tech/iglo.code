@@ -14,6 +14,7 @@ import * as Settings from "../serverSettings.ts";
 
 const decodeAuthoring = Schema.decodeUnknownEffect(AuthoringEntry);
 const decodeDefinition = Schema.decodeUnknownSync(Definition);
+const decodeCandidate = Schema.decodeUnknownEffect(Definition);
 
 it.live(
   "preserves protected values through authoring read, save and YAML round trips",
@@ -105,6 +106,38 @@ it.live(
         expect(stale).toMatchObject({ _tag: "Failure", failure: { code: "conflict" } });
         expect(decodeDefinition(Yaml.parse(yield* fs.readFileString(filename))).title).toBe(
           "External",
+        );
+        // Repair also restores placeholders from a schema-invalid source, retaining its exact
+        // filename rather than deriving a new file from the candidate's identity.
+        const repairSource = ".t3code/workflows/retained-name.yml";
+        const repairFile = `${test.config.baseDir}/${repairSource}`;
+        const repairDefinition = { ...authored, id: "repaired" };
+        yield* fs.writeFileString(repairFile, Yaml.stringify({ ...repairDefinition, entry: 3 }));
+        const broken = yield* runtime
+          .invoke("read", { ...test.scope, source: repairSource })
+          .pipe(Effect.flatMap(decodeAuthoring));
+        expect(broken.definition).toBeNull();
+        expect(broken.protectedValues).toBe(2);
+        expect(broken.text).not.toContain(marker);
+        const candidate = yield* decodeCandidate({
+          ...Yaml.parse(broken.text),
+          entry: authored.entry,
+        });
+        const repaired = yield* runtime
+          .invoke("replace", {
+            ...test.scope,
+            source: broken.source,
+            fingerprint: broken.fingerprint,
+            definition: candidate,
+          })
+          .pipe(Effect.flatMap(decodeAuthoring));
+        expect(repaired.source).toBe(repairSource);
+        expect(repaired.text).not.toContain(marker);
+        expect(decodeDefinition(Yaml.parse(yield* fs.readFileString(repairFile)))).toEqual(
+          repairDefinition,
+        );
+        expect(yield* fs.exists(`${test.config.baseDir}/.t3code/workflows/repaired.yaml`)).toBe(
+          false,
         );
       }),
     ).pipe(Effect.provide(NodeServices.layer)),

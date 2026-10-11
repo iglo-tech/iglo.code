@@ -95,6 +95,15 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   // A save that gives a new workflow its file reopens the editor there; the step stays selected.
   const [selected, setSelected] = useState<string | null>(pageState.step ?? null);
   const [statusKind, setStatus] = useState<Status>({ kind: "idle" });
+  // Freeze mutations synchronously, including handlers captured before the saving render.
+  const saving = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [checked, setChecked] = useState<{
     readonly json: string;
     readonly problems: ReadonlyArray<Problem>;
@@ -166,6 +175,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   }, [client, projectId, offline, capabilitiesAttempt]);
 
   const readOnly = server?.packaged === true;
+  const mutationsDisabled = readOnly || statusKind.kind === "saving";
   // A new workflow is unsaved until its first save; otherwise compare with the saved file.
   const dirty = useMemo(
     () =>
@@ -282,7 +292,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   }, [savedSource, dirty, projectId, source, selected, props]);
 
   const change = (next: Definition) => {
-    if (readOnly) return;
+    if (readOnly || saving.current) return;
     setDraft(next);
   };
   // Stable so the graph's memoized handlers survive edits.
@@ -294,7 +304,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const removeSelected = useCallback(
     (id: string) => {
       const current = latestDraft.current;
-      if (readOnly || current === null) return;
+      if (readOnly || saving.current || current === null) return;
       const next = removeStep(current, id);
       setDraft(next);
       setSelected((now) => (now === id || now?.startsWith(`${id}/`) ? null : now));
@@ -324,6 +334,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     setCandidate(null);
   };
   const discard = () => {
+    if (saving.current) return;
     forget();
     setDraft(server?.definition ?? null);
     setBase(server === null ? null : baseOf(server));
@@ -331,9 +342,10 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     setCandidate(null);
   };
   const reload = () => {
-    if (projectId === null || source === null) return;
+    if (saving.current || projectId === null || source === null) return;
     client.read({ projectId, source }).then(
       (entry) => {
+        if (saving.current || !mounted.current) return;
         forget();
         setServer(entry);
         setDraft(entry.definition);
@@ -341,21 +353,29 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         setCompare(null);
         setStatus({ kind: "idle" });
       },
-      (cause: unknown) => setStatus({ kind: "failed", message: errorMessage(cause) }),
+      (cause: unknown) => {
+        if (!saving.current && mounted.current)
+          setStatus({ kind: "failed", message: errorMessage(cause) });
+      },
     );
   };
   const compareLatest = () => {
-    if (projectId === null || source === null) return;
-    client
-      .read({ projectId, source })
-      .then(setCompare, (cause: unknown) =>
-        setStatus({ kind: "failed", message: errorMessage(cause) }),
-      );
-  };
-  const keepMine = () => {
-    if (projectId === null || source === null || base === null) return;
+    if (saving.current || projectId === null || source === null) return;
     client.read({ projectId, source }).then(
       (entry) => {
+        if (!saving.current && mounted.current) setCompare(entry);
+      },
+      (cause: unknown) => {
+        if (!saving.current && mounted.current)
+          setStatus({ kind: "failed", message: errorMessage(cause) });
+      },
+    );
+  };
+  const keepMine = () => {
+    if (saving.current || projectId === null || source === null || base === null) return;
+    client.read({ projectId, source }).then(
+      (entry) => {
+        if (saving.current || !mounted.current) return;
         setServer(entry);
         setBase({
           ...baseOf(entry),
@@ -363,11 +383,15 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         });
         setStatus({ kind: "idle" });
       },
-      (cause: unknown) => setStatus({ kind: "failed", message: errorMessage(cause) }),
+      (cause: unknown) => {
+        if (!saving.current && mounted.current)
+          setStatus({ kind: "failed", message: errorMessage(cause) });
+      },
     );
   };
   const save = () => {
-    if (draft === null || base === null || projectId === null) return;
+    if (saving.current || draft === null || base === null || projectId === null) return;
+    saving.current = true;
     setStatus({ kind: "saving" });
     const request =
       base.mode === "replace" && base.source !== null && base.fingerprint !== null
@@ -385,6 +409,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           });
     request.then(
       (entry) => {
+        if (!mounted.current) return;
+        saving.current = false;
         forget();
         setServer(entry);
         setDraft(entry.definition);
@@ -392,15 +418,19 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         setStatus({ kind: "idle" });
         setSavedSource(entry.source);
       },
-      (cause: unknown) =>
+      (cause: unknown) => {
+        if (!mounted.current) return;
+        saving.current = false;
         setStatus(
           errorCode(cause) === "conflict"
             ? { kind: "conflict", message: errorMessage(cause) }
             : { kind: "failed", message: errorMessage(cause) },
-        ),
+        );
+      },
     );
   };
   const adopt = (definition: Definition) => {
+    if (readOnly || saving.current) return;
     // Editing an existing file keeps its identity and expected revision.
     const next =
       base?.mode === "edit" && draft !== null
@@ -520,13 +550,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     setFocus("wf-problems");
   };
   const openImport = () => {
+    if (saving.current) return;
     setCompare(null);
     setImporting(true);
     setView("yaml");
   };
   const selectedKind = draft?.nodes.find((node) => node.id === selected)?.kind;
   const selectedRemovable =
-    !readOnly &&
+    !mutationsDisabled &&
     draft !== null &&
     draft.nodes.length > 1 &&
     selectedKind !== undefined &&
@@ -575,7 +606,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           capabilitiesError={capabilitiesError}
           onRetryCapabilities={() => setCapabilitiesAttempt((value) => value + 1)}
           problems={problems}
-          readOnly={readOnly}
+          readOnly={mutationsDisabled}
           identityEditable={base?.mode !== "edit"}
           onChange={change}
           {...(selectedRemovable ? { onRemove: removeSelected } : {})}
@@ -588,8 +619,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       <Palette
         props={props}
         capabilities={capabilities}
-        disabled={readOnly}
+        disabled={mutationsDisabled}
         onAdd={(kind: EditableKind) => {
+          if (saving.current) return;
           const added = addStep(draft, kind, selected, capabilities);
           change(added.definition);
           setPaletteOpen(false);
@@ -664,6 +696,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             size="xs"
             variant="outline"
             onClick={() => {
+              if (saving.current) return;
               setStatus({ kind: "idle" });
               setSelected(null);
               if (narrow) setInspectorOpen(true);
@@ -686,7 +719,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             <Button
               size="xs"
               variant="outline"
-              disabled={offline}
+              disabled={offline || mutationsDisabled}
               onClick={() => {
                 compareLatest();
                 setView("yaml");
@@ -695,10 +728,20 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             >
               Compare
             </Button>
-            <Button size="xs" variant="outline" disabled={offline} onClick={reload}>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={offline || mutationsDisabled}
+              onClick={reload}
+            >
               Reload
             </Button>
-            <Button size="xs" variant="outline" disabled={offline} onClick={keepMine}>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={offline || mutationsDisabled}
+              onClick={keepMine}
+            >
               Keep my draft
             </Button>
           </>
@@ -769,7 +812,10 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             ariaLabel="Workflow YAML to import"
             variant="code"
             value={importText}
-            onChange={setImportText}
+            disabled={mutationsDisabled}
+            onChange={(text) => {
+              if (!saving.current) setImportText(text);
+            }}
           />
           {importError === null ? null : (
             <Alert variant="error" title="Not imported · current draft unchanged">
@@ -784,8 +830,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                 </Button>
               )}
               <Button
-                disabled={!importText.trim()}
+                disabled={mutationsDisabled || !importText.trim()}
                 onClick={() => {
+                  if (saving.current) return;
                   const result = importYaml(importText);
                   if (result._tag === "Failure") {
                     setImportError(result.message);
@@ -808,7 +855,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                   <Button size="xs" variant="ghost" onClick={() => setCandidate(null)}>
                     Keep current draft
                   </Button>
-                  <Button size="xs" onClick={() => adopt(candidate)}>
+                  <Button size="xs" disabled={mutationsDisabled} onClick={() => adopt(candidate)}>
                     Replace draft
                   </Button>
                 </>
@@ -847,7 +894,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                 Copy
               </Button>
               {readOnly ? null : (
-                <Button size="xs" variant="ghost" onClick={openImport}>
+                <Button size="xs" variant="ghost" disabled={mutationsDisabled} onClick={openImport}>
                   <UploadIcon />
                   Import
                 </Button>
@@ -908,7 +955,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           items={[
             ...(readOnly
               ? []
-              : [{ label: "Import YAML", icon: <UploadIcon />, onSelect: openImport }]),
+              : [
+                  {
+                    label: "Import YAML",
+                    icon: <UploadIcon />,
+                    disabled: mutationsDisabled,
+                    onSelect: openImport,
+                  },
+                ]),
             ...(draft === null
               ? []
               : [
@@ -927,6 +981,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                     label: "Discard changes",
                     icon: <Undo2Icon />,
                     destructive: true,
+                    disabled: mutationsDisabled,
                     onSelect: discard,
                   },
                 ]
@@ -957,8 +1012,19 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       <props.NavigationGuard
         when={dirty}
         title="Leave with unsaved workflow changes?"
-        {...(storageFailed ? { description: "This draft could not be kept on this device." } : {})}
-        onDiscard={forget}
+        {...(statusKind.kind === "saving"
+          ? {
+              description: storageFailed
+                ? "Saving is still in progress. This draft could not be kept on this device."
+                : "Saving is still in progress. Your recovery draft is kept if you leave.",
+            }
+          : storageFailed
+            ? { description: "This draft could not be kept on this device." }
+            : {})}
+        onDiscard={() => {
+          // Leaving during a request keeps recovery data; an unmounted response cannot erase it.
+          if (!saving.current) forget();
+        }}
         {...(storageFailed ? {} : { keepLabel: "Leave and keep draft" })}
         protectReload={storageFailed || base?.mode === "new"}
       />
@@ -983,6 +1049,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                   <Button
                     size="xs"
                     variant="ghost"
+                    disabled={mutationsDisabled}
                     onClick={() => {
                       setInspectorOpen(false);
                       setPaletteOpen(true);
@@ -1022,7 +1089,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                 definition={draft}
                 selected={selected}
                 problems={problems}
-                readOnly={readOnly}
+                readOnly={mutationsDisabled}
                 onSelect={select}
                 onRemove={removeSelected}
                 Tooltip={props.Tooltip}
@@ -1035,7 +1102,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                 definition={draft}
                 selected={selected}
                 problems={problems}
-                readOnly={readOnly}
+                readOnly={mutationsDisabled}
                 onSelect={(id) => select(selected === id ? null : id)}
                 onMove={(id, offset) => change(moveStep(draft, id, offset))}
                 onRemove={removeSelected}
