@@ -23,7 +23,7 @@ it.live(
         const test = yield* makeCoreWorkflowFixture;
         const marker = "fabricated-authoring-token";
         yield* Context.get(test.context, Settings.ServerSettingsService).updateSettings({
-          bitbucket: { accessToken: marker },
+          sourceControlHosts: { bitbucket: { accessToken: marker } },
         });
         const runtime = yield* test.boot(Host.of({ ...test.core, lifecycle: () => Stream.never }));
         const fs = yield* FileSystem.FileSystem;
