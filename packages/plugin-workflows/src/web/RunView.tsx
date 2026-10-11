@@ -1077,8 +1077,8 @@ function Inspector({
                     </span>
                     {index === 0 ? <Badge variant="info">Next</Badge> : null}
                     <span className="ml-auto flex shrink-0 tabular-nums text-muted-foreground">
-                      <props.Tooltip content={formatTime(request.createdAt)}>
-                        {clockTime(request.createdAt)}
+                      <props.Tooltip label={formatTime(request.createdAt)}>
+                        <span>{clockTime(request.createdAt)}</span>
                       </props.Tooltip>
                     </span>
                   </li>
@@ -1411,9 +1411,11 @@ function ReviewSummary({
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">
         <dt className="text-muted-foreground">Frozen head</dt>
         <dd className="flex min-w-0">
-          <Tooltip content={`${review.head} · verified when this generation started`}>
-            {review.pullRequest.repository}#{review.pullRequest.number} at committed head{" "}
-            {short(review.head)}
+          <Tooltip label={`${review.head} · verified when this generation started`}>
+            <span>
+              {review.pullRequest.repository}#{review.pullRequest.number} at committed head{" "}
+              {short(review.head)}
+            </span>
           </Tooltip>
         </dd>
         <dt className="text-muted-foreground">Join</dt>

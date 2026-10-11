@@ -198,7 +198,9 @@ function RunGroup({
             </Button>
           )}
           <span className="flex shrink-0 px-1 tabular-nums">
-            <Tooltip content={formatTime(run.createdAt)}>{relativeTime(run.createdAt)}</Tooltip>
+            <Tooltip label={formatTime(run.createdAt)}>
+              <span>{relativeTime(run.createdAt)}</span>
+            </Tooltip>
           </span>
           <Button
             size="icon-xs"

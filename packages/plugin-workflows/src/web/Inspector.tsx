@@ -805,8 +805,8 @@ function AgentFields({
           />
         </Labeled>
       </div>
-      <Problems problems={problems} nodeId={node.id} control="timeoutMs" />
-      <Problems problems={problems} nodeId={node.id} control="humanTimeoutMs" />
+      <Problems problems={problems} nodeId={nodeId} control={`${prefix}timeoutMs`} />
+      <Problems problems={problems} nodeId={nodeId} control={`${prefix}humanTimeoutMs`} />
       <fieldset className="flex flex-col gap-2 border-t border-border pt-4">
         <legend className="pb-1 text-xs font-medium text-muted-foreground">Inputs</legend>
         {(agent.bindings ?? []).map((binding, index) => {

@@ -29,9 +29,7 @@ export const preloadWorkflowPages = () =>
     loadThread(),
     loadStart(),
     loadAttention(),
-  ]).then(
-    () => undefined,
-  );
+  ]).then(() => undefined);
 const LibraryPageView = lazy(() =>
   loadLibrary().then((module) => ({ default: module.LibraryPageView })),
 );
