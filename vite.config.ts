@@ -1,5 +1,5 @@
 import "vite-plus/test/config";
-import { defineConfig } from "vite-plus";
+import { defineConfig, type Plugin } from "vite-plus";
 import * as NodeModule from "node:module";
 import * as NodeURL from "node:url";
 
@@ -62,11 +62,19 @@ const RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS = {
  * @vitejs/plugin-react is not used: its `applyToEnvironmentHook` is client-only, which would
  * skip Vitest's node environment.
  */
-const loadWebReactCompiler = async () => {
+const loadWebReactCompiler = async (): Promise<Plugin> => {
   const webRequire = NodeModule.createRequire(new URL("./apps/web/package.json", import.meta.url));
-  const { default: reactCompilerBabel } = await import(
-    NodeURL.pathToFileURL(webRequire.resolve("@rolldown/plugin-babel")).href
-  );
+  // Non-literal specifier resolves from apps/web; its types do not resolve from the repo root.
+  const {
+    default: reactCompilerBabel,
+  }: {
+    default: (options: {
+      include: RegExp[];
+      exclude: RegExp[];
+      parserOpts: { plugins: string[] };
+      presets: object[];
+    }) => Plugin;
+  } = await import(NodeURL.pathToFileURL(webRequire.resolve("@rolldown/plugin-babel")).href);
   return reactCompilerBabel({
     include: [/\/apps\/web\/src\/.*\.tsx$/, /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/],
     exclude: [/\.test\.tsx$/, /\/node_modules\//],
