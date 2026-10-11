@@ -132,14 +132,18 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function open(mode: "save" | "replace") {
+function controlledEntry() {
   let resolve!: (entry: AuthoringEntry) => void;
   let reject!: (cause: unknown) => void;
   const promise = new Promise<AuthoringEntry>((accept, fail) => {
     resolve = accept;
     reject = fail;
   });
-  const response = { promise, resolve, reject };
+  return { promise, resolve, reject };
+}
+
+async function open(mode: "save" | "replace") {
+  const response = controlledEntry();
   const values = new Map<string, string>();
   const drafts = {
     read: (key: string) => values.get(key) ?? null,
@@ -231,6 +235,236 @@ async function rename(title: string) {
     input("wf-workflow-title").props.onChange({ currentTarget: { value: title } });
   });
 }
+
+async function conflict(action = "Reload") {
+  const test = await open("save");
+  await rename("Conflicting draft");
+  await click("Save");
+  await act(async () => {
+    test.response.reject({ code: "conflict", message: "The workflow revision changed." });
+  });
+  const read = controlledEntry();
+  test.client.read.mockImplementationOnce(() => read.promise);
+  const start = () => click(action);
+  return { ...test, read, start };
+}
+
+it("keeps edits and their recovery base when a pending Reload is superseded by typing", async () => {
+  const test = await conflict();
+  const reload = button("Reload").props.onClick;
+  const type = input("wf-workflow-title").props.onChange;
+  // Both callbacks were captured before the request, and run before React can render again.
+  await act(async () => {
+    reload();
+    type({ currentTarget: { value: "Typed while reloading" } });
+  });
+  expect(input("wf-workflow-title").props.value).toBe("Typed while reloading");
+  const recovered = readDraft(test.drafts);
+  expect(recovered).toMatchObject({
+    definition: { title: "Typed while reloading" },
+    base: { source, fingerprint: "observed", revision: 1 },
+  });
+  await act(async () => {
+    test.read.resolve({
+      ...entry({ ...original, title: "Remote version", revision: 5 }),
+      fingerprint: "remote",
+    });
+    await test.read.promise;
+  });
+  expect(input("wf-workflow-title").props.value).toBe("Typed while reloading");
+  expect(readDraft(test.drafts)).toEqual(recovered);
+  expect(button("Save").props.disabled).toBe(false);
+  const saved = controlledEntry();
+  test.client.save.mockImplementationOnce(() => saved.promise);
+  await click("Save");
+  expect(test.client.save.mock.lastCall?.[0]).toMatchObject({
+    expectedRevision: 1,
+    fingerprint: "observed",
+    definition: { title: "Typed while reloading", revision: 2 },
+  });
+});
+
+it.each([
+  { action: "Reload", continuedEditing: false },
+  { action: "Reload", continuedEditing: true },
+  { action: "Keep my draft", continuedEditing: false },
+  { action: "Keep my draft", continuedEditing: true },
+])(
+  "ignores a late $action after a subsequent save completes (continued editing: $continuedEditing)",
+  async ({ action, continuedEditing }) => {
+    const test = await conflict(action);
+    await test.start();
+    const saved = controlledEntry();
+    test.client.save.mockImplementationOnce(() => saved.promise);
+    await click("Save");
+    const submitted = test.client.save.mock.lastCall![0].definition;
+    await act(async () => {
+      saved.resolve({ ...entry(submitted), fingerprint: "saved" });
+      await saved.promise;
+    });
+    expect(test.drafts.keys()).toEqual([]);
+    if (continuedEditing) await rename("Continued after successful save");
+    const recovered = readDraft(test.drafts);
+    if (continuedEditing)
+      expect(recovered).toMatchObject({
+        definition: { title: "Continued after successful save" },
+        base: { source, fingerprint: "saved", revision: 2 },
+      });
+    await act(async () => {
+      test.read.resolve({
+        ...entry({ ...original, title: "Remote before the later save", revision: 5 }),
+        fingerprint: "remote",
+      });
+      await test.read.promise;
+    });
+    expect(input("wf-workflow-title").props.value).toBe(
+      continuedEditing ? "Continued after successful save" : "Conflicting draft",
+    );
+    expect(readDraft(test.drafts)).toEqual(recovered);
+    if (!continuedEditing) {
+      expect(
+        renderer!.root
+          .findByProps({ role: "status" })
+          .findAll((node) => node.children.includes("Saved revision 2")),
+      ).toHaveLength(1);
+      await rename("Continued after successful save");
+    }
+    const nextSave = controlledEntry();
+    test.client.save.mockImplementationOnce(() => nextSave.promise);
+    await click("Save");
+    expect(test.client.save.mock.lastCall?.[0]).toMatchObject({
+      expectedRevision: 2,
+      fingerprint: "saved",
+      definition: { title: "Continued after successful save", revision: 3 },
+    });
+  },
+);
+
+it("ignores a late Reload failure after a subsequent save completes", async () => {
+  const test = await conflict();
+  await test.start();
+  const saved = controlledEntry();
+  test.client.save.mockImplementationOnce(() => saved.promise);
+  await click("Save");
+  const submitted = test.client.save.mock.lastCall![0].definition;
+  await act(async () => {
+    saved.resolve({ ...entry(submitted), fingerprint: "saved" });
+    await saved.promise;
+  });
+  await act(async () => {
+    test.read.reject({ code: "service", message: "Superseded reload error" });
+  });
+  expect(input("wf-workflow-title").props.value).toBe("Conflicting draft");
+  expect(test.drafts.keys()).toEqual([]);
+  expect(button("Save").props.disabled).toBe(true);
+  expect(renderer!.root.findAllByProps({ "aria-label": "Not saved · edits kept" })).toHaveLength(0);
+  expect(
+    renderer!.root
+      .findByProps({ role: "status" })
+      .findAll((node) => node.children.includes("Saved revision 2")),
+  ).toHaveLength(1);
+});
+
+it("loads an unsuperseded Reload and saves later edits against its revision and fingerprint", async () => {
+  const test = await conflict();
+  await test.start();
+  await act(async () => {
+    test.read.resolve({
+      ...entry({ ...original, title: "Latest server workflow", revision: 5 }),
+      fingerprint: "remote",
+    });
+    await test.read.promise;
+  });
+  expect(input("wf-workflow-title").props.value).toBe("Latest server workflow");
+  expect(input("wf-workflow-title").props.disabled).toBe(false);
+  expect(test.drafts.keys()).toEqual([]);
+  expect(button("Save").props.disabled).toBe(true);
+  await rename("Edited latest version");
+  expect(readDraft(test.drafts)).toMatchObject({
+    definition: { title: "Edited latest version" },
+    base: { source, fingerprint: "remote", revision: 5 },
+  });
+  const saved = controlledEntry();
+  test.client.save.mockImplementationOnce(() => saved.promise);
+  await click("Save");
+  expect(test.client.save.mock.lastCall?.[0]).toMatchObject({
+    expectedRevision: 5,
+    fingerprint: "remote",
+    definition: { title: "Edited latest version", revision: 6 },
+  });
+});
+
+it("retains the draft and old save base after Reload fails, including after reopening", async () => {
+  const test = await conflict();
+  const recovered = readDraft(test.drafts);
+  await test.start();
+  await act(async () => {
+    test.read.reject({ code: "service", message: "Reload request failed" });
+  });
+  expect(input("wf-workflow-title").props.disabled).toBe(false);
+  expect(input("wf-workflow-title").props.value).toBe("Conflicting draft");
+  expect(readDraft(test.drafts)).toEqual(recovered);
+  expect(renderer!.root.findByProps({ "aria-label": "Not saved · edits kept" }).children).toContain(
+    "Reload request failed",
+  );
+  await act(async () => {
+    renderer!.unmount();
+    renderer = create(
+      <Suspense fallback="Loading editor">
+        <EditorPageView {...test.props} />
+      </Suspense>,
+    );
+  });
+  await rename("Continued after failed Reload");
+  expect(readDraft(test.drafts)).toMatchObject({
+    definition: { title: "Continued after failed Reload" },
+    base: { source, fingerprint: "observed", revision: 1 },
+  });
+  const saved = controlledEntry();
+  test.client.save.mockImplementationOnce(() => saved.promise);
+  await click("Save");
+  expect(test.client.save.mock.lastCall?.[0]).toMatchObject({
+    expectedRevision: 1,
+    fingerprint: "observed",
+    definition: { title: "Continued after failed Reload", revision: 2 },
+  });
+});
+
+it.each(["success", "failure"])(
+  "ignores an unmounted Reload %s after recovering and continuing edits",
+  async (outcome) => {
+    const test = await conflict();
+    await test.start();
+    await rename("Draft kept before leaving");
+    await act(async () => {
+      renderer!.unmount();
+    });
+    await act(async () => {
+      renderer = create(
+        <Suspense fallback="Loading editor">
+          <EditorPageView {...test.props} />
+        </Suspense>,
+      );
+    });
+    expect(input("wf-workflow-title").props.value).toBe("Draft kept before leaving");
+    await rename("Recovered and continued after Reload");
+    const recovered = readDraft(test.drafts);
+    await act(async () => {
+      if (outcome === "success") {
+        test.read.resolve({ ...entry(newDefinition("Late remote version")), fingerprint: "late" });
+        await test.read.promise;
+      } else {
+        test.read.reject({ code: "service", message: "Late reload error" });
+      }
+    });
+    expect(input("wf-workflow-title").props.value).toBe("Recovered and continued after Reload");
+    expect(readDraft(test.drafts)).toEqual(recovered);
+    expect(button("Save").props.disabled).toBe(false);
+    expect(renderer!.root.findAllByProps({ "aria-label": "Not saved · edits kept" })).toHaveLength(
+      0,
+    );
+  },
+);
 
 it.each(["save", "replace"] as const)(
   "freezes every draft mutation until %s settles",

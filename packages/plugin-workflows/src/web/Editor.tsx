@@ -97,6 +97,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const [statusKind, setStatus] = useState<Status>({ kind: "idle" });
   // Freeze mutations synchronously, including handlers captured before the saving render.
   const saving = useRef(false);
+  // Reads may finish after typing or even after a later save settles. Only the current
+  // draft operation may replace the draft or advance its conflict/recovery baseline.
+  const editVersion = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -293,6 +296,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
 
   const change = (next: Definition) => {
     if (readOnly || saving.current) return;
+    editVersion.current++;
     setDraft(next);
   };
   // Stable so the graph's memoized handlers survive edits.
@@ -305,6 +309,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     (id: string) => {
       const current = latestDraft.current;
       if (readOnly || saving.current || current === null) return;
+      editVersion.current++;
       const next = removeStep(current, id);
       setDraft(next);
       setSelected((now) => (now === id || now?.startsWith(`${id}/`) ? null : now));
@@ -335,6 +340,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   };
   const discard = () => {
     if (saving.current) return;
+    editVersion.current++;
     forget();
     setDraft(server?.definition ?? null);
     setBase(server === null ? null : baseOf(server));
@@ -343,9 +349,11 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   };
   const reload = () => {
     if (saving.current || projectId === null || source === null) return;
+    const version = ++editVersion.current;
     client.read({ projectId, source }).then(
       (entry) => {
-        if (saving.current || !mounted.current) return;
+        if (editVersion.current !== version || !mounted.current) return;
+        editVersion.current++;
         forget();
         setServer(entry);
         setDraft(entry.definition);
@@ -354,28 +362,31 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         setStatus({ kind: "idle" });
       },
       (cause: unknown) => {
-        if (!saving.current && mounted.current)
+        if (editVersion.current === version && mounted.current)
           setStatus({ kind: "failed", message: errorMessage(cause) });
       },
     );
   };
   const compareLatest = () => {
     if (saving.current || projectId === null || source === null) return;
+    const version = editVersion.current;
     client.read({ projectId, source }).then(
       (entry) => {
-        if (!saving.current && mounted.current) setCompare(entry);
+        if (editVersion.current === version && mounted.current) setCompare(entry);
       },
       (cause: unknown) => {
-        if (!saving.current && mounted.current)
+        if (editVersion.current === version && mounted.current)
           setStatus({ kind: "failed", message: errorMessage(cause) });
       },
     );
   };
   const keepMine = () => {
     if (saving.current || projectId === null || source === null || base === null) return;
+    const version = ++editVersion.current;
     client.read({ projectId, source }).then(
       (entry) => {
-        if (saving.current || !mounted.current) return;
+        if (editVersion.current !== version || !mounted.current) return;
+        editVersion.current++;
         setServer(entry);
         setBase({
           ...baseOf(entry),
@@ -384,13 +395,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         setStatus({ kind: "idle" });
       },
       (cause: unknown) => {
-        if (!saving.current && mounted.current)
+        if (editVersion.current === version && mounted.current)
           setStatus({ kind: "failed", message: errorMessage(cause) });
       },
     );
   };
   const save = () => {
     if (saving.current || draft === null || base === null || projectId === null) return;
+    editVersion.current++;
     saving.current = true;
     setStatus({ kind: "saving" });
     const request =
@@ -431,6 +443,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   };
   const adopt = (definition: Definition) => {
     if (readOnly || saving.current) return;
+    editVersion.current++;
     // Editing an existing file keeps its identity and expected revision.
     const next =
       base?.mode === "edit" && draft !== null
@@ -1023,7 +1036,10 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
             : {})}
         onDiscard={() => {
           // Leaving during a request keeps recovery data; an unmounted response cannot erase it.
-          if (!saving.current) forget();
+          if (!saving.current) {
+            editVersion.current++;
+            forget();
+          }
         }}
         {...(storageFailed ? {} : { keepLabel: "Leave and keep draft" })}
         protectReload={storageFailed || base?.mode === "new"}
