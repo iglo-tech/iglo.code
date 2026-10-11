@@ -56,31 +56,34 @@ const RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS = {
 
 /**
  * `vp test` from the repo root runs this config, not apps/web/vite.config.ts or
- * apps/web/integration/vite.config.ts, so the web integration tests render uncompiled JSX
- * unless it applies the app's React Compiler here. It is scoped to shipped web sources so
- * tests render the same compiled output users do (compiler bailouts and crashes included).
+ * apps/web/integration/vite.config.ts, so the web integration tests would render uncompiled
+ * JSX. Under test only, components (.tsx) under apps/web/src and packages/plugin-workflows/src/web
+ * compile as in the app (compiler bailouts and crashes included). `reactCompilerPreset()` from
+ * @vitejs/plugin-react is not used: its `applyToEnvironmentHook` is client-only, which would
+ * skip Vitest's node environment.
  */
-const webRequire = NodeModule.createRequire(new URL("./apps/web/package.json", import.meta.url));
-const { default: reactCompilerBabel } = (await import(
-  NodeURL.pathToFileURL(webRequire.resolve("@rolldown/plugin-babel")).href
-)) as typeof import("@rolldown/plugin-babel");
+const loadWebReactCompiler = async () => {
+  const webRequire = NodeModule.createRequire(new URL("./apps/web/package.json", import.meta.url));
+  const { default: reactCompilerBabel } = await import(
+    NodeURL.pathToFileURL(webRequire.resolve("@rolldown/plugin-babel")).href
+  );
+  return reactCompilerBabel({
+    include: [/\/apps\/web\/src\/.*\.tsx$/, /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/],
+    exclude: [/\.test\.tsx$/, /\/node_modules\//],
+    parserOpts: { plugins: ["typescript", "jsx"] },
+    presets: [
+      {
+        preset: () => ({
+          plugins: [[webRequire.resolve("babel-plugin-react-compiler"), {}]],
+        }),
+        rolldown: { filter: { code: /\b[A-Z]|\buse/ } },
+      },
+    ],
+  });
+};
 
 export default defineConfig({
-  plugins: [
-    reactCompilerBabel({
-      include: [/\/apps\/web\/src\/.*\.tsx$/, /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/],
-      exclude: [/\.test\.tsx$/, /\/node_modules\//],
-      parserOpts: { plugins: ["typescript", "jsx"] },
-      presets: [
-        {
-          preset: () => ({
-            plugins: [[webRequire.resolve("babel-plugin-react-compiler"), {}]],
-          }),
-          rolldown: { filter: { code: /\b[A-Z]|\buse/ } },
-        },
-      ],
-    }),
-  ],
+  plugins: [process.env.VITEST ? loadWebReactCompiler() : null],
   resolve: {
     alias: {
       "~": NodeURL.fileURLToPath(new URL("./apps/web/src", import.meta.url)),

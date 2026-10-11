@@ -161,8 +161,6 @@ export const PluginAttentionItem = Schema.Struct({
   severity: Schema.Literals(["info", "warning", "error"]),
   reason: TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
   link: PluginPageLink,
-  /** When the item's subject started, in epoch ms (not when it began needing attention); tells apart items that read the same. */
-  at: Schema.optional(Schema.Number),
 });
 export type PluginAttentionItem = typeof PluginAttentionItem.Type;
 /** A plugin's bounded newest-first items with its own count of everything needing attention. */
