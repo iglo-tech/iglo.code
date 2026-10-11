@@ -115,6 +115,12 @@ vi.mock("../src/connection/runtime", async () => {
     ),
   };
 });
+// Hover popups need a DOM; the header's action button is what these tests drive.
+vi.mock("../src/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: unknown }) => children,
+  TooltipTrigger: ({ render }: { render: unknown }) => render,
+  TooltipPopup: () => null,
+}));
 vi.mock("../src/state/session", async () => {
   const { Atom } = await import("effect/reactivity");
   const Option = await import("effect/Option");
@@ -133,9 +139,11 @@ import { createPluginWebContext } from "../src/plugins/context";
 import { bind } from "../src/plugins/contributions";
 import { pluginDesign } from "../src/plugins/design";
 import { PluginPageContent } from "../src/plugins/PluginPageContent";
+import { PluginProjectActions } from "../src/plugins/PluginSlots";
+import { environmentSession } from "../src/state/session";
 import { validatePluginSearch } from "../src/plugins/pageLink";
 import { availableCatalogAtom } from "../src/plugins/runtime";
-import { appAtomRegistry } from "../src/rpc/atomRegistry";
+import { AppAtomRegistryProvider, appAtomRegistry } from "../src/rpc/atomRegistry";
 
 const projectId = ProjectId.make("same-project");
 const HEAD = "a".repeat(40);
@@ -893,6 +901,95 @@ it.live(
           labelled("Run workflow").filter((node) => node.props.role === "dialog"),
         ).toHaveLength(0);
         expect(router.state.location.pathname).toContain("workflows.library");
+
+        // The chat header's project action opens the dialog in place and keeps it, with its
+        // typed text, through a connection drop.
+        {
+          let header!: ReactTestRenderer;
+          yield* promise(() =>
+            act(async () => {
+              header = create(
+                <AppAtomRegistryProvider>
+                  <RouterContextProvider router={router}>
+                    <PluginProjectActions
+                      environmentId={first.environmentId}
+                      projectId={projectId}
+                    />
+                  </RouterContextProvider>
+                </AppAtomRegistryProvider>,
+              );
+            }),
+          );
+          yield* promise(flush);
+          const headerDialogs = () =>
+            header.root.findAll(
+              (node) =>
+                node.props["aria-label"] === "Run workflow" &&
+                typeof node.type === "string" &&
+                node.props.role === "dialog",
+            );
+          const prepared = environmentSession.preparedConnectionValueAtom(first.environmentId);
+          // The mounted header subscribes to the catalog stream; wait for its first snapshot.
+          yield* promise(
+            () =>
+              new Promise<void>((resolve) => {
+                const release = appAtomRegistry.subscribe(
+                  availableCatalogAtom(first.environmentId),
+                  (value) => {
+                    if (value !== null) {
+                      queueMicrotask(() => release());
+                      resolve();
+                    }
+                  },
+                  { immediate: true },
+                );
+              }),
+          );
+          yield* promise(flush);
+          yield* promise(() =>
+            act(async () =>
+              header.root
+                .findAll(
+                  (node) => node.props["aria-label"] === "Run workflow" && node.props.onClick,
+                )
+                .at(0)!
+                .props.onClick(),
+            ),
+          );
+          yield* promise(flush);
+          expect(headerDialogs()).toHaveLength(1);
+          expect(router.state.location.pathname).toContain("workflows.library");
+          yield* promise(flush);
+          yield* promise(() =>
+            act(async () =>
+              header.root
+                .find(
+                  (node) => node.type === pluginDesign.Textarea && node.props.ariaLabel === "Task",
+                )
+                .props.onChange("keep this text"),
+            ),
+          );
+          appAtomRegistry.set(prepared, Option.none());
+          yield* promise(flush);
+          expect(headerDialogs()).toHaveLength(1);
+          expect(
+            header.root.find(
+              (node) => node.type === pluginDesign.Textarea && node.props.ariaLabel === "Task",
+            ).props.value,
+          ).toBe("keep this text");
+          appAtomRegistry.set(prepared, Option.some(true));
+          yield* promise(flush);
+          yield* promise(() =>
+            act(async () =>
+              header.root
+                .find((node) => node.type === pluginDesign.Button && textOf(node) === "Cancel")
+                .props.onClick(),
+            ),
+          );
+          expect(headerDialogs()).toHaveLength(0);
+          expect(router.state.location.pathname).toContain("workflows.library");
+          yield* promise(() => act(async () => header.unmount()));
+        }
 
         // Project entry point: the same dialog and service, choosing the workflow explicitly.
         // The chat header opens its dialog in place; its link is the Runs page deep link.

@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
 import { Fragment, useMemo, useState } from "react";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
+import { RenderErrorBoundary } from "../components/RenderErrorBoundary";
 import { Button } from "../components/ui/button";
 import {
   SidebarMenu,
@@ -252,9 +253,12 @@ export function PluginProjectActions({
   environmentId: EnvironmentId;
   projectId: ProjectId;
 }) {
-  const { contributions } = usePluginContributions(environmentId, projectId);
   // The action whose dialog is open over the current view.
   const [open, setOpen] = useState<{ pluginId: string; actionId: string } | null>(null);
+  // An open dialog survives a connection drop so its draft stays; the plugin gates mutations.
+  const { contributions } = usePluginContributions(environmentId, projectId, null, {
+    retainWhileDisconnected: open !== null,
+  });
   return (
     <div className="[app-region:no-drag] flex shrink-0 items-center gap-0.5">
       {contributions.flatMap((plugin) =>
@@ -283,9 +287,12 @@ export function PluginProjectActions({
               </Tooltip>
               {item.dialog !== undefined &&
               open?.pluginId === plugin.manifest.id &&
-              open.actionId === item.id
-                ? item.dialog(plugin.context, () => setOpen(null))
-                : null}
+              open.actionId === item.id ? (
+                // A failed chunk or render closes into nothing; reopening resets it.
+                <RenderErrorBoundary fallback={null} resetKeys={[open]}>
+                  {item.dialog(plugin.context, () => setOpen(null))}
+                </RenderErrorBoundary>
+              ) : null}
             </Fragment>
           )),
       )}
@@ -304,7 +311,11 @@ export function PluginThreadContext({ target }: { target: PluginTarget }) {
       {contributions.flatMap((plugin) =>
         plugin.threadContext
           .filter((item) => plugin.context.descriptor.manifest.web.threadContext.includes(item.id))
-          .map((item) => <div key={item.id}>{item.render(plugin.context)}</div>),
+          .map((item) => (
+            <RenderErrorBoundary key={item.id} fallback={null} resetKeys={[plugin.context]}>
+              <div>{item.render(plugin.context)}</div>
+            </RenderErrorBoundary>
+          )),
       )}
     </div>
   );
