@@ -627,6 +627,8 @@ const memoryStorage = () => {
   };
 };
 const flush = () => act(() => new Promise<void>((resolve) => setImmediate(resolve)));
+const displayedTime = (at: number) =>
+  new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const textOf = (node: ReactTestInstance): string =>
   node.children.map((child) => (typeof child === "string" ? child : textOf(child))).join("");
 
@@ -1109,7 +1111,7 @@ it.live(
 
         // The run view: persisted snapshot, start source, workspace and allowed actions.
         yield* promise(() => tracked.run((run) => run.id === runId));
-        // The overview is one line; full values are its tooltips.
+        // The overview keeps full metadata available alongside its compact desktop values.
         const tip = (content: string) =>
           root().findAll(
             (node) => node.type === pluginDesign.Tooltip && node.props.label === content,
@@ -1126,6 +1128,8 @@ it.live(
         const running = (yield* first.invoke("get", { ...scope, runId })) as Run;
         const threadId = running.attempts[0]!.threadId!;
         expect(running.input).toEqual({ task: "Ship the release notes" });
+        // A persisted start time remains truthful even when this view stays open overnight.
+        expect(textOf(labelled("Run overview")[0]!)).toContain(displayedTime(running.createdAt));
 
         // An accepted report while execution still runs is a claim, not a finished step.
         const reportTool = (yield* first.registry.tools).find(

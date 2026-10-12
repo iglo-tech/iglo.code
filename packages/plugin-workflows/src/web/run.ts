@@ -323,14 +323,6 @@ export function takenEdges(
   return taken;
 }
 
-/** "just now", "5 min ago", "3 h ago", then the date. */
-export function relativeTime(at: number, now = Date.now()): string {
-  const minutes = Math.round((now - at) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  if (minutes < 24 * 60) return `${Math.round(minutes / 60)} h ago`;
-  return new Date(at).toLocaleDateString(undefined, { dateStyle: "medium" });
-}
 export const clockTime = (at: number) =>
   new Date(at).toLocaleTimeString(undefined, { timeStyle: "short" });
 export const formatTime = (at: number) =>

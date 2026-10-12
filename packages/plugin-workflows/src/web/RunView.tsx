@@ -26,7 +26,6 @@ import {
   clockTime,
   formatTime,
   isActive,
-  relativeTime,
   sourceShort,
   workspaceShort,
   nextAction,
@@ -529,10 +528,10 @@ export function RunView({
       </PageHeader>
       <dl
         aria-label="Run overview"
-        className="flex shrink-0 items-baseline gap-x-5 overflow-hidden border-b border-border px-(--workspace-gutter-start) py-2 text-xs"
+        className="grid shrink-0 gap-x-5 gap-y-1.5 border-b border-border px-(--workspace-gutter-start) py-2 text-xs sm:flex sm:flex-wrap sm:items-baseline"
       >
-        <Fact props={props} label="Started" detail={formatTime(run.createdAt)}>
-          {relativeTime(run.createdAt)}
+        <Fact props={props} label="Started">
+          {formatTime(run.createdAt)}
         </Fact>
         <Fact props={props} label="Source" detail={sourceText(run.source)}>
           {sourceShort(run.source)}
@@ -742,7 +741,7 @@ export function RunView({
   );
 }
 
-/** One overview fact on a single line; `detail` is the full value, on hover. */
+/** Narrow facts show the full value; desktop keeps the short value and its tooltip. */
 function Fact({
   props,
   label,
@@ -755,15 +754,20 @@ function Fact({
   readonly children: string;
 }) {
   return (
-    <div className="flex min-w-0 shrink items-baseline gap-1.5">
+    <div className="grid min-w-0 max-w-full grid-cols-[6rem_minmax(0,1fr)] items-baseline gap-1.5 sm:flex">
       <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd className="flex min-w-0 truncate">
+      <dd className="min-w-0 wrap-anywhere">
         {detail === undefined ? (
           children
         ) : (
-          <props.Tooltip label={detail}>
-            <span className="min-w-0 truncate">{children}</span>
-          </props.Tooltip>
+          <>
+            <span className="sm:hidden">{detail}</span>
+            <span className="hidden sm:inline">
+              <props.Tooltip label={detail}>
+                <span>{children}</span>
+              </props.Tooltip>
+            </span>
+          </>
         )}
       </dd>
     </div>
