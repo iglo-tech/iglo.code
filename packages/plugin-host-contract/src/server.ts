@@ -90,7 +90,10 @@ export class Host extends Context.Service<
     readonly reconcile: (
       input: PluginLifecycleScope,
     ) => Effect.Effect<Extract<PluginLifecycleItem, { kind: "snapshot" }>, PluginError>;
-    readonly providers: () => Effect.Effect<ReadonlyArray<PluginProvider>, PluginError>;
+    /** Pass a project for effective enablement; omit it for the environment's runtime snapshot. */
+    readonly providers: (input?: {
+      readonly projectId: ProjectId;
+    }) => Effect.Effect<ReadonlyArray<PluginProvider>, PluginError>;
     /**
      * Rescans fresh by default, which invalidates provider caches and drops other instances'
      * snapshots for the cwd. `fresh: false` does neither; it may still rescan this instance's

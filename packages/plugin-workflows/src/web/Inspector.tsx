@@ -950,7 +950,7 @@ function AgentInspector({
                   onChange={(name) => field(index, { name })}
                 />
               </Labeled>
-              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2">
+              <div className="flex flex-col gap-2">
                 <Labeled id={`${id}-type`} label="Type">
                   <Select
                     id={`${id}-type`}
@@ -977,24 +977,26 @@ function AgentInspector({
                     onChange={(value) => field(index, { required: value === "required" })}
                   />
                 </Labeled>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  tooltip="Remove field"
-                  ariaLabel={`Remove report field ${item.name}`}
-                  disabled={readOnly}
-                  onClick={() =>
-                    set((current) => ({
-                      ...current,
-                      report: {
-                        ...current.report,
-                        fields: current.report.fields.filter((_, position) => position !== index),
-                      },
-                    }))
-                  }
-                >
-                  <Trash2Icon />
-                </Button>
+                <div className="flex min-h-11 items-center justify-end">
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    tooltip="Remove field"
+                    ariaLabel={`Remove report field ${item.name}`}
+                    disabled={readOnly}
+                    onClick={() =>
+                      set((current) => ({
+                        ...current,
+                        report: {
+                          ...current.report,
+                          fields: current.report.fields.filter((_, position) => position !== index),
+                        },
+                      }))
+                    }
+                  >
+                    <Trash2Icon />
+                  </Button>
+                </div>
               </div>
               {item.type === "enum" ? (
                 <Labeled id={`${id}-values`} label="Allowed values, one per line">

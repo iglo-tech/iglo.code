@@ -118,7 +118,7 @@ const make = Effect.gen(function* () {
    * publication and execution rescan fresh.
    */
   const discovery = Effect.fnUntraced(function* (projectId: ProjectId, fresh: boolean) {
-    const providers = yield* Effect.cached(host.providers().pipe(Effect.result));
+    const providers = yield* Effect.cached(host.providers({ projectId }).pipe(Effect.result));
     const cache = new Map<ProviderInstanceId, Effect.Effect<SkillsResult>>();
     type SkillsResult = Effect.Success<ReturnType<typeof skillsOf>>;
     const skillsOf = (providerInstanceId: ProviderInstanceId) =>
@@ -626,7 +626,9 @@ const make = Effect.gen(function* () {
       "capabilities",
       Effect.gen(function* () {
         yield* root(input);
-        const discovered = yield* host.providers().pipe(Effect.result);
+        const discovered = yield* host
+          .providers({ projectId: input.projectId })
+          .pipe(Effect.result);
         return {
           nodeKinds: [...nodeKinds],
           providers:
