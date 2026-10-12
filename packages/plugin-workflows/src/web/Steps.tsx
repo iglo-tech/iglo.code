@@ -756,7 +756,11 @@ function Term(
       );
   }
   const operators = operatorsFor(field);
-  const labels = fieldLabels([...fields.keys()], input.definition);
+  const labels = fieldLabels(
+    [...fields.keys()],
+    input.definition,
+    input.definition.nodes.find((source) => source.id === node.source),
+  );
   return (
     <div role="group" aria-label="Condition" className="flex min-w-0 flex-col gap-1">
       <div className="flex min-w-0 items-center gap-1">

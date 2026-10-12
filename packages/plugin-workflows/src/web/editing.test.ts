@@ -553,6 +553,7 @@ describe("decision and repeat authoring", () => {
     const labels = fieldLabels(
       [...sourceFields(join, developmentReview).keys()],
       developmentReview,
+      join,
     );
     expect(labels.get("result")).toBe("result");
     expect(labels.get("branches.code.data.verdict")).toBe("Code · data.verdict");
@@ -561,6 +562,7 @@ describe("decision and repeat authoring", () => {
     const own = fieldLabels(
       [...sourceFields(implement, developmentReview).keys(), "data.summary"],
       developmentReview,
+      implement,
     );
     expect(own.get("data.ready")).toBe("ready");
     expect(own.get("summary")).toBe("summary");
@@ -576,9 +578,34 @@ describe("decision and repeat authoring", () => {
     const twins = fieldLabels(
       ["branches.code.summary", "branches.security.summary", "branches.security.data.verdict"],
       sameTitles,
+      join,
     );
     expect(twins.get("branches.code.summary")).toBe("Review (code) · summary");
     expect(twins.get("branches.security.summary")).toBe("Review (security) · summary");
     expect(twins.get("branches.security.data.verdict")).toBe("verdict");
   });
+});
+
+it("labels a join's fields from its own review group when another group reuses branch identities", () => {
+  const group = developmentReview.nodes.find((node) => node.kind === "parallel")!;
+  const join = developmentReview.nodes.find((node) => node.kind === "join")!;
+  if (group.kind !== "parallel" || join.kind !== "join") throw new Error("Expected review graph");
+  const otherGroup = {
+    ...group,
+    id: "other-reviews",
+    next: "other-join",
+    branches: group.branches.map((branch) => ({ ...branch, title: `Other ${branch.title}` })),
+  };
+  const otherJoin = { ...join, id: "other-join", fork: otherGroup.id };
+  const definition = {
+    ...developmentReview,
+    nodes: [otherGroup, ...developmentReview.nodes, otherJoin],
+  };
+  const paths = [...sourceFields(join, definition).keys()];
+  const original = fieldLabels(paths, definition, join);
+  const other = fieldLabels(paths, definition, otherJoin);
+  expect(original.get("branches.code.summary")).toBe("Code · summary");
+  expect(other.get("branches.code.summary")).toBe("Other Code · summary");
+  expect(original.get("branches.security.summary")).toBe("Security · summary");
+  expect(other.get("branches.security.summary")).toBe("Other Security · summary");
 });

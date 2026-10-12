@@ -1,4 +1,11 @@
-import { limits, type Definition, type Field, type Predicate, type Value } from "../contracts.ts";
+import {
+  limits,
+  type Definition,
+  type Field,
+  type Node,
+  type Predicate,
+  type Value,
+} from "../contracts.ts";
 
 /**
  * Typed decision editing over the canonical predicate schema. Nothing here evaluates a
@@ -165,20 +172,21 @@ export function readsAs(
 
 /**
  * Field picker labels: a field's own name when no other option shares it, otherwise its path,
- * with a reviewer's field led by the reviewer's title. Reviewers sharing a title add their
+ * with a join's reviewer field led by its own fork's reviewer title. Reviewers sharing a title add their
  * branch id, and any label still shared falls back to the full path.
  */
 export function fieldLabels(
   paths: ReadonlyArray<string>,
   definition: Definition,
+  source: Node | undefined,
 ): ReadonlyMap<string, string> {
   const last = (path: string) => path.split(".").at(-1) ?? path;
   const counts = new Map<string, number>();
   for (const path of paths) counts.set(last(path), (counts.get(last(path)) ?? 0) + 1);
-  const branchTitle = (id: string) =>
-    definition.nodes
-      .flatMap((node) => (node.kind === "parallel" ? node.branches : []))
-      .find((branch) => branch.id === id)?.title ?? id;
+  const fork =
+    source?.kind === "join" ? definition.nodes.find((node) => node.id === source.fork) : undefined;
+  const branches = fork?.kind === "parallel" ? fork.branches : [];
+  const branchTitle = (id: string) => branches.find((branch) => branch.id === id)?.title ?? id;
   const label = (path: string, qualify: boolean) => {
     if (counts.get(last(path)) === 1) return last(path);
     const branch = /^branches\.([^.]+)\.(.+)$/.exec(path);

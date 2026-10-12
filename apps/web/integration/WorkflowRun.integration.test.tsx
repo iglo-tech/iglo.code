@@ -320,6 +320,7 @@ const review = {
 // authorization and RPC transport are real.
 const threads = new Map<string, PluginThreadState>();
 const receipts = new Map<string, PluginCommandReceipt>();
+let checkExecutions = 0;
 const replayedWorkflows: ServerPlugin = {
   ...workflowPlugin,
   acquire: Effect.gen(function* () {
@@ -412,6 +413,12 @@ const replayedWorkflows: ServerPlugin = {
               };
               receipts.set(input.commandId, receipt);
               return receipt;
+            }),
+          // Replay only command execution; routing, receipts and persisted results stay real.
+          execute: () =>
+            Effect.sync(() => {
+              checkExecutions++;
+              return { exitCode: 0, timedOut: false, stdout: "check passed", stderr: "" };
             }),
           interrupt: () => Effect.succeed(null),
           lifecycle: () => Stream.never,
@@ -598,6 +605,10 @@ function track(client: WorkflowClient) {
       if (latest === undefined || !predicate(latest))
         await new Promise<void>((resolve) => runWaiters.push({ predicate, resolve }));
       await act(async () => {});
+    },
+    /** Reload proof waits for a new delivery, rather than the previous tracked snapshot. */
+    forgetRuns: () => {
+      runs = [];
     },
     /** Resolves once the open run-history subscription's latest delivery matches. */
     listed: async (predicate: (runs: NonNullable<typeof listed>) => boolean) => {
@@ -1988,31 +1999,174 @@ it.live(
         yield* showRouting(exhausted);
         expect(textOf(labelled("Recorded routing")[0]!)).toContain("at limit");
 
-        // Whole-run redirects share the repeat exit both below and exactly at its repeat max.
+        // A gate cannot admit a route that the run bound would divert. Refusal preserves state.
         for (const max of [20, 1]) {
           const initialWhole = yield* startRouting(
             routingDefinition(`whole-routing-${max}`, "review", max, 1),
           );
-          const redirected = yield* decide(
-            initialWhole,
-            "request-changes",
-            `whole-redirect-${max}`,
+          const before = yield* first
+            .invoke("get", { ...scope, runId: initialWhole.id })
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(RunSchema)));
+          expect(before.allowedActions).toEqual(["cancel", "approve"]);
+          expect(before.withheld).toEqual([
+            { action: "request-changes", to: "work", repeat: true, cause: "visit-limit" },
+          ]);
+          const refused = yield* decide(before, "request-changes", `whole-refused-${max}`).pipe(
+            Effect.flip,
           );
-          expect(redirected.trace.at(-1)).toMatchObject({
-            chosen: "review",
-            repeatCount: 1,
-            reason: "The whole-run visit limit was reached.",
+          expect(refused).toMatchObject({ code: "conflict", operation: "gate" });
+          const unchanged = yield* first
+            .invoke("get", { ...scope, runId: before.id })
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(RunSchema)));
+          expect(unchanged).toEqual(before);
+          expect(unchanged).toMatchObject({
+            state: "awaiting-review",
+            trace: [],
+            attempts: [],
+            repeats: {},
+            automationStopped: false,
           });
-          expect(redirected.attempts).toHaveLength(0);
-          expect(redirected.trace).toHaveLength(1);
-          expect(redirected.repeats).toEqual({ "review:work": 1 });
-          expect([...takenEdges(redirected.definition, redirected.trace)]).toEqual([]);
-          yield* showRouting(redirected);
-          expect(textOf(labelled("Recorded routing")[0]!)).toContain("Human review → Human review");
-          expect(textOf(labelled("Recorded routing")[0]!)).toContain("repeat 1");
-          expect(textOf(labelled("Recorded routing")[0]!)).not.toContain("at limit");
-          expect(textOf(labelled("Recorded routing")[0]!)).not.toContain("/20");
+          yield* showRouting(unchanged);
+          expect(buttons("Request changes")).toHaveLength(0);
+          expect(page()).toContain(
+            "Request changes unavailable · ↩ Work · run visit limit reached",
+          );
+          expect(button("Approve").props.disabled).toBe(false);
         }
+
+        // Actual autonomous routes can be diverted. A real check drives each saved decision.
+        const checkedRouting = (id: string, max: number, maxVisits: number): Definition => ({
+          version: 1,
+          id,
+          revision: 1,
+          title: "Autonomous routing evidence",
+          entry: "checks",
+          atLimit: "review",
+          maxVisits,
+          nodes: [
+            {
+              id: "checks",
+              kind: "check",
+              title: "Checks",
+              command: "project-check",
+              args: [],
+              next: { to: "decide" },
+            },
+            {
+              id: "decide",
+              kind: "decision",
+              title: "Check decision",
+              source: "checks",
+              rules: [],
+              otherwise: { to: "checks", repeat: { max, atLimit: "review" } },
+            },
+            {
+              id: "review",
+              kind: "human",
+              title: "Human review",
+              approve: { to: "done" },
+              changes: { to: "done" },
+            },
+            { id: "done", kind: "end", title: "Done", outcome: "completed" },
+          ],
+        });
+        const runChecked = Effect.fnUntraced(function* (definition: Definition) {
+          const started = yield* startRouting(definition);
+          yield* promise(() =>
+            go(first.environmentId, "workflows.runs", {
+              run: started.id,
+              node: definition.maxVisits === 1 ? "checks" : "decide",
+            }),
+          );
+          yield* reconcile;
+          yield* promise(() =>
+            tracked.run((run) => run.id === started.id && run.state === "awaiting-review"),
+          );
+          return yield* first
+            .invoke("get", { ...scope, runId: started.id })
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(RunSchema)));
+        });
+        // Below the repeat max and at the old spent-count coincidence, no repeat is spent.
+        for (const max of [20, 1]) {
+          const executions = checkExecutions;
+          const limited = yield* runChecked(checkedRouting(`autonomous-first-${max}`, max, 2));
+          expect(checkExecutions).toBe(executions + 1);
+          expect(limited.attempts).toHaveLength(1);
+          expect(limited.attempts[0]).toMatchObject({
+            nodeId: "checks",
+            threadId: null,
+            phase: "completed",
+            check: { outcome: "completed", exitCode: 0, stdout: "check passed" },
+          });
+          expect(limited.repeats).toEqual({});
+          expect(limited.trace.at(-1)).toMatchObject({
+            nodeId: "decide",
+            route: "otherwise",
+            chosen: "review",
+            repeatCount: 0,
+            repeat: { max, atLimit: "review", exhausted: false, outcome: "visit-limit" },
+            diverted: "visit-limit",
+          });
+          expect([...takenEdges(limited.definition, limited.trace)]).toEqual(["checks:next"]);
+          expect(textOf(labelled("Recorded routing")[0]!)).toContain(
+            "Check decision → Human review",
+          );
+          expect(textOf(labelled("Recorded routing")[0]!)).toContain("not repeated");
+          expect(page()).toContain(
+            `Run visit limit reached · 0/${max} repeats used · → Human review`,
+          );
+        }
+        // When one repeat already ran, max1 exits at its own limit; max20 hits the run bound.
+        for (const max of [20, 1]) {
+          const executions = checkExecutions;
+          const limited = yield* runChecked(checkedRouting(`autonomous-used-${max}`, max, 4));
+          expect(checkExecutions).toBe(executions + 2);
+          expect(limited.repeats).toEqual({ "decide:checks": 1 });
+          expect(limited.attempts).toHaveLength(2);
+          expect(limited.trace.at(-1)).toMatchObject({
+            repeatCount: 1,
+            repeat: {
+              max,
+              atLimit: "review",
+              exhausted: max === 1,
+              outcome: max === 1 ? "limit" : "visit-limit",
+            },
+          });
+          expect(limited.trace.at(-1)?.diverted).toBe(max === 1 ? undefined : "visit-limit");
+          const recorded = textOf(labelled("Recorded routing")[0]!);
+          expect(recorded).toContain(max === 1 ? "at limit" : "not repeated");
+          expect([...takenEdges(limited.definition, limited.trace)]).toEqual(
+            max === 1
+              ? ["checks:next", "decide:otherwise", "decide:otherwise.repeat"]
+              : ["checks:next", "decide:otherwise"],
+          );
+          // Reload reads identical persisted evidence and counters; the check is not replayed.
+          const executionsAtGate = checkExecutions;
+          yield* promise(unmount);
+          tracked.forgetRuns();
+          yield* promise(mount);
+          yield* promise(() => tracked.run((run) => run.id === limited.id));
+          const reloaded = yield* first
+            .invoke("get", { ...scope, runId: limited.id })
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(RunSchema)));
+          expect(reloaded.trace).toEqual(limited.trace);
+          expect(reloaded.repeats).toEqual(limited.repeats);
+          expect(checkExecutions).toBe(executionsAtGate);
+        }
+        // An ordinary check edge diverted by the whole-run bound has its own run-limit badge.
+        const plain = yield* runChecked(checkedRouting("autonomous-plain", 1, 1));
+        expect(plain.trace.at(-1)).toMatchObject({
+          nodeId: "checks",
+          route: "next",
+          chosen: "review",
+          repeatCount: null,
+          diverted: "visit-limit",
+        });
+        expect(plain.trace.at(-1)?.repeat).toBeUndefined();
+        expect([...takenEdges(plain.definition, plain.trace)]).toEqual([]);
+        expect(textOf(labelled("Recorded routing")[0]!)).toContain("Checks → Human review");
+        expect(textOf(labelled("Recorded routing")[0]!)).toContain("run limit");
+        expect(page()).toContain("Run visit limit reached · → Human review");
         yield* promise(unmount);
         expect(tracked.openSubscriptions()).toBe(0);
         expect(second.tracked.openSubscriptions()).toBe(0);
