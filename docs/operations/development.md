@@ -127,6 +127,13 @@ vp lint <files>
 vp run --filter <package> typecheck
 ```
 
+TypeScript workspaces typecheck with tsc-rs, which has Effect diagnostics built in.
+Keep `typescript`, `@effect/tsgo`, and the `effect-tsgo patch` prepare step: editors
+still use them for Effect quick fixes and refactors. Keep `@effect/tsgo` on the
+effect-tsgo version that tsc-rs ports (see the tsc-rs README), or the two disagree
+on rule names.
+Marketing keeps `astro check` for Astro files.
+
 CI runs one Linux x64 job on pull requests, pushes to `main`, and manual dispatches.
 It checks formatting, lint, types, a small smoke-test set, and the web/server build.
 New runs cancel older queued and running checks for the same source repository and branch.

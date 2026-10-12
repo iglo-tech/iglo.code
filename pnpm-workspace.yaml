@@ -18,6 +18,7 @@ allowBuilds:
   msgpackr-extract: true
   msw: false
   sharp: true
+  tsc-rs: true
   utf-8-validate: false
   workerd: false
 
@@ -33,7 +34,7 @@ catalog:
   "@effect/platform-node-shared": 4.0.2
   "@effect/sql-pg": 4.0.2
   "@effect/sql-sqlite-do": 4.0.2
-  "@effect/tsgo": 0.46.1
+  "@effect/tsgo": 0.51.1
   "@effect/vitest": 4.0.2
   "@legendapp/list": 3.3.5
   "@noble/curves": 1.9.1
@@ -69,6 +70,8 @@ catalog:
   unified: 11.0.5
 
 minimumReleaseAgeExclude:
+  - tsc-rs
+  - "@tsc-rs/*"
   - "@clerk/backend@3.18.1"
   - "@clerk/clerk-js@6.32.1"
   - "@clerk/electron@0.0.44"
@@ -110,6 +113,7 @@ minimumReleaseAgeExclude:
   - "@opencode/client@2.0.23"
   - "@opencode/protocol@2.0.23"
   - "@opencode/schema@2.0.23"
+  - "@muse-code/sdk@1.4.6"
 
 overrides:
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.
