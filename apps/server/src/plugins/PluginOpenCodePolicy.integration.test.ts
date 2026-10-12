@@ -216,6 +216,8 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
             permissions: broad,
           }),
           reply("session.create", { data: native }),
+          out("session.update", { sessionID: SESSION, title: "Policy" }),
+          reply("session.update", null),
           out("mcp.add", "<any>"),
           reply("mcp.add", null),
           out("session.instructions.entry.put", "<any>"),
@@ -244,6 +246,9 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
               ],
             }),
             out("session.update", { sessionID: SESSION, permissions: narrow }),
+            reply("session.update", null),
+            // Resume registers the session from `session.get`, which has no title yet.
+            out("session.update", { sessionID: SESSION, title: "Policy" }),
             reply("session.update", null),
           );
         const operation = scenario === "changed-user-turn" ? "session.prompt" : "session.compact";
