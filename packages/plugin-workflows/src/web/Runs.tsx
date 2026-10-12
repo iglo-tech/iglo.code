@@ -40,6 +40,8 @@ function Runs(props: PageProps) {
       <Button
         size="sm"
         variant={primary ? "default" : "ghost"}
+        ariaLabel="Run workflow"
+        tooltip="Run workflow"
         onClick={() =>
           props.navigate({
             pageId: "workflows.runs",
@@ -49,7 +51,7 @@ function Runs(props: PageProps) {
         }
       >
         <PlayIcon />
-        Run workflow
+        <span className={primary ? undefined : "sr-only sm:not-sr-only"}>Run workflow</span>
       </Button>
     );
   const dialog =
