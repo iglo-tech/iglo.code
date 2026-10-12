@@ -115,9 +115,9 @@ it.live.each([
       const admission = yield* runtime
         .invoke("get", { ...test.scope, runId: started.id })
         .pipe(Effect.flatMap(decodeRun));
-      expect(admission.attempts[0]!.phase).toBe(
-        scenario.startsWith("lostack") ? "launching" : "running",
-      );
+      // The durable core receipt acknowledges admission even when the host response is lost.
+      expect(admission.attempts[0]!.phase).toBe("running");
+      expect(admission.allowedActions).toEqual(["cancel"]);
       const launchReceipt = yield* test.core.receipt(
         CommandId.make(
           `plugin:${encodeCommandParts(["workflows", `${started.attempts[0]!.id}:launch:0`])}`,
@@ -231,6 +231,10 @@ it.live.each([
           .invoke("get", { ...test.scope, runId: started.id })
           .pipe(Effect.flatMap(decodeRun));
         expect(retained.state).toBe("running");
+        expect(retained.attempts[0]!.remainingMs).toBe(59000);
+        expect(retained.allowedActions).toEqual(["cancel"]);
+        expect(launches).toBe(1);
+        expect(sends).toBe(1);
       }
       if (
         scenario.startsWith("missing") ||
@@ -241,9 +245,21 @@ it.live.each([
         expect(run.state).toBe("running");
         expect(run.attempts[0]!.remainingMs).toBe(59000);
         expect(native.runs).toHaveLength(2);
+        expect(run.allowedActions).toEqual(["cancel"]);
+        const reminderReceipt = yield* test.core.receipt(
+          CommandId.make(
+            `plugin:${encodeCommandParts(["workflows", `${started.attempts[0]!.id}:reminder:0`])}`,
+          ),
+        );
+        expect(reminderReceipt?.status).toBe("accepted");
       } else {
         expect(sends).toBe(0);
         expect(run.state).toBe(scenario === "accepted-offline" ? "awaiting-review" : "unresolved");
+        expect(run.allowedActions).toEqual(
+          scenario === "accepted-offline"
+            ? ["cancel", "approve", "request-changes"]
+            : ["cancel", "retry"],
+        );
       }
     }),
   ).pipe(Effect.provide(NodeServices.layer)),

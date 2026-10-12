@@ -33,6 +33,10 @@ it.live.each([
       let unavailable = true;
       let hold = ["expired-crash", "legacy-expired", "committed-crash"].includes(scenario);
       const coreCommitted = scenario === "committed-crash";
+      const timeoutReason = coreCommitted
+        ? "The execution timeout expired."
+        : "The execution launch deadline expired.";
+      let executionId: string | null = null;
       const host = Host.of({
         ...test.core,
         lifecycle: () => Stream.never,
@@ -48,7 +52,8 @@ it.live.each([
             });
           }),
       });
-      // Stop immediately after the durable timeout, before its cleanup effect can run.
+      // Accepted admission expires through settlement; uncommitted launch expires through admission.
+      // Stop after that durable timeout, before its cleanup effect can run.
       const crashBoundary: ServerPlugin = {
         ...plugin,
         acquire: Effect.gen(function* () {
@@ -63,7 +68,7 @@ it.live.each([
                     const [row] = yield* storage.sql<{
                       data: string;
                     }>`SELECT data FROM workflow_runs WHERE state='unresolved' LIMIT 1`;
-                    if (row && row.data.includes("The execution launch deadline expired.")) {
+                    if (row && row.data.includes(timeoutReason)) {
                       yield* Deferred.succeed(committed, undefined);
                       return yield* Effect.never;
                     }
@@ -78,7 +83,12 @@ it.live.each([
       const started = yield* runtime
         .invoke("start", {
           ...test.scope,
-          definition: sequence,
+          definition: yield* decodeDefinition({
+            ...sequence,
+            nodes: sequence.nodes.map((node) =>
+              node.kind === "agent" ? { ...node, timeoutMs: 60000 } : node,
+            ),
+          }),
           clientRequestId: "start",
           input: {},
           workspace: { type: "current" },
@@ -86,8 +96,29 @@ it.live.each([
         .pipe(Effect.flatMap(decodeRun));
       yield* runtime.invoke("reconcile", test.scope);
       const threadId = started.attempts[0]!.threadId!;
-      if (coreCommitted) expect(yield* test.threads.getThreadShell(threadId)).not.toBeNull();
-      else expect(yield* test.threads.getThreadShell(threadId)).toBeNull();
+      if (coreCommitted) {
+        expect(yield* test.threads.getThreadShell(threadId)).not.toBeNull();
+        const admitted = yield* runtime
+          .invoke("get", { ...test.scope, runId: started.id })
+          .pipe(Effect.flatMap(decodeRun));
+        expect(admitted.attempts[0]!.phase).toBe("running");
+        // Commit native work without starting a provider process.
+        yield* test.threads.dispatch({
+          type: "message.dispatch",
+          threadId,
+          commandId: CommandId.make("committed-work"),
+          messageId: MessageId.make("committed-message"),
+          text: "Retained execution",
+          attachments: [],
+          dispatchMode: { type: "defer_start" },
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        const native = yield* test.core.inspect({ ...test.scope, threadId });
+        expect(native.runs).toHaveLength(1);
+        expect(native.runs[0]!.status).toBe("preparing");
+        executionId = native.runs[0]!.id;
+      } else expect(yield* test.threads.getThreadShell(threadId)).toBeNull();
       if (scenario !== "pending-control") {
         const db = new NodeSqlite.DatabaseSync(test.databasePath);
         try {
@@ -101,6 +132,11 @@ it.live.each([
           const running = yield* runtime.invoke("reconcile", test.scope).pipe(Effect.forkScoped);
           yield* Deferred.await(committed);
           yield* Fiber.interrupt(running);
+          if (coreCommitted) {
+            const native = yield* test.core.inspect({ ...test.scope, threadId });
+            expect(native.runs).toHaveLength(1);
+            expect(native.runs[0]).toMatchObject({ id: executionId, status: "preparing" });
+          }
         } else if (!["expired-before-restart", "expired-live"].includes(scenario)) {
           yield* runtime.invoke("reconcile", test.scope);
           yield* runtime.invoke("reconcile", test.scope);
@@ -131,6 +167,15 @@ it.live.each([
         .invoke("get", { ...test.scope, runId: started.id })
         .pipe(Effect.flatMap(decodeRun));
       expect(state.state).toBe(scenario === "pending-control" ? "running" : "unresolved");
+      if (scenario !== "pending-control") {
+        expect(state.attempts[0]).toMatchObject({ phase: "unresolved", reason: timeoutReason });
+        expect(state.allowedActions).toEqual(["cancel", "retry"]);
+      }
+      if (coreCommitted) {
+        const native = yield* test.core.inspect({ ...test.scope, threadId });
+        expect(native.runs).toHaveLength(1);
+        expect(native.runs[0]).toMatchObject({ id: executionId, status: "interrupted" });
+      }
       yield* checkThread;
     }),
   ).pipe(Effect.provide(NodeServices.layer)),

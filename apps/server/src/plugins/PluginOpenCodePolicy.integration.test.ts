@@ -229,7 +229,7 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
         if (scenario !== "unchanged-compaction")
           entries.push(
             out("session.get", { sessionID: SESSION }),
-            reply("session.get", { data: native }),
+            reply("session.get", { data: { ...native, title: "Policy" } }),
             out("agent.list", "<any>"),
             reply("agent.list", {
               location: { directory: config.baseDir },
