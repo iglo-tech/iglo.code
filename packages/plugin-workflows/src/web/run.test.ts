@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { Attempt, Definition, Run } from "../contracts.ts";
 import { developmentReview } from "../examples.ts";
 import { flowGraph } from "./flowGraph.ts";
-import { stepStates, takenEdges } from "./run.ts";
+import { repeatLimit, stepStates, takenEdges } from "./run.ts";
 
 type Visit = Pick<Attempt, "nodeId" | "branchId" | "phase" | "generation">;
 type Routed = Pick<Run["trace"][number], "nodeId" | "chosen" | "considered" | "repeatCount">;
@@ -107,7 +107,9 @@ describe("taken routes", () => {
   const drawn = (definition: Definition) => new Set(flowGraph(definition).edges.map((e) => e.id));
 
   it("lights the edges the recorded routing took, including an exhausted repeat's At limit", () => {
-    const taken = takenEdges(developmentReview, [
+    // Distinct whole-run/repeat exits make the exhausted repeat edge identifiable.
+    const definition = { ...developmentReview, atLimit: "unresolved" };
+    const taken = takenEdges(definition, [
       ...toGate.trace,
       routed("rework", "implement", [], 1),
       routed("rework", "human", [], 1),
@@ -121,7 +123,7 @@ describe("taken routes", () => {
         "rework:otherwise.repeat",
       ].sort(),
     );
-    for (const id of taken) expect(drawn(developmentReview).has(id)).toBe(true);
+    for (const id of taken) expect(drawn(definition).has(id)).toBe(true);
   });
 
   it("tells two rules to the same step apart by the recorded first match", () => {
@@ -165,5 +167,100 @@ describe("taken routes", () => {
     expect([...takenEdges(definition, [routed("human", "done", [], 1)])]).toEqual([
       "human:changes.repeat",
     ]);
+  });
+});
+
+describe("recorded route evidence", () => {
+  const gate = (wholeLimit: string, max = 20, repeatExit = "human"): Definition => ({
+    ...developmentReview,
+    atLimit: wholeLimit,
+    nodes: developmentReview.nodes.map((node) =>
+      node.id === "human" && node.kind === "human"
+        ? { ...node, changes: { to: "implement", repeat: { max, atLimit: repeatExit } } }
+        : node,
+    ),
+  });
+
+  it("does not decorate ordinary approval with another route's repeat metadata", () => {
+    const definition = gate("human", 1, "done");
+    const item = routed("human", "done");
+    expect(repeatLimit(definition, item)).toBeNull();
+    expect([...takenEdges(definition, [item])]).toEqual(["human:approve"]);
+  });
+
+  it.each([
+    [20, 1],
+    [1, 1],
+    [20, 20],
+  ])("omits a shared whole-run/repeat exit with max %s and recorded count %s", (max, count) => {
+    const definition = gate("human", max);
+    const item = routed("human", "human", [], count);
+    expect([...takenEdges(definition, [item])]).toEqual([]);
+    expect(repeatLimit(definition, item)).toBeNull();
+  });
+
+  it("retains a repeat exit distinct from the whole-run limit without interpreting its count", () => {
+    const definition = gate("unresolved", 1, "done");
+    const item = routed("human", "done", [], 1);
+    expect([...takenEdges(definition, [item])]).toEqual(["human:changes.repeat"]);
+    expect(repeatLimit(definition, item)).toEqual({ to: "implement", max: 1, atLimit: "done" });
+  });
+
+  it("keeps a nonambiguous admitted repeat and ordinary route", () => {
+    const definition = gate("human");
+    const item = routed("human", "implement", [], 1);
+    expect([...takenEdges(definition, [item, routed("checks", "check-result")])]).toEqual([
+      "human:changes",
+      "checks:next",
+    ]);
+    expect(repeatLimit(definition, item)?.max).toBe(20);
+  });
+
+  it("does not choose between ordinary controls sharing a destination", () => {
+    const definition: Definition = {
+      ...gate("unresolved"),
+      nodes: developmentReview.nodes.map((node) =>
+        node.id === "human" && node.kind === "human"
+          ? { ...node, approve: { to: "done" }, changes: { to: "done" } }
+          : node,
+      ),
+    };
+    expect([...takenEdges(definition, [routed("human", "done")])]).toEqual([]);
+  });
+
+  it("does not choose between repeat controls or invent one of their limits", () => {
+    const definition = gate("unresolved");
+    const human = definition.nodes.find((node) => node.id === "human");
+    if (human?.kind !== "human") throw new Error("Expected human fixture");
+    const ambiguous: Definition = {
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node === human
+          ? { ...human, approve: { to: "implement", repeat: { max: 2, atLimit: "done" } } }
+          : node,
+      ),
+    };
+    const item = routed("human", "implement", [], 1);
+    expect([...takenEdges(ambiguous, [item])]).toEqual([]);
+    expect(repeatLimit(ambiguous, item)).toBeNull();
+  });
+
+  it("omits the edge when a repeat's normal and limit destinations are identical", () => {
+    const definition = gate("unresolved", 1, "implement");
+    const item = routed("human", "implement", [], 1);
+    expect([...takenEdges(definition, [item])]).toEqual([]);
+    expect(repeatLimit(definition, item)?.max).toBe(1);
+  });
+
+  it("does not highlight an ordinary edge that could instead be a whole-run redirect", () => {
+    const definition: Definition = {
+      ...gate("done"),
+      nodes: developmentReview.nodes.map((node) =>
+        node.id === "human" && node.kind === "human"
+          ? { ...node, changes: { to: "implement" } }
+          : node,
+      ),
+    };
+    expect([...takenEdges(definition, [routed("human", "done")])]).toEqual([]);
   });
 });

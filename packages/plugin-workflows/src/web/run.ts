@@ -1,4 +1,4 @@
-import type { Attempt, Definition, Node, Predicate, Run, RunSummary, Value } from "../contracts.ts";
+import type { Attempt, Definition, Predicate, Run, RunSummary, Value } from "../contracts.ts";
 import { routeControls } from "../definition.ts";
 
 /** Presentation of server-owned run state. Nothing here evaluates routes or recovery rules. */
@@ -97,39 +97,43 @@ export function predicateText(predicate: Predicate): string {
   }
 }
 
-/**
- * The authored repeat route behind a recorded edge (`to` is its normal destination), so a
- * counter can be shown against its limit and an at-limit exit told apart.
- */
-export function repeatLimit(definition: Definition, from: string, to: string) {
-  const node = definition.nodes.find((node) => node.id === from);
+type RecordedRoute = Pick<Run["trace"][number], "nodeId" | "chosen" | "considered" | "repeatCount">;
+
+/** Identify only what the recorded kind, predicates and destination establish unambiguously. */
+function recordedRoute(definition: Definition, item: RecordedRoute) {
+  const node = definition.nodes.find((candidate) => candidate.id === item.nodeId);
   if (node === undefined) return null;
-  const routes = routesOf(node);
-  // An exhausted repeat records its at-limit destination as the chosen edge.
-  return (
-    routes.flatMap((route) =>
-      route.repeat && (route.to === to || route.repeat.atLimit === to)
-        ? [{ ...route.repeat, to: route.to }]
-        : [],
-    )[0] ?? null
-  );
-}
-function routesOf(node: Node) {
-  switch (node.kind) {
-    case "agent":
-    case "check":
-      return [node.next, ...(node.onUnresolved ? [node.onUnresolved] : [])];
-    case "decision":
-    case "join":
-      return [...node.rules.map((rule) => rule.route), node.otherwise];
-    case "human":
-      return [node.approve, node.changes];
-    default:
-      return [];
+  let controls = routeControls(node);
+  if (node.kind === "decision" || node.kind === "join") {
+    const matched = item.considered.findIndex((choice) => choice.matched);
+    const control =
+      matched >= 0
+        ? `rules.${matched}`
+        : item.considered.length === node.rules.length
+          ? "otherwise"
+          : null;
+    controls = controls.filter((candidate) => candidate.control === control);
   }
+  controls = controls.filter(
+    ({ route }) => (item.repeatCount === null) === (route.repeat === undefined),
+  );
+  // A whole-run redirect can share an authored destination with another control or repeat exit.
+  // The trace has no outcome discriminator, even when its count coincides with the repeat max.
+  if (item.chosen === definition.atLimit && controls.some(({ route }) => route.to !== item.chosen))
+    return null;
+  const matches = controls.filter(
+    ({ route }) => route.to === item.chosen || route.repeat?.atLimit === item.chosen,
+  );
+  return matches.length === 1 ? matches[0]! : null;
 }
 
-/** What the user can do next, read from the server's state and allowed actions. */
+/** Repeat metadata is decoration, so ambiguous records keep only their persisted count. */
+export function repeatLimit(definition: Definition, item: RecordedRoute) {
+  if (item.repeatCount === null) return null;
+  const found = recordedRoute(definition, item);
+  return found?.route.repeat ? { ...found.route.repeat, to: found.route.to } : null;
+}
+
 export function nextAction(
   run: Run | RunSummary,
   active: ReadonlyArray<Pick<Attempt, "phase">> = run.attempts,
@@ -288,7 +292,7 @@ export function stepStates(run: {
  * The drawn edges (by `flowGraph` edge id) that recorded routing decisions took. The trace
  * names the step and destination; a decision's rule is identified by the first matching
  * condition it recorded (rules are evaluated in order), so two rules to the same step stay
- * distinct. Other steps' routes are told apart by destination, as that is all the trace keeps.
+ * distinct. Ambiguous shared destinations and budget redirects stay unhighlighted.
  */
 export function takenEdges(
   definition: Definition,
@@ -298,27 +302,13 @@ export function takenEdges(
 ): ReadonlySet<string> {
   const taken = new Set<string>();
   for (const item of trace) {
-    const node = definition.nodes.find((candidate) => candidate.id === item.nodeId);
-    if (node === undefined) continue;
-    let controls = routeControls(node);
-    if ((node.kind === "decision" || node.kind === "join") && item.considered.length > 0) {
-      const matched = item.considered.findIndex((choice) => choice.matched);
-      const control =
-        matched >= 0
-          ? `rules.${matched}`
-          : item.considered.length === node.rules.length
-            ? "otherwise"
-            : null;
-      controls = controls.filter((candidate) => candidate.control === control);
-    }
-    for (const { control, route } of controls) {
-      // The engine records a repeat count exactly when the chosen route repeats, so a
-      // non-repeating route never lights a repeat route's At limit edge and vice versa.
-      if ((item.repeatCount === null) !== (route.repeat === undefined)) continue;
-      if (route.to === item.chosen) taken.add(`${node.id}:${control}`);
-      // An exhausted repeat records its At limit destination.
-      else if (route.repeat?.atLimit === item.chosen) taken.add(`${node.id}:${control}.repeat`);
-    }
+    const found = recordedRoute(definition, item);
+    if (found === null) continue;
+    const { control, route } = found;
+    // A repeat with the same normal/limit destination does not establish which edge it took.
+    if (route.repeat?.atLimit === route.to) continue;
+    if (route.to === item.chosen) taken.add(`${item.nodeId}:${control}`);
+    else if (route.repeat?.atLimit === item.chosen) taken.add(`${item.nodeId}:${control}.repeat`);
   }
   return taken;
 }

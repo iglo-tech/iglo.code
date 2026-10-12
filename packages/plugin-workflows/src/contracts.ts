@@ -905,6 +905,8 @@ export interface WorkflowClient {
     input: Scoped<RunInput>,
     onRun: (run: Run) => void,
     onError: (message: string) => void,
+    /** The current stream is replacing retained state; only a new delivery reconciles it. */
+    onWaiting?: () => void,
   ) => () => void;
   /** The thread's owning run and attempt, live; returns the unsubscribe function. */
   readonly watchThread: (

@@ -25,7 +25,9 @@ import {
   preloadWorkflowPages,
   web as workflowsWeb,
 } from "@t3tools/plugin-workflows/web";
+import { Run as RunSchema } from "@t3tools/plugin-workflows/contracts";
 import type {
+  Definition,
   Run,
   ThreadLink,
   WorkflowClient,
@@ -53,6 +55,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import * as Schema from "effect/Schema";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { Atom } from "effect/reactivity";
 import { act, useMemo, useSyncExternalStore } from "react";
@@ -69,11 +72,13 @@ import {
   origin,
 } from "../../server/src/plugins/PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../../server/src/orchestration-v2/testkit/ProviderReplayHarness.ts";
+import { takenEdges } from "../../../packages/plugin-workflows/src/web/run.ts";
 
 const binding = vi.hoisted(() => ({
   configs: new Map<string, ServerConfig>(),
   contexts: new Map<string, Context.Context<Supervisor.EnvironmentSupervisor>>(),
   prepared: new Map<string, Atom.Writable<Option.Option<boolean>>>(),
+  runDelivery: new Map<string, (run: Run) => Promise<void>>(),
 }));
 
 // Bind the production client to each test environment's authenticated server session.
@@ -82,6 +87,9 @@ vi.mock("../src/connection/runtime", async () => {
   const Layer = await import("effect/Layer");
   const Effect = await import("effect/Effect");
   const Stream = await import("effect/Stream");
+  const Schema = await import("effect/Schema");
+  const { Run } = await import("@t3tools/plugin-workflows/contracts");
+  const isRun = Schema.is(Run);
   const SubscriptionRef = await import("effect/SubscriptionRef");
   const { FetchHttpClient } = await import("effect/http");
   const { EnvironmentRegistry } = await import("@t3tools/client-runtime/connection");
@@ -108,7 +116,17 @@ vi.mock("../src/connection/runtime", async () => {
                 Effect.sync(() => {
                   const context = binding.contexts.get(environmentId);
                   if (context === undefined) throw new Error("Unexpected client environment");
-                  return Stream.concat(Stream.provideContext(stream, context), Stream.never);
+                  return Stream.concat(
+                    Stream.provideContext(stream, context).pipe(
+                      Stream.tap((value) => {
+                        const deliver = binding.runDelivery.get(environmentId);
+                        return deliver && isRun(value)
+                          ? Effect.promise(() => deliver(value))
+                          : Effect.void;
+                      }),
+                    ),
+                    Stream.never,
+                  );
                 }),
               ),
           });
@@ -453,6 +471,7 @@ function track(client: WorkflowClient) {
     resolve: () => void;
   }> = [];
   let beforeCancel: (() => Promise<void>) | null = null;
+  let runRequest: Parameters<WorkflowClient["watchRun"]>[0] | null = null;
   const wrapped: WorkflowClient = {
     ...client,
     subscribePermissions: (listener) =>
@@ -526,7 +545,9 @@ function track(client: WorkflowClient) {
         ),
       );
     },
-    watchRun: (input, onRun, onError) => {
+    watchRun: (input, onRun, onError, onWaiting) => {
+      runRequest = input;
+      runs = [];
       runErrors.add(onError);
       const close = release(
         client.watchRun(
@@ -540,6 +561,7 @@ function track(client: WorkflowClient) {
             }
           },
           onError,
+          onWaiting,
         ),
       );
       return () => {
@@ -550,6 +572,10 @@ function track(client: WorkflowClient) {
   };
   return {
     client: wrapped,
+    runRequest: () => {
+      if (runRequest === null) throw new Error("Expected an open run subscription");
+      return runRequest;
+    },
     settle: async (method: string) => {
       const call = await next(method);
       await act(async () => {
@@ -1246,7 +1272,47 @@ it.live(
         expect(page()).toContain("Not updating");
         expect(page()).toContain("The run subscription ended.");
         expect(button("Approve").props.disabled).toBe(true);
+        // Hold real RPC snapshots before the production adapter, with an independent live
+        // consumer retaining the same request's prior success. Cached state cannot reconcile us.
+        const peerReady = Promise.withResolvers<void>();
+        const releasePeer = createWorkflowsClient(first.environmentId).watchRun(
+          tracked.runRequest(),
+          () => peerReady.resolve(),
+          (message) => peerReady.reject(new Error(message)),
+        );
+        yield* Effect.addFinalizer(() => Effect.sync(releasePeer));
+        yield* promise(() => peerReady.promise);
+        const held = new Set<() => void>();
+        const holdRunDelivery = () => {
+          const captured = Promise.withResolvers<Run>();
+          const released = Promise.withResolvers<void>();
+          const release = () => {
+            binding.runDelivery.delete(first.environmentId);
+            released.resolve();
+            held.delete(release);
+          };
+          held.add(release);
+          binding.runDelivery.set(first.environmentId, async (run) => {
+            captured.resolve(run);
+            await released.promise;
+          });
+          return { captured: captured.promise, release };
+        };
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            for (const release of held) release();
+          }),
+        );
+        const retryDelivery = holdRunDelivery();
         yield* promise(() => click("Retry"));
+        expect(
+          button("Approve").props.disabled,
+          "Replacement run must reconcile before approval",
+        ).toBe(true);
+        yield* promise(() => retryDelivery.captured);
+        expect(page()).toContain("Not updating");
+        expect(button("Cancel run").props.disabled).toBe(true);
+        retryDelivery.release();
         yield* promise(() => tracked.run((run) => run.state === "awaiting-review"));
         expect(page()).not.toContain("Not updating");
         expect(button("Approve").props.disabled, "approve-1").toBe(false);
@@ -1257,10 +1323,58 @@ it.live(
         expect(page()).toContain("Last loaded state");
         expect(button("Approve").props.disabled).toBe(true);
         expect(page()).toContain("Actions wait until this environment reconnects");
+        const reconnectDelivery = holdRunDelivery();
         connections.delete(first.environmentId);
         yield* promise(rerender);
+        expect(button("Approve").props.disabled, "Reconnect must reconcile before approval").toBe(
+          true,
+        );
+        yield* promise(() => reconnectDelivery.captured);
+        expect(page()).toContain("Not updating");
+        expect(button("Cancel run").props.disabled).toBe(true);
+        reconnectDelivery.release();
         yield* promise(() => tracked.run((run) => run.state === "awaiting-review"));
         expect(button("Approve").props.disabled, "approve-2").toBe(false);
+        releasePeer();
+        // Catalog replacement reevaluates a live atom with a retained waiting Success.
+        // Its old envelope cannot become a delivery of the new stream generation.
+        const refreshReady = Promise.withResolvers<void>();
+        const refreshWaiting = Promise.withResolvers<void>();
+        const refreshReceived = Promise.withResolvers<Run>();
+        let refreshing = false;
+        let freshReceived = false;
+        const releaseRefresh = createWorkflowsClient(first.environmentId).watchRun(
+          tracked.runRequest(),
+          (value) => {
+            if (refreshing) {
+              freshReceived = true;
+              refreshReceived.resolve(value);
+            } else refreshReady.resolve();
+          },
+          (message) => refreshReceived.reject(new Error(message)),
+          () => {
+            if (refreshing) refreshWaiting.resolve();
+          },
+        );
+        yield* Effect.addFinalizer(() => Effect.sync(releaseRefresh));
+        yield* promise(() => refreshReady.promise);
+        const refreshDelivery = holdRunDelivery();
+        refreshing = true;
+        const currentPrepared = binding.prepared.get(first.environmentId);
+        if (currentPrepared === undefined) throw new Error("Expected the current gate connection");
+        yield* promise(() => act(async () => appAtomRegistry.set(currentPrepared, Option.none())));
+        yield* promise(() => refreshWaiting.promise);
+        expect(freshReceived).toBe(false);
+        yield* promise(() =>
+          act(async () => appAtomRegistry.set(currentPrepared, Option.some(true))),
+        );
+        yield* promise(() => refreshDelivery.captured);
+        expect(freshReceived, "A retained waiting value is not a new stream delivery").toBe(false);
+        refreshDelivery.release();
+        const refreshed = yield* promise(() => refreshReceived.promise);
+        expect(refreshed.id).toBe(runId);
+        yield* promise(() => tracked.run((run) => run.state === "awaiting-review"));
+        releaseRefresh();
         yield* promise(() => click("Approve"));
         yield* promise(() => tracked.settle("gate"));
         yield* promise(() => tracked.run((run) => run.state === "completed"));
@@ -1553,6 +1667,145 @@ it.live(
         );
         yield* promise(() => second.tracked.link((link) => link === null));
         expect(buttons("Open workflow run")).toHaveLength(0);
+
+        // Real manual gates cover both the rendered row and graph evidence without provider work.
+        const routingDefinition = (
+          id: string,
+          atLimit: string,
+          max = 1,
+          maxVisits = 100,
+        ): Definition => ({
+          version: 1,
+          id,
+          revision: 1,
+          title: "Routing evidence",
+          entry: "review",
+          atLimit,
+          maxVisits,
+          nodes: [
+            {
+              id: "review",
+              kind: "human",
+              title: "Human review",
+              approve: { to: "done" },
+              changes: {
+                to: "work",
+                repeat: { max, atLimit: atLimit === "stop" ? "done" : "review" },
+              },
+            },
+            maxVisits === 1
+              ? {
+                  id: "work",
+                  kind: "agent",
+                  title: "Work",
+                  instruction: "Do the work",
+                  modelSelection: {
+                    instanceId: ProviderInstanceId.make("codex"),
+                    model: "gpt-5.4",
+                  },
+                  runtimeMode: "approval-required",
+                  report: { fields: [{ name: "ready", type: "boolean", required: true }] },
+                  next: { to: "review" },
+                }
+              : {
+                  id: "work",
+                  kind: "human",
+                  title: "Manual work",
+                  approve: { to: "review" },
+                  changes: { to: "stop" },
+                },
+            { id: "done", kind: "end", title: "Done", outcome: "completed" },
+            { id: "stop", kind: "end", title: "Stopped", outcome: "unresolved" },
+          ],
+        });
+        const startRouting = Effect.fnUntraced(function* (definition: Definition) {
+          yield* fs.writeFileString(
+            `${first.directory}/${definition.id}.yaml`,
+            Yaml.stringify(definition),
+          );
+          return yield* first
+            .invoke("launch", {
+              ...scope,
+              clientRequestId: definition.id,
+              definitionId: definition.id,
+              revision: 1,
+              task: "Inspect recorded routing",
+              workspace: "current",
+            })
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(RunSchema)));
+        });
+        const decide = (run: Run, decision: "approve" | "request-changes", id: string) =>
+          first
+            .invoke("gate", {
+              ...scope,
+              runId: run.id,
+              clientRequestId: id,
+              expectedRevision: run.gate!.revision,
+              decision,
+            })
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(RunSchema)));
+        const showRouting = (run: Run) =>
+          promise(async () => {
+            await go(first.environmentId, "workflows.runs", { run: run.id, node: "review" });
+            await tracked.run((value) => value.id === run.id && value.revision === run.revision);
+          });
+        // Approval shares the other route's repeat exit, but its persisted kind is ordinary.
+        const ordinary = routingDefinition("ordinary-routing", "stop");
+        const approved = yield* decide(
+          yield* startRouting(ordinary),
+          "approve",
+          "ordinary-approve",
+        );
+        expect(approved.trace.at(-1)).toMatchObject({ chosen: "done", repeatCount: null });
+        expect(approved.repeats).toEqual({});
+        expect(approved.automationStopped).toBe(false);
+        expect([...takenEdges(approved.definition, approved.trace)]).toEqual(["review:approve"]);
+        yield* showRouting(approved);
+        expect(textOf(labelled("Recorded routing")[0]!)).toContain("Human review → Done");
+        expect(textOf(labelled("Recorded routing")[0]!)).not.toContain("at limit");
+        expect(textOf(labelled("Recorded routing")[0]!)).not.toContain("repeat");
+
+        // A distinct repeat exit remains identifiable after the actual second decision.
+        const initialRepeat = yield* startRouting(routingDefinition("repeat-routing", "stop"));
+        const workGate = yield* decide(initialRepeat, "request-changes", "repeat-first");
+        const reviewGate = yield* decide(workGate, "approve", "repeat-return");
+        const exhausted = yield* decide(reviewGate, "request-changes", "repeat-exhausted");
+        expect(exhausted.trace.at(-1)).toMatchObject({
+          chosen: "done",
+          repeatCount: 1,
+          reason: "The repeat limit was reached.",
+        });
+        expect([...takenEdges(exhausted.definition, exhausted.trace)]).toContain(
+          "review:changes.repeat",
+        );
+        yield* showRouting(exhausted);
+        expect(textOf(labelled("Recorded routing")[0]!)).toContain("at limit");
+
+        // Whole-run redirects share the repeat exit both below and exactly at its repeat max.
+        for (const max of [20, 1]) {
+          const initialWhole = yield* startRouting(
+            routingDefinition(`whole-routing-${max}`, "review", max, 1),
+          );
+          const redirected = yield* decide(
+            initialWhole,
+            "request-changes",
+            `whole-redirect-${max}`,
+          );
+          expect(redirected.trace.at(-1)).toMatchObject({
+            chosen: "review",
+            repeatCount: 1,
+            reason: "The whole-run visit limit was reached.",
+          });
+          expect(redirected.attempts).toHaveLength(0);
+          expect(redirected.trace).toHaveLength(1);
+          expect(redirected.repeats).toEqual({ "review:work": 1 });
+          expect([...takenEdges(redirected.definition, redirected.trace)]).toEqual([]);
+          yield* showRouting(redirected);
+          expect(textOf(labelled("Recorded routing")[0]!)).toContain("Human review → Human review");
+          expect(textOf(labelled("Recorded routing")[0]!)).toContain("repeat 1");
+          expect(textOf(labelled("Recorded routing")[0]!)).not.toContain("at limit");
+          expect(textOf(labelled("Recorded routing")[0]!)).not.toContain("/20");
+        }
         yield* promise(unmount);
         expect(tracked.openSubscriptions()).toBe(0);
         expect(second.tracked.openSubscriptions()).toBe(0);

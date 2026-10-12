@@ -110,12 +110,13 @@ export function RunView({
   const [view, setView] = useState<View>(() => (canvasSupported() ? "graph" : "routes"));
   const [inspectorOpen, setInspectorOpen] = useState(false);
 
-  // View-scoped: this subscription follows only this run and closes when the view leaves.
-  useEffect(() => {
-    if (offline) return;
-    setLoadError(null);
-    return client.watchRun(
-      {
+  const lifetime = useMemo(
+    () => ({
+      client,
+      offline,
+      subscription,
+      environmentId: props.environmentId,
+      input: {
         projectId,
         runId,
         ...(historyOffset !== undefined
@@ -125,13 +126,52 @@ export function RunView({
             : {}),
         ...(traceOffset === undefined ? {} : { traceOffset }),
       },
+    }),
+    [
+      client,
+      offline,
+      subscription,
+      props.environmentId,
+      projectId,
+      runId,
+      historyOffset,
+      locate,
+      traceOffset,
+    ],
+  );
+  const [freshLifetime, setFreshLifetime] = useState<typeof lifetime | null>(null);
+  // Retained state is read-only until this exact subscription delivers a fresh snapshot.
+  useEffect(() => {
+    if (lifetime.offline) return;
+    let current = true;
+    const release = lifetime.client.watchRun(
+      lifetime.input,
       (value) => {
+        if (
+          !current ||
+          value.id !== lifetime.input.runId ||
+          value.projectId !== lifetime.input.projectId ||
+          value.environmentId !== lifetime.environmentId
+        )
+          return;
         setLoadError(null);
         setRun(value);
+        setFreshLifetime(lifetime);
       },
-      setLoadError,
+      (message) => {
+        if (!current) return;
+        setFreshLifetime(null);
+        setLoadError(message);
+      },
+      () => {
+        if (current) setFreshLifetime(null);
+      },
     );
-  }, [client, projectId, runId, historyOffset, locate, traceOffset, offline, subscription]);
+    return () => {
+      current = false;
+      release();
+    };
+  }, [lifetime]);
   // "View route" from a thread focuses that step's box once it exists: the graph reports it
   // after its boxes are measured; the list views focus it once rendered.
   const [routeFocus, setRouteFocus] = useState<string | null>(() =>
@@ -218,7 +258,7 @@ export function RunView({
         ? selectedNode
         : `${selectedNode}/${selectedBranch}`;
   // The view keeps its last snapshot after the subscription fails, but marks it stale.
-  const stale = loadError !== null;
+  const stale = loadError !== null || freshLifetime !== lifetime;
   const select = (state: { node: string; attempt?: string; branch?: string | null } | null) => {
     props.navigate(
       {
@@ -251,6 +291,7 @@ export function RunView({
     (action === "approve" || action === "request-changes" ? permissions.gate : permissions[action]);
   const busy = pending?.inFlight === true;
   const send = (action: Action) => {
+    if (offline || stale || busy || !allowed(action)) return;
     const command: Pending =
       pending?.action === action
         ? { ...pending, inFlight: true, message: null }
@@ -1142,7 +1183,7 @@ function RouteRow({
   readonly detailed?: boolean;
 }) {
   const { Badge } = props;
-  const limit = repeatLimit(definition, item.nodeId, item.chosen);
+  const limit = repeatLimit(definition, item);
   const atLimit = limit !== null && item.chosen === limit.atLimit && item.chosen !== limit.to;
   const Icon = atLimit
     ? TriangleAlertIcon

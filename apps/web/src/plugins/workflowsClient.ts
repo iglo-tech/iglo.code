@@ -33,6 +33,7 @@ import {
 import * as Stream from "effect/Stream";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { Atom, type AsyncResult } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -219,52 +220,92 @@ const unpublished = () =>
       message: "Workflows is unavailable or disconnected in this environment.",
     }),
   );
-// Keyed by the exact request so each view owns, and releases, its own subscription.
+// The generation distinguishes actual stream emissions from AsyncResult's retained value.
+// Live streams stay `waiting` even after delivering, so that flag alone is not freshness.
+const streamAtom = <TTag extends EnvironmentSubscriptionRpcTag>(
+  method: TTag,
+  input: EnvironmentRpcInput<TTag> & { environmentId: EnvironmentId },
+) => {
+  let generation = 0;
+  const atom = connectionAtomRuntime
+    .atom((get) => {
+      const current = ++generation;
+      const state = publication(
+        get(availableCatalogAtom(input.environmentId)),
+        input.environmentId,
+        method,
+      );
+      const stream: Stream.Stream<
+        EnvironmentRpcStreamValue<TTag>,
+        EnvironmentRpcStreamFailure<TTag> | PluginError,
+        EnvironmentRegistry.EnvironmentRegistry
+      > = state === "published"
+        ? followStreamInEnvironment(input.environmentId, subscribe(method, input))
+        : state === "loading"
+          ? Stream.never
+          : unpublished();
+      // An already-waiting Success is equal to its retained value on reevaluation. Emit
+      // a distinct pending marker so listeners hold mutations before the next live value.
+      return Stream.concat(
+        Stream.succeed({
+          generation: current,
+          value: Option.none<EnvironmentRpcStreamValue<TTag>>(),
+        }),
+        stream.pipe(Stream.map((value) => ({ generation: current, value: Option.some(value) }))),
+      );
+    })
+    .pipe(Atom.setIdleTTL(0));
+  return { atom, generation: () => generation };
+};
 const streamFamily = <TTag extends EnvironmentSubscriptionRpcTag>(method: TTag) =>
-  Atom.family((key: string) => {
-    const input = JSON.parse(key) as EnvironmentRpcInput<TTag> & { environmentId: EnvironmentId };
-    return connectionAtomRuntime
-      .atom(
-        (
-          get,
-        ): Stream.Stream<
-          EnvironmentRpcStreamValue<TTag>,
-          EnvironmentRpcStreamFailure<TTag> | PluginError,
-          EnvironmentRegistry.EnvironmentRegistry
-        > => {
-          const state = publication(
-            get(availableCatalogAtom(input.environmentId)),
-            input.environmentId,
-            method,
-          );
-          return state === "published"
-            ? followStreamInEnvironment(input.environmentId, subscribe(method, input))
-            : state === "loading"
-              ? Stream.never
-              : unpublished();
-        },
-      )
-      .pipe(Atom.setIdleTTL(0));
-  });
+  Atom.family((key: string) =>
+    streamAtom(
+      method,
+      JSON.parse(key) as EnvironmentRpcInput<TTag> & { environmentId: EnvironmentId },
+    ),
+  );
 const runsAtom = streamFamily("plugins.workflows.subscribe");
-const runAtom = streamFamily("plugins.workflows.watch");
 const threadAtom = streamFamily("plugins.workflows.thread");
 const listen = <A>(
-  atom: Atom.Atom<AsyncResult.AsyncResult<A, unknown>>,
+  source: {
+    readonly atom: Atom.Atom<
+      AsyncResult.AsyncResult<
+        { readonly generation: number; readonly value: Option.Option<A> },
+        unknown
+      >
+    >;
+    readonly generation: () => number;
+  },
   onValue: (value: A) => void,
   onError: (message: string) => void,
-) =>
-  appAtomRegistry.subscribe(
-    atom,
+  onWaiting?: () => void,
+) => {
+  let active = true;
+  let delivered: { readonly generation: number; readonly value: Option.Option<A> } | null = null;
+  const release = appAtomRegistry.subscribe(
+    source.atom,
     (result) => {
-      if (result._tag === "Success") onValue(result.value);
-      if (result._tag === "Failure") {
+      if (!active) return;
+      if (
+        result._tag === "Success" &&
+        result.value.generation === source.generation() &&
+        Option.isSome(result.value.value)
+      ) {
+        if (delivered === result.value) return;
+        delivered = result.value;
+        onValue(result.value.value.value);
+      } else if (result._tag === "Failure" && !result.waiting) {
         const error = Cause.squash(result.cause);
         onError(error instanceof Error ? error.message : "The workflow subscription ended.");
-      }
+      } else if (delivered?.generation !== source.generation()) onWaiting?.();
     },
     { immediate: true },
   );
+  return () => {
+    active = false;
+    release();
+  };
+};
 
 /** Every call is bound to one environment; a disconnected target fails instead of falling back. */
 export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowClient {
@@ -287,20 +328,14 @@ export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowCli
     runs: async (input) => settle(await runs.run(appAtomRegistry, target(input))),
     subscribeRuns: (projectId, onRuns, onError) =>
       listen(runsAtom(JSON.stringify({ environmentId, projectId })), onRuns, onError),
-    watchRun: (input, onRun, onError) =>
+    // Each run view lifetime owns a fresh atom: another consumer's cached success cannot
+    // reconcile a replacement view before its own authenticated stream has delivered.
+    watchRun: (input, onRun, onError, onWaiting) =>
       listen(
-        runAtom(
-          JSON.stringify({
-            environmentId,
-            projectId: input.projectId,
-            runId: input.runId,
-            ...(input.historyOffset === undefined ? {} : { historyOffset: input.historyOffset }),
-            ...(input.attemptId === undefined ? {} : { attemptId: input.attemptId }),
-            ...(input.traceOffset === undefined ? {} : { traceOffset: input.traceOffset }),
-          }),
-        ),
+        streamAtom("plugins.workflows.watch", { ...input, environmentId }),
         onRun,
         onError,
+        onWaiting,
       ),
     watchThread: (input, onLink, onError) =>
       listen(threadAtom(JSON.stringify({ environmentId, ...input })), onLink, onError),
