@@ -73,7 +73,7 @@ layer("055_OrchestrationV2", (it) => {
           [61, "McpAppModelContext"],
           [62, "ThreadSnapshotWindowIndexes"],
           [63, "PullRequestReviewGuides"],
-        [64, "ThreadFailureLookupIndex"],
+          [64, "ThreadFailureLookupIndex"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -87,7 +87,7 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 61, name: "McpAppModelContext" },
             { migration_id: 62, name: "ThreadSnapshotWindowIndexes" },
             { migration_id: 63, name: "PullRequestReviewGuides" },
-        { migration_id: 64, name: "ThreadFailureLookupIndex" },
+            { migration_id: 64, name: "ThreadFailureLookupIndex" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
