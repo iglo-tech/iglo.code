@@ -246,10 +246,14 @@ export function stepStates(run: {
       const generations = new Set(
         run.attempts.filter((item) => item.nodeId === node.id).map((item) => item.generation),
       ).size;
+      const settled = node.branches.filter((branch) => {
+        const attempt = latest.get(`${node.id}/${branch.id}`);
+        return attempt !== undefined && !isActive(attempt);
+      }).length;
       states.set(node.id, {
         status,
         word: statusWords[status],
-        label: `${lanes.filter((lane) => lane.status === "completed").length} of ${node.branches.length} settled`,
+        label: `${settled} of ${node.branches.length} settled`,
         visits: generations,
       });
       continue;

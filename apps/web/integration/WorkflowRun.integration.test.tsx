@@ -1652,6 +1652,112 @@ it.live(
         expect(page()).toContain("The pull request head changed after review.");
         expect(page()).toContain("Unresolved");
 
+        // An accepted completed claim remains distinct from failed native settlement.
+        forge.head = HEAD;
+        const failedReview = (yield* first.invoke("launch", {
+          ...scope,
+          clientRequestId: "failed-review",
+          definitionId: "review",
+          revision: 1,
+          task: "Inspect unsuccessful reviewer settlement",
+          workspace: "current",
+        })) as Run;
+        yield* promise(() =>
+          go(first.environmentId, "workflows.runs", { run: failedReview.id, node: "reviews" }),
+        );
+        yield* reconcile;
+        const admittedReview = (yield* first.invoke("get", {
+          ...scope,
+          runId: failedReview.id,
+        })) as Run;
+        expect(admittedReview.attempts[0]?.phase).toBe("running");
+        yield* promise(() =>
+          tracked.run((run) => run.id === failedReview.id && run.attempts[0]?.phase === "running"),
+        );
+        expect(admittedReview.overview?.review).toMatchObject({
+          required: 1,
+          reported: 0,
+          settled: 0,
+          result: null,
+        });
+        expect(graphBox("reviews").props["aria-label"]).toBe("Parallel: Reviewers, 0 of 1 settled");
+        const failureThread = admittedReview.attempts[0]!.threadId!;
+        yield* reportTool.tool.invoke(
+          {
+            version: 1,
+            clientRetryKey: "failed-review-report",
+            outcome: "completed",
+            summary: "Claim accepted before native failure",
+            data: { verdict: "pass" },
+            evidence: [],
+          },
+          {
+            environmentId: first.environmentId,
+            projectId,
+            threadId: failureThread,
+            providerInstanceId: ProviderInstanceId.make("codex"),
+            providerSessionId: "native-session",
+            runtimeMode: "approval-required",
+          },
+        );
+        yield* promise(() =>
+          tracked.run((run) => run.id === failedReview.id && run.attempts[0]?.phase === "reported"),
+        );
+        expect(graphBox("reviews").props["aria-label"]).toBe("Parallel: Reviewers, 0 of 1 settled");
+        expect(graphEdge("reviews/code->join").data.taken).toBe(false);
+        const failingNative = threads.get(failureThread)!;
+        threads.set(failureThread, {
+          ...failingNative,
+          runs: failingNative.runs.map((run) => ({ ...run, status: "failed" })),
+        });
+        yield* reconcile;
+        yield* promise(() =>
+          tracked.run(
+            (run) =>
+              run.id === failedReview.id &&
+              run.attempts[0]?.phase === "failed" &&
+              run.overview?.review?.result === "failed",
+          ),
+        );
+        const failedSnapshot = (yield* first.invoke("get", {
+          ...scope,
+          runId: failedReview.id,
+        })) as Run;
+        expect(failedSnapshot.state).toBe("unresolved");
+        expect(failedSnapshot.overview?.review).toMatchObject({
+          required: 1,
+          reported: 1,
+          settled: 1,
+          result: "failed",
+        });
+        expect(failedSnapshot.attempts[0]).toMatchObject({
+          phase: "failed",
+          reason: "Native execution or checkpoint failed.",
+          report: { outcome: "completed" },
+        });
+        expect(graphBox("reviews").props["aria-label"]).toBe("Parallel: Reviewers, 1 of 1 settled");
+        expect(textOf(graphBox("reviews"))).toContain("Failed");
+        expect(graphBox("reviews/code").props["aria-label"]).toBe("Reviewer: Code, Failed");
+        expect(page()).toContain("reviews 1/1 reported, 1/1 settled");
+        yield* promise(() => selectGraphBox("reviews/code"));
+        expect(page()).toContain("ExecutionFailed");
+        expect(page()).toContain("Report accepted (completed claim)");
+        expect(page()).toContain("Native execution or checkpoint failed.");
+        expect(failedSnapshot.trace).toHaveLength(1);
+        expect(failedSnapshot.trace[0]).toMatchObject({
+          nodeId: "join",
+          chosen: "stop",
+          considered: [{ matched: false }],
+          sourceIds: [
+            failedSnapshot.reviews[0]!.id,
+            failedSnapshot.attempts[0]!.report!.receipt.id,
+          ],
+        });
+        expect(graphEdge("reviews/code->join").data.taken).toBe(false);
+        expect(graphEdge("join:rules.0").data.taken).toBe(false);
+        expect(graphEdge("join:otherwise").data.taken).toBe(true);
+        expect(failedSnapshot.allowedActions).not.toContain("approve");
+
         // A deep link to a visit older than the newest page opens that exact visit.
         const deep = (yield* first.invoke("launch", {
           ...scope,
