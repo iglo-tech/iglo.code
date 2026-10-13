@@ -207,18 +207,22 @@ export async function unusedWorkflowId(
   projectId: ProjectId,
   base: string,
 ): Promise<string> {
-  const page = await client.library({ projectId, query: base, limit: 50 });
-  const used = new Set([
+  let page = await client.library({ projectId, query: base, limit: 50 });
+  const used = new Set<string>();
+  for (;;) {
     // Saving a new workflow writes `<id>.yaml`, so authored file names (including invalid
     // files with no readable identity) are taken too.
-    ...page.entries.flatMap((entry) => [
-      ...(entry.definitionId === null ? [] : [entry.definitionId]),
-      ...(entry.packaged ? [] : [(entry.source.split("/").at(-1) ?? "").replace(/\.ya?ml$/, "")]),
-    ]),
-    ...projectDrafts(store, projectId).flatMap(
-      (draft) => readDraft(store, draft.key)?.definition.id ?? [],
-    ),
-  ]);
+    for (const entry of page.entries) {
+      if (entry.definitionId !== null) used.add(entry.definitionId);
+      if (!entry.packaged) used.add((entry.source.split("/").at(-1) ?? "").replace(/\.ya?ml$/, ""));
+    }
+    if (page.nextOffset === null) break;
+    page = await client.library({ projectId, query: base, offset: page.nextOffset, limit: 50 });
+  }
+  for (const id of projectDrafts(store, projectId).flatMap(
+    (draft) => readDraft(store, draft.key)?.definition.id ?? [],
+  ))
+    used.add(id);
   for (let index = 1; ; index++) {
     const candidate = index === 1 ? base : `${base}-${index}`;
     if (!used.has(candidate)) return candidate;

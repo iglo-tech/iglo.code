@@ -185,6 +185,12 @@ import { pluginDesign } from "../src/plugins/design";
 import { PluginPageContent } from "../src/plugins/PluginPageContent";
 import { validatePluginSearch } from "../src/plugins/pageLink";
 import { appAtomRegistry } from "../src/rpc/atomRegistry";
+import { createPluginDraftStore } from "../src/plugins/drafts";
+import {
+  draftKey,
+  unusedWorkflowId,
+  writeDraft,
+} from "../../../packages/plugin-workflows/src/web/common.tsx";
 
 const decodeDefinition = Schema.decodeUnknownSync(Definition);
 const projectId = ProjectId.make("same-project");
@@ -334,6 +340,191 @@ const memoryStorage = () => {
 const flush = () => act(() => new Promise<void>((resolve) => setImmediate(resolve)));
 const textOf = (node: ReactTestInstance): string =>
   node.children.map((child) => (typeof child === "string" ? child : textOf(child))).join("");
+
+/** Clone identity checks use the production client and authenticated, registered catalog API. */
+const cloneFixture = Effect.gen(function* () {
+  const config = {
+    ...(yield* makeReplayServerConfig("workflow-clone")),
+    noBrowser: true,
+    traceTimingEnabled: false,
+  };
+  const server = yield* startEnvironment(config, [replayedWorkflows]);
+  const environmentId = Context.get(server.context, Host).environmentId;
+  yield* Context.get(server.context, Projects.ProjectService).create({
+    commandId: CommandId.make("clone-project"),
+    projectId,
+    title: "Clone project",
+    workspaceRoot: config.baseDir,
+  });
+  const rpc = yield* makeClient(server.context, [
+    AuthOrchestrationReadScope,
+    AuthOrchestrationOperateScope,
+  ]);
+  const snapshot = yield* rpc[WS_METHODS.subscribeServerConfig]({}).pipe(Stream.runHead);
+  if (Option.isNone(snapshot) || snapshot.value.type !== "snapshot")
+    return yield* Effect.die("Expected config");
+  const target = new PrimaryConnectionTarget({
+    environmentId,
+    label: "Clone environment",
+    httpBaseUrl: origin(server.context),
+    wsBaseUrl: origin(server.context).replace("http", "ws"),
+  });
+  const writable = yield* Context.get(server.context, Auth.EnvironmentAuth).issueSession({
+    scopes: [AuthOrchestrationReadScope, AuthOrchestrationOperateScope],
+  });
+  const prepared = yield* SubscriptionRef.make<Option.Option<PreparedConnection>>(
+    Option.some({
+      environmentId,
+      label: target.label,
+      httpBaseUrl: target.httpBaseUrl,
+      socketUrl: target.wsBaseUrl,
+      httpAuthorization: { _tag: "Bearer", token: writable.token },
+      target,
+    } satisfies PreparedConnection),
+  );
+  const session: RpcSession = {
+    client: rpc,
+    initialConfig: Effect.succeed(snapshot.value.config),
+    subscribeServerConfig: (input) => rpc[WS_METHODS.subscribeServerConfig](input),
+    ready: Effect.void,
+    probe: Effect.void,
+    closed: Effect.never,
+  };
+  const context = yield* Layer.build(
+    Layer.mock(Supervisor.EnvironmentSupervisor)({
+      target,
+      session: yield* SubscriptionRef.make(Option.some(session)),
+      state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
+      prepared,
+    }),
+  );
+  binding.configs.set(environmentId, snapshot.value.config);
+  binding.contexts.set(environmentId, context);
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => {
+      appAtomRegistry.reset();
+      binding.configs.delete(environmentId);
+      binding.contexts.delete(environmentId);
+    }),
+  );
+  return {
+    environmentId,
+    directory: `${config.baseDir}/.t3code/workflows`,
+    client: createWorkflowsClient(environmentId),
+    drafts: createPluginDraftStore(memoryStorage(), environmentId, "workflows"),
+  };
+});
+
+it.live.each([
+  { copies: 3, expectedId: "implementation-copy-4" },
+  { copies: 51, expectedId: "implementation-copy-52" },
+])("clones and saves with $copies matching catalog files", ({ copies, expectedId }) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* cloneFixture;
+      const fs = yield* FileSystem.FileSystem;
+      const original = yield* Effect.promise(() =>
+        test.client.read({ projectId, source: "packaged:implementation" }),
+      );
+      if (original.definition === null) return yield* Effect.die("Expected packaged definition");
+      const definition = original.definition;
+      yield* fs.makeDirectory(test.directory, { recursive: true });
+      const existing = new Map<string, string>();
+      for (let index = 1; index <= copies; index++) {
+        const id = index === 1 ? "implementation-copy" : `implementation-copy-${index}`;
+        const text = Yaml.stringify({ ...definition, id });
+        existing.set(id, text);
+        yield* fs.writeFileString(`${test.directory}/${id}.yaml`, text);
+      }
+      const id = yield* Effect.promise(() =>
+        unusedWorkflowId(test.client, test.drafts, projectId, "implementation-copy"),
+      );
+      expect(id).toBe(expectedId);
+      const clone = { ...definition, id, title: `${definition.title} (copy)`, revision: 1 };
+      const saved = yield* Effect.promise(() =>
+        test.client.save({ projectId, definition: clone, expectedRevision: null }),
+      );
+      expect(saved).toMatchObject({ runnable: true, definition: clone });
+      const reopened = yield* Effect.promise(() =>
+        test.client.read({ projectId, source: saved.source }),
+      );
+      expect(reopened.definition).toEqual(clone);
+      expect(
+        decodeDefinition(Yaml.parse(yield* fs.readFileString(`${test.directory}/${id}.yaml`))),
+      ).toEqual(clone);
+      for (const [occupied, text] of existing)
+        expect(yield* fs.readFileString(`${test.directory}/${occupied}.yaml`)).toBe(text);
+      expect(
+        (yield* Effect.promise(() =>
+          test.client.read({ projectId, source: "packaged:implementation" }),
+        )).definition,
+      ).toEqual(definition);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("clones past a later-page invalid filename and scoped local drafts", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* cloneFixture;
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.makeDirectory(test.directory, { recursive: true });
+      const existing = new Map<string, string>();
+      for (let index = 2; index <= 51; index++)
+        existing.set(
+          `implementation-copy-${index}.yaml`,
+          Yaml.stringify(sequence(`implementation-copy-${index}`, `Copy ${index}`)),
+        );
+      existing.set("implementation-copy.yaml", "nodes: [");
+      // A valid file's declared identity differs from the filename that a new save would use.
+      existing.set(
+        "implementation-copy-52.yaml",
+        Yaml.stringify(sequence("different-identity", "Keep this filename")),
+      );
+      for (const [filename, text] of existing)
+        yield* fs.writeFileString(`${test.directory}/${filename}`, text);
+      const envelope = {
+        version: 1 as const,
+        base: { mode: "new" as const, source: null, fingerprint: null, revision: null },
+        definition: decodeDefinition(sequence("implementation-copy-53", "Local copy")),
+        updatedAt: 1,
+      };
+      expect(writeDraft(test.drafts, draftKey(projectId, "new:local"), envelope)).toBe(true);
+      const foreign = {
+        ...envelope,
+        definition: { ...envelope.definition, id: "implementation-copy-54" },
+      };
+      expect(
+        writeDraft(test.drafts, draftKey(ProjectId.make("other-project"), "new:local"), foreign),
+      ).toBe(true);
+      const draftBefore = test.drafts.read(draftKey(projectId, "new:local"));
+      const later = yield* Effect.promise(() =>
+        test.client.library({ projectId, query: "implementation-copy", offset: 50, limit: 50 }),
+      );
+      expect(later.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            source: ".t3code/workflows/implementation-copy.yaml",
+            definitionId: null,
+            reasons: ["Invalid workflow YAML."],
+          }),
+        ]),
+      );
+      const id = yield* Effect.promise(() =>
+        unusedWorkflowId(test.client, test.drafts, projectId, "implementation-copy"),
+      );
+      expect(id).toBe("implementation-copy-54");
+      const clone = decodeDefinition(sequence(id, "New copy"));
+      const saved = yield* Effect.promise(() =>
+        test.client.save({ projectId, definition: clone, expectedRevision: null }),
+      );
+      expect(saved).toMatchObject({ runnable: true, definition: clone });
+      expect(test.drafts.read(draftKey(projectId, "new:local"))).toBe(draftBefore);
+      for (const [filename, text] of existing)
+        expect(yield* fs.readFileString(`${test.directory}/${filename}`)).toBe(text);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.live(
   "authors, saves, repairs and clones workflows through the hosted pages on the selected environment",
