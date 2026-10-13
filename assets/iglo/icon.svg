@@ -36,14 +36,14 @@
 
     <!-- Construction marks. -->
     <g fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="2.5" stroke-linecap="round">
-      <path d="M284 96 V470" stroke-dasharray="8 8" stroke-opacity="0.3"/>
+      <path d="M265 96 V470" stroke-dasharray="8 8" stroke-opacity="0.3"/>
       <!-- Width dimension above the dome. -->
-      <path d="M70 110 H456 M70 98 V122 M456 98 V122"/>
+      <path d="M75 110 H437 M75 98 V122 M437 98 V122"/>
       <!-- Height dimension left of the dome. -->
       <path d="M36 154 V378 M24 154 H48 M24 378 H48"/>
       <!-- Door width below the base, then a split base dimension. -->
-      <path d="M100 412 H148 M100 400 V424 M148 400 V424"/>
-      <path d="M208 440 H300 M208 428 V452 M340 440 H456 M456 428 V452"/>
+      <path d="M105 412 H153 M105 400 V424 M153 400 V424"/>
+      <path d="M189 440 H281 M189 428 V452 M321 440 H437 M437 428 V452"/>
       <!-- Crosshairs and markers. -->
       <path d="M84 62 V82 M74 72 H94 M420 56 V76 M410 66 H430"/>
       <path d="M466 300 l12 12 M478 300 l-12 12 M58 452 l12 12 M70 452 l-12 12"/>
@@ -54,7 +54,7 @@
     <rect x="-4" y="-4" width="520" height="520" rx="116" fill="none" stroke="#dbeaff" stroke-opacity="0.8" stroke-width="18" filter="url(#edge-glow)"/>
   </g>
 
-  <g filter="url(#glyph-shadow)" transform="translate(0 -22)" stroke-linejoin="round">
+  <g filter="url(#glyph-shadow)" transform="translate(-19 -22)" stroke-linejoin="round">
     <!-- Dome. -->
     <path fill="url(#snow)" stroke="#ffffff" stroke-width="4" d="M112 362 A172 186 0 0 1 456 362 Q284 414 112 362 Z"/>
     <g fill="none" stroke="#b7c9e6" stroke-width="7" clip-path="url(#dome)">
@@ -63,9 +63,9 @@
       <path d="M330 394.6 L330 332.6 M420 380.2 L420 325.4 M292 338.5 L292 277.5 M380 334.5 L380 274.2 M338.4 281.4 L329.6 224.9 M245.4 281.9 L258.6 225.4"/>
     </g>
     <!-- Entrance tunnel: the front arch extruded back into the dome. -->
-    <path fill="#dbe5f4" stroke="#b7c9e6" stroke-width="6" d="M110.9 297.6 L158.9 285.6 A54 54 0 0 1 226 338 V386 L178 398 V350 A54 54 0 0 0 110.9 297.6 Z"/>
-    <path fill="url(#snow)" d="M70 398 V350 A54 54 0 0 1 178 350 V398 Q124 410 70 398 Z"/>
-    <path fill="none" stroke="#b7c9e6" stroke-width="6" d="M70 398 V350 A54 54 0 0 1 178 350 V398"/>
-    <path fill="#163c9c" d="M100 402.8 V358 A24 24 0 0 1 148 358 V402.8 Q124 405.2 100 402.8 Z"/>
+    <path fill="#dbe5f4" stroke="#b7c9e6" stroke-width="6" d="M134 297.9 L160 290.9 A54 54 0 0 1 228 343 V391 L202 398 V350 A54 54 0 0 0 134 297.9 Z"/>
+    <path fill="url(#snow)" d="M94 398 V350 A54 54 0 0 1 202 350 V398 Q148 410 94 398 Z"/>
+    <path fill="none" stroke="#b7c9e6" stroke-width="6" d="M94 398 V350 A54 54 0 0 1 202 350 V398"/>
+    <path fill="#163c9c" d="M124 402.8 V358 A24 24 0 0 1 172 358 V402.8 Q148 405.2 124 402.8 Z"/>
   </g>
 </svg>
