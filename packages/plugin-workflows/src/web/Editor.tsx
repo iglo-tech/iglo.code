@@ -495,12 +495,19 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     void unusedWorkflowId(client, props.drafts, projectId, slug(`${original.id}-copy`)).then(
       (id) => {
         const workflowKey = `new:${id}:${Date.now().toString(36)}`;
-        writeDraft(props.drafts, draftKey(projectId, workflowKey), {
+        const kept = writeDraft(props.drafts, draftKey(projectId, workflowKey), {
           version: 1,
           base: { mode: "new", source: null, fingerprint: null, revision: null },
           definition: { ...original, id, title: `${original.title} (copy)`, revision: 1 },
           updatedAt: Date.now(),
         });
+        if (!kept) {
+          setStatus({
+            kind: "failed",
+            message: "This browser could not keep a local draft. Free some site storage.",
+          });
+          return;
+        }
         props.navigate({ pageId: "workflows.editor", projectId, state: { draft: workflowKey } });
       },
       (cause: unknown) => setStatus({ kind: "failed", message: errorMessage(cause) }),
@@ -696,11 +703,17 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       <Alert
         key="failed"
         variant="error"
-        title="Not saved · edits kept"
+        title={readOnly ? "Not cloned" : "Not saved · edits kept"}
         actions={
-          <Button size="xs" variant="outline" disabled={offline || blocking} onClick={save}>
-            Retry save
-          </Button>
+          readOnly ? (
+            <Button size="xs" variant="outline" onClick={libraryLink}>
+              Open library
+            </Button>
+          ) : (
+            <Button size="xs" variant="outline" disabled={offline || blocking} onClick={save}>
+              Retry save
+            </Button>
+          )
         }
       >
         {statusKind.message}

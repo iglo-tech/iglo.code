@@ -1237,6 +1237,135 @@ it.live(
           [...storage.values.keys()].filter((key) => key.includes(":workflows:entry:")),
         ).toEqual([]);
 
+        // A packaged clone must be persisted before leaving its source. Reject only the
+        // external storage write; keep the real host store, Editor, router and API paths.
+        const filesBeforeCloneFailure = new Map(
+          yield* Effect.forEach(yield* fs.readDirectory(first.directory), (filename) =>
+            fs
+              .readFileString(`${first.directory}/${filename}`)
+              .pipe(Effect.map((text) => [filename, text] as const)),
+          ),
+        );
+        yield* promise(() => type("Search workflows", "packaged:implementation"));
+        yield* promise(() => tracked.settle("library"));
+        yield* promise(() => openRow("View Implementation and human review"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settle("read"));
+        yield* promise(() => tracked.settleLatest("validate"));
+        yield* promise(() => select("Export YAML"));
+        const packagedYaml = control(pluginDesign.Textarea, "wf-export").props.value;
+        const packagedDefinition = decodeDefinition(Yaml.parse(packagedYaml));
+        yield* promise(() =>
+          act(async () =>
+            control(pluginDesign.SegmentedControl, "Workflow view").props.onChange("graph"),
+          ),
+        );
+        yield* promise(() => click("Agent step: Implement"));
+        yield* promise(() => tracked.settle("skills"));
+        const packagedLocation = router.state.location.href;
+        const setItem = storage.setItem;
+        let rejectedWrites = 0;
+        storage.setItem = (key, value) => {
+          if (key.includes(":workflows:entry:")) {
+            rejectedWrites++;
+            throw new Error("QuotaExceededError: fixture storage is full");
+          }
+          setItem(key, value);
+        };
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            storage.setItem = setItem;
+          }),
+        );
+        yield* promise(() => click("Clone to edit"));
+        yield* promise(() => tracked.settle("library"));
+        yield* promise(flush);
+        expect(rejectedWrites).toBe(1);
+        expect(router.state.location.href).toBe(packagedLocation);
+        expect(page()).toContain("Not cloned");
+        expect(page()).toContain(
+          "This browser could not keep a local draft. Free some site storage.",
+        );
+        expect(page()).not.toContain("This draft is no longer on this device");
+        expect(page()).not.toContain("Not saved · edits kept");
+        expect(buttons("Retry save")).toHaveLength(0);
+        expect(buttons("Save")).toHaveLength(0);
+        expect(control(pluginDesign.SegmentedControl, "Workflow view").props.value).toBe("graph");
+        expect(
+          root().find((node) => node.type === "button" && node.props.id === "wf-step-implement")
+            .props["aria-pressed"],
+        ).toBe(true);
+        yield* promise(() => select("Export YAML"));
+        expect(control(pluginDesign.Textarea, "wf-export").props.value).toBe(packagedYaml);
+        expect(
+          [...storage.values.keys()].filter((key) => key.includes(":workflows:entry:")),
+        ).toEqual([]);
+        expect((yield* fs.readDirectory(first.directory)).sort()).toEqual(
+          [...filesBeforeCloneFailure.keys()].sort(),
+        );
+        for (const [filename, text] of filesBeforeCloneFailure)
+          expect(yield* fs.readFileString(`${first.directory}/${filename}`)).toBe(text);
+
+        // The same failure through Library remains useful, then Editor retries normally
+        // when the browser can keep drafts again, saving and reopening canonical YAML.
+        yield* promise(() => click("Open library"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settle("library"));
+        yield* promise(() => type("Search workflows", "packaged:implementation"));
+        yield* promise(() => tracked.settle("library"));
+        const libraryLocation = router.state.location.href;
+        yield* promise(() => select("Clone to edit"));
+        yield* promise(() => tracked.settle("read"));
+        yield* promise(() => tracked.settle("library"));
+        yield* promise(flush);
+        expect(rejectedWrites).toBe(2);
+        expect(router.state.location.href).toBe(libraryLocation);
+        expect(page()).toContain(
+          "This browser could not keep a local draft. Free some site storage.",
+        );
+        yield* promise(() => openRow("View Implementation and human review"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settle("read"));
+        yield* promise(() => tracked.settleLatest("validate"));
+        yield* promise(() => click("Clone to edit"));
+        yield* promise(() => tracked.settle("library"));
+        yield* promise(flush);
+        expect(page()).toContain("Not cloned");
+        storage.setItem = setItem;
+        yield* promise(() => click("Clone to edit"));
+        yield* promise(() => tracked.settle("library"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settleLatest("validate"));
+        expect(page()).not.toContain("Not cloned");
+        expect(control(pluginDesign.Input, "wf-workflow-id").props.value).toBe(
+          "implementation-copy-3",
+        );
+        const recoveredClone = {
+          ...packagedDefinition,
+          id: "implementation-copy-3",
+          title: `${packagedDefinition.title} (copy)`,
+          revision: 1,
+        };
+        yield* promise(() => click("Save"));
+        yield* promise(() => tracked.settle("save"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settle("read"));
+        expect(page()).toContain("Saved revision 1");
+        expect(router.state.location.search).toMatchObject({
+          pluginState: { source: ".t3code/workflows/implementation-copy-3.yaml" },
+        });
+        expect(
+          decodeDefinition(
+            Yaml.parse(yield* fs.readFileString(`${first.directory}/implementation-copy-3.yaml`)),
+          ),
+        ).toEqual(recoveredClone);
+        yield* promise(() => select("Export YAML"));
+        expect(
+          decodeDefinition(Yaml.parse(control(pluginDesign.Textarea, "wf-export").props.value)),
+        ).toEqual(recoveredClone);
+        for (const [filename, text] of filesBeforeCloneFailure)
+          expect(yield* fs.readFileString(`${first.directory}/${filename}`)).toBe(text);
+
         // A link to a draft that is gone explains it instead of loading forever.
         yield* promise(() =>
           act(async () => {
