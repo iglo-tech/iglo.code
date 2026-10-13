@@ -39,6 +39,18 @@ If `t3` or `t3 start` reports an already running server, connect to that server
 instead. Stop it before starting a replacement, or use a different `--base-dir`
 for an independent server.
 
+### Install the web app
+
+The web app can be installed as a standalone app window or home screen icon. In
+Chrome or Edge, use **Install** in the address bar or the browser menu. In
+Safari, use **File > Add to Dock** on macOS, or **Share > Add to Home Screen** on
+iOS.
+
+Browsers offer installation only over HTTPS or on `localhost`. To install on
+another device, connect through [Tailscale HTTPS](./remote-access.md#tailscale-https)
+or [T3 Connect](./remote-access.md#t3-connect) rather than a plain HTTP LAN
+address.
+
 ### Run from source
 
 Install Bun 1.4.3 or newer and Vite+ for the contributor toolchain, then run:

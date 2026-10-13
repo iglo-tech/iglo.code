@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <clipPath id="tile">
+      <rect width="512" height="512" rx="112"/>
+    </clipPath>
+    <linearGradient id="paper" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#4f9bf5"/>
+      <stop offset="0.5" stop-color="#2a6be0"/>
+      <stop offset="1" stop-color="#1c48c4"/>
+    </linearGradient>
+    <pattern id="grid-minor" width="16" height="16" patternUnits="userSpaceOnUse">
+      <path d="M16 0 H0 V16" fill="none" stroke="#fff" stroke-opacity="0.12" stroke-width="1"/>
+    </pattern>
+    <pattern id="grid-major" width="64" height="64" patternUnits="userSpaceOnUse" x="0" y="0">
+      <path d="M64 0 H0 V64" fill="none" stroke="#fff" stroke-opacity="0.22" stroke-width="1.5"/>
+    </pattern>
+    <filter id="edge-glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+    <filter id="glyph-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#0b2a7a" flood-opacity="0.55"/>
+    </filter>
+    <linearGradient id="snow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e3ebf7"/>
+    </linearGradient>
+    <clipPath id="dome">
+      <path d="M112 362 A172 186 0 0 1 456 362 Q284 414 112 362 Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect width="512" height="512" fill="url(#paper)"/>
+    <rect width="512" height="512" fill="url(#grid-minor)"/>
+    <rect width="512" height="512" fill="url(#grid-major)"/>
+
+    <!-- Construction marks. -->
+    <g fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="2.5" stroke-linecap="round">
+      <path d="M265 96 V470" stroke-dasharray="8 8" stroke-opacity="0.3"/>
+      <!-- Width dimension above the dome. -->
+      <path d="M75 110 H437 M75 98 V122 M437 98 V122"/>
+      <!-- Height dimension left of the dome. -->
+      <path d="M36 154 V378 M24 154 H48 M24 378 H48"/>
+      <!-- Door width, then the dome's base width. -->
+      <path d="M99 412 H159 M99 400 V424 M159 400 V424"/>
+      <path d="M93 440 H437 M93 428 V452 M437 428 V452"/>
+      <!-- Crosshairs and markers. -->
+      <path d="M84 62 V82 M74 72 H94 M420 56 V76 M410 66 H430"/>
+      <path d="M466 300 l12 12 M478 300 l-12 12 M58 452 l12 12 M70 452 l-12 12"/>
+    </g>
+
+    <!-- Glassy rim. -->
+    <rect x="1" y="1" width="510" height="510" rx="111" fill="none" stroke="#123a9e" stroke-opacity="0.7" stroke-width="6"/>
+    <rect x="-4" y="-4" width="520" height="520" rx="116" fill="none" stroke="#dbeaff" stroke-opacity="0.8" stroke-width="18" filter="url(#edge-glow)"/>
+  </g>
+
+  <g filter="url(#glyph-shadow)" transform="translate(-19 -22)" stroke-linejoin="round">
+    <!-- Dome. -->
+    <path fill="url(#snow)" stroke="#ffffff" stroke-width="4" d="M112 362 A172 186 0 0 1 456 362 Q284 414 112 362 Z"/>
+    <g fill="none" stroke="#b7c9e6" stroke-width="7" clip-path="url(#dome)">
+      <!-- Block rows bow toward the viewer; joints end on the row curves. -->
+      <path d="M60 314 Q284.0 358 508 314 M60 262 Q284.0 298 508 262 M60 214 Q284.0 242 508 214"/>
+      <path d="M330 394.6 L330 332.6 M420 380.2 L420 325.4 M292 338.5 L292 277.5 M380 334.5 L380 274.2 M338.4 281.4 L329.6 224.9 M245.4 281.9 L258.6 225.4"/>
+    </g>
+    <!-- Entrance tunnel: the front arch extruded back into the dome. -->
+    <path fill="#dbe5f4" stroke="#b7c9e6" stroke-width="6" d="M134 297.9 L160 290.9 A54 54 0 0 1 228 343 V391 L202 398 V350 A54 54 0 0 0 134 297.9 Z"/>
+    <path fill="url(#snow)" d="M94 398 V350 A54 54 0 0 1 202 350 V398 Q148 410 94 398 Z"/>
+    <path fill="none" stroke="#b7c9e6" stroke-width="6" d="M94 398 V350 A54 54 0 0 1 202 350 V398"/>
+    <path fill="#163c9c" d="M118 402.1 V356 A30 30 0 0 1 178 356 V402.1 Q148 405.9 118 402.1 Z"/>
+  </g>
+</svg>

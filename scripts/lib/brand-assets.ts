@@ -55,27 +55,25 @@ const WEB_ICON_TARGET_FILENAMES = {
   favicon16Png: "favicon-16x16.png",
   favicon32Png: "favicon-32x32.png",
   appleTouchIconPng: "apple-touch-icon.png",
+  appIcon192Png: "app-icon-192.png",
+  appIcon512Png: "app-icon-512.png",
 } as const;
 
+// iglo.code ships one hand-drawn icon set (assets/iglo/icon.svg) for every web
+// brand instead of the upstream Icon Composer renders.
+export const IGLO_WEB_ICON_PATHS = {
+  faviconIco: "assets/iglo/favicon.ico",
+  favicon16Png: "assets/iglo/icon-16.png",
+  favicon32Png: "assets/iglo/icon-32.png",
+  appleTouchIconPng: "assets/iglo/icon-180.png",
+  appIcon192Png: "assets/iglo/icon-192.png",
+  appIcon512Png: "assets/iglo/icon-512.png",
+} as const satisfies Record<keyof typeof WEB_ICON_TARGET_FILENAMES, string>;
+
 const WEB_ICON_SOURCE_PATHS_BY_BRAND = {
-  development: {
-    faviconIco: BRAND_ASSET_PATHS.developmentWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.developmentWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.developmentWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.developmentWebAppleTouchIconPng,
-  },
-  nightly: {
-    faviconIco: BRAND_ASSET_PATHS.nightlyWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.nightlyWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.nightlyWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.nightlyWebAppleTouchIconPng,
-  },
-  production: {
-    faviconIco: BRAND_ASSET_PATHS.productionWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.productionWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.productionWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.productionWebAppleTouchIconPng,
-  },
+  development: IGLO_WEB_ICON_PATHS,
+  nightly: IGLO_WEB_ICON_PATHS,
+  production: IGLO_WEB_ICON_PATHS,
 } as const satisfies Record<WebAssetBrand, Record<keyof typeof WEB_ICON_TARGET_FILENAMES, string>>;
 
 export function resolveWebIconOverrides(
@@ -99,6 +97,14 @@ export function resolveWebIconOverrides(
     {
       sourceRelativePath: sourcePaths.appleTouchIconPng,
       targetRelativePath: `${targetDirectory}/${WEB_ICON_TARGET_FILENAMES.appleTouchIconPng}`,
+    },
+    {
+      sourceRelativePath: sourcePaths.appIcon192Png,
+      targetRelativePath: `${targetDirectory}/${WEB_ICON_TARGET_FILENAMES.appIcon192Png}`,
+    },
+    {
+      sourceRelativePath: sourcePaths.appIcon512Png,
+      targetRelativePath: `${targetDirectory}/${WEB_ICON_TARGET_FILENAMES.appIcon512Png}`,
     },
   ];
 }
