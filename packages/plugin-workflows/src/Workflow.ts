@@ -107,7 +107,12 @@ export class Workflow extends Context.Service<
   }
 >()("@t3tools/plugin-workflows/Workflow") {}
 
-const decodeRun = Schema.decodeUnknownEffect(Schema.fromJsonString(Run));
+const decodeStoredRun = Schema.decodeUnknownEffect(Schema.fromJsonString(Run));
+// Stored runs and command receipts can retain actions derived by an older policy.
+const decodeRun = (data: string) =>
+  decodeStoredRun(data).pipe(
+    Effect.map((run) => ({ ...run, allowedActions: allowedActions(run) })),
+  );
 const encodeRun = Schema.encodeEffect(Schema.fromJsonString(Run));
 const decodeReport = Schema.decodeUnknownEffect(ReportInput);
 const encodeReceipt = Schema.encodeEffect(Schema.fromJsonString(ReportReceipt));

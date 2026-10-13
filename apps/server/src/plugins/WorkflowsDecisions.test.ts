@@ -1,13 +1,19 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeSqlite from "@t3tools/shared/nodeSqliteClient";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/sql/SqlClient";
 import { CatalogEntry, Definition, Run } from "@t3tools/plugin-workflows/contracts";
 import { completed, fixture, sequence } from "./Workflows.testkit.ts";
 
 const decodeRun = Schema.decodeUnknownEffect(Run);
 const decodeEntry = Schema.decodeUnknownEffect(CatalogEntry);
 const decodeDefinition = Schema.decodeUnknownEffect(Definition);
+const decodeStoredRun = Schema.decodeUnknownEffect(Schema.fromJsonString(Run));
 const implement = sequence.nodes[0]!;
 
 /** Implement, run checks, then route on the recorded check result with one bounded repeat. */
@@ -431,4 +437,125 @@ it.effect(
         });
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("recomputes legacy cached gate actions without changing persisted history on reads", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture;
+      const scope = { environmentId: test.environmentId, projectId: test.projectId };
+      const definition = { ...sequence, entry: "review", maxVisits: 1 };
+      const created = yield* test.start(definition, "legacy-start");
+      const context = yield* Layer.build(
+        NodeSqlite.layer({ filename: `${test.directory}/plugins/workflows/state.sqlite` }),
+      );
+      const sql = Context.get(context, SqlClient.SqlClient);
+      const stored = Effect.gen(function* () {
+        const [row] = yield* sql<{
+          data: string;
+        }>`SELECT data FROM workflow_runs WHERE id = ${created.id}`;
+        return {
+          run: row!.data,
+          commands:
+            yield* sql`SELECT id, digest, result FROM workflow_commands WHERE json_extract(result, '$.id') = ${created.id} ORDER BY id`,
+          events:
+            yield* sql`SELECT revision, data FROM workflow_events WHERE run_id = ${created.id} ORDER BY revision`,
+          outbox:
+            yield* sql`SELECT id, kind, status FROM workflow_outbox WHERE run_id = ${created.id} ORDER BY id`,
+        };
+      });
+      const before = yield* stored;
+      // Only the old version's cached action metadata is restored; all execution facts
+      // and the command receipt were created by the real registered current service.
+      const legacyActions = JSON.stringify(["cancel", "approve", "request-changes"]);
+      yield* sql`UPDATE workflow_runs SET data = json_set(data, '$.allowedActions', json(${legacyActions})) WHERE id = ${created.id}`;
+      yield* sql`UPDATE workflow_commands SET result = json_set(result, '$.allowedActions', json(${legacyActions})) WHERE id = ${created.id}`;
+      const legacy = yield* stored;
+      expect(yield* decodeStoredRun(legacy.run)).toEqual({
+        ...(yield* decodeStoredRun(before.run)),
+        allowedActions: ["cancel", "approve", "request-changes"],
+      });
+      // Attention has no action array, but shares the same persisted decoder.
+      const attention = yield* test.registry
+        .attention(test.environmentId)
+        .pipe(Stream.take(1), Stream.runCollect);
+      expect(attention[0]?.items).toContainEqual(
+        expect.objectContaining({
+          id: created.id,
+          link: expect.objectContaining({ state: { run: created.id } }),
+        }),
+      );
+      yield* test.restart;
+      const loaded = yield* test.query(created.id);
+      expect(loaded).toMatchObject({
+        state: "awaiting-review",
+        revision: created.revision,
+        gate: created.gate,
+        visits: 1,
+        trace: [],
+        repeats: {},
+        attempts: [],
+        allowedActions: ["cancel", "approve"],
+        withheld: [
+          { action: "request-changes", to: "implement", repeat: true, cause: "visit-limit" },
+        ],
+      });
+      const watched = yield* test
+        .stream("watch", { ...scope, runId: created.id })
+        .pipe(Stream.take(1), Stream.runCollect);
+      expect(yield* decodeRun(watched[0])).toEqual(loaded);
+      expect(yield* test.invoke("list", scope)).toMatchObject([
+        { id: created.id, allowedActions: ["cancel", "approve"] },
+      ]);
+      const subscribed = yield* test
+        .stream("subscribe", scope)
+        .pipe(Stream.take(1), Stream.runCollect);
+      expect(subscribed[0]).toMatchObject([
+        { id: created.id, allowedActions: ["cancel", "approve"] },
+      ]);
+      expect(yield* test.start(definition, "legacy-start")).toEqual(created);
+      expect(yield* stored).toEqual(legacy);
+      const request = {
+        ...scope,
+        runId: created.id,
+        clientRequestId: "unsafe-after-upgrade",
+        expectedRevision: loaded.revision,
+        decision: "request-changes",
+      };
+      const refusal = yield* test.invoke("gate", request).pipe(Effect.flip, Effect.orDie);
+      expect(refusal).toMatchObject({
+        code: "conflict",
+        message: "The exhausted automation bound forbids that decision.",
+      });
+      expect(yield* test.invoke("gate", request).pipe(Effect.flip, Effect.orDie)).toMatchObject({
+        code: "conflict",
+        message: refusal.message,
+      });
+      expect(yield* test.query(created.id)).toEqual(loaded);
+      expect(yield* stored).toEqual(legacy);
+      const approval = {
+        ...request,
+        clientRequestId: "approve-after-upgrade",
+        decision: "approve",
+      };
+      const approved = yield* test.invoke("gate", approval).pipe(Effect.flatMap(decodeRun));
+      expect(approved).toMatchObject({
+        state: "completed",
+        revision: loaded.revision + 1,
+        allowedActions: [],
+        gate: null,
+        repeats: {},
+      });
+      expect(approved.trace).toMatchObject([{ route: "approve", chosen: "done" }]);
+      expect(yield* test.invoke("gate", approval).pipe(Effect.flatMap(decodeRun))).toEqual(
+        approved,
+      );
+      const terminal = yield* stored;
+      yield* test.restart;
+      expect(yield* test.query(created.id)).toEqual(approved);
+      expect(yield* stored).toEqual(terminal);
+      expect(test.commands).toEqual([]);
+      expect(test.launches).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
 );
