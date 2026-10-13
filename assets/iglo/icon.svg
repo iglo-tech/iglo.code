@@ -41,9 +41,9 @@
       <path d="M75 110 H437 M75 98 V122 M437 98 V122"/>
       <!-- Height dimension left of the dome. -->
       <path d="M36 154 V378 M24 154 H48 M24 378 H48"/>
-      <!-- Door width below the base, then a split base dimension. -->
+      <!-- Door width, then the dome's base width. -->
       <path d="M99 412 H159 M99 400 V424 M159 400 V424"/>
-      <path d="M189 440 H281 M189 428 V452 M321 440 H437 M437 428 V452"/>
+      <path d="M93 440 H437 M93 428 V452 M437 428 V452"/>
       <!-- Crosshairs and markers. -->
       <path d="M84 62 V82 M74 72 H94 M420 56 V76 M410 66 H430"/>
       <path d="M466 300 l12 12 M478 300 l-12 12 M58 452 l12 12 M70 452 l-12 12"/>
