@@ -20,6 +20,7 @@ import { PluginError } from "@t3tools/plugin-host-contract/schema";
 import { plugin as workflowPlugin } from "@t3tools/plugin-workflows/server";
 import { preloadWorkflowPages, web as workflowsWeb } from "@t3tools/plugin-workflows/web";
 import type { AttentionPage, Run, WorkflowClient } from "@t3tools/plugin-workflows/contracts";
+import { Run as RunSchema } from "@t3tools/plugin-workflows/contracts";
 import {
   PrimaryConnectionTarget,
   AVAILABLE_CONNECTION_STATE,
@@ -40,9 +41,10 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { act, useMemo, useSyncExternalStore } from "react";
+import { act, useMemo, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import { vi } from "vite-plus/test";
 
@@ -59,6 +61,13 @@ import { makeReplayServerConfig } from "../../server/src/orchestration-v2/testki
 const binding = vi.hoisted(() => ({
   configs: new Map<string, ServerConfig>(),
   contexts: new Map<string, Context.Context<Supervisor.EnvironmentSupervisor>>(),
+}));
+
+// Tooltip portals have no DOM refs in this Node renderer; Graph and host controls stay real.
+vi.mock("../src/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => children,
+  TooltipTrigger: ({ render }: { render: ReactElement }) => render,
+  TooltipPopup: () => null,
 }));
 
 // Bind the production client to each test environment's authenticated server session.
@@ -124,6 +133,7 @@ import { validatePluginSearch } from "../src/plugins/pageLink";
 import { availableCatalogAtom } from "../src/plugins/runtime";
 import { appAtomRegistry } from "../src/rpc/atomRegistry";
 
+const decodeRun = Schema.decodeUnknownEffect(RunSchema);
 const projectId = ProjectId.make("review-project");
 const HEAD = "a".repeat(40);
 // The pull request head the replayed forge reports; a review freezes the value it saw.
@@ -419,6 +429,8 @@ it.live(
     Effect.scoped(
       Effect.gen(function* () {
         vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+        vi.stubGlobal("window", new EventTarget());
+        vi.stubGlobal("cancelAnimationFrame", () => {});
         yield* Effect.promise(preloadWorkflowPages);
         const config = {
           ...(yield* makeReplayServerConfig("workflow-attention")),
@@ -797,7 +809,7 @@ it.live(
             },
             input: {},
             workspace: { type: "current" },
-          }) as Effect.Effect<Run, unknown>;
+          }).pipe(Effect.flatMap(decodeRun));
         const created: Run[] = [];
         for (let index = 0; index < 26; index++) created.push(yield* stopped(index));
         const listedTitles = () => page().match(/Stopped \d{3}/g) ?? [];

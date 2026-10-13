@@ -644,6 +644,23 @@ const make = Effect.gen(function* () {
           Effect.gen(function* () {
             const run = yield* decodeRun(row.data);
             const all = attentionItems(run);
+            // Native queues retain only their oldest IDs; their uncapped counts still name
+            // every item, including those revealed as earlier requests are answered.
+            const hiddenRequests =
+              run.state === "running" || run.state === "unresolved"
+                ? run.attempts.reduce(
+                    (total, attempt) =>
+                      total +
+                      (attempt.phase === "waiting-input"
+                        ? Math.max(
+                            0,
+                            (attempt.pendingRequests ?? 0) -
+                              Math.max(1, attempt.requests?.length ?? 0),
+                          )
+                        : 0),
+                    0,
+                  )
+                : 0;
             const listed = all.slice(0, limits.attentionItems);
             const label = (nodeId: string, branchId: string | null) => {
               const node = run.definition.nodes.find((node) => node.id === nodeId);
@@ -671,7 +688,7 @@ const make = Effect.gen(function* () {
               createdAt: run.createdAt,
               allowedActions: run.allowedActions,
               items,
-              itemTotal: all.length,
+              itemTotal: all.length + hiddenRequests,
             };
           }),
         );

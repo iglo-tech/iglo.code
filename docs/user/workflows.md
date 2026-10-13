@@ -10,7 +10,8 @@ page always shows which.
 Open **Workflows** from the project navigation and choose **New workflow**. Add steps from
 **Add a step**; a new step joins after the selected one. Every agent step submits a structured
 report, and decisions route on its declared fields, a check's recorded result, or a review's
-join. Switch the canvas to **Routes** to read or edit every route without dragging. Saving keeps your
+join. Select a step or route in the graph to edit it in the inspector; keyboard controls also
+select, reorder and remove steps without dragging. Saving keeps your
 draft if the connection drops or someone else saved first.
 
 ## Review in parallel

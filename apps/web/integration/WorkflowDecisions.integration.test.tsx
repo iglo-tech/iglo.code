@@ -1422,6 +1422,104 @@ it.live(
         expect(observedCheckTimeouts.slice(executionsBeforeTimeoutRun)).toEqual([90_000]);
         expect(Number(shownBeforeSave) * 60_000).toBe(observedCheckTimeouts.at(-1));
         expect(Number(shownAfterReload) * 60_000).toBe(observedCheckTimeouts.at(-1));
+
+        // #28 reviewer deadlines: actual Graph controls, authenticated save/reload and runtime.
+        yield* promise(() => go(first.environmentId, "workflows.library"));
+        yield* promise(() => tracked.settleLatest("library"));
+        yield* promise(() => click("New workflow"));
+        yield* promise(() => type("Workflow name", "Fractional reviewer deadlines"));
+        yield* promise(() => click("Create"));
+        yield* promise(flush);
+        yield* promise(() => tracked.settleLatest("capabilities"));
+        yield* promise(() => click("Parallel group"));
+        yield* promise(() => tracked.settleLatest("skills"));
+        yield* promise(() => type("wf-parallel-1-pullRequest-repository", "test/repo"));
+        yield* promise(() =>
+          write("wf-parallel-1-branches-0-instruction", "Review the frozen change"),
+        );
+        const reviewerDeadline = "wf-parallel-1-branches-0-timeoutMs";
+        const inputDeadline = "wf-parallel-1-branches-0-humanTimeoutMs";
+        for (const [field, id, value] of [
+          ["timeoutMs", reviewerDeadline, "2.25"],
+          ["humanTimeoutMs", inputDeadline, "1.5"],
+        ] as const) {
+          yield* promise(() => type(id, "1"));
+          yield* promise(() => type(id, "1."));
+          expect(control(pluginDesign.Input, id).props.value).toBe("1.");
+          yield* promise(() => type(id, ""));
+          yield* validated();
+          expect(control(pluginDesign.Input, id).props.value).toBe("");
+          expect(control(pluginDesign.Input, id).props.invalid).toBe(false);
+          yield* promise(() => toggle("Workflow view", "yaml"));
+          const clearedReviewer = decodeDefinition(
+            Yaml.parse(control(pluginDesign.Textarea, "Exported workflow YAML").props.value),
+          ).nodes.find((node) => node.kind === "parallel")!;
+          expect(clearedReviewer.branches[0]?.[field]).toBeUndefined();
+          yield* promise(() => toggle("Workflow view", "graph"));
+          yield* promise(() => type(id, "0.5"));
+          expect(control(pluginDesign.Input, id).props.invalid).toBe(true);
+          expect(button("Save").props.disabled).toBe(true);
+          yield* promise(() => type(id, "1440.5"));
+          expect(control(pluginDesign.Input, id).props.invalid).toBe(true);
+          expect(button("Save").props.disabled).toBe(true);
+          yield* promise(() => type(id, value));
+          yield* validated();
+          expect(control(pluginDesign.Input, id).props.value).toBe(value);
+          expect(control(pluginDesign.Input, id).props.invalid).toBe(false);
+        }
+        yield* promise(() => type(reviewerDeadline, "2.25"));
+        yield* promise(() => type(inputDeadline, "1.5"));
+        yield* validated();
+        const reviewShownBeforeSave = control(pluginDesign.Input, reviewerDeadline).props.value;
+        const inputShownBeforeSave = control(pluginDesign.Input, inputDeadline).props.value;
+        yield* promise(() => click("Save"));
+        yield* promise(() => tracked.settle("save"));
+        const reviewerSaved = decodeDefinition(
+          Yaml.parse(
+            yield* fs.readFileString(`${first.directory}/fractional-reviewer-deadlines.yaml`),
+          ),
+        );
+        const savedFork = reviewerSaved.nodes.find((node) => node.kind === "parallel")!;
+        expect(savedFork.branches[0]).toMatchObject({ timeoutMs: 135_000, humanTimeoutMs: 90_000 });
+        yield* promise(unmount);
+        yield* promise(mount);
+        yield* promise(() => tracked.settleLatest("projects"));
+        yield* promise(() => tracked.settleLatest("read"));
+        yield* promise(() => tracked.settleLatest("capabilities"));
+        yield* validated();
+        yield* promise(() => toggle("Workflow view", "graph"));
+        yield* promise(() => keyDown("parallel-1", "Enter"));
+        const reviewShownAfterReload = control(pluginDesign.Input, reviewerDeadline).props.value;
+        const inputShownAfterReload = control(pluginDesign.Input, inputDeadline).props.value;
+        yield* promise(() =>
+          go(first.environmentId, "workflows.runs", {
+            start: "1",
+            workflow: "fractional-reviewer-deadlines",
+          }),
+        );
+        yield* promise(() => tracked.settleLatest("library"));
+        yield* promise(() => tracked.settleLatest("preview"));
+        yield* promise(() => act(async () => buttons("Run workflow").at(-1)!.props.onClick()));
+        yield* promise(() => tracked.settle("launch"));
+        yield* promise(flush);
+        const reviewerRunId = runId()!;
+        yield* reconcile;
+        yield* promise(() =>
+          tracked.run((run) => run.id === reviewerRunId && run.attempts[0]?.phase === "running"),
+        );
+        const reviewerRun = yield* get(reviewerRunId);
+        expect(reviewerRun.definition).toEqual(reviewerSaved);
+        expect(reviewerRun.attempts[0]?.deadline).not.toBeNull();
+        expect(reviewerRun.overview?.review?.branches[0]?.deadline).toBe(
+          reviewerRun.attempts[0]?.deadline,
+        );
+        expect(reviewShownBeforeSave).toBe("2.25");
+        expect(reviewShownAfterReload).toBe("2.25");
+        expect(inputShownBeforeSave).toBe("1.5");
+        expect(inputShownAfterReload).toBe("1.5");
+        expect(Number(reviewShownAfterReload) * 60_000).toBe(savedFork.branches[0]?.timeoutMs);
+        expect(Number(inputShownAfterReload) * 60_000).toBe(savedFork.branches[0]?.humanTimeoutMs);
+        // #28 reviewer deadlines end.
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   { timeout: 120_000 },

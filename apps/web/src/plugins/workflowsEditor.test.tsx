@@ -240,6 +240,7 @@ async function open(
     subscribeRuns: unexpectedRunSubscription,
     watchRun: unexpectedRunSubscription,
     watchThread: unexpectedRunSubscription,
+    subscribeAttention: unexpectedRunSubscription,
     cancel: unexpectedRunOperation,
     retry: unexpectedRunOperation,
     resume: unexpectedRunOperation,

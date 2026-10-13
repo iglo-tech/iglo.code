@@ -447,6 +447,49 @@ function AgentInspector(input: InspectorProps & { readonly node: AgentNode }) {
   );
 }
 
+const parseReviewerDeadline = (text: string) => {
+  const parsed = Number.parseFloat(text);
+  return Number.isFinite(parsed) ? Math.round(parsed * 60_000) : undefined;
+};
+
+/** A reviewer deadline shows canonical milliseconds exactly and retains partial decimal entry. */
+function ReviewerDeadline({
+  Input,
+  id,
+  value,
+  readOnly,
+  invalid,
+  placeholder,
+  onChange,
+}: {
+  readonly Input: PageProps["Input"];
+  readonly id: string;
+  readonly value: number | undefined;
+  readonly readOnly: boolean;
+  readonly invalid: boolean;
+  readonly placeholder?: string;
+  readonly onChange: (value: string) => void;
+}) {
+  const text = value === undefined ? "" : String(value / 60_000);
+  const [draft, setDraft] = useState({ id, text });
+  if (draft.id !== id || parseReviewerDeadline(draft.text) !== value) setDraft({ id, text });
+  return (
+    <Input
+      id={id}
+      type="number"
+      {...(placeholder === undefined ? {} : { placeholder })}
+      value={draft.text}
+      readOnly={readOnly}
+      disabled={readOnly}
+      invalid={invalid}
+      onChange={(next) => {
+        setDraft({ id, text: next });
+        onChange(next);
+      }}
+    />
+  );
+}
+
 function AgentFields({
   props,
   definition,
@@ -782,27 +825,50 @@ function AgentFields({
           id={cid("timeoutMs")}
           label={reviewer ? "Review deadline (min)" : "Deadline (min)"}
         >
-          <Input
-            id={cid("timeoutMs")}
-            type="number"
-            placeholder="120"
-            value={minutes(agent.timeoutMs)}
-            readOnly={readOnly}
-            disabled={readOnly}
-            invalid={invalid("timeoutMs")}
-            onChange={(value) => timeout("timeoutMs", value)}
-          />
+          {reviewer ? (
+            <ReviewerDeadline
+              Input={Input}
+              id={cid("timeoutMs")}
+              placeholder="120"
+              value={agent.timeoutMs}
+              readOnly={readOnly}
+              invalid={invalid("timeoutMs")}
+              onChange={(value) => timeout("timeoutMs", value)}
+            />
+          ) : (
+            <Input
+              id={cid("timeoutMs")}
+              type="number"
+              placeholder="120"
+              value={minutes(agent.timeoutMs)}
+              readOnly={readOnly}
+              disabled={readOnly}
+              invalid={invalid("timeoutMs")}
+              onChange={(value) => timeout("timeoutMs", value)}
+            />
+          )}
         </Labeled>
         <Labeled id={cid("humanTimeoutMs")} label="Input deadline (min)">
-          <Input
-            id={cid("humanTimeoutMs")}
-            type="number"
-            value={minutes(agent.humanTimeoutMs)}
-            readOnly={readOnly}
-            disabled={readOnly}
-            invalid={invalid("humanTimeoutMs")}
-            onChange={(value) => timeout("humanTimeoutMs", value)}
-          />
+          {reviewer ? (
+            <ReviewerDeadline
+              Input={Input}
+              id={cid("humanTimeoutMs")}
+              value={agent.humanTimeoutMs}
+              readOnly={readOnly}
+              invalid={invalid("humanTimeoutMs")}
+              onChange={(value) => timeout("humanTimeoutMs", value)}
+            />
+          ) : (
+            <Input
+              id={cid("humanTimeoutMs")}
+              type="number"
+              value={minutes(agent.humanTimeoutMs)}
+              readOnly={readOnly}
+              disabled={readOnly}
+              invalid={invalid("humanTimeoutMs")}
+              onChange={(value) => timeout("humanTimeoutMs", value)}
+            />
+          )}
         </Labeled>
       </div>
       <Problems problems={problems} nodeId={nodeId} control={`${prefix}timeoutMs`} />

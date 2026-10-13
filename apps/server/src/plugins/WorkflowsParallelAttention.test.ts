@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -533,6 +534,94 @@ it.effect("counts every pending request beyond the retained queue", () =>
         32, 40,
       ]);
       expect((yield* test.query(run.id)).attempts[0]).toMatchObject({ pendingRequests: 40 });
+      expect((yield* attention()).runs[0]?.itemTotal).toBe(40);
+      const native = test.threads.get(threadId)!;
+      test.threads.set(threadId, {
+        ...native,
+        requests: native.requests.map((request) =>
+          request.id === "request-0" ? { ...request, status: "resolved", resolvedAt: 41 } : request,
+        ),
+      });
+      yield* test.reconcile;
+      const shifted = (yield* attention()).runs[0]!;
+      expect(shifted.itemTotal).toBe(39);
+      expect(shifted.items[0]?.request).toMatchObject({
+        id: "request-1",
+        position: 1,
+        pending: 39,
+      });
+      expect(shifted.items.at(-1)?.request?.id).toBe("request-32");
     }),
   ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "honors fractional reviewer and native-input deadlines at the persisted runtime boundary",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { test } = yield* harness;
+        const definition = yield* reviewers(1, 135_000);
+        const withInputDeadline = yield* decodeDefinition({
+          ...definition,
+          nodes: definition.nodes.map((node) =>
+            node.kind === "parallel"
+              ? {
+                  ...node,
+                  branches: node.branches.map((branch) => ({ ...branch, humanTimeoutMs: 90_000 })),
+                }
+              : node,
+          ),
+        });
+        const start = yield* Clock.currentTimeMillis;
+        const run = yield* test.start(withInputDeadline, "fractional-input");
+        yield* test.reconcile;
+        const running = yield* test.wait(run.id, (run) => run.attempts[0]?.phase === "running");
+        expect(running.attempts[0]).toMatchObject({
+          remainingMs: 135_000,
+          deadline: start + 135_000,
+        });
+        const threadId = running.attempts[0]!.threadId!;
+        test.threads.set(threadId, {
+          ...test.threads.get(threadId)!,
+          requests: [
+            {
+              id: "question",
+              kind: "user-input",
+              status: "pending",
+              createdAt: start,
+              resolvedAt: null,
+            },
+          ],
+        });
+        yield* test.reconcile;
+        yield* TestClock.adjust(89_999);
+        yield* test.reconcile;
+        expect((yield* test.query(run.id)).attempts[0]?.phase).toBe("waiting-input");
+        yield* TestClock.adjust(1);
+        yield* test.reconcile;
+        const inputExpired = yield* test.wait(
+          run.id,
+          (run) => run.attempts[0]?.phase === "unresolved",
+        );
+        expect(inputExpired.attempts[0]?.reason).toBe("The human-response deadline expired.");
+        expect(inputExpired.attempts[0]?.deadline).toBe(start + 135_000);
+
+        const reviewStart = yield* Clock.currentTimeMillis;
+        const reviewRun = yield* test.start(definition, "fractional-review");
+        yield* test.reconcile;
+        yield* test.wait(reviewRun.id, (run) => run.attempts[0]?.phase === "running");
+        yield* TestClock.adjust(134_999);
+        yield* test.reconcile;
+        expect((yield* test.query(reviewRun.id)).attempts[0]?.phase).toBe("running");
+        yield* TestClock.adjust(1);
+        yield* test.reconcile;
+        const reviewExpired = yield* test.wait(
+          reviewRun.id,
+          (run) => run.attempts[0]?.phase === "unresolved",
+        );
+        expect(reviewExpired.attempts[0]?.reason).toBe("The review branch deadline expired.");
+        expect(reviewExpired.attempts[0]?.deadline).toBe(reviewStart + 135_000);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
 );
