@@ -482,7 +482,7 @@ it.effect("recomputes legacy cached gate actions without changing persisted hist
       expect(attention[0]?.items).toContainEqual(
         expect.objectContaining({
           id: created.id,
-          link: expect.objectContaining({ state: { run: created.id } }),
+          link: expect.objectContaining({ state: { run: created.id, node: created.currentNode } }),
         }),
       );
       yield* test.restart;
