@@ -114,8 +114,14 @@ export function newBranch(capabilities: Capabilities | null, id: string, title: 
 }
 const uniqueBranchId = (node: ParallelNode) => {
   const ids = new Set(node.branches.map((branch) => branch.id));
-  for (let index = node.branches.length + 1; ; index++)
-    if (!ids.has(`reviewer-${index}`)) return `reviewer-${index}`;
+  // Removed identities can still be referenced. Fresh IDs must not reuse a numbered slot.
+  // getRandomValues also works on insecure origins, where randomUUID is unavailable.
+  for (;;) {
+    const id = `reviewer-${Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("")}`;
+    if (!ids.has(id)) return id;
+  }
 };
 /** Add a reviewer with a new stable identity; existing identities never change. */
 export function addBranch(

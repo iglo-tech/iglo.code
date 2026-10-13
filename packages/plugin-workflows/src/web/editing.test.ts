@@ -745,6 +745,120 @@ describe("parallel review authoring", () => {
     });
   });
 
+  it("keeps removed reviewer predicates and inputs dangling after adding and reopening", () => {
+    const node = <K extends Node["kind"]>(definition: Definition, id: string, kind: K) =>
+      definition.nodes.find(
+        (item): item is Extract<Node, { kind: K }> => item.id === id && item.kind === kind,
+      )!;
+    const { definition, group } = reviewed(3);
+    const original = parallelOf(definition);
+    const removedId = original.branches[2]!.id;
+    const join = joinOf(definition);
+    const path = `branches.${removedId}.data.verdict`;
+    const decision = addStep(definition, "decision", join.id, capabilities);
+    const another = addStep(decision.definition, "parallel", decision.id, capabilities);
+    const secondJoin = node(another.definition, another.id, "parallel").next;
+    const consume = addStep(another.definition, "agent", secondJoin, capabilities);
+    const binding = {
+      name: "verdict",
+      node: join.id,
+      path,
+      field: original.branches[2]!.report.fields[0]!,
+    };
+    const ruled = updateNode(consume.definition, join.id, (item) =>
+      item.kind === "join"
+        ? {
+            ...item,
+            rules: [
+              {
+                when: {
+                  op: "all",
+                  terms: [{ op: "any", terms: [{ op: "eq", path, value: "pass" }] }],
+                },
+                route: { to: decision.id },
+              },
+            ],
+          }
+        : item,
+    );
+    const decisionRule = updateNode(ruled, decision.id, (item) =>
+      item.kind === "decision"
+        ? {
+            ...item,
+            rules: [{ when: { op: "eq", path, value: "pass" }, route: { to: another.id } }],
+          }
+        : item,
+    );
+    const inputs = updateNode(
+      updateNode(decisionRule, consume.id, (item) =>
+        item.kind === "agent"
+          ? { ...item, instruction: "Consume review", bindings: [binding] }
+          : item,
+      ),
+      another.id,
+      (item) =>
+        item.kind === "parallel"
+          ? {
+              ...item,
+              pullRequest: original.pullRequest,
+              // Existing IDs can repeat in separate forks; they belong to that fork's join.
+              branches: original.branches.map((branch) => ({ ...branch, bindings: [binding] })),
+            }
+          : item,
+    );
+    expect(localProblems(inputs)).toEqual([]);
+    const replaced = updateNode(
+      addBranch(removeBranch(inputs, group, 2), group, capabilities),
+      group,
+      (item) =>
+        item.kind === "parallel"
+          ? {
+              ...item,
+              branches: item.branches.map((branch, index) =>
+                index === 2 ? { ...branch, instruction: "Review UX" } : branch,
+              ),
+            }
+          : item,
+    );
+    const reopened = importYaml(exportYaml(replaced).text);
+    if (reopened._tag !== "Success") throw new Error(reopened.message);
+    const replacement = node(reopened.definition, group, "parallel").branches[2]!;
+    expect(replacement.id).not.toBe(removedId);
+    expect(node(reopened.definition, group, "parallel").branches.slice(0, 2)).toEqual(
+      original.branches.slice(0, 2),
+    );
+    expect(node(reopened.definition, join.id, "join").rules).toEqual(
+      node(inputs, join.id, "join").rules,
+    );
+    expect(node(reopened.definition, decision.id, "decision").rules).toEqual(
+      node(inputs, decision.id, "decision").rules,
+    );
+    expect(node(reopened.definition, another.id, "parallel")).toEqual(
+      node(inputs, another.id, "parallel"),
+    );
+    expect(node(reopened.definition, consume.id, "agent").bindings).toEqual([binding]);
+    expect(localProblems(reopened.definition)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: join.id,
+          control: "rules.0.when.0.0",
+          severity: "error",
+        }),
+        expect.objectContaining({ nodeId: consume.id, control: "bindings.0", severity: "error" }),
+        expect.objectContaining({
+          nodeId: decision.id,
+          control: "rules.0.when",
+          severity: "error",
+        }),
+        expect.objectContaining({
+          nodeId: another.id,
+          control: "branches.2.bindings.0",
+          severity: "error",
+        }),
+      ]),
+    );
+  });
+
   it("labels reviewer fields unambiguously when reviewer titles repeat", () => {
     const { definition, group } = reviewed(3);
     const ids = parallelOf(definition).branches.map((branch) => branch.id);

@@ -5,8 +5,23 @@ import * as Clock from "effect/Clock";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
-import { AttentionPage, Definition, Run } from "@t3tools/plugin-workflows/contracts";
+import {
+  AttentionPage,
+  CatalogEntry,
+  Definition,
+  Run,
+  RunSummary,
+} from "@t3tools/plugin-workflows/contracts";
 import * as Queue from "effect/Queue";
+import {
+  addBranch,
+  addStep,
+  exportYaml,
+  importYaml,
+  newDefinition,
+  removeBranch,
+  updateNode,
+} from "../../../../packages/plugin-workflows/src/web/editing.ts";
 import { fixture, completed, parallel, sequence } from "./Workflows.testkit.ts";
 
 const decodeRun = Schema.decodeUnknownEffect(Run);
@@ -465,6 +480,179 @@ it.effect("locates unsupported reviewer reporting and removed-reviewer rules on 
       );
     }),
   ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "refuses a removed reviewer replacement until its join predicate is explicitly repaired",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { test, scope } = yield* harness;
+        const group = addStep(newDefinition("Reviewer identity"), "parallel", null, null);
+        const authored = updateNode(
+          addBranch(addBranch(group.definition, group.id, null), group.id, null),
+          group.id,
+          (node) =>
+            node.kind === "parallel"
+              ? {
+                  ...node,
+                  pullRequest: { repository: "test/repo", number: 1 },
+                  branches: node.branches.map((branch, index) => ({
+                    ...branch,
+                    title: index === 2 ? "Security" : `Reviewer ${index + 1}`,
+                    skill: "code-review",
+                    modelSelection: fork.branches[0]!.modelSelection,
+                    instruction: `Review focus ${index + 1}`,
+                  })),
+                }
+              : node,
+        );
+        const original = authored.nodes.find((node) => node.kind === "parallel")!;
+        const removedId = original.branches[2]!.id;
+        const join = authored.nodes.find((node) => node.kind === "join")!;
+        const ruled = updateNode(authored, join.id, (node) =>
+          node.kind === "join"
+            ? {
+                ...node,
+                rules: [
+                  {
+                    when: { op: "eq", path: `branches.${removedId}.data.verdict`, value: "pass" },
+                    route: { to: "done" },
+                  },
+                ],
+                otherwise: { to: "human" },
+              }
+            : node,
+        );
+        const definition = yield* decodeDefinition({
+          ...ruled,
+          nodes: [
+            ...ruled.nodes,
+            {
+              id: "human",
+              kind: "human",
+              title: "Manual review",
+              approve: { to: "done" },
+              changes: { to: "done" },
+            },
+          ],
+        });
+        const validate = (definition: Definition) =>
+          test
+            .invoke("validate", { ...scope, definition })
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(CatalogEntry)));
+        expect((yield* validate(definition)).runnable).toBe(true);
+        const replaced = updateNode(
+          addBranch(removeBranch(definition, group.id, 2), group.id, null),
+          group.id,
+          (node) =>
+            node.kind === "parallel"
+              ? {
+                  ...node,
+                  branches: node.branches.map((branch, index) =>
+                    index === 2
+                      ? {
+                          ...branch,
+                          title: "UX",
+                          instruction: "Review user experience",
+                          skill: "code-review",
+                          modelSelection: fork.branches[0]!.modelSelection,
+                        }
+                      : branch,
+                  ),
+                }
+              : node,
+        );
+        const reopened = importYaml(exportYaml(replaced).text);
+        if (reopened._tag !== "Success") throw new Error(reopened.message);
+        const replacement = reopened.definition.nodes.find((node) => node.kind === "parallel")!
+          .branches[2]!;
+        const invalid = yield* validate(reopened.definition);
+        expect(invalid.runnable).toBe(false);
+        expect(invalid.problems).toContainEqual(
+          expect.objectContaining({
+            nodeId: join.id,
+            control: "rules.0.when",
+            message: expect.stringContaining(`reviewer ${removedId}`),
+          }),
+        );
+        expect(
+          yield* test
+            .start(reopened.definition, "invalid-replacement")
+            .pipe(Effect.flip, Effect.orDie),
+        ).toMatchObject({
+          code: "unsupported",
+          operation: "start",
+          message: expect.stringContaining(`reviewer ${removedId}`),
+        });
+        expect(
+          yield* test
+            .invoke("list", scope)
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(RunSummary)))),
+        ).toEqual([]);
+        expect(test.launches).toEqual([]);
+        // The author explicitly chooses UX's field. Other reviewers' passes must not satisfy it.
+        const repaired = updateNode(reopened.definition, join.id, (node) =>
+          node.kind === "join"
+            ? {
+                ...node,
+                rules: [
+                  {
+                    ...node.rules[0]!,
+                    when: {
+                      op: "eq",
+                      path: `branches.${replacement.id}.data.verdict`,
+                      value: "pass",
+                    },
+                  },
+                ],
+              }
+            : node,
+        );
+        expect((yield* validate(repaired)).runnable).toBe(true);
+        const started = yield* test.start(repaired, "explicit-repair");
+        yield* test.reconcile;
+        const running = yield* test.wait(
+          started.id,
+          (run) =>
+            run.attempts.length === 3 &&
+            run.attempts.every((attempt) => attempt.phase === "running"),
+        );
+        for (const attempt of running.attempts) {
+          yield* test.report(
+            attempt.threadId!,
+            attempt.branchId === replacement.id ? { ...pass, data: { verdict: "changes" } } : pass,
+          );
+          test.settle(attempt.threadId!);
+        }
+        yield* test.reconcile;
+        const routed = yield* test.wait(started.id, (run) => run.state === "awaiting-review");
+        expect(
+          routed.attempts.map((attempt) => [attempt.branchId, attempt.report!.data.verdict]),
+        ).toEqual([
+          [original.branches[0]!.id, "pass"],
+          [original.branches[1]!.id, "pass"],
+          [replacement.id, "changes"],
+        ]);
+        expect(routed.trace.at(-1)).toMatchObject({
+          nodeId: join.id,
+          chosen: "human",
+          route: "otherwise",
+          considered: [
+            {
+              predicate: {
+                op: "eq",
+                path: `branches.${replacement.id}.data.verdict`,
+                value: "pass",
+              },
+              matched: false,
+            },
+          ],
+        });
+        yield* test.restart;
+        expect((yield* test.query(started.id)).trace).toEqual(routed.trace);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
 );
 
 const stoppedDefinition = decodeDefinition({
