@@ -58,9 +58,10 @@ import { stepButtonId } from "./Flow.tsx";
 import { KindIcon } from "./kinds.tsx";
 
 interface GraphActions {
-  readonly readOnly: boolean;
   readonly removable: (stepId: string) => boolean;
+  readonly movable: (stepId: string, offset: -1 | 1) => boolean;
   readonly onSelect: (stepId: string | null) => void;
+  readonly onMove: (stepId: string, offset: -1 | 1) => void;
   readonly onRemove: (stepId: string) => void;
   readonly Tooltip: PluginDesign["Tooltip"] | undefined;
 }
@@ -153,6 +154,8 @@ function StepCard({
   };
   const { node, selected, errors, warnings } = data;
   const removable = actions?.removable(node.id) ?? false;
+  const moveUp = actions?.movable(node.id, -1) ?? false;
+  const moveDown = actions?.movable(node.id, 1) ?? false;
   return (
     <div
       style={{ width, height }}
@@ -191,11 +194,26 @@ function StepCard({
           aria-label={`${kindText(node.kind)}: ${node.title}`}
           aria-pressed={selected}
           onFocus={reveal}
-          aria-keyshortcuts={removable ? "Delete" : undefined}
+          aria-keyshortcuts={
+            [
+              moveUp ? "Alt+ArrowUp" : "",
+              moveDown ? "Alt+ArrowDown" : "",
+              removable ? "Delete" : "",
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined
+          }
           onKeyDown={(event) => {
-            if (!removable || (event.key !== "Delete" && event.key !== "Backspace")) return;
-            event.preventDefault();
-            actions?.onRemove(node.stepId);
+            if (event.altKey && event.key === "ArrowUp" && moveUp) {
+              event.preventDefault();
+              actions?.onMove(node.stepId, -1);
+            } else if (event.altKey && event.key === "ArrowDown" && moveDown) {
+              event.preventDefault();
+              actions?.onMove(node.stepId, 1);
+            } else if (removable && (event.key === "Delete" || event.key === "Backspace")) {
+              event.preventDefault();
+              actions?.onRemove(node.stepId);
+            }
           }}
           className="nodrag nopan flex size-full cursor-pointer items-center gap-2.5 rounded-[inherit] px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -406,7 +424,8 @@ function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: s
 
 /**
  * The workflow as a top-to-bottom graph. Selecting a box selects its step; `readOnly` drops
- * removal so the same canvas can present a run's definition snapshot.
+ * mutations so the same canvas can present a run's definition snapshot. Alt+Arrow changes
+ * the steps' reading order; the inspector offers the same action without a shortcut.
  */
 export function Graph({
   definition,
@@ -414,6 +433,7 @@ export function Graph({
   problems,
   readOnly,
   onSelect,
+  onMove,
   onRemove,
   Tooltip,
 }: {
@@ -422,6 +442,7 @@ export function Graph({
   readonly problems: ReadonlyArray<Problem>;
   readonly readOnly: boolean;
   readonly onSelect: (stepId: string | null) => void;
+  readonly onMove?: (stepId: string, offset: -1 | 1) => void;
   readonly onRemove?: (stepId: string) => void;
   /** The host tooltip, for titles and route labels shortened to fit. */
   readonly Tooltip?: PluginDesign["Tooltip"];
@@ -530,15 +551,29 @@ export function Graph({
       ),
     [definition, readOnly, onRemove],
   );
+  const stepOrder = useMemo(
+    () => new Map(definition.nodes.map((node, index) => [node.id, index])),
+    [definition.nodes],
+  );
   const actions = useMemo<GraphActions>(
     () => ({
-      readOnly,
       removable: (id) => removableIds.has(id),
+      movable: (id, offset) => {
+        const index = stepOrder.get(id);
+        return (
+          !readOnly &&
+          onMove !== undefined &&
+          index !== undefined &&
+          index + offset >= 0 &&
+          index + offset < stepOrder.size
+        );
+      },
       onSelect,
+      onMove: (id, offset) => onMove?.(id, offset),
       onRemove: (id) => onRemove?.(id),
       Tooltip,
     }),
-    [readOnly, removableIds, onSelect, onRemove, Tooltip],
+    [readOnly, removableIds, stepOrder, onSelect, onMove, onRemove, Tooltip],
   );
   return (
     <GraphActionsContext value={actions}>

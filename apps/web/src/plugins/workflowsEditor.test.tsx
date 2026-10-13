@@ -13,7 +13,7 @@ import {
 import { web, authoringTimings, preloadWorkflowPages } from "@t3tools/plugin-workflows/web";
 import * as Yaml from "yaml";
 import { act, Suspense } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
 // Exercise the real editor and its recovery store using the public host design contract.
@@ -122,6 +122,9 @@ const timings = { ...authoringTimings };
 beforeEach(async () => {
   await preloadWorkflowPages();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  // React Flow's keyboard listeners need a window; refs stay null in this Node renderer.
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("cancelAnimationFrame", () => {});
   authoringTimings.draftDelayMs = 0;
   authoringTimings.validationDelayMs = 0;
 });
@@ -245,7 +248,11 @@ const input = (id: string) =>
   renderer!.root.findAll((node) => typeof node.type === "string" && node.props.id === id)[0]!;
 async function click(label: string) {
   await act(async () => {
-    button(label).props.onClick();
+    // Graph step clicks bubble to React Flow's node wrapper in the browser.
+    let target: ReactTestInstance | null = button(label);
+    while (target !== null && typeof target.props.onClick !== "function") target = target.parent;
+    if (target === null) throw new Error(`No click handler for ${label}`);
+    target.props.onClick({});
   });
 }
 async function rename(title: string) {
@@ -277,6 +284,48 @@ const savedRevision = (revision: number) =>
     .findByProps({ role: "status" })
     .findAll((node) => node.children.includes(`Saved revision ${revision}`));
 
+it.each([false, true])(
+  "authors in Graph without layout APIs and reorders at narrow=%s",
+  async (narrow) => {
+    vi.stubGlobal(
+      "window",
+      Object.assign(new EventTarget(), {
+        matchMedia: () => Object.assign(new EventTarget(), { matches: narrow }),
+      }),
+    );
+    const test = await open("save");
+    expect(button("Routes")).toBeUndefined();
+    expect(button("End: Done")).toBeDefined();
+    if (narrow) await click("Add a step");
+    await click("End");
+    const draft = () => readDraft(test.drafts) as { definition: Definition };
+    const added = draft().definition;
+    const keyDown = (label: string, key: string) =>
+      act(async () => {
+        button(label).props.onKeyDown({ key, altKey: true, preventDefault() {} });
+      });
+    await keyDown("End: Done", "ArrowUp");
+    expect(draft().definition).toEqual(added);
+    await keyDown("End: End 1", "ArrowUp");
+    expect(draft().definition.nodes.map((node) => node.id)).toEqual(["end-1", "done"]);
+    expect(draft().definition).toEqual({ ...added, nodes: added.nodes.toReversed() });
+    expect(button("Move End 1 up").props.disabled).toBe(true);
+    await click("Move End 1 down");
+    expect(draft().definition).toEqual(added);
+    expect(button("Move End 1 down").props.disabled).toBe(true);
+    await keyDown("End: End 1", "ArrowDown");
+    expect(draft().definition).toEqual(added);
+    await keyDown("End: End 1", "ArrowUp");
+    await keyDown("End: End 1", "ArrowDown");
+    expect(draft().definition).toEqual(added);
+    await act(async () =>
+      button("End: End 1").props.onKeyDown({ key: "Delete", preventDefault() {} }),
+    );
+    expect(button("End: End 1")).toBeUndefined();
+    expect(readDraft(test.drafts)).toBeNull();
+  },
+);
+
 it.each([
   { mode: "save", start: "before", outcome: "saved" },
   { mode: "save", start: "before", outcome: "invalid" },
@@ -300,7 +349,7 @@ it.each([
     });
     // A real initial invalid-file read opens repair. Leave that pane before saving
     // so a later obsolete response must not reopen it.
-    if (mode === "replace" && start === "during") await click("Routes");
+    if (mode === "replace" && start === "during") await click("Graph");
     await click(mode === "save" ? "Save" : "Validate and replace file");
     if (start === "during") {
       test.client.read.mockImplementationOnce(() => read.promise);
@@ -901,14 +950,18 @@ it.each(["save", "replace"] as const)(
     const test = await open(mode);
     await rename("First edit");
     await click("End");
-    await click("End: End 1");
+    // Selecting a graph node keeps it selected; the blank pane returns to workflow settings.
+    await act(async () => {
+      renderer!.root
+        .find(
+          (node) =>
+            node.type === "div" && node.props.className?.split(" ").includes("react-flow__pane"),
+        )
+        .props.onClick({ target: null });
+    });
     // Capture stale handlers while editable: the freeze must hold even before React rerenders.
     const add = button("End").props.onClick;
-    const route = renderer!.root
-      .findByProps({ "aria-label": "Route list" })
-      .findAllByType("li")
-      .find((node) => node.props.onKeyDown !== undefined)!;
-    const keys = route.props.onKeyDown;
+    const keys = button("End: Done").props.onKeyDown;
     const discard = mode === "save" ? button("Discard changes").props.onClick : null;
     await click("Import YAML");
     await act(async () => {
@@ -924,6 +977,7 @@ it.each(["save", "replace"] as const)(
       submit();
       submit();
       add();
+      keys({ key: "ArrowDown", altKey: true, preventDefault() {} });
       keys({ key: "Delete", preventDefault() {} });
       discard?.();
       adopt();
@@ -944,6 +998,9 @@ it.each(["save", "replace"] as const)(
         projectId,
       });
     expect(readDraft(test.drafts)).toMatchObject({ definition: { title: "First edit" } });
+    expect((readDraft(test.drafts) as { definition: Definition }).definition.nodes).toEqual(
+      submitted.nodes,
+    );
     await click("Discard navigation draft");
     expect(readDraft(test.drafts)).toMatchObject({ definition: { title: "First edit" } });
     await act(async () => {

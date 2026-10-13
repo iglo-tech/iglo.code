@@ -1,4 +1,4 @@
-import { Trash2Icon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import type { ProviderInstanceId, RuntimeMode } from "@t3tools/plugin-host-contract/schema";
 import type {
@@ -15,6 +15,7 @@ import { Labeled, errorMessage, type PageProps } from "./common.tsx";
 import {
   isProtected,
   kindLabels,
+  moveStep,
   problemText,
   reviewerAt,
   routeList,
@@ -107,14 +108,16 @@ export function Inspector(input: InspectorProps) {
         ? "Workflow settings"
         : kindLabels[node.kind];
   const removable = node !== undefined && input.onRemove !== undefined;
+  const reorderable = node !== undefined && !input.readOnly && input.definition.nodes.length > 1;
+  const index = input.definition.nodes.findIndex((item) => item.id === node?.id);
   return (
     <section aria-labelledby="wf-inspector-title" className="flex min-w-0 flex-col gap-4">
-      {input.hideHeading === true && !removable ? (
+      {input.hideHeading === true && !removable && !reorderable ? (
         <h2 id="wf-inspector-title" className="sr-only">
           {heading}
         </h2>
       ) : (
-        <div className="flex min-h-7 items-center gap-2">
+        <div className="flex min-h-7 items-center gap-4">
           <h2
             id="wf-inspector-title"
             className={`flex min-w-0 flex-1 items-center gap-2 text-sm font-medium ${input.hideHeading === true ? "sr-only" : ""}`}
@@ -127,9 +130,33 @@ export function Inspector(input: InspectorProps) {
             )}
             {heading}
           </h2>
+          {reorderable ? (
+            <>
+              <input.props.Button
+                size="icon-sm"
+                variant="ghost"
+                tooltip="Move up in reading order"
+                ariaLabel={`Move ${node.title || node.id} up`}
+                disabled={index === 0}
+                onClick={() => input.onChange(moveStep(input.definition, node.id, -1))}
+              >
+                <ArrowUpIcon />
+              </input.props.Button>
+              <input.props.Button
+                size="icon-sm"
+                variant="ghost"
+                tooltip="Move down in reading order"
+                ariaLabel={`Move ${node.title || node.id} down`}
+                disabled={index === input.definition.nodes.length - 1}
+                onClick={() => input.onChange(moveStep(input.definition, node.id, 1))}
+              >
+                <ArrowDownIcon />
+              </input.props.Button>
+            </>
+          ) : null}
           {removable ? (
             <input.props.Button
-              size="icon-xs"
+              size="icon-sm"
               variant="ghost"
               tooltip="Remove step"
               ariaLabel={`Remove ${node.title || node.id}`}

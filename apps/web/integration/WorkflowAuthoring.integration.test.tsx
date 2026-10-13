@@ -48,7 +48,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { act, useMemo, useSyncExternalStore } from "react";
+import { act, useMemo, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import * as Yaml from "yaml";
 import { vi } from "vite-plus/test";
@@ -66,6 +66,14 @@ import { makeReplayServerConfig } from "../../server/src/orchestration-v2/testki
 const binding = vi.hoisted(() => ({
   configs: new Map<string, ServerConfig>(),
   contexts: new Map<string, Context.Context<Supervisor.EnvironmentSupervisor>>(),
+}));
+
+// The graph requires window event listeners. Host tooltips still have no DOM refs or portals
+// in this renderer, so preserve their triggers just like the other overlay doubles below.
+vi.mock("../src/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => children,
+  TooltipTrigger: ({ render }: { render: ReactElement }) => render,
+  TooltipPopup: () => null,
 }));
 
 // Bind the production client to each test environment's authenticated server session.
@@ -353,6 +361,12 @@ it.live(
             value: events[method].bind(events),
           });
         vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+        // Keep the real graph's keyboard listeners without inventing DOM geometry.
+        const graphGlobals = () => {
+          vi.stubGlobal("window", events);
+          vi.stubGlobal("cancelAnimationFrame", () => {});
+        };
+        graphGlobals();
         // Requests coalesced while typing are issued immediately, so tests await each request.
         const timings = { ...authoringTimings };
         Object.assign(authoringTimings, {
@@ -593,11 +607,22 @@ it.live(
             crumb("Workflows").onSelect();
             vi.unstubAllGlobals();
             vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+            graphGlobals();
           });
           await flush();
         };
         const click = (label: string, index = 0) =>
-          act(async () => buttons(label)[index]!.props.onClick());
+          act(async () => {
+            const found = buttons(label);
+            let target: ReactTestInstance | null =
+              found[index] ??
+              root().find((node) => node.type === "button" && node.props["aria-label"] === label);
+            // Graph buttons bubble to the real React Flow node wrapper's selection handler.
+            while (target !== null && typeof target.props.onClick !== "function")
+              target = target.parent;
+            if (target === null) throw new Error(`No click handler for ${label}`);
+            target.props.onClick({});
+          });
         // Host-owned controls (the navigation guard) are plain rendered buttons.
         const press = (label: string) =>
           act(async () =>
@@ -636,25 +661,21 @@ it.live(
               .props.onClick(),
           );
         const toLibrary = () => act(async () => crumb("Workflows").onSelect());
-        const routesOf = (nodeId: string) =>
-          textOf(
-            root().find(
-              (node) =>
-                node.type === "li" &&
-                typeof node.props.onKeyDown === "function" &&
-                node.findAll((child) => child.props.id === `wf-step-${nodeId}`).length > 0,
-            ),
-          );
         const keyDown = (nodeId: string, init: { key: string; altKey?: boolean }) =>
+          act(async () =>
+            root()
+              .find((node) => node.type === "button" && node.props.id === `wf-step-${nodeId}`)
+              .props.onKeyDown({ altKey: false, ...init, preventDefault: () => {} }),
+          );
+        const clearSelection = () =>
           act(async () =>
             root()
               .find(
                 (node) =>
-                  node.type === "li" &&
-                  typeof node.props.onKeyDown === "function" &&
-                  node.findAll((child) => child.props.id === `wf-step-${nodeId}`).length > 0,
+                  node.type === "div" &&
+                  node.props.className?.split(" ").includes("react-flow__pane"),
               )
-              .props.onKeyDown({ altKey: false, ...init, preventDefault: () => {} }),
+              .props.onClick({ target: null }),
           );
         const { tracked } = first;
         const promise = <A,>(run: () => Promise<A>) => Effect.promise(run);
@@ -701,7 +722,7 @@ it.live(
         expect(page()).toContain("Workflow 10");
         expect(page()).not.toContain("Workflow 2");
 
-        // New workflow: name, palette, inspector and route list without dragging. Provider and
+        // New workflow: name, palette, graph and inspector without dragging. Provider and
         // skill discovery start out failing to show their recoverable states.
         Object.assign(replay, { providersFail: true, skillsFail: true });
         yield* promise(() => click("New workflow"));
@@ -713,8 +734,11 @@ it.live(
         });
         yield* promise(() => tracked.settle("capabilities"));
         expect(page()).toContain("Unsaved changes");
-        // Without layout measurement (this test renderer) the editor opens the Routes view.
-        expect(control(pluginDesign.SegmentedControl, "Workflow view").props.value).toBe("routes");
+        // The real graph renders its keyboard step buttons even without DOM measurement.
+        expect(control(pluginDesign.SegmentedControl, "Workflow view").props.value).toBe("graph");
+        expect(
+          root().findAll((node) => node.type === "button" && textOf(node) === "Routes"),
+        ).toHaveLength(0);
         yield* promise(() => click("Agent step"));
         yield* promise(() => tracked.settle("skills"));
         expect(page()).toContain(
@@ -744,17 +768,25 @@ it.live(
         yield* promise(() => keyDown("end-1", { key: "Delete" }));
         expect(page()).not.toContain("end-1");
         const steps = root()
-          .findAll(
-            (node) =>
-              node.type === pluginDesign.Button && String(node.props.id).startsWith("wf-step-"),
-          )
+          .findAll((node) => node.type === "button" && String(node.props.id).startsWith("wf-step-"))
           .map((node) => node.props.id);
         expect(steps).toEqual(["wf-step-agent-2", "wf-step-agent-1", "wf-step-done"]);
         yield* promise(() => tracked.settleLatest("validate"));
         expect(page()).not.toContain("to fix");
         expect(page()).not.toContain("Checking…");
-        expect(routesOf("agent-1")).toContain("Next → Agent step 2");
-        expect(routesOf("agent-2")).toContain("Next → Done");
+        yield* promise(() => click("Agent step: Agent step 1"));
+        yield* promise(() => tracked.settle("skills"));
+        expect(control(pluginDesign.Select, "wf-agent-1-next").props.value).toBe("agent-2");
+        // Connect explicitly through the canonical inspector, then restore the sequence.
+        yield* promise(() => choose("wf-agent-1-next", "done"));
+        yield* promise(() => choose("wf-agent-1-next", "agent-2"));
+        yield* promise(() => click("Agent step: Agent step 2"));
+        yield* promise(() => tracked.settle("skills"));
+        expect(control(pluginDesign.Select, "wf-agent-2-next").props.value).toBe("done");
+        // The inspector's keyboard/touch controls preserve the graph shortcut's result.
+        expect(button("Move Agent step 2 up").props.disabled).toBe(true);
+        yield* promise(() => click("Move Agent step 2 down"));
+        yield* promise(() => click("Move Agent step 2 up"));
 
         // The draft survives a reload, keyed by environment, project and workflow.
         const draftKeys = [...storage.values.keys()].filter((key) =>
@@ -855,7 +887,7 @@ it.live(
         const sourceDraft = (key: string) =>
           key.endsWith(encodeURIComponent(`${projectId}:.t3code/workflows/release-notes.yaml`));
         authoringTimings.draftDelayMs = 60_000;
-        yield* promise(() => click("Agent step: Agent step 2"));
+        yield* promise(clearSelection);
         yield* promise(() => type("wf-workflow-title", "Pending title"));
         expect([...storage.values.keys()].some(sourceDraft)).toBe(false);
         yield* promise(() => act(async () => void globalThis.dispatchEvent(new Event("pagehide"))));
@@ -910,6 +942,7 @@ it.live(
           });
           vi.unstubAllGlobals();
           vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+          graphGlobals();
           return flush();
         };
         yield* promise(() => type("wf-workflow-title", "Unsaved title"));

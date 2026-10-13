@@ -44,14 +44,11 @@ import {
   stepTitle,
   type EditableKind,
 } from "./editing.ts";
-import { Palette, RouteList, stepButtonId } from "./Flow.tsx";
+import { Palette, stepButtonId } from "./Flow.tsx";
 import { Graph } from "./Graph.tsx";
 import { Inspector, controlId } from "./Inspector.tsx";
 
-type View = "graph" | "routes" | "yaml";
-/** React Flow needs layout measurement; without it (server rendering, tests) Routes is shown. */
-const canvasSupported = () => typeof ResizeObserver !== "undefined";
-const defaultView = (): View => (canvasSupported() ? "graph" : "routes");
+type View = "graph" | "yaml";
 
 type Status =
   | { readonly kind: "idle" }
@@ -123,7 +120,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     remove: false,
   });
   const [view, setView] = useState<View>(() =>
-    pageState.import === "1" || pageState.view === "yaml" ? "yaml" : defaultView(),
+    pageState.import === "1" || pageState.view === "yaml" ? "yaml" : "graph",
   );
   const [importing, setImporting] = useState(pageState.import === "1");
   const [importText, setImportText] = useState("");
@@ -309,6 +306,17 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   useEffect(() => {
     latestDraft.current = draft;
   });
+  const moveSelected = useCallback(
+    (id: string, offset: -1 | 1) => {
+      const current = latestDraft.current;
+      if (readOnly || saving.current || current === null) return;
+      const next = moveStep(current, id, offset);
+      if (next === current) return;
+      editVersion.current++;
+      setDraft(next);
+    },
+    [readOnly],
+  );
   const { notify } = props;
   const removeSelected = useCallback(
     (id: string) => {
@@ -478,7 +486,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           : { ...baseOf(server), mode: "replace" },
       );
     closeImport();
-    setView(defaultView());
+    setView("graph");
     setSelected(null);
   };
   const clone = () => {
@@ -500,7 +508,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   };
   const goTo = (problem: Problem) => {
     setSelected(problem.nodeId ?? null);
-    if (view === "yaml" && problem.nodeId !== undefined) setView(defaultView());
+    if (view === "yaml" && problem.nodeId !== undefined) setView("graph");
     if (narrow) setInspectorOpen(true);
     const target = controlId(problem.nodeId ?? null, problem.control ?? "title");
     setFocus(
@@ -949,8 +957,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const problemsLabel =
     errors > 0 ? `${errors} to fix` : `${warnings} ${warnings === 1 ? "warning" : "warnings"}`;
   const views = [
-    ...(canvasSupported() ? [{ value: "graph", label: "Graph" }] : []),
-    { value: "routes", label: "Routes" },
+    { value: "graph", label: "Graph" },
     { value: "yaml", label: "YAML" },
   ];
   return (
@@ -1127,21 +1134,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
                 problems={problems}
                 readOnly={mutationsDisabled}
                 onSelect={select}
+                onMove={moveSelected}
                 onRemove={removeSelected}
                 Tooltip={props.Tooltip}
-              />
-            </div>
-          ) : view === "routes" && draft !== null ? (
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              <RouteList
-                props={props}
-                definition={draft}
-                selected={selected}
-                problems={problems}
-                readOnly={mutationsDisabled}
-                onSelect={(id) => select(selected === id ? null : id)}
-                onMove={(id, offset) => change(moveStep(draft, id, offset))}
-                onRemove={removeSelected}
               />
             </div>
           ) : (
