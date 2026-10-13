@@ -179,9 +179,12 @@ export function CheckInspector(input: StepProps<CheckNode>) {
           onChange={(text) =>
             set((current) => ({
               ...current,
-              args: text
-                .split("\n")
-                .filter((arg, index, all) => arg !== "" || index === all.length - 1),
+              args:
+                text === ""
+                  ? []
+                  : text
+                      .split("\n")
+                      .filter((arg, index, all) => arg !== "" || index === all.length - 1),
             }))
           }
         />

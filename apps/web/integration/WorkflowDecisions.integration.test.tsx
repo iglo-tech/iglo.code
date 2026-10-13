@@ -1187,6 +1187,81 @@ it.live(
         // The withheld decision is explained inside the gate's own alert.
         expect(page()).toContain("Request changes unavailable · ↩ Work · run visit limit reached");
         expect(page()).not.toContain("Visit or repeat limit reached");
+
+        // Clear a saved check's arguments, publish through the authenticated editor and reload.
+        yield* promise(() =>
+          go(first.environmentId, "workflows.editor", {
+            source: ".t3code/workflows/repeat-implementation-once.yaml",
+            step: "check-1",
+          }),
+        );
+        yield* promise(() => tracked.settle("projects"));
+        yield* promise(() => tracked.settle("read"));
+        yield* promise(() => tracked.settle("capabilities"));
+        expect(control(pluginDesign.Textarea, "wf-check-1-args").props.value).toBe("--ci");
+        const noArgsCheck = { ...saved.nodes.find((node) => node.kind === "check")!, args: [] };
+        for (const revision of [2, 3]) {
+          const expectedCheck =
+            revision === 3 ? { ...noArgsCheck, title: "No-argument check" } : noArgsCheck;
+          if (revision === 3) {
+            // The reloaded check starts with no arguments. Keep a separate title edit dirty
+            // so entering then fully deleting arguments can also be saved.
+            yield* promise(() => type("wf-check-1-title", "No-argument check"));
+            yield* promise(() => write("wf-check-1-args", "--verbose\n"));
+            expect(control(pluginDesign.Textarea, "wf-check-1-args").props.value).toBe(
+              "--verbose\n",
+            );
+            expect(control(pluginDesign.Textarea, "wf-check-1-args").props.invalid).toBe(true);
+            expect(page()).toContain("Remove empty arguments.");
+            expect(button("Save").props.disabled).toBe(true);
+            yield* promise(() => write("wf-check-1-args", "--verbose\n--ci"));
+            yield* validated();
+            expect(page()).not.toContain("to fix");
+            expect(button("Save").props.disabled).toBe(false);
+            yield* promise(() => toggle("Workflow view", "yaml"));
+            const withArgs = decodeDefinition(
+              Yaml.parse(control(pluginDesign.Textarea, "Exported workflow YAML").props.value),
+            );
+            expect(withArgs.nodes.find((node) => node.kind === "check")).toEqual({
+              ...expectedCheck,
+              args: ["--verbose", "--ci"],
+            });
+            yield* promise(() => toggle("Workflow view", "routes"));
+          }
+          yield* promise(() => write("wf-check-1-args", ""));
+          yield* validated();
+          expect(control(pluginDesign.Textarea, "wf-check-1-args").props.value).toBe("");
+          expect(page()).not.toContain("to fix");
+          expect(button("Save").props.disabled).toBe(false);
+          yield* promise(() => click("Save"));
+          yield* promise(() => tracked.settle("save"));
+          expect(page()).toContain(`Saved revision ${revision}`);
+          const noArgsSaved = decodeDefinition(
+            Yaml.parse(
+              yield* fs.readFileString(`${first.directory}/repeat-implementation-once.yaml`),
+            ),
+          );
+          expect(noArgsSaved.revision).toBe(revision);
+          expect(noArgsSaved.nodes.find((node) => node.kind === "check")).toEqual(expectedCheck);
+          yield* promise(unmount);
+          yield* promise(mount);
+          yield* promise(() => tracked.settle("projects"));
+          yield* promise(() => tracked.settle("read"));
+          yield* promise(() => tracked.settle("capabilities"));
+          yield* validated();
+          expect(page()).toContain(`Saved revision ${revision}`);
+          expect(control(pluginDesign.Textarea, "wf-check-1-args").props.value).toBe("");
+          expect(control(pluginDesign.Textarea, "wf-check-1-args").props.invalid).toBe(false);
+          expect(page()).not.toContain("to fix");
+          expect(button("Save").props.disabled).toBe(true);
+          yield* promise(() => toggle("Workflow view", "yaml"));
+          const reloaded = decodeDefinition(
+            Yaml.parse(control(pluginDesign.Textarea, "Exported workflow YAML").props.value),
+          );
+          expect(reloaded.revision).toBe(revision);
+          expect(reloaded.nodes.find((node) => node.kind === "check")).toEqual(expectedCheck);
+          yield* promise(() => toggle("Workflow view", "routes"));
+        }
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   { timeout: 120_000 },
