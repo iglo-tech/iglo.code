@@ -55,7 +55,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { act, useMemo, useSyncExternalStore } from "react";
+import { act, useMemo, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import * as Yaml from "yaml";
 import { vi } from "vite-plus/test";
@@ -69,10 +69,19 @@ import {
   origin,
 } from "../../server/src/plugins/PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../../server/src/orchestration-v2/testkit/ProviderReplayHarness.ts";
+import { stepButtonId } from "../../../packages/plugin-workflows/src/web/Flow.tsx";
+import type { FlowEdge } from "../../../packages/plugin-workflows/src/web/flowGraph.ts";
 
 const binding = vi.hoisted(() => ({
   configs: new Map<string, ServerConfig>(),
   contexts: new Map<string, Context.Context<Supervisor.EnvironmentSupervisor>>(),
+}));
+
+// Preserve the graph's real controls; only host tooltip portals lack DOM refs in this renderer.
+vi.mock("../src/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => children,
+  TooltipTrigger: ({ render }: { render: ReactElement }) => render,
+  TooltipPopup: () => null,
 }));
 
 // Bind the production client to each test environment's authenticated server session.
@@ -443,6 +452,9 @@ it.live(
     Effect.scoped(
       Effect.gen(function* () {
         vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+        // The real graph needs window keyboard listeners; this renderer invents no DOM geometry.
+        vi.stubGlobal("window", new EventTarget());
+        vi.stubGlobal("cancelAnimationFrame", () => {});
         const timings = { ...authoringTimings };
         Object.assign(authoringTimings, {
           searchDelayMs: 0,
@@ -684,7 +696,22 @@ it.live(
           root().find(
             (node) => node.type === type && (node.props.id === key || node.props.ariaLabel === key),
           );
-        const click = (label: string) => act(async () => button(label).props.onClick());
+        const click = (label: string) =>
+          act(async () => {
+            let target: ReactTestInstance | null =
+              buttons(label)[0] ??
+              root().find(
+                (node) =>
+                  node.type === "button" &&
+                  (node.props["aria-label"] === label ||
+                    String(node.props["aria-label"]).startsWith(`${label},`)),
+              );
+            // Graph buttons bubble to the real React Flow node wrapper's selection handler.
+            while (target !== null && typeof target.props.onClick !== "function")
+              target = target.parent;
+            if (target === null) throw new Error(`No click handler for ${label}`);
+            target.props.onClick({});
+          });
         const choose = (key: string, value: string) =>
           act(async () => control(pluginDesign.Select, key).props.onChange(value));
         const write = (key: string, value: string) =>
@@ -704,28 +731,35 @@ it.live(
         const keyDown = (nodeId: string, key: string) =>
           act(async () =>
             root()
+              .find((node) => node.type === "button" && node.props.id === stepButtonId(nodeId))
+              .props.onKeyDown({ altKey: false, key, preventDefault: () => {} }),
+          );
+        const clearSelection = () =>
+          act(async () =>
+            root()
               .find(
                 (node) =>
-                  node.type === "li" &&
-                  typeof node.props.onKeyDown === "function" &&
-                  node.findAll((child) => child.props.id === `wf-step-${nodeId}`).length > 0,
+                  node.type === "div" &&
+                  node.props.className?.split(" ").includes("react-flow__pane"),
               )
-              .props.onKeyDown({ altKey: false, key, preventDefault: () => {} }),
+              .props.onClick({ target: null }),
           );
         const select = (key: string) => control(pluginDesign.Select, key);
         // Segmented switches are host controls; drive them through their change handler.
         const toggle = (key: string, value: string) =>
           act(async () => control(pluginDesign.SegmentedControl, key).props.onChange(value));
-        // A step's lines in the Routes view.
-        const routesOf = (nodeId: string) =>
-          textOf(
-            root().find(
-              (node) =>
-                node.type === "li" &&
-                typeof node.props.onKeyDown === "function" &&
-                node.findAll((child) => child.props.id === `wf-step-${nodeId}`).length > 0,
-            ),
+        // Read the actual edges mounted by the production Graph, including separate limit edges.
+        const graphEdge = (id: string) => {
+          const canvas = root().find(
+            (node) =>
+              node.props["aria-label"] === "Workflow graph" && Array.isArray(node.props.edges),
           );
+          const edges: ReadonlyArray<{ readonly id: string; readonly data: { edge: FlowEdge } }> =
+            canvas.props.edges;
+          const edge = edges.find((edge) => edge.id === id);
+          if (edge === undefined) throw new Error(`No graph edge for ${id}`);
+          return edge.data.edge;
+        };
         const validated = () => promise(() => tracked.settleLatest("validate"));
         const runId = () =>
           (router.state.location.search as { pluginState?: { run?: string } }).pluginState?.run;
@@ -871,27 +905,52 @@ it.live(
         expect(select("wf-decision-1-otherwise-repeat").props.invalid).toBe(true);
         expect(select("wf-decision-1-rules-1-repeat").props.invalid).toBe(false);
         yield* promise(() => click("Move rule 2 up"));
-        expect(routesOf("decision-1")).toContain(
-          "Rule 1 outcome = completed ↩ Agent step 1repeat ×1 · 2 visitsat limit → Done",
-        );
-        expect(routesOf("decision-1")).toContain(
-          "Rule 2 outcome = completed and +2 → Human gate 1",
-        );
+        expect(graphEdge("decision-1:rules.0")).toMatchObject({
+          label: "outcome = completed\nrepeat ×1 · 2 visits",
+          target: "agent-1",
+          back: true,
+          route: { stepId: "decision-1", control: "rules.0" },
+        });
+        expect(graphEdge("decision-1:rules.0.repeat")).toMatchObject({
+          kind: "atLimit",
+          target: "done",
+          route: { stepId: "decision-1", control: "rules.0.repeat" },
+        });
+        expect(graphEdge("decision-1:rules.1")).toMatchObject({
+          fullLabel: "outcome = completed and +2",
+          target: "human-1",
+          back: false,
+          route: { stepId: "decision-1", control: "rules.1" },
+        });
         yield* promise(() => click("Remove rule 1"));
         expect(page()).not.toContain("Every cycle must cross a bounded repeat route.");
         expect(page()).not.toContain("already repeats back to");
         // The run-wide visit bound also ends at the human gate.
-        yield* promise(() => click("Decision: Decision 1"));
+        yield* promise(clearSelection);
         yield* promise(() => choose("wf-workflow-atLimit", "human-1"));
         yield* validated();
         expect(page()).not.toContain("to fix");
-        expect(routesOf("decision-1")).toContain(
-          "Rule 1 outcome = completed and +2 → Human gate 1",
-        );
-        expect(routesOf("decision-1")).toContain(
-          "Otherwise ↩ Agent step 1repeat ×1 · 2 visitsat limit → Human gate 1",
-        );
-        expect(routesOf("human-1")).toContain("Request changes → Changes requested");
+        expect(graphEdge("decision-1:rules.0")).toMatchObject({
+          fullLabel: "outcome = completed and +2",
+          target: "human-1",
+          back: false,
+          route: { stepId: "decision-1", control: "rules.0" },
+        });
+        expect(graphEdge("decision-1:otherwise")).toMatchObject({
+          label: "otherwise\nrepeat ×1 · 2 visits",
+          target: "agent-1",
+          back: true,
+        });
+        expect(graphEdge("decision-1:otherwise.repeat")).toMatchObject({
+          label: "at limit",
+          target: "human-1",
+          back: false,
+        });
+        expect(graphEdge("human-1:changes")).toMatchObject({
+          label: "changes",
+          target: "end-1",
+          dangling: false,
+        });
 
         // Changing the source removes fields the conditions use: each is located and blocking.
         yield* promise(() => click("Decision: Decision 1"));
@@ -907,7 +966,11 @@ it.live(
         yield* promise(() => choose("wf-decision-1-source", "check-1"));
         // Removing a route target leaves the route dangling as a repairable error.
         yield* promise(() => keyDown("end-1", "Delete"));
-        expect(routesOf("human-1")).toContain("Request changes → end-1 (missing)");
+        expect(graphEdge("human-1:changes")).toMatchObject({
+          label: "changes",
+          target: "missing:end-1",
+          dangling: true,
+        });
         yield* promise(() => click("1 to fix"));
         expect(page()).toContain("Human gate 1: unknown route target end-1.");
         expect(button("Save").props.disabled).toBe(true);
@@ -1036,7 +1099,7 @@ it.live(
         // Checks are commands without a native thread.
         expect(buttons("Open thread")).toHaveLength(0);
         expect(page()).toContain("Check 1 → Decision 1");
-        yield* promise(() => toggle("Run view", "routes"));
+        yield* promise(() => toggle("Run view", "graph"));
         // The decision's routing lists every rule it considered and why Otherwise was taken.
         yield* promise(() => click("Decision: Decision 1"));
         yield* promise(flush);
@@ -1055,8 +1118,8 @@ it.live(
         yield* promise(() => click("Approve"));
         yield* promise(() => tracked.settle("gate"));
         yield* promise(() => tracked.run((run) => run.state === "completed"));
-        // Deselecting the decision shows the whole route history again.
-        yield* promise(() => click("Decision: Decision 1"));
+        // The graph pane clears selection and shows the whole route history again.
+        yield* promise(clearSelection);
         expect(page()).toContain("Human gate 1 → Doneapprove");
         const finished = yield* get(id);
         expect(finished.trace.at(-1)).toMatchObject({ route: "approve", chosen: "done" });
@@ -1226,7 +1289,7 @@ it.live(
               ...expectedCheck,
               args: ["--verbose", "--ci"],
             });
-            yield* promise(() => toggle("Workflow view", "routes"));
+            yield* promise(() => toggle("Workflow view", "graph"));
           }
           yield* promise(() => write("wf-check-1-args", ""));
           yield* validated();
@@ -1260,7 +1323,7 @@ it.live(
           );
           expect(reloaded.revision).toBe(revision);
           expect(reloaded.nodes.find((node) => node.kind === "check")).toEqual(expectedCheck);
-          yield* promise(() => toggle("Workflow view", "routes"));
+          yield* promise(() => toggle("Workflow view", "graph"));
         }
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
