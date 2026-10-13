@@ -28,7 +28,6 @@ import {
   RouteEditor,
   controlId,
   matches,
-  minutes,
   nodeOptions,
   withCurrent,
   type InspectorProps,
@@ -134,11 +133,21 @@ function Section({ title, children }: { readonly title: string; readonly childre
   );
 }
 
+const parseCheckTimeout = (text: string) => {
+  const parsed = Number.parseFloat(text);
+  return Number.isFinite(parsed) ? Math.round(parsed * 60_000) : undefined;
+};
+
 /** A deterministic command in the run's workspace; the backend owns where and how it runs. */
 export function CheckInspector(input: StepProps<CheckNode>) {
   const { props, definition, node, problems, readOnly } = input;
   const { set, invalid } = stepEditing(input);
   const { Input, Select, Textarea, Badge, Tooltip } = props;
+  const timeoutText = node.timeoutMs === undefined ? "" : String(node.timeoutMs / 60_000);
+  const [timeoutDraft, setTimeoutDraft] = useState({ nodeId: node.id, text: timeoutText });
+  // Keep partial decimal entry until the selected check or its canonical timeout changes.
+  if (timeoutDraft.nodeId !== node.id || parseCheckTimeout(timeoutDraft.text) !== node.timeoutMs)
+    setTimeoutDraft({ nodeId: node.id, text: timeoutText });
   const route = (key: "next" | "onUnresolved", value: Route | undefined) =>
     set((current) => {
       const { onUnresolved: _previous, ...rest } = current;
@@ -195,19 +204,18 @@ export function CheckInspector(input: StepProps<CheckNode>) {
           id={controlId(node.id, "timeoutMs")}
           type="number"
           placeholder="120"
-          value={minutes(node.timeoutMs)}
+          value={timeoutDraft.text}
           readOnly={readOnly}
           disabled={readOnly}
           invalid={invalid("timeoutMs")}
-          onChange={(value) =>
+          onChange={(value) => {
+            setTimeoutDraft({ nodeId: node.id, text: value });
             set((current) => {
               const { timeoutMs: _previous, ...rest } = current;
-              const parsed = Number.parseFloat(value);
-              return Number.isFinite(parsed)
-                ? { ...rest, timeoutMs: Math.round(parsed * 60_000) }
-                : rest;
-            })
-          }
+              const timeoutMs = parseCheckTimeout(value);
+              return timeoutMs === undefined ? rest : { ...rest, timeoutMs };
+            });
+          }}
         />
       </Labeled>
       <Problems problems={problems} nodeId={node.id} control="timeoutMs" />

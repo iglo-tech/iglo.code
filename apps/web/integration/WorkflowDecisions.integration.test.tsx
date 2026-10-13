@@ -208,6 +208,7 @@ const decodeDefinition = Schema.decodeUnknownSync(Definition);
 /** Scripted check outcomes: an exit code, or "lost" when execution ends without a result. */
 const checkResults: Array<number | "lost"> = [];
 let checkExecutions = 0;
+const observedCheckTimeouts: number[] = [];
 // Provider turns and check commands are replayed at the execution boundary; the plugin,
 // catalog, persistence, authorization and RPC transport are real.
 const threads = new Map<string, PluginThreadState>();
@@ -306,9 +307,10 @@ const replayedWorkflows: ServerPlugin = {
               return receipt;
             }),
           // Check commands are replayed at the execution boundary, one scripted result each.
-          execute: () =>
+          execute: (input) =>
             Effect.suspend(() => {
               checkExecutions++;
+              observedCheckTimeouts.push(input.timeoutMs);
               const result = checkResults.shift() ?? 0;
               return result === "lost"
                 ? Effect.fail(
@@ -1325,6 +1327,100 @@ it.live(
           expect(reloaded.nodes.find((node) => node.kind === "check")).toEqual(expectedCheck);
           yield* promise(() => toggle("Workflow view", "graph"));
         }
+
+        // Fractional Check timeouts survive decimal entry, publication and reload unchanged.
+        yield* promise(() => type("wf-check-1-timeoutMs", "1"));
+        yield* promise(() => type("wf-check-1-timeoutMs", "1."));
+        expect(control(pluginDesign.Input, "wf-check-1-timeoutMs").props.value).toBe("1.");
+        yield* promise(() => type("wf-check-1-timeoutMs", "1.5"));
+        yield* validated();
+        expect(control(pluginDesign.Input, "wf-check-1-timeoutMs").props.value).toBe("1.5");
+        yield* promise(() => type("wf-check-1-timeoutMs", ""));
+        yield* validated();
+        expect(control(pluginDesign.Input, "wf-check-1-timeoutMs").props.value).toBe("");
+        expect(control(pluginDesign.Input, "wf-check-1-timeoutMs").props.invalid).toBe(false);
+        yield* promise(() => toggle("Workflow view", "yaml"));
+        const clearedTimeout = decodeDefinition(
+          Yaml.parse(control(pluginDesign.Textarea, "Exported workflow YAML").props.value),
+        );
+        expect(
+          clearedTimeout.nodes.find((node) => node.kind === "check")?.timeoutMs,
+        ).toBeUndefined();
+        yield* promise(() => toggle("Workflow view", "graph"));
+        yield* promise(() => type("wf-check-1-timeoutMs", "0.5"));
+        expect(control(pluginDesign.Input, "wf-check-1-timeoutMs").props.invalid).toBe(true);
+        expect(button("Save").props.disabled).toBe(true);
+        yield* promise(() => type("wf-check-1-timeoutMs", "1440.5"));
+        expect(control(pluginDesign.Input, "wf-check-1-timeoutMs").props.invalid).toBe(true);
+        expect(button("Save").props.disabled).toBe(true);
+        yield* promise(() => type("wf-check-1-timeoutMs", "1.5"));
+        yield* validated();
+        const shownBeforeSave = control(pluginDesign.Input, "wf-check-1-timeoutMs").props.value;
+        expect(shownBeforeSave).toBe("1.5");
+        expect(control(pluginDesign.Input, "wf-check-1-timeoutMs").props.invalid).toBe(false);
+        expect(button("Save").props.disabled).toBe(false);
+        yield* promise(() => click("Save"));
+        yield* promise(() => tracked.settle("save"));
+        const timeoutSaved = decodeDefinition(
+          Yaml.parse(
+            yield* fs.readFileString(`${first.directory}/repeat-implementation-once.yaml`),
+          ),
+        );
+        const timeoutCheck = timeoutSaved.nodes.find((node) => node.kind === "check")!;
+        expect(timeoutCheck).toEqual({
+          ...noArgsCheck,
+          title: "No-argument check",
+          timeoutMs: 90_000,
+        });
+        expect(timeoutSaved.revision).toBe(4);
+        expect(page()).toContain("Saved revision 4");
+        yield* promise(unmount);
+        yield* promise(mount);
+        yield* promise(() => tracked.settle("projects"));
+        yield* promise(() => tracked.settle("read"));
+        yield* promise(() => tracked.settle("capabilities"));
+        yield* validated();
+        const shownAfterReload = control(pluginDesign.Input, "wf-check-1-timeoutMs").props.value;
+        expect(shownAfterReload).toBe("1.5");
+        expect(button("Save").props.disabled).toBe(true);
+        yield* promise(() => toggle("Workflow view", "yaml"));
+        const timeoutReloaded = decodeDefinition(
+          Yaml.parse(control(pluginDesign.Textarea, "Exported workflow YAML").props.value),
+        );
+        expect(timeoutReloaded).toEqual(timeoutSaved);
+        yield* promise(() => toggle("Workflow view", "graph"));
+
+        // Observe the registered service's actual Host.execute input, without a real command.
+        const executionsBeforeTimeoutRun = observedCheckTimeouts.length;
+        yield* promise(() =>
+          go(first.environmentId, "workflows.runs", {
+            start: "1",
+            workflow: "repeat-implementation-once",
+          }),
+        );
+        yield* promise(() => tracked.settleLatest("library"));
+        yield* promise(() => tracked.settleLatest("preview"));
+        yield* promise(() => act(async () => buttons("Run workflow").at(-1)!.props.onClick()));
+        yield* promise(() => tracked.settle("launch"));
+        yield* promise(flush);
+        const timeoutRunId = runId()!;
+        yield* reconcile;
+        yield* promise(() =>
+          tracked.run((run) => run.id === timeoutRunId && run.attempts.at(-1)?.phase === "running"),
+        );
+        yield* finishImplementation(yield* get(timeoutRunId));
+        yield* reconcile;
+        yield* promise(() =>
+          tracked.run((run) => run.id === timeoutRunId && run.state === "awaiting-review"),
+        );
+        const timeoutRun = yield* get(timeoutRunId);
+        expect(timeoutRun.definition).toEqual(timeoutSaved);
+        expect(
+          timeoutRun.attempts.find((attempt) => attempt.nodeId === "check-1")?.check?.exitCode,
+        ).toBe(0);
+        expect(observedCheckTimeouts.slice(executionsBeforeTimeoutRun)).toEqual([90_000]);
+        expect(Number(shownBeforeSave) * 60_000).toBe(observedCheckTimeouts.at(-1));
+        expect(Number(shownAfterReload) * 60_000).toBe(observedCheckTimeouts.at(-1));
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   { timeout: 120_000 },
