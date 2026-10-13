@@ -89,17 +89,17 @@ export const resolveBunExecutable = Effect.fn("bunRuntime.resolveBunExecutable")
   const path = yield* Path.Path;
   const env = environment ?? (yield* HostProcess.Environment);
   const bundledRuntime = path.join(path.dirname(executablePath), "runtime", "bun");
-  const bunPath = env.T3_BUN_EXECUTABLE
-    ? path.resolve(env.T3_BUN_EXECUTABLE)
+  const configuredBunPath = env.T3_BUN_EXECUTABLE
+    ? env.T3_BUN_EXECUTABLE
     : (yield* fs
           .exists(bundledRuntime)
           .pipe(Effect.mapError((cause) => new BunRuntimeUnavailableError({ feature, cause }))))
       ? bundledRuntime
       : yield* resolveCommandPath("bun", { env }).pipe(
           Effect.provideService(CommandResolutionCache, new Map()),
-          Effect.map((commandPath) => path.resolve(commandPath)),
-          Effect.mapError((cause) => new BunRuntimeUnavailableError({ feature, cause })),
         );
+  if (configuredBunPath === null) return yield* new BunRuntimeUnavailableError({ feature });
+  const bunPath = path.resolve(configuredBunPath);
   // A launcher or symlink named bun must not point back at the standalone app.
   const resolvedPath = yield* fs
     .realPath(bunPath)

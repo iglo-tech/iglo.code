@@ -592,7 +592,6 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
           detail: expect.stringContaining("Install Bun"),
           cause: {
             _tag: "BunRuntimeUnavailableError",
-            cause: { _tag: "CommandResolutionError" },
           },
         });
       }
