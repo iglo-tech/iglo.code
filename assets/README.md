@@ -8,7 +8,9 @@ The three Icon Composer projects are the source of truth for full application ic
 
 Each project uses `text.svg` for the T3 mark and `background.svg` when the background is a vector layer. Additional layers use semantic names that describe their role and placement.
 
-Run `vp run icons:export` from the repository root to regenerate the tracked iOS, Linux, Windows, and web assets. The development web exports are also copied to `apps/web/public` for the browser favicon and splash screen. Run `vp run icons:check` to verify that the generated assets and public copies match their sources without changing files.
+Run `vp run icons:export` from the repository root to regenerate the tracked iOS, Linux, Windows, and upstream web assets. Run `vp run icons:check` to verify that the generated assets match their sources without changing files.
+
+iglo.code's web icons come from `assets/iglo/icon.svg` instead, for every brand. After editing it, render each size with `rsvg-convert -w <size> -h <size> assets/iglo/icon.svg -o assets/iglo/icon-<size>.png` (16, 32, 180, 192, 512), rebuild `favicon.ico` from the 16, 32, and 48 px renders with `encodePngIco` in `scripts/lib/icon-export.ts`, and copy the results into `apps/web/public` under the names in `scripts/lib/brand-assets.ts`.
 
 Exporting requires Icon Composer 2 or newer on macOS. The script selects the newest compatible exporter from Xcode or a standalone Icon Composer installation and pins design generation 26. Set `ICON_COMPOSER_TOOL` to the full path of `Icon Composer.app/Contents/Executables/ictool` to override automatic discovery.
 

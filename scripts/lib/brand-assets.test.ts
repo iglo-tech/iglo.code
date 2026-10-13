@@ -4,6 +4,7 @@ import {
   BRAND_ASSET_PATHS,
   DEVELOPMENT_ICON_OVERRIDES,
   DEVELOPMENT_PUBLIC_ICON_OVERRIDES,
+  IGLO_WEB_ICON_PATHS,
   resolveWebAssetBrandForChannel,
   resolveWebAssetBrandForPackageVersion,
   resolveWebIconOverrides,
@@ -13,27 +14,35 @@ describe("brand-assets", () => {
   it("maps production web assets into the server package", () => {
     expect(resolveWebIconOverrides("production", "dist/client")).toEqual([
       {
-        sourceRelativePath: BRAND_ASSET_PATHS.productionWebFaviconIco,
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.faviconIco,
         targetRelativePath: "dist/client/favicon.ico",
       },
       {
-        sourceRelativePath: BRAND_ASSET_PATHS.productionWebFavicon16Png,
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.favicon16Png,
         targetRelativePath: "dist/client/favicon-16x16.png",
       },
       {
-        sourceRelativePath: BRAND_ASSET_PATHS.productionWebFavicon32Png,
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.favicon32Png,
         targetRelativePath: "dist/client/favicon-32x32.png",
       },
       {
-        sourceRelativePath: BRAND_ASSET_PATHS.productionWebAppleTouchIconPng,
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.appleTouchIconPng,
         targetRelativePath: "dist/client/apple-touch-icon.png",
+      },
+      {
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.appIcon192Png,
+        targetRelativePath: "dist/client/app-icon-192.png",
+      },
+      {
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.appIcon512Png,
+        targetRelativePath: "dist/client/app-icon-512.png",
       },
     ]);
   });
 
   it("maps server build web assets to development icons", () => {
     expect(DEVELOPMENT_ICON_OVERRIDES[0]).toEqual({
-      sourceRelativePath: BRAND_ASSET_PATHS.developmentWebFaviconIco,
+      sourceRelativePath: IGLO_WEB_ICON_PATHS.faviconIco,
       targetRelativePath: "dist/client/favicon.ico",
     });
   });
@@ -41,34 +50,42 @@ describe("brand-assets", () => {
   it("maps development web assets to the public splash and favicon files", () => {
     expect(DEVELOPMENT_PUBLIC_ICON_OVERRIDES).toEqual([
       {
-        sourceRelativePath: BRAND_ASSET_PATHS.developmentWebFaviconIco,
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.faviconIco,
         targetRelativePath: "apps/web/public/favicon.ico",
       },
       {
-        sourceRelativePath: BRAND_ASSET_PATHS.developmentWebFavicon16Png,
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.favicon16Png,
         targetRelativePath: "apps/web/public/favicon-16x16.png",
       },
       {
-        sourceRelativePath: BRAND_ASSET_PATHS.developmentWebFavicon32Png,
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.favicon32Png,
         targetRelativePath: "apps/web/public/favicon-32x32.png",
       },
       {
-        sourceRelativePath: BRAND_ASSET_PATHS.developmentWebAppleTouchIconPng,
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.appleTouchIconPng,
         targetRelativePath: "apps/web/public/apple-touch-icon.png",
+      },
+      {
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.appIcon192Png,
+        targetRelativePath: "apps/web/public/app-icon-192.png",
+      },
+      {
+        sourceRelativePath: IGLO_WEB_ICON_PATHS.appIcon512Png,
+        targetRelativePath: "apps/web/public/app-icon-512.png",
       },
     ]);
   });
 
   it("can target hosted web dist directly", () => {
     expect(resolveWebIconOverrides("production", "apps/web/dist")).toContainEqual({
-      sourceRelativePath: BRAND_ASSET_PATHS.productionWebAppleTouchIconPng,
+      sourceRelativePath: IGLO_WEB_ICON_PATHS.appleTouchIconPng,
       targetRelativePath: "apps/web/dist/apple-touch-icon.png",
     });
   });
 
-  it("maps hosted nightly web assets to nightly icons", () => {
+  it("maps hosted nightly web assets to the iglo icons", () => {
     expect(resolveWebIconOverrides("nightly", "apps/web/dist")).toContainEqual({
-      sourceRelativePath: BRAND_ASSET_PATHS.nightlyWebFaviconIco,
+      sourceRelativePath: IGLO_WEB_ICON_PATHS.faviconIco,
       targetRelativePath: "apps/web/dist/favicon.ico",
     });
   });
