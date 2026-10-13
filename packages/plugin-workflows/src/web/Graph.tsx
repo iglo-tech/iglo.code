@@ -290,7 +290,7 @@ function StepCard({
                   : ` · ${node.detail}`
                 : run.state === null
                   ? ""
-                  : ` · ${run.state.word}`}
+                  : ` · ${node.kind === "end" ? run.state.label : run.state.word}`}
             </span>
           </span>
           {run?.current || node.entry || node.runLimit ? (

@@ -62,6 +62,7 @@ import { act, useMemo, useSyncExternalStore } from "react";
 import { create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import * as Yaml from "yaml";
 import { vi } from "vite-plus/test";
+import { stepButtonId } from "../../../packages/plugin-workflows/src/web/Flow.tsx";
 
 import * as Auth from "../../server/src/auth/EnvironmentAuth.ts";
 import * as Projects from "../../server/src/project/ProjectService.ts";
@@ -664,6 +665,9 @@ it.live(
     Effect.scoped(
       Effect.gen(function* () {
         vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+        // The real graph needs window keyboard listeners; this renderer invents no DOM geometry.
+        vi.stubGlobal("window", new EventTarget());
+        vi.stubGlobal("cancelAnimationFrame", () => {});
         const timings = { ...authoringTimings };
         Object.assign(authoringTimings, {
           searchDelayMs: 0,
@@ -928,6 +932,17 @@ it.live(
             (node) => node.type === type && (node.props.id === key || node.props.ariaLabel === key),
           );
         const click = (label: string) => act(async () => button(label).props.onClick());
+        const graphBox = (id: string) =>
+          root().find((node) => node.type === "button" && node.props.id === stepButtonId(id));
+        const selectGraphBox = (id: string) =>
+          act(async () => {
+            let target: ReactTestInstance | null = graphBox(id);
+            // Graph buttons bubble to the real React Flow node wrapper's selection handler.
+            while (target !== null && typeof target.props.onClick !== "function")
+              target = target.parent;
+            if (target === null) throw new Error(`No graph selection handler for ${id}`);
+            target.props.onClick({});
+          });
         // Host popups (combobox, segmented switch, breadcrumb) are driven through the same
         // handlers the host controls call.
         const choose = (key: string, value: string) =>
@@ -1147,8 +1162,30 @@ it.live(
         expect(tip("sequence · revision 1")).toHaveLength(1);
         expect(page()).toContain("Current checkout");
         expect(page()).toContain("Cancel run");
-        // Without a canvas (no layout measurement here) the Route list is the run's graph.
-        expect(labelled("Route list")).toHaveLength(1);
+        // The run always opens its actual read-only graph, even without layout APIs.
+        expect(labelled("Workflow graph")).toHaveLength(1);
+        expect(page()).not.toContain("Routes");
+        const snapshotBeforeKeys = (yield* first.invoke("get", { ...scope, runId })) as Run;
+        yield* promise(() =>
+          act(async () => {
+            for (const key of ["ArrowUp", "ArrowDown", "Delete", "Backspace"])
+              graphBox("work").props.onKeyDown({
+                key,
+                altKey: true,
+                preventDefault: () => {
+                  throw new Error("A read-only graph must not handle authoring shortcuts");
+                },
+              });
+          }),
+        );
+        expect(((yield* first.invoke("get", { ...scope, runId })) as Run).definition).toEqual(
+          snapshotBeforeKeys.definition,
+        );
+        yield* promise(() => selectGraphBox("work"));
+        expect(router.state.location.search).toMatchObject({
+          pluginProjectId: projectId,
+          pluginState: { run: runId, node: "work" },
+        });
         yield* reconcile;
         yield* promise(() => tracked.run((run) => run.attempts[0]?.phase === "running"));
         const running = (yield* first.invoke("get", { ...scope, runId })) as Run;
@@ -1488,14 +1525,7 @@ it.live(
         expect(page()).toContain("Cancel run not applied");
         expect(page()).toContain("The run revision changed. Reload before deciding.");
         // The run's own end step shows the outcome, not only the header badge.
-        const endStep = root().find(
-          (node) =>
-            node.type === "li" &&
-            node.findAll(
-              (child) =>
-                child.type === pluginDesign.Button && child.props.ariaLabel === "End: Done",
-            ).length === 1,
-        );
+        const endStep = graphBox("done");
         expect(textOf(endStep)).toContain("Completed");
         expect(buttons("Cancel run")).toHaveLength(0);
 
@@ -1520,6 +1550,11 @@ it.live(
         );
         const reviewing = (yield* first.invoke("get", { ...scope, runId: reviewId })) as Run;
         const reviewThread = reviewing.attempts[0]!.threadId!;
+        yield* promise(() => selectGraphBox("reviews/code"));
+        expect(router.state.location.search).toMatchObject({
+          pluginProjectId: projectId,
+          pluginState: { run: reviewId, node: "reviews", branch: "code" },
+        });
         yield* reportTool.tool.invoke(
           {
             version: 1,

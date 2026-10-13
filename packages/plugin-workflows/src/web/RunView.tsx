@@ -18,7 +18,7 @@ import {
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Attempt, Run, WorkflowPermissions } from "../contracts.ts";
 import { errorMessage, rejected, useNarrow, type PageProps } from "./common.tsx";
-import { RouteList, stepButtonId } from "./Flow.tsx";
+import { stepButtonId } from "./Flow.tsx";
 import { Graph, type RunOverlay } from "./Graph.tsx";
 import { KindIcon, StatusIcon } from "./kinds.tsx";
 import {
@@ -71,9 +71,7 @@ const commandId = (action: Action) =>
   ).join("")}`;
 const HISTORY_PAGE = 50;
 
-type View = "graph" | "routes" | "steps";
-/** React Flow needs layout measurement; without it (server rendering, tests) Routes is shown. */
-const canvasSupported = () => typeof ResizeObserver !== "undefined";
+type View = "graph" | "steps";
 
 /** One run, live from the server: its graph, visits, evidence and allowed actions. */
 export function RunView({
@@ -107,7 +105,7 @@ export function RunView({
   const [subscription, setSubscription] = useState(0);
   const [pending, setPending] = useState<Pending | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [view, setView] = useState<View>(() => (canvasSupported() ? "graph" : "routes"));
+  const [view, setView] = useState<View>("graph");
   const [inspectorOpen, setInspectorOpen] = useState(false);
 
   const lifetime = useMemo(
@@ -173,7 +171,7 @@ export function RunView({
     };
   }, [lifetime]);
   // "View route" from a thread focuses that step's box once it exists: the graph reports it
-  // after its boxes are measured; the list views focus it once rendered.
+  // after its boxes are measured; Steps focuses it once rendered.
   const [routeFocus, setRouteFocus] = useState<string | null>(() =>
     pageState.focus === "route" ? (pageState.node ?? null) : null,
   );
@@ -552,8 +550,7 @@ export function RunView({
     />
   );
   const views = [
-    ...(canvasSupported() ? [{ value: "graph", label: "Graph" }] : []),
-    { value: "routes", label: "Routes" },
+    { value: "graph", label: "Graph" },
     { value: "steps", label: "Steps" },
   ];
   return (
@@ -725,33 +722,6 @@ export function RunView({
                         },
                   )
                 }
-              />
-            </div>
-          ) : view === "routes" ? (
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              <RouteList
-                props={props}
-                definition={definition}
-                selected={selectedNode}
-                problems={[]}
-                readOnly
-                onSelect={(id) => select(selectedNode === id ? null : { node: id })}
-                onMove={() => {}}
-                onRemove={() => {}}
-                renderStatus={(node) => {
-                  const state = overlay.steps.get(node.id);
-                  return (
-                    <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-                      <StatusIcon status={state?.status ?? "pending"} className="size-3.5" />
-                      <span className="truncate">
-                        {state?.label ?? overlay.unseen}
-                        {overlay.complete && state && state.visits > 1
-                          ? ` · ${state.visits} visits`
-                          : ""}
-                      </span>
-                    </span>
-                  );
-                }}
               />
             </div>
           ) : (
