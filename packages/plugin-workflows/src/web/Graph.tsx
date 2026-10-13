@@ -631,7 +631,7 @@ export function Graph({
       if (edge.kind === "fork") return run.steps.has(edge.target);
       if (edge.kind === "join") {
         const status = run.steps.get(edge.source)?.status;
-        return status === "completed" || status === "reported";
+        return status === "completed";
       }
       return run.taken.has(edge.id);
     };

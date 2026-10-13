@@ -934,6 +934,19 @@ it.live(
         const click = (label: string) => act(async () => button(label).props.onClick());
         const graphBox = (id: string) =>
           root().find((node) => node.type === "button" && node.props.id === stepButtonId(id));
+        const graphEdge = (id: string) => {
+          const canvas = root().find(
+            (node) =>
+              node.props["aria-label"] === "Workflow graph" && Array.isArray(node.props.edges),
+          );
+          const edges: ReadonlyArray<{
+            readonly id: string;
+            readonly data: { readonly taken: boolean };
+          }> = canvas.props.edges;
+          const edge = edges.find((edge) => edge.id === id);
+          if (edge === undefined) throw new Error(`No graph edge for ${id}`);
+          return edge;
+        };
         const selectGraphBox = (id: string) =>
           act(async () => {
             let target: ReactTestInstance | null = graphBox(id);
@@ -1555,6 +1568,16 @@ it.live(
           pluginProjectId: projectId,
           pluginState: { run: reviewId, node: "reviews", branch: "code" },
         });
+        // A launched lane has not reached its join while native execution is still active.
+        expect(reviewing.overview?.review).toMatchObject({
+          required: 1,
+          reported: 0,
+          settled: 0,
+          result: null,
+        });
+        expect(reviewing.trace).toEqual([]);
+        expect(graphEdge("reviews/code->join").data.taken).toBe(false);
+        expect(graphEdge("join:rules.0").data.taken).toBe(false);
         yield* reportTool.tool.invoke(
           {
             version: 1,
@@ -1573,6 +1596,26 @@ it.live(
             runtimeMode: "approval-required",
           },
         );
+        yield* promise(() =>
+          tracked.run((run) => run.id === reviewId && run.attempts[0]?.phase === "reported"),
+        );
+        const reportedReview = (yield* first.invoke("get", { ...scope, runId: reviewId })) as Run;
+        expect(reportedReview.state).toBe("running");
+        expect(reportedReview.attempts[0]?.phase).toBe("reported");
+        expect(reportedReview.overview?.review).toMatchObject({
+          required: 1,
+          reported: 1,
+          settled: 0,
+          result: null,
+        });
+        expect(reportedReview.trace).toEqual([]);
+        expect(reportedReview.allowedActions).not.toContain("approve");
+        expect(page()).toContain("Execution still running");
+        expect(page()).toContain("Report accepted (completed claim)");
+        expect(page()).toContain("Not routed yet");
+        expect(textOf(graphBox("reviews/code"))).toContain("Reported");
+        expect(graphEdge("reviews/code->join").data.taken).toBe(false);
+        expect(graphEdge("join:rules.0").data.taken).toBe(false);
         const reviewed = threads.get(reviewThread)!;
         threads.set(reviewThread, {
           ...reviewed,
@@ -1582,6 +1625,25 @@ it.live(
         yield* promise(() => tracked.run((run) => run.state === "awaiting-review"));
         expect(page()).toContain("reviews 1/1 reported, 1/1 settled");
         expect(page()).toContain(`reviewed head ${forge.head.slice(0, 12)}`);
+        // Only real terminal provider settlement and the persisted join unlock this path/gate.
+        const settledReview = (yield* first.invoke("get", { ...scope, runId: reviewId })) as Run;
+        expect(settledReview.attempts[0]?.phase).toBe("completed");
+        expect(settledReview.overview?.review).toMatchObject({
+          reported: 1,
+          settled: 1,
+          result: "all_completed",
+        });
+        expect(settledReview.currentNode).toBe("gate");
+        expect(settledReview.trace).toHaveLength(1);
+        expect(settledReview.trace[0]).toMatchObject({
+          nodeId: "join",
+          chosen: "gate",
+          sourceIds: [settledReview.reviews[0]!.id, reportedReview.attempts[0]!.report!.receipt.id],
+        });
+        expect(graphEdge("reviews/code->join").data.taken).toBe(true);
+        expect(graphEdge("join:rules.0").data.taken).toBe(true);
+        expect(button("Approve").props.disabled).toBe(false);
+        expect(page()).toContain("Needs your decision");
         forge.head = "d".repeat(40);
         yield* promise(() => click("Approve"));
         yield* promise(() => tracked.settle("gate"));
