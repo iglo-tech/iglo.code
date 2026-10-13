@@ -12,8 +12,6 @@ export const BRAND_ASSET_PATHS = {
   productionWebFavicon16Png: "assets/prod/t3-black-web-favicon-16x16.png",
   productionWebFavicon32Png: "assets/prod/t3-black-web-favicon-32x32.png",
   productionWebAppleTouchIconPng: "assets/prod/t3-black-web-apple-touch-180.png",
-  productionWebAppIcon192Png: "assets/prod/t3-black-web-app-icon-192.png",
-  productionWebAppIcon512Png: "assets/prod/t3-black-web-app-icon-512.png",
 
   nightlyIconComposerProject: "assets/nightly/app-icon.icon",
   nightlyIosIconPng: "assets/nightly/nightly-ios-1024.png",
@@ -24,8 +22,6 @@ export const BRAND_ASSET_PATHS = {
   nightlyWebFavicon16Png: "assets/nightly/nightly-web-favicon-16x16.png",
   nightlyWebFavicon32Png: "assets/nightly/nightly-web-favicon-32x32.png",
   nightlyWebAppleTouchIconPng: "assets/nightly/nightly-web-apple-touch-180.png",
-  nightlyWebAppIcon192Png: "assets/nightly/nightly-web-app-icon-192.png",
-  nightlyWebAppIcon512Png: "assets/nightly/nightly-web-app-icon-512.png",
 
   developmentDesktopIconPng: "assets/dev/blueprint-macos-1024.png",
   developmentWindowsIconIco: "assets/dev/blueprint-windows.ico",
@@ -33,8 +29,6 @@ export const BRAND_ASSET_PATHS = {
   developmentWebFavicon16Png: "assets/dev/blueprint-web-favicon-16x16.png",
   developmentWebFavicon32Png: "assets/dev/blueprint-web-favicon-32x32.png",
   developmentWebAppleTouchIconPng: "assets/dev/blueprint-web-apple-touch-180.png",
-  developmentWebAppIcon192Png: "assets/dev/blueprint-web-app-icon-192.png",
-  developmentWebAppIcon512Png: "assets/dev/blueprint-web-app-icon-512.png",
 } as const;
 
 export type WebAssetBrand = "development" | "nightly" | "production";
@@ -65,31 +59,21 @@ const WEB_ICON_TARGET_FILENAMES = {
   appIcon512Png: "app-icon-512.png",
 } as const;
 
+// iglo.code ships one hand-drawn icon set (assets/iglo/icon.svg) for every web
+// brand instead of the upstream Icon Composer renders.
+export const IGLO_WEB_ICON_PATHS = {
+  faviconIco: "assets/iglo/favicon.ico",
+  favicon16Png: "assets/iglo/icon-16.png",
+  favicon32Png: "assets/iglo/icon-32.png",
+  appleTouchIconPng: "assets/iglo/icon-180.png",
+  appIcon192Png: "assets/iglo/icon-192.png",
+  appIcon512Png: "assets/iglo/icon-512.png",
+} as const satisfies Record<keyof typeof WEB_ICON_TARGET_FILENAMES, string>;
+
 const WEB_ICON_SOURCE_PATHS_BY_BRAND = {
-  development: {
-    faviconIco: BRAND_ASSET_PATHS.developmentWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.developmentWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.developmentWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.developmentWebAppleTouchIconPng,
-    appIcon192Png: BRAND_ASSET_PATHS.developmentWebAppIcon192Png,
-    appIcon512Png: BRAND_ASSET_PATHS.developmentWebAppIcon512Png,
-  },
-  nightly: {
-    faviconIco: BRAND_ASSET_PATHS.nightlyWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.nightlyWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.nightlyWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.nightlyWebAppleTouchIconPng,
-    appIcon192Png: BRAND_ASSET_PATHS.nightlyWebAppIcon192Png,
-    appIcon512Png: BRAND_ASSET_PATHS.nightlyWebAppIcon512Png,
-  },
-  production: {
-    faviconIco: BRAND_ASSET_PATHS.productionWebFaviconIco,
-    favicon16Png: BRAND_ASSET_PATHS.productionWebFavicon16Png,
-    favicon32Png: BRAND_ASSET_PATHS.productionWebFavicon32Png,
-    appleTouchIconPng: BRAND_ASSET_PATHS.productionWebAppleTouchIconPng,
-    appIcon192Png: BRAND_ASSET_PATHS.productionWebAppIcon192Png,
-    appIcon512Png: BRAND_ASSET_PATHS.productionWebAppIcon512Png,
-  },
+  development: IGLO_WEB_ICON_PATHS,
+  nightly: IGLO_WEB_ICON_PATHS,
+  production: IGLO_WEB_ICON_PATHS,
 } as const satisfies Record<WebAssetBrand, Record<keyof typeof WEB_ICON_TARGET_FILENAMES, string>>;
 
 export function resolveWebIconOverrides(
