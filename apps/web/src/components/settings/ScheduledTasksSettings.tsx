@@ -877,7 +877,7 @@ function ScheduledTaskEditorDialog({
   const [saving, setSaving] = useState(false);
   const submissionPending = useRef(false);
   // A plugin target replaces the prompt; the host keeps timing, project and enabled state.
-  const scheduleTargets = usePluginScheduleTargets(environmentId);
+  const scheduleTargets = usePluginScheduleTargets(environmentId, true);
   const owner = task === null ? null : pluginScheduleOwner(task);
   const [targetId, setTargetId] = useState<string | null>(owner?.targetId ?? null);
   const [pluginScheduleId] = useState(() => owner?.scheduleId ?? newPluginScheduleId());
@@ -947,7 +947,8 @@ function ScheduledTaskEditorDialog({
       saving ||
       editingTaskMissing ||
       !connected ||
-      tasksQuery.data === null
+      tasksQuery.data === null ||
+      (activeTarget !== null && scheduleTargets.status !== "connected")
     )
       return;
     if (task === null && targetId !== null && activeTarget === null) {
@@ -1572,7 +1573,8 @@ function ScheduledTaskEditorDialog({
               !connected ||
               !tasksQuery.data ||
               (task === null && targetId !== null && activeTarget === null) ||
-              (activeTarget !== null && targetPayload === null)
+              (activeTarget !== null &&
+                (scheduleTargets.status !== "connected" || targetPayload === null))
             }
             onClick={() => void submit()}
           >
