@@ -950,6 +950,13 @@ function ScheduledTaskEditorDialog({
       tasksQuery.data === null
     )
       return;
+    if (task === null && targetId !== null && activeTarget === null) {
+      reportFailure(
+        "Schedule target is unavailable",
+        unavailableTargetText(scheduleTargets.status, targetId),
+      );
+      return;
+    }
     if (activeTarget !== null) {
       const submission = pluginScheduleSubmission({
         scheduleId: pluginScheduleId,
@@ -1564,6 +1571,7 @@ function ScheduledTaskEditorDialog({
               editingTaskMissing ||
               !connected ||
               !tasksQuery.data ||
+              (task === null && targetId !== null && activeTarget === null) ||
               (activeTarget !== null && targetPayload === null)
             }
             onClick={() => void submit()}

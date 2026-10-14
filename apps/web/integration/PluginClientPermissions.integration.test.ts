@@ -308,6 +308,21 @@ it.live(
           }),
         );
         expect(invoked.slice(callsBefore)).not.toContain("plugins.fixture.schedule");
+        yield* Effect.promise(() =>
+          expect(
+            workflows.schedule({
+              projectId,
+              id: "guarded",
+              title: "Guarded",
+              definitionId: "guarded",
+              task: "",
+              workspace: "new-worktree",
+              enabled: true,
+              schedule: { type: "interval", everyMs: 60000 },
+            }),
+          ).rejects.toMatchObject({ _tag: "EnvironmentAuthorizationError" }),
+        );
+        expect(invoked.slice(callsBefore)).not.toContain("plugins.workflows.schedule");
         appAtomRegistry.dispose();
       }),
     ).pipe(Effect.provide(NodeServices.layer)),

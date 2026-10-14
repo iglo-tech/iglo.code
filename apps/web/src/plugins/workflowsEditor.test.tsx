@@ -210,6 +210,7 @@ async function open(
         retry: false,
         resume: false,
         gate: false,
+        schedule: false,
       });
       return () => {};
     },
@@ -245,6 +246,8 @@ async function open(
     retry: unexpectedRunOperation,
     resume: unexpectedRunOperation,
     gate: unexpectedRunOperation,
+    schedule: unexpectedRunOperation,
+    scheduleHistory: unexpectedRunOperation,
   } satisfies WorkflowClient;
   const props: PageProps = {
     ...design,

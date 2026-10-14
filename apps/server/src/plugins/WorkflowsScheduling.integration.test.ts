@@ -682,6 +682,64 @@ it.live(
             const recreated = yield* a.history("nightly");
             expect(recreated.schedule?.id).toBe("nightly");
             expect(recreated.occurrences).toEqual([]);
+
+            // History is a bounded read of real receipts; increasing the requested page never
+            // changes the exact occurrence-to-run mapping or claims a total it did not read.
+            for (let index = 0; index < 11; index++)
+              yield* a.writer["scheduledTasks.runNow"]({
+                id: scheduleId,
+                occurrenceId: `bounded-${index}`,
+              });
+            const recent = yield* a.history("nightly");
+            expect(recent.occurrences).toHaveLength(10);
+            expect(recent.more).toBe(true);
+            const bounded = yield* a.reader["plugins.workflows.schedule-history"]({
+              ...a.scope,
+              scheduleId: "nightly",
+              limit: 3,
+            });
+            expect(bounded.occurrences).toEqual(recent.occurrences.slice(0, 3));
+            expect(bounded.more).toBe(true);
+            const complete = yield* a.reader["plugins.workflows.schedule-history"]({
+              ...a.scope,
+              scheduleId: "nightly",
+              limit: 20,
+            });
+            expect(complete.occurrences).toHaveLength(11);
+            expect(complete.more).toBe(false);
+            expect(new Set(complete.occurrences.map((item) => item.run?.id)).size).toBe(11);
+
+            // A target that becomes duplicated keeps the canonical reason in schedule
+            // metadata, and dispatch cannot silently choose one of the saved definitions.
+            yield* fs.writeFileString(
+              `${directory}/sequence-copy.yaml`,
+              Yaml.stringify(sequence(2, "Duplicate sequence")),
+            );
+            const duplicate = yield* a.history("nightly");
+            expect(duplicate.current).toMatchObject({
+              runnable: false,
+              reasons: ["This workflow identity is duplicated in the project catalog."],
+            });
+            expect(
+              yield* a.writer["plugins.workflows.schedule"]({ ...a.scope, ...request }).pipe(
+                Effect.flip,
+              ),
+            ).toMatchObject({
+              code: "unsupported",
+              message: "This workflow identity is duplicated in the project catalog.",
+            });
+            expect(
+              yield* a.writer["scheduledTasks.runNow"]({ id: scheduleId }).pipe(Effect.flip),
+            ).toMatchObject({
+              _tag: "ScheduledTaskError",
+              taskId: scheduleId,
+              message: expect.stringContaining(
+                "This workflow identity is duplicated in the project catalog.",
+              ),
+            });
+            const refused = yield* a.history("nightly");
+            expect(refused.occurrences[0]).toMatchObject({ dispatch: "failed", run: null });
+            expect(refused.occurrences.slice(1)).toEqual(complete.occurrences.slice(0, 9));
           }),
         );
       }),
