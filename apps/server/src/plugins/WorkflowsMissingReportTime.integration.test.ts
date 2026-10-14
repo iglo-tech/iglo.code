@@ -115,9 +115,8 @@ it.live.each([
       const admission = yield* runtime
         .invoke("get", { ...test.scope, runId: started.id })
         .pipe(Effect.flatMap(decodeRun));
-      expect(admission.attempts[0]!.phase).toBe(
-        scenario.startsWith("lostack") ? "launching" : "running",
-      );
+      // A retried launch adopts its committed receipt even when the ACK is lost.
+      expect(admission.attempts[0]!.phase).toBe("running");
       const launchReceipt = yield* test.core.receipt(
         CommandId.make(
           `plugin:${encodeCommandParts(["workflows", `${started.attempts[0]!.id}:launch:0`])}`,
