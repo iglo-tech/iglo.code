@@ -72,7 +72,16 @@ const write = Effect.gen(function* () {
 const read = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   NodeAssert.deepEqual(yield* sql`SELECT id, name FROM entries`.values, [[1, "committed"]]);
-}).pipe(Effect.provide(SqliteClient.layer({ filename })), Effect.scoped);
+  // The reader worker runs on the same runtime and needs the same bindings.
+  const onReader = sql
+    .withTransaction(sql`SELECT id, ${true} AS enabled FROM entries`.values)
+    .pipe(SqliteClient.readOnly);
+  NodeAssert.deepEqual(yield* onReader, [[1, 1]]);
+  const write = yield* sql
+    .withTransaction(sql`UPDATE entries SET name = 'on reader'`)
+    .pipe(SqliteClient.readOnly, Effect.flip);
+  NodeAssert.match(String(write.reason.cause), /readonly/i);
+}).pipe(Effect.provide(SqliteClient.layer({ filename, readerWorker: true })), Effect.scoped);
 
 await Effect.runPromise(write);
 await Effect.runPromise(read);
