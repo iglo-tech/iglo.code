@@ -9,18 +9,22 @@ import * as NodeUtil from "node:util";
 import * as NodeWorkerThreads from "node:worker_threads";
 
 import * as Cache from "effect/Cache";
+import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import type * as Fiber from "effect/Fiber";
 import { identity } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Context from "effect/Context";
 import * as Stream from "effect/Stream";
+import * as Tracer from "effect/Tracer";
 import * as Reactivity from "effect/reactivity/Reactivity";
 import * as Client from "effect/sql/SqlClient";
 import type { Connection } from "effect/sql/SqlConnection";
@@ -46,6 +50,12 @@ export interface SqliteClientConfig {
   readonly readerWorker?: boolean | undefined;
   /** How long a reader worker may take to open the database before reads use the writer. Default 10 seconds. */
   readonly readerStartupTimeout?: Duration.Input | undefined;
+  /**
+   * Run WAL checkpoints on a read-write connection in a worker thread, so
+   * copying pages into the database and syncing it never block the event loop.
+   * Ignored for in-memory databases.
+   */
+  readonly checkpointWorker?: boolean | undefined;
 }
 
 /**
@@ -64,6 +74,33 @@ const ReadOnly = Context.Reference<boolean>("@t3tools/shared/nodeSqliteClient/Re
  */
 export const readOnly = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
   Effect.provideService(effect, ReadOnly, true);
+
+/**
+ * Which connection ran the SQL, and how long it waited for that connection's
+ * lock. The wait is time queued behind other SQL, not time the event loop was
+ * blocked.
+ */
+interface Acquired {
+  readonly connection: "writer" | "reader";
+  readonly lockWaitMs: number;
+}
+
+const annotateAcquired = (fiber: Fiber.Fiber<unknown, unknown>, acquired: Acquired | undefined) => {
+  const span = Context.getOrUndefined(fiber.context, Tracer.ParentSpan);
+  if (span?._tag !== "Span" || acquired === undefined) return;
+  span.attribute("db.connection", acquired.connection);
+  span.attribute("db.lock_wait_ms", acquired.lockWaitMs);
+};
+
+/**
+ * Provided by the client's `withTransaction`. Effect acquires a transaction's
+ * connection before it makes the `sql.transaction` span current, so the acquire
+ * leaves its result here and the transaction body puts it on the span.
+ */
+const TransactionAcquire = Context.Reference<{ acquired?: Acquired } | undefined>(
+  "@t3tools/shared/nodeSqliteClient/TransactionAcquire",
+  { defaultValue: () => undefined },
+);
 
 export class UnsupportedSqliteCapabilitiesError extends Schema.TaggedError<UnsupportedSqliteCapabilitiesError>()(
   "UnsupportedSqliteCapabilitiesError",
@@ -462,6 +499,124 @@ const makeReader = Effect.fnUntraced(function* (options: SqliteClientConfig) {
   });
 });
 
+// SQLite's default wal_autocheckpoint, in WAL frames (pages).
+const CHECKPOINT_FRAMES = 1000;
+// While the worker runs, the writer still checkpoints a WAL this long. Writes
+// with no pause leave the worker behind, and the WAL can only restart once
+// every frame is checkpointed, so this keeps the file from growing forever.
+const WRITER_BACKSTOP_FRAMES = 10 * CHECKPOINT_FRAMES;
+// How long writes must pause before the worker checkpoints the rest of a long WAL.
+const CHECKPOINT_IDLE_MS = 100;
+
+// Each message asks the worker to checkpoint if CHECKPOINT_FRAMES frames are
+// waiting, and it replies with the same message when done. Once writes pause, it also checkpoints the
+// frames that arrived during its last checkpoint, so the writer can restart the
+// WAL. NOOP only counts frames. SQLite before 3.51 reads NOOP as PASSIVE and
+// would checkpoint on every request, so the worker refuses to start there and
+// the writer keeps checkpointing.
+const checkpointWorkerSource = `
+const { parentPort, workerData } = require("node:worker_threads");
+const { DatabaseSync } = require("node:sqlite");
+const db = new DatabaseSync(workerData.filename);
+const version = db.prepare("SELECT sqlite_version() AS version").get().version;
+const [major, minor] = version.split(".").map(Number);
+if (major < 3 || (major === 3 && minor < 51)) throw new Error("SQLite " + version + " has no NOOP checkpoint");
+// macOS fsync() does not flush the drive cache; F_FULLFSYNC does. Other platforms ignore this.
+db.exec("PRAGMA checkpoint_fullfsync = ON;");
+const frames = db.prepare("PRAGMA wal_checkpoint(NOOP)");
+const checkpoint = db.prepare("PRAGMA wal_checkpoint(PASSIVE)");
+const finish = () => {
+  const { log, checkpointed } = frames.get();
+  if (log >= workerData.frames && checkpointed < log) checkpoint.get();
+};
+let idle;
+parentPort.on("message", (request) => {
+  const { log, checkpointed } = frames.get();
+  if (log - checkpointed >= workerData.frames) checkpoint.get();
+  clearTimeout(idle);
+  idle = setTimeout(finish, workerData.idleMs);
+  parentPort.postMessage(request);
+});
+`;
+
+/**
+ * Moves the writer's WAL checkpoints to a worker. Call the returned function
+ * after each statement on the writer. While the worker runs, the writer only
+ * checkpoints at WRITER_BACKSTOP_FRAMES. If the worker cannot start, fails or
+ * exits, the writer goes back to SQLite's default and one warning says why.
+ */
+const startCheckpointWorker = Effect.fnUntraced(function* (
+  filename: string,
+  writer: NodeSqlite.DatabaseSync,
+) {
+  const warn = (reason: string) =>
+    Effect.logWarning(
+      "SQLite checkpoint worker unavailable; checkpoints run on the main connection",
+      { reason },
+    );
+  let worker: NodeWorkerThreads.Worker;
+  try {
+    worker = new NodeWorkerThreads.Worker(checkpointWorkerSource, {
+      eval: true,
+      workerData: { filename, frames: CHECKPOINT_FRAMES, idleMs: CHECKPOINT_IDLE_MS },
+    });
+  } catch (cause) {
+    // No worker threads here: the writer keeps checkpointing.
+    yield* warn(String(cause));
+    return undefined;
+  }
+  writer.exec(`PRAGMA wal_autocheckpoint = ${WRITER_BACKSTOP_FRAMES};`);
+  // Worker events arrive outside any fiber; this keeps the client's loggers.
+  const runFork = Effect.runForkWith(yield* Effect.context<never>());
+  let stopped = false;
+  let checking = false;
+  let checkAgain = false;
+  const handBack = (reason: string) => {
+    if (stopped) return;
+    stopped = true;
+    try {
+      writer.exec(`PRAGMA wal_autocheckpoint = ${CHECKPOINT_FRAMES};`);
+    } catch {
+      // The writer is already closed.
+    }
+    runFork(warn(reason));
+  };
+  // A worker that throws, such as on SQLite before 3.51, emits "error" before "exit".
+  worker.on("error", (cause) => handBack(cause.message));
+  worker.on("exit", (code) => handBack(`exited with code ${code}`));
+  yield* Effect.addFinalizer(() =>
+    Effect.promise(() => {
+      // A normal shutdown: the writer closes next, so there is nothing to hand back or report.
+      stopped = true;
+      return worker.terminate();
+    }),
+  );
+
+  // At most one request is in flight. A statement that runs during it asks for
+  // one more check, so the frames of a last commit before idle still get one.
+  const check = () => {
+    if (stopped) return;
+    if (checking) {
+      checkAgain = true;
+      return;
+    }
+    checking = true;
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node workers do not accept a target origin.
+    worker.postMessage(null);
+  };
+  worker.on("message", () => {
+    checking = false;
+    if (checkAgain) {
+      checkAgain = false;
+      check();
+    }
+  });
+  // After the listeners: adding a "message" listener refs the worker again.
+  // A checkpoint in progress must not keep the process alive.
+  worker.unref();
+  return check;
+});
+
 const make = Effect.fn("makeWithDatabase")(function* (
   options: SqliteClientConfig,
 ): Effect.fn.Return<Client.SqlClient, SqlError, Scope.Scope | Reactivity.Reactivity> {
@@ -472,6 +627,7 @@ const make = Effect.fn("makeWithDatabase")(function* (
     return yield* Effect.die(new UnsupportedSqliteCapabilitiesError({ missingCapabilities }));
 
   const compiler = Statement.makeCompilerSqlite(options.transformQueryNames);
+  const isFileDatabase = options.filename !== ":memory:" && options.filename !== "";
   const transformRows = options.transformResultNames
     ? Statement.defaultTransforms(options.transformResultNames).array
     : undefined;
@@ -499,6 +655,11 @@ const make = Effect.fn("makeWithDatabase")(function* (
           }),
       }).pipe(Effect.orDie),
     );
+    // Started after the close finalizer, so the worker stops before the writer closes.
+    const checkpoint =
+      options.checkpointWorker && isFileDatabase
+        ? yield* startCheckpointWorker(options.filename, db)
+        : undefined;
 
     const statementReaderCache = new WeakMap<NodeSqlite.StatementSync, boolean>();
     const hasRows = (statement: NodeSqlite.StatementSync): boolean => {
@@ -539,9 +700,12 @@ const make = Effect.fn("makeWithDatabase")(function* (
         try {
           statement.setReadBigInts(Boolean(Context.get(fiber.context, Client.SafeIntegers)));
           if (hasRows(statement)) {
-            return Effect.succeed(statement.all(...(bindParameters(params) as any)));
+            const rows = statement.all(...(bindParameters(params) as any));
+            checkpoint?.();
+            return Effect.succeed(rows);
           }
           const result = statement.run(...(bindParameters(params) as any));
+          checkpoint?.();
           return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
         } catch (cause) {
           return Effect.fail(
@@ -569,11 +733,14 @@ const make = Effect.fn("makeWithDatabase")(function* (
                 if (hasRows(statement)) {
                   statement.setReturnArrays(true);
                   // Safe to cast to array after we've setReturnArrays(true)
-                  return statement.all(
+                  const rows = statement.all(
                     ...(bindParameters(params) as any),
                   ) as unknown as ReadonlyArray<ReadonlyArray<unknown>>;
+                  checkpoint?.();
+                  return rows;
                 }
                 statement.run(...(bindParameters(params) as any));
+                checkpoint?.();
                 return [];
               },
               catch: (cause) =>
@@ -635,49 +802,90 @@ const make = Effect.fn("makeWithDatabase")(function* (
   const semaphore = yield* Semaphore.make(1);
   const connection = yield* makeConnection;
   const acquireReader =
-    options.readerWorker && options.filename !== ":memory:" && options.filename !== ""
-      ? yield* makeReader(options)
-      : undefined;
+    options.readerWorker && isFileDatabase ? yield* makeReader(options) : undefined;
   const readerSemaphore = yield* Semaphore.make(1);
 
-  const writer = Client.makeSqliteAcquirers({
+  interface Target {
+    readonly name: Acquired["connection"];
+    readonly acquirer: Effect.Effect<Connection, SqlError, Scope.Scope>;
+    readonly transactionAcquirer: Effect.Effect<Connection, SqlError, Scope.Scope>;
+  }
+  const writerLeases = Client.makeSqliteAcquirers({
     connection: Effect.succeed(connection),
     semaphore,
   });
-  // The reader serves only `readOnly` work, and the writer takes over whenever
-  // the reader is turned off.
-  const reader = Effect.withFiber((fiber) =>
+  const writer: Target = {
+    name: "writer",
+    acquirer: writerLeases.acquirer,
+    transactionAcquirer: writerLeases.transactionAcquirer,
+  };
+  const readerTarget = (readerConnection: Connection): Target => ({
+    name: "reader",
+    acquirer: readerSemaphore.withPermits(1)(Effect.succeed(readerConnection)),
+    transactionAcquirer: Effect.uninterruptibleMask((restore) =>
+      Effect.withFiber((fiber) => {
+        const scope = Context.getUnsafe(fiber.context, Scope.Scope);
+        return Effect.as(
+          Effect.tap(restore(readerSemaphore.take(1)), () =>
+            Scope.addFinalizer(scope, readerSemaphore.release(1)),
+          ),
+          readerConnection,
+        );
+      }),
+    ),
+  });
+  // Picks the reader only for `readOnly` work, and the writer whenever the
+  // reader is turned off.
+  const route = Effect.withFiber((fiber) =>
     acquireReader !== undefined && Context.get(fiber.context, ReadOnly)
-      ? acquireReader
-      : Effect.succeed(undefined),
+      ? Effect.map(acquireReader, (readerConnection) =>
+          readerConnection === undefined ? writer : readerTarget(readerConnection),
+        )
+      : Effect.succeed(writer),
   );
 
-  const acquirer = Effect.flatMap(reader, (readerConnection) =>
-    readerConnection === undefined
-      ? writer.acquirer
-      : readerSemaphore.withPermits(1)(Effect.succeed(readerConnection)),
+  const acquired = (target: Target, clock: Clock.Clock, start: bigint): Acquired => ({
+    connection: target.name,
+    lockWaitMs: Number((clock.monotonicTimeNanosUnsafe() - start) / 1000n) / 1000,
+  });
+
+  const acquirer = Effect.flatMap(route, (target) =>
+    Effect.withFiber((fiber) => {
+      // The statement's span is current here only when it propagates, which
+      // Statement skips while tracing is off. Otherwise the current span is
+      // the caller's, so leave it alone.
+      if (
+        !fiber.getRef(References.TracerEnabled) ||
+        !fiber.getRef(Statement.SpanPropagationEnabled)
+      ) {
+        return target.acquirer;
+      }
+      const clock = fiber.getRef(Clock.Clock);
+      const start = clock.monotonicTimeNanosUnsafe();
+      return Effect.tap(target.acquirer, () =>
+        Effect.sync(() => annotateAcquired(fiber, acquired(target, clock, start))),
+      );
+    }),
   );
-  const transactionAcquirer = Effect.flatMap(reader, (readerConnection) =>
-    readerConnection === undefined
-      ? writer.transactionAcquirer
-      : Effect.uninterruptibleMask((restore) =>
-          Effect.withFiber((fiber) => {
-            const scope = Context.getUnsafe(fiber.context, Scope.Scope);
-            return Effect.as(
-              Effect.tap(restore(readerSemaphore.take(1)), () =>
-                Scope.addFinalizer(scope, readerSemaphore.release(1)),
-              ),
-              readerConnection,
-            );
-          }),
-        ),
+  const transactionAcquirer = Effect.flatMap(route, (target) =>
+    Effect.withFiber((fiber) => {
+      const clock = fiber.getRef(Clock.Clock);
+      const start = clock.monotonicTimeNanosUnsafe();
+      return Effect.tap(target.transactionAcquirer, () =>
+        Effect.sync(() => {
+          const pending = fiber.getRef(TransactionAcquire);
+          if (pending !== undefined) pending.acquired = acquired(target, clock, start);
+        }),
+      );
+    }),
   );
 
-  return yield* Client.make({
+  const client = yield* Client.make({
     acquirer,
     transactionAcquirer,
     // A read-only COMMIT changes nothing, so only the writer needs cleanup.
-    onCommitFailure: (conn) => (conn === connection ? writer.onCommitFailure(conn) : Effect.void),
+    onCommitFailure: (conn) =>
+      conn === connection ? writerLeases.onCommitFailure(conn) : Effect.void,
     compiler,
     prepareTransactionControls: true,
     // A deferred BEGIN only takes the write lock at the first write. If another
@@ -692,6 +900,22 @@ const make = Effect.fn("makeWithDatabase")(function* (
       [ATTR_DB_SYSTEM_NAME, "sqlite"],
     ],
     transformRows,
+  });
+  const withTransaction = client.withTransaction;
+  return Object.assign(client, {
+    // Each run gets its own holder, so a reused transaction Effect never
+    // carries an earlier run's attributes.
+    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.suspend(() => {
+        const pending: { acquired?: Acquired } = {};
+        // The body runs with the `sql.transaction` span current. A nested
+        // transaction acquires nothing, so its span gets no attributes.
+        const body = Effect.withFiber<A, E, R>((fiber) => {
+          annotateAcquired(fiber, pending.acquired);
+          return effect;
+        });
+        return withTransaction(body).pipe(Effect.provideService(TransactionAcquire, pending));
+      }),
   });
 });
 
