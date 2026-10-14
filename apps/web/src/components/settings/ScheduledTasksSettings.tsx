@@ -514,7 +514,7 @@ function ScheduledTaskRow({
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  disabled={busy || !canOperate}
+                  disabled={busy || (!canOperate && !historyId)}
                   aria-label={`Actions for ${task.title}`}
                 />
               }
@@ -522,7 +522,7 @@ function ScheduledTaskRow({
               <MoreHorizontalIcon className="size-4" />
             </MenuTrigger>
             <MenuPopup align="end">
-              <MenuItem onClick={onEdit}>
+              <MenuItem disabled={busy || !canOperate} onClick={onEdit}>
                 <PencilIcon />
                 Edit
               </MenuItem>
@@ -538,13 +538,13 @@ function ScheduledTaskRow({
                   Deliveries
                 </MenuItem>
               ) : (
-                <MenuItem onClick={() => void act("run")}>
+                <MenuItem disabled={busy || !canOperate} onClick={() => void act("run")}>
                   <PlayIcon />
                   Run now
                 </MenuItem>
               )}
               <MenuSeparator />
-              <MenuItem onClick={() => void act("delete")}>
+              <MenuItem disabled={busy || !canOperate} onClick={() => void act("delete")}>
                 <Trash2Icon />
                 Delete
               </MenuItem>
