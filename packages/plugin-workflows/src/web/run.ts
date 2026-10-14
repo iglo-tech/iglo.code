@@ -1,0 +1,538 @@
+import type {
+  Attempt,
+  AttentionItem,
+  AttentionKind,
+  Definition,
+  Run,
+  RunSummary,
+  StopKind,
+} from "../contracts.ts";
+import { routeControls } from "../definition.ts";
+
+/** Presentation of server-owned run state. Nothing here evaluates routes or recovery rules. */
+export const runStateLabels: Record<Run["state"], string> = {
+  running: "Running",
+  "awaiting-review": "Needs your decision",
+  unresolved: "Unresolved",
+  completed: "Completed",
+  failed: "Failed",
+  canceled: "Canceled",
+};
+// One badge per state, matching the state icon's tone. Canceled is neutral but bordered, so it
+// still reads as a badge beside the tinted ones.
+const runStateVariants = {
+  running: "info",
+  "awaiting-review": "warning",
+  unresolved: "warning",
+  completed: "success",
+  failed: "error",
+  canceled: "outline",
+} as const satisfies Record<Run["state"], string>;
+export const runStateVariant = (state: Run["state"]) => runStateVariants[state];
+
+/** Execution status of one visit, independent of whether a report was accepted. */
+export const phaseLabels: Record<Attempt["phase"], string> = {
+  launching: "Launching",
+  resuming: "Resuming",
+  running: "Running",
+  "waiting-input": "Waiting for your input",
+  reminding: "Reminded to report",
+  reported: "Execution still running",
+  completed: "Completed",
+  failed: "Failed",
+  unresolved: "Unresolved",
+  interrupted: "Interrupted",
+  canceled: "Canceled",
+  stale: "Stale",
+};
+export const terminalPhases: ReadonlyArray<Attempt["phase"]> = [
+  "completed",
+  "failed",
+  "unresolved",
+  "interrupted",
+  "canceled",
+  "stale",
+];
+export const isActive = (attempt: Pick<Attempt, "phase">) =>
+  !terminalPhases.includes(attempt.phase);
+
+/** Whether the backend accepted a report; a claim, never proof the work passed. */
+export function reportStatus(
+  attempt: Pick<Attempt, "phase" | "report" | "check" | "threadId">,
+): string {
+  // The server records an interrupted placeholder when execution ended without a result.
+  if (attempt.check?.interrupted && attempt.check.exitCode === null)
+    return "No check result was retained; the check was interrupted, so it is neither a pass nor a failure";
+  if (attempt.check !== null)
+    return attempt.check.outcome === "unresolved"
+      ? "Check result unresolved; it is not a pass or a failure"
+      : `Check result recorded (${attempt.check.outcome})`;
+  // Checks are commands without a native thread; agents always have one.
+  if (attempt.threadId === null)
+    return isActive(attempt)
+      ? "Check is running; no result yet"
+      : "No check result was retained; routing stopped at this visit";
+  if (attempt.report !== null) return `Report accepted (${attempt.report.outcome} claim)`;
+  return isActive(attempt) ? "No report yet" : "No accepted report";
+}
+
+export const nodeTitle = (definition: Definition, id: string) =>
+  definition.nodes.find((node) => node.id === id)?.title ?? id;
+export const attemptTitle = (
+  definition: Definition,
+  attempt: Pick<Attempt, "nodeId" | "branchId">,
+) => {
+  const node = definition.nodes.find((node) => node.id === attempt.nodeId);
+  const branch =
+    node?.kind === "parallel"
+      ? node.branches.find((branch) => branch.id === attempt.branchId)
+      : undefined;
+  return branch ? `${node!.title} · ${branch.title}` : (node?.title ?? attempt.nodeId);
+};
+
+type TraceItem = Run["trace"][number];
+/**
+ * What happened to a recorded repeat, as a short badge with its detail on hover. The bound
+ * and outcome are what the server recorded; older records decorate only an unambiguous
+ * route, otherwise keeping their counter alone.
+ */
+export function repeatEvidence(
+  definition: Definition,
+  item: RecordedRoute,
+): { readonly label: string; readonly limit: boolean; readonly detail: string } | null {
+  if (item.repeatCount === null) return null;
+  if (item.repeat === undefined) {
+    const bound = repeatLimit(definition, item);
+    if (bound === null)
+      return { label: `repeat ${item.repeatCount}`, limit: false, detail: "Repeat counter" };
+    const atLimit = item.chosen === bound.atLimit && item.chosen !== bound.to;
+    return {
+      label: atLimit ? "at limit" : `repeat ${item.repeatCount}/${bound.max}`,
+      limit: atLimit,
+      detail: `${item.repeatCount}/${bound.max} repeats recorded · at limit → ${nodeTitle(definition, bound.atLimit)}`,
+    };
+  }
+  const { max, atLimit, exhausted } = item.repeat;
+  const used = `${item.repeatCount}/${max}`;
+  switch (item.repeat.outcome ?? (exhausted ? "limit" : "admitted")) {
+    case "limit":
+      return {
+        label: "at limit",
+        limit: true,
+        detail: `${used} repeats used · at limit → ${nodeTitle(definition, atLimit)}`,
+      };
+    case "visit-limit":
+      return {
+        label: "not repeated",
+        limit: true,
+        detail: `Run visit limit reached · ${used} repeats used · → ${nodeTitle(definition, item.chosen)}`,
+      };
+    case "automation-stopped":
+      return {
+        label: "not repeated",
+        limit: true,
+        detail: `Automation stopped · ${used} repeats used · → ${nodeTitle(definition, item.chosen)}`,
+      };
+    case "admitted":
+      return {
+        label: `repeat ${used}`,
+        limit: false,
+        detail: `Visit ${item.repeatCount + 1} of up to ${max + 1} · at limit → ${nodeTitle(definition, atLimit)}`,
+      };
+  }
+}
+
+type RecordedRoute = Pick<
+  TraceItem,
+  "nodeId" | "chosen" | "considered" | "repeatCount" | "route" | "repeat" | "diverted"
+>;
+
+/** Identify only what the recorded kind, predicates and destination establish unambiguously. */
+function recordedRoute(definition: Definition, item: RecordedRoute) {
+  if (item.diverted !== undefined) return null;
+  const node = definition.nodes.find((candidate) => candidate.id === item.nodeId);
+  if (node === undefined) return null;
+  let controls = routeControls(node);
+  if (item.route !== undefined)
+    return controls.find((candidate) => candidate.control === item.route) ?? null;
+  if (node.kind === "decision" || node.kind === "join") {
+    const matched = item.considered.findIndex((choice) => choice.matched);
+    const control =
+      matched >= 0
+        ? `rules.${matched}`
+        : item.considered.length === node.rules.length
+          ? "otherwise"
+          : null;
+    controls = controls.filter((candidate) => candidate.control === control);
+  }
+  controls = controls.filter(
+    ({ route }) => (item.repeatCount === null) === (route.repeat === undefined),
+  );
+  // A whole-run redirect can share an authored destination with another control or repeat exit.
+  // The trace has no outcome discriminator, even when its count coincides with the repeat max.
+  if (item.chosen === definition.atLimit && controls.some(({ route }) => route.to !== item.chosen))
+    return null;
+  const matches = controls.filter(
+    ({ route }) => route.to === item.chosen || route.repeat?.atLimit === item.chosen,
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+/** Repeat metadata is decoration, so ambiguous records keep only their persisted count. */
+export function repeatLimit(definition: Definition, item: RecordedRoute) {
+  if (item.repeatCount === null) return null;
+  const found = recordedRoute(definition, item);
+  return found?.route.repeat ? { ...found.route.repeat, to: found.route.to } : null;
+}
+
+/** A route the run's own bound sent to the run's At limit, as a warning badge. */
+export function runLimitEvidence(
+  definition: Definition,
+  item: Pick<TraceItem, "diverted" | "chosen">,
+): { readonly label: string; readonly limit: true; readonly detail: string } | null {
+  if (item.diverted === undefined) return null;
+  return {
+    label: "run limit",
+    limit: true,
+    detail: `${item.diverted === "visit-limit" ? "Run visit limit reached" : "Automation stopped"} · → ${nodeTitle(definition, item.chosen)}`,
+  };
+}
+
+const routeNames: Record<string, string> = {
+  next: "next",
+  onUnresolved: "unresolved",
+  otherwise: "otherwise",
+  approve: "approve",
+  changes: "changes",
+};
+/** The authored route a trace record says fired (`rule 1`, `otherwise`…), when recorded. */
+export function routeLabel(item: Pick<TraceItem, "route">): string | null {
+  if (item.route === undefined) return null;
+  const rule = /^rules\.(\d+)$/.exec(item.route);
+  return rule ? `rule ${Number(rule[1]) + 1}` : (routeNames[item.route] ?? item.route);
+}
+
+/**
+ * A gate decision the server withheld, from the reason it recorded with the run. The
+ * remaining choices are the allowed actions; no route is evaluated here.
+ */
+export function withheldNotice(
+  definition: Definition,
+  item: NonNullable<Run["withheld"]>[number],
+): { readonly title: string; readonly detail: string } {
+  return {
+    title: `${item.action === "approve" ? "Approve" : "Request changes"} unavailable`,
+    detail: `${item.repeat ? "↩" : "→"} ${nodeTitle(definition, item.to)} · ${
+      item.cause === "visit-limit" ? "run visit limit reached" : "automation stopped"
+    }`,
+  };
+}
+
+export function nextAction(
+  run: Run | RunSummary,
+  active: ReadonlyArray<Pick<Attempt, "phase">> = run.attempts,
+): string | null {
+  const actions = run.allowedActions;
+  if (run.state === "awaiting-review")
+    return actions.includes("approve") || actions.includes("request-changes")
+      ? "Decide on the human gate"
+      : "Gate waiting · no decision allowed";
+  if (run.state === "unresolved") {
+    const recovery = [
+      actions.includes("resume") ? "resume" : null,
+      actions.includes("retry") ? "retry" : null,
+    ].filter((item) => item !== null);
+    return recovery.length ? `Inspect, then ${recovery.join(" or ")}` : "Cancel to close";
+  }
+  if (run.state === "running")
+    return active.some((attempt) => attempt.phase === "waiting-input")
+      ? "Answer the request in the step's thread"
+      : null;
+  return null;
+}
+
+/** How a step or reviewer lane is painted on a run's graph. */
+export type StepStatus = "pending" | "running" | "reported" | "completed" | "failed" | "stopped";
+export interface StepState {
+  readonly status: StepStatus;
+  /** Textual status, also the accessible one. */
+  readonly label: string;
+  /** One short word for tight places such as a graph card. */
+  readonly word: string;
+  /** Visits on the loaded history page. */
+  readonly visits: number;
+}
+export const statusWords: Record<StepStatus, string> = {
+  pending: "Pending",
+  running: "Running",
+  reported: "Reported",
+  completed: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+};
+export const phaseStatus = (phase: Attempt["phase"]): StepStatus => {
+  switch (phase) {
+    case "reported":
+      return "reported";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "unresolved":
+    case "interrupted":
+    case "canceled":
+    case "stale":
+      return "stopped";
+    default:
+      return "running";
+  }
+};
+const statusRank: Record<StepStatus, number> = {
+  running: 5,
+  reported: 4,
+  failed: 3,
+  stopped: 2,
+  completed: 1,
+  pending: 0,
+};
+
+/**
+ * Each graph box's state (keyed by step id, or `step/branch` for a reviewer lane) from the
+ * loaded visits and route history. Presentation only: the latest recorded visit wins, and
+ * routing steps count the routing records the server persisted.
+ */
+export function stepStates(run: {
+  readonly definition: Definition;
+  readonly state: Run["state"];
+  readonly currentNode: string;
+  readonly attempts: ReadonlyArray<Pick<Attempt, "nodeId" | "branchId" | "phase" | "generation">>;
+  readonly trace: ReadonlyArray<Pick<Run["trace"][number], "nodeId">>;
+}): ReadonlyMap<string, StepState> {
+  const states = new Map<string, StepState>();
+  const latest = new Map<string, (typeof run.attempts)[number]>();
+  const visits = new Map<string, number>();
+  for (const attempt of run.attempts) {
+    const box =
+      attempt.branchId === null ? attempt.nodeId : `${attempt.nodeId}/${attempt.branchId}`;
+    latest.set(box, attempt);
+    visits.set(box, (visits.get(box) ?? 0) + 1);
+  }
+  for (const [box, attempt] of latest)
+    states.set(box, {
+      status: phaseStatus(attempt.phase),
+      word: statusWords[phaseStatus(attempt.phase)],
+      label: phaseLabels[attempt.phase],
+      visits: visits.get(box) ?? 0,
+    });
+  const finished = !["running", "awaiting-review"].includes(run.state);
+  for (const node of run.definition.nodes) {
+    if (node.kind === "parallel") {
+      // A review group is as far along as its least settled lane.
+      const lanes = node.branches.flatMap((branch) => {
+        const state = states.get(`${node.id}/${branch.id}`);
+        return state === undefined ? [] : [state];
+      });
+      if (lanes.length === 0) continue;
+      const status = lanes.reduce<StepStatus>(
+        (worst, lane) => (statusRank[lane.status] > statusRank[worst] ? lane.status : worst),
+        "pending",
+      );
+      const generations = new Set(
+        run.attempts.filter((item) => item.nodeId === node.id).map((item) => item.generation),
+      ).size;
+      const settled = node.branches.filter((branch) => {
+        const attempt = latest.get(`${node.id}/${branch.id}`);
+        return attempt !== undefined && !isActive(attempt);
+      }).length;
+      states.set(node.id, {
+        status,
+        word: statusWords[status],
+        label: `${settled} of ${node.branches.length} settled`,
+        visits: generations,
+      });
+      continue;
+    }
+    if (states.has(node.id)) continue;
+    const routed = run.trace.filter((item) => item.nodeId === node.id).length;
+    const current = run.currentNode === node.id;
+    if (current && node.kind === "end") {
+      const status: StepStatus =
+        run.state === "completed" ? "completed" : run.state === "failed" ? "failed" : "stopped";
+      states.set(node.id, {
+        status,
+        word: statusWords[status],
+        label: runStateLabels[run.state],
+        visits: 1,
+      });
+    } else if (current && !finished)
+      states.set(node.id, {
+        status: "running",
+        word: run.state === "awaiting-review" ? "Waiting" : "Current",
+        label: run.state === "awaiting-review" ? "Waiting for decision" : "Current",
+        visits: routed + 1,
+      });
+    // A run that stopped here (unresolved or canceled at a gate) shows where and how it stopped.
+    else if (current) {
+      const status: StepStatus = run.state === "failed" ? "failed" : "stopped";
+      states.set(node.id, {
+        status,
+        word: statusWords[status],
+        label: runStateLabels[run.state],
+        visits: routed + 1,
+      });
+    } else if (routed > 0)
+      states.set(node.id, { status: "completed", word: "Done", label: "Routed", visits: routed });
+  }
+  return states;
+}
+
+/**
+ * The drawn edges (by `flowGraph` edge id) that recorded routing decisions took. Persisted
+ * route identity and repeat outcomes select the exact edge. Older traces share the conservative
+ * resolver used by repeat metadata; ambiguous controls and whole-run redirects stay unhighlighted.
+ */
+export function takenEdges(
+  definition: Definition,
+  trace: ReadonlyArray<RecordedRoute>,
+): ReadonlySet<string> {
+  const taken = new Set<string>();
+  for (const item of trace) {
+    const found = recordedRoute(definition, item);
+    if (found === null) continue;
+    const { control, route } = found;
+    if (item.repeat !== undefined) {
+      const outcome = item.repeat.outcome ?? (item.repeat.exhausted ? "limit" : "admitted");
+      if (outcome === "limit" && route.repeat?.atLimit === item.chosen)
+        taken.add(`${item.nodeId}:${control}.repeat`);
+      else if (outcome === "admitted" && route.to === item.chosen)
+        taken.add(`${item.nodeId}:${control}`);
+      // Whole-run bounds and stopped automation took no authored edge.
+      continue;
+    }
+    // An old repeat with the same normal/limit destination cannot establish which edge it took.
+    if (route.repeat?.atLimit === route.to) continue;
+    if (route.to === item.chosen) taken.add(`${item.nodeId}:${control}`);
+    else if (route.repeat?.atLimit === item.chosen) taken.add(`${item.nodeId}:${control}.repeat`);
+  }
+  return taken;
+}
+
+/** "just now", "5m ago", "3h ago", "2d ago": the app's own relative time labels. */
+export function relativeTime(at: number, now = Date.now()): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h ago`;
+  return `${Math.floor(minutes / (24 * 60))}d ago`;
+}
+export const clockTime = (at: number) =>
+  new Date(at).toLocaleTimeString(undefined, { timeStyle: "short" });
+export const formatTime = (at: number) =>
+  new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+export const short = (value: string) => (value.length > 12 ? value.slice(0, 12) : value);
+
+/** The workspace in a few words; `workspaceText` is the full description. */
+export function workspaceShort(run: Pick<Run, "workspace" | "branch">): string {
+  const branch = run.branch ?? (run.workspace.type === "existing" ? run.workspace.branch : null);
+  const leaf = branch?.split("/").at(-1) ?? null;
+  const clipped = leaf != null && leaf.length > 24 ? `${leaf.slice(0, 23)}…` : leaf;
+  const kind =
+    run.workspace.type === "current"
+      ? "Current checkout"
+      : run.workspace.type === "existing"
+        ? "Existing worktree"
+        : "New worktree";
+  return clipped == null ? kind : `${kind} · ${clipped}`;
+}
+export function workspaceText(run: Pick<Run, "workspace" | "workspacePath" | "branch">): string {
+  const where = [run.workspacePath, run.branch ? `branch ${run.branch}` : null]
+    .filter((part) => part !== null)
+    .join(" · ");
+  switch (run.workspace.type) {
+    case "current":
+      return `Current checkout${where ? ` (${where})` : ""}`;
+    case "existing":
+      return `Existing worktree ${run.workspace.path}${run.workspace.branch ? ` · branch ${run.workspace.branch}` : ""}`;
+    case "exact-ref":
+      return `New worktree from ${short(run.workspace.ref)}${where ? ` (${where})` : run.workspacePath === null ? " · being prepared" : ""}`;
+  }
+}
+
+/** How a run started and the file name it was resolved from. */
+export function sourceShort(source: Run["source"]): string {
+  if (source === undefined) return "Not recorded";
+  const file = source.catalogSource?.split("/").at(-1) ?? "submitted";
+  return `${source.trigger === "schedule" ? "Scheduled" : "Manual"} · ${file}`;
+}
+export function sourceText(source: Run["source"]): string {
+  if (source === undefined) return "Not recorded";
+  return `${source.trigger === "schedule" ? "Scheduled" : "Manual"} · ${
+    source.catalogSource ?? "submitted definition"
+  }`;
+}
+
+/** Words for the server's stable attention kinds; nothing here infers a kind. */
+export const attentionLabels: Record<AttentionKind, string> = {
+  "needs-review": "Needs review",
+  "needs-input": "Needs input",
+  interrupted: "Interrupted",
+  "missing-report": "Missing report",
+  "timed-out": "Timed out",
+  failed: "Failed",
+  "review-stale": "Review is stale",
+  "review-unverifiable": "Review input cannot be verified",
+  unavailable: "Could not continue",
+  unresolved: "Unresolved",
+};
+const stopTexts: Record<StopKind, string> = {
+  interrupted: "Execution interrupted before a result",
+  "missing-report": "No report after one reminder",
+  "timed-out": "Deadline expired",
+  failed: "Step failed · no automatic route",
+  "review-stale": "Pull request head changed since it was frozen",
+  "review-unverifiable": "Pull request head could not be verified",
+  unavailable: "A required resource was unavailable",
+  unresolved: "No route to continue",
+};
+export const stopText = (kind: StopKind) => stopTexts[kind];
+
+/** One attention item's detail, with its native queue position when it is a request. */
+export function attentionText(item: AttentionItem): string {
+  if (item.kind === "needs-review") return `Gate revision ${item.gateRevision ?? "unknown"}`;
+  if (item.kind === "needs-input") {
+    if (item.request === null) return "Waiting in its thread";
+    const { kind, position, pending } = item.request;
+    return `${requestKind(kind)} request ${position} of ${pending} · ${
+      position === 1 ? "answered next" : `after ${position - 1} earlier`
+    }`;
+  }
+  return stopTexts[item.kind];
+}
+export const requestKind = (kind: string) => {
+  const words = kind.replace(/[_-]+/g, " ").trim();
+  return words === "" ? "Native" : words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+type Review = NonNullable<NonNullable<Run["overview"]>["review"]>;
+const causeTexts: Record<NonNullable<Review["cause"]>, string> = {
+  "head-changed": "head changed",
+  "head-unverifiable": "head unverifiable",
+  "workspace-unavailable": "checkout unavailable",
+  "workspace-changed": "checkout changed",
+};
+/** The server's report and settlement counts, kept apart: an early report decides nothing. */
+export const joinCounts = (review: Review) =>
+  `${review.reported}/${review.required} reported · ${review.settled}/${review.required} settled`;
+/** The join's persisted result; only a persisted result decides. */
+export function joinStatus(review: Review): {
+  readonly label: string;
+  readonly variant: "info" | "success" | "warning" | "error";
+} {
+  if (review.result === null) return { label: "Waiting for all", variant: "info" };
+  if (review.result === "all_completed") return { label: "All completed", variant: "success" };
+  const result = review.result.replace("_", " ");
+  const label = `${result.charAt(0).toUpperCase()}${result.slice(1)}${
+    review.cause ? ` · ${causeTexts[review.cause]}` : ""
+  }`;
+  return { label, variant: review.result === "failed" ? "error" : "warning" };
+}

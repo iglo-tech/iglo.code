@@ -8,7 +8,9 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import { ProviderOptionDescriptor } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 import { ScheduledTaskSchedule, ScheduledTaskUpsertSchedule } from "./scheduledTask.ts";
 
@@ -16,6 +18,7 @@ export {
   CommandId,
   EnvironmentId,
   ProjectId,
+  ProviderInstanceId,
   ThreadId,
   ModelSelection,
   RuntimeMode,
@@ -106,6 +109,26 @@ export const PluginCatalog = Schema.Struct({
 });
 export type PluginCatalog = typeof PluginCatalog.Type;
 
+export const PluginProviderModel = Schema.Struct({
+  slug: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  isCustom: Schema.Boolean,
+  optionDescriptors: Schema.Array(ProviderOptionDescriptor),
+});
+export type PluginProviderModel = typeof PluginProviderModel.Type;
+/** Environment-owned provider capability; `toolsSupported` means plugin reporting can be injected. */
+export const PluginProvider = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  driver: Schema.String,
+  displayName: Schema.optional(Schema.String),
+  toolsSupported: Schema.Boolean,
+  available: Schema.optional(Schema.Boolean),
+  reason: Schema.NullOr(Schema.String),
+  runtimeModes: Schema.Array(RuntimeMode),
+  models: Schema.optional(Schema.Array(PluginProviderModel)),
+});
+export type PluginProvider = typeof PluginProvider.Type;
+
 export const PluginTarget = Schema.Struct({
   environmentId: EnvironmentId,
   projectId: ProjectId,
@@ -119,10 +142,17 @@ export const PluginPullRequestRef = Schema.Struct({
   host: Schema.optional(TrimmedNonEmptyString),
 });
 export type PluginPullRequestRef = typeof PluginPullRequestRef.Type;
+/** Small selection carried by server and client links; each plugin validates its meaning. */
+export const PluginPageState = Schema.Record(
+  Schema.String.check(Schema.isPattern(/^[a-zA-Z][a-zA-Z0-9_-]{0,31}$/)),
+  Schema.String.check(Schema.isMaxLength(256)),
+).check(Schema.isMaxProperties(8));
+export type PluginPageState = typeof PluginPageState.Type;
 export const PluginPageLink = Schema.Struct({
   pageId: PluginContributionId,
   projectId: Schema.optional(ProjectId),
   threadId: Schema.optional(ThreadId),
+  state: Schema.optional(PluginPageState),
 });
 export type PluginPageLink = typeof PluginPageLink.Type;
 export const PluginAttentionItem = Schema.Struct({
@@ -133,10 +163,18 @@ export const PluginAttentionItem = Schema.Struct({
   link: PluginPageLink,
 });
 export type PluginAttentionItem = typeof PluginAttentionItem.Type;
+/** A plugin's bounded newest-first items with its own count of everything needing attention. */
+export const PluginAttentionSummary = Schema.Struct({
+  items: Schema.Array(PluginAttentionItem).check(Schema.isMaxLength(100)),
+  total: NonNegativeInt,
+});
+export type PluginAttentionSummary = typeof PluginAttentionSummary.Type;
 export const PluginAttention = Schema.Struct({
   environmentId: EnvironmentId,
   pluginId: PluginId,
   items: Schema.Array(PluginAttentionItem).check(Schema.isMaxLength(100)),
+  /** Everything needing attention; absent when the plugin reports only its capped items. */
+  total: Schema.optional(NonNegativeInt),
   error: Schema.optional(PluginError),
 });
 export type PluginAttention = typeof PluginAttention.Type;
@@ -277,3 +315,14 @@ export const PluginSchedule = Schema.Struct({
   lastError: Schema.NullOr(Schema.String),
 });
 export type PluginSchedule = typeof PluginSchedule.Type;
+/** One persisted dispatch receipt of a plugin schedule; the plugin owns the domain result. */
+export const PluginScheduleOccurrence = Schema.Struct({
+  /** The identity the target received; stable across redelivery. */
+  id: Schema.String,
+  /** The project recorded with the occurrence, which a later schedule edit does not change. */
+  projectId: ProjectId,
+  startedAt: Schema.String,
+  status: Schema.Literals(["pending", "succeeded", "failed"]),
+  error: Schema.NullOr(Schema.String),
+});
+export type PluginScheduleOccurrence = typeof PluginScheduleOccurrence.Type;

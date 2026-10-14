@@ -7,16 +7,11 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
-import { manifest, apiScopes, rpcs, ReportInput, ReportReceipt, StartInput } from "./contracts.ts";
+import { manifest, apiScopes, rpcs, ReportInput, ReportReceipt } from "./contracts.ts";
 import * as Workflow from "./Workflow.ts";
 import * as Catalog from "./Catalog.ts";
 import { protect } from "./encoding.ts";
 
-const schedulePayload = Schema.Struct({
-  definitionId: Schema.String,
-  input: StartInput.fields.input,
-});
 export const plugin: ServerPlugin = {
   manifest,
   migrations: [
@@ -45,9 +40,23 @@ export const plugin: ServerPlugin = {
     const handlers = {
       catalog: (input: typeof rpcs.catalog.payloadSchema.Type) => catalog.list(input),
       validate: (input: typeof rpcs.validate.payloadSchema.Type) =>
-        catalog.validate(input, input.definition),
+        // Authoring feedback reuses cached skill snapshots; save and start rescan.
+        catalog.validate(input, input.definition, { fresh: false }),
       save: (input: typeof rpcs.save.payloadSchema.Type) => catalog.save(input),
+      library: (input: typeof rpcs.library.payloadSchema.Type) => catalog.library(input),
+      read: (input: typeof rpcs.read.payloadSchema.Type) => catalog.read(input),
+      replace: (input: typeof rpcs.replace.payloadSchema.Type) => catalog.replace(input),
+      remove: (input: typeof rpcs.remove.payloadSchema.Type) => catalog.remove(input),
+      capabilities: (input: typeof rpcs.capabilities.payloadSchema.Type) =>
+        catalog.capabilities(input),
+      skills: (input: typeof rpcs.skills.payloadSchema.Type) => catalog.skills(input),
+      projects: (input: typeof rpcs.projects.payloadSchema.Type) => catalog.projects(input),
       start: workflows.start,
+      preview: (input: typeof rpcs.preview.payloadSchema.Type) =>
+        catalog.preview(input, input.definitionId),
+      launch: workflows.startSaved,
+      watch: workflows.watch,
+      thread: workflows.thread,
       get: workflows.get,
       list: workflows.list,
       subscribe: workflows.subscribe,
@@ -56,7 +65,10 @@ export const plugin: ServerPlugin = {
       retry: workflows.retry,
       resume: workflows.resume,
       gate: workflows.gate,
+      attention: workflows.watchAttention,
+      attentionPage: workflows.readAttention,
       schedule: workflows.schedule,
+      scheduleHistory: workflows.scheduleHistory,
     };
     return {
       tools: [
@@ -85,21 +97,10 @@ export const plugin: ServerPlugin = {
       })),
       scheduleTargets: [
         {
-          id: "workflows.start",
+          id: Workflow.scheduleTarget,
+          // The occurrence identity is the start's retry identity: redelivery returns its run.
           invoke: ({ occurrenceId, projectId, payload }) =>
-            protect(
-              "scheduled-start",
-              Effect.gen(function* () {
-                const input = yield* Schema.decodeUnknownEffect(schedulePayload)(payload);
-                // The immutable occurrence receipt is the same idempotency key as a manual start.
-                yield* workflows.scheduledStart({
-                  projectId,
-                  occurrenceId,
-                  definitionId: input.definitionId,
-                  input: input.input,
-                });
-              }),
-            ),
+            workflows.scheduledStart({ projectId, occurrenceId, payload }).pipe(Effect.asVoid),
         },
       ],
       attention: workflows.attention,

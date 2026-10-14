@@ -8,6 +8,8 @@ import {
   type Predicate,
   type Value,
   type Node,
+  type StopKind,
+  type AttentionItem,
 } from "./contracts.ts";
 import { dataProblems, evaluate } from "./definition.ts";
 import { canonical } from "./encoding.ts";
@@ -97,25 +99,54 @@ export function recoveryNode(run: Run): string | undefined {
   }
   return undefined;
 }
+export type RouteOutcome = "admitted" | "limit" | "visit-limit" | "automation-stopped";
+/**
+ * Where an authored route leads now, without changing the run. Transition follows it, and
+ * allowed gate decisions are exactly those it would admit as authored (including a repeat's
+ * own At limit), so the client is never offered a decision the server would divert.
+ */
+export function settleRoute(
+  run: Pick<Run, "definition" | "visits" | "automationStopped" | "repeats">,
+  nodeId: string,
+  route: Route,
+): { readonly target: string; readonly outcome: RouteOutcome; readonly count: number | null } {
+  const count = route.repeat ? (run.repeats[`${nodeId}:${route.to}`] ?? 0) : null;
+  const limited = route.repeat !== undefined && count! >= route.repeat.max;
+  const terminal = (id: string) =>
+    ["human", "end"].includes(run.definition.nodes.find((node) => node.id === id)!.kind);
+  const target = limited ? route.repeat!.atLimit : route.to;
+  if (terminal(target)) return { target, outcome: limited ? "limit" : "admitted", count };
+  if (run.visits >= (run.definition.maxVisits ?? 100))
+    return { target: run.definition.atLimit, outcome: "visit-limit", count };
+  if (run.automationStopped)
+    return { target: run.definition.atLimit, outcome: "automation-stopped", count };
+  return { target, outcome: "admitted", count };
+}
+const gateRoutes = (node: Extract<Node, { kind: "human" }>) =>
+  [
+    ["approve", node.approve],
+    ["request-changes", node.changes],
+  ] as const;
+/** Gate decisions withheld because their authored route would be diverted, and why. */
+export function withheldDecisions(run: Run) {
+  const node = run.definition.nodes.find((node) => node.id === run.currentNode);
+  if (run.state !== "awaiting-review" || node?.kind !== "human") return [];
+  return gateRoutes(node).flatMap(([action, route]) => {
+    const { outcome } = settleRoute(run, node.id, route);
+    return outcome === "visit-limit" || outcome === "automation-stopped"
+      ? [{ action, to: route.to, repeat: route.repeat !== undefined, cause: outcome }]
+      : [];
+  });
+}
 export function allowedActions(run: Run): State["allowedActions"] {
   if (["completed", "failed", "canceled"].includes(run.state)) return [];
   if (run.state === "awaiting-review") {
     const node = run.definition.nodes.find((node) => node.id === run.currentNode)!;
-    if (!run.automationStopped || node.kind !== "human")
-      return ["cancel", "approve", "request-changes"];
-    const permitted = (route: Route) => {
-      const target =
-        route.repeat && (run.repeats[`${node.id}:${route.to}`] ?? 0) >= route.repeat.max
-          ? route.repeat.atLimit
-          : route.to;
-      return ["human", "end"].includes(
-        run.definition.nodes.find((node) => node.id === target)!.kind,
-      );
-    };
+    if (node.kind !== "human") return ["cancel", "approve", "request-changes"];
+    const withheld = new Set(withheldDecisions(run).map((item) => item.action));
     return [
       "cancel",
-      ...(permitted(node.approve) ? ["approve" as const] : []),
-      ...(permitted(node.changes) ? ["request-changes" as const] : []),
+      ...gateRoutes(node).flatMap(([action]) => (withheld.has(action) ? [] : [action])),
     ];
   }
   if (run.state === "unresolved") {
@@ -135,9 +166,23 @@ export function allowedActions(run: Run): State["allowedActions"] {
   }
   return ["cancel"];
 }
-export function unresolved(run: State, reason: string) {
+export function unresolved(
+  run: State,
+  reason: string,
+  kind: StopKind,
+  attemptId: string | null = null,
+) {
   run.state = "unresolved";
   run.reason = reason;
+  run.stop = { kind, attemptId };
+}
+/** Why a route into an unresolved end stopped, from the review aggregate it consumed. */
+function endStop(run: State): StopKind {
+  const review = run.reviews.find((review) => run.trace.at(-1)?.sourceIds.includes(review.id));
+  if (review?.cause === "head-unverifiable") return "review-unverifiable";
+  if (review?.cause === "head-changed" || review?.result === "stale") return "review-stale";
+  if (review?.result === "failed") return "failed";
+  return "unresolved";
 }
 export function admit(run: State, id: string, now: number) {
   let node = run.definition.nodes.find((node) => node.id === id)!;
@@ -153,9 +198,11 @@ export function admit(run: State, id: string, now: number) {
   run.currentNode = node.id;
   run.state = "running";
   run.gate = null;
+  run.stop = null;
   run.visits++;
   if (node.kind === "end") {
     run.state = node.outcome;
+    if (node.outcome === "unresolved") run.stop = { kind: endStop(run), attemptId: null };
     return;
   }
   if (node.kind === "human") {
@@ -220,7 +267,7 @@ export function reserveAttempt(
     bindingReason = `Resolved input exceeds ${limits.fields} fields.`;
     input = { ...run.input };
   }
-  if (bindingReason && !branch) unresolved(run, bindingReason);
+  if (bindingReason && !branch) unresolved(run, bindingReason, "unresolved", attemptId);
   const timeoutMs =
     agent?.timeoutMs ??
     (node.kind === "check" ? node.timeoutMs : undefined) ??
@@ -275,37 +322,25 @@ export function transition(
     sourceIds?: ReadonlyArray<string>;
     considered?: ReadonlyArray<{ predicate: Predicate; matched: boolean }>;
     reason?: string;
+    /** Inspector control of the authored route, recorded so evidence never infers it. */
+    control?: string;
   } = {},
 ) {
   const identity = `${nodeId}:${route.to}`;
-  const repeatCount = route.repeat ? (run.repeats[identity] ?? 0) : null;
-  let target = route.to;
-  let reason = input.reason ?? "Unconditional route.";
-  if (route.repeat) {
-    if (repeatCount! >= route.repeat.max) {
-      run.automationStopped = true;
-      target = route.repeat.atLimit;
-      reason = "The repeat limit was reached.";
-    } else {
-      run.repeats[identity] = repeatCount! + 1;
-      reason = "Admitted a bounded repeat.";
-    }
-  }
-  if (
-    run.visits >= (run.definition.maxVisits ?? 100) &&
-    !["human", "end"].includes(run.definition.nodes.find((node) => node.id === target)!.kind)
-  ) {
-    run.automationStopped = true;
-    target = run.definition.atLimit;
-    reason = "The whole-run visit limit was reached.";
-  }
-  if (
-    run.automationStopped &&
-    !["human", "end"].includes(run.definition.nodes.find((node) => node.id === target)!.kind)
-  ) {
-    target = run.definition.atLimit;
-    reason = "The exhausted automation bound permits only human gates or an end.";
-  }
+  const { target, outcome, count } = settleRoute(run, nodeId, route);
+  if (outcome === "limit" || outcome === "visit-limit") run.automationStopped = true;
+  const reason =
+    outcome === "limit"
+      ? "The repeat limit was reached."
+      : outcome === "visit-limit"
+        ? "The whole-run visit limit was reached."
+        : outcome === "automation-stopped"
+          ? "The exhausted automation bound permits only human gates or an end."
+          : route.repeat
+            ? "Admitted a bounded repeat."
+            : (input.reason ?? "Unconditional route.");
+  // A repeat is spent only when it is admitted; a diverted repeat did not happen.
+  if (route.repeat && outcome === "admitted") run.repeats[identity] = count! + 1;
   run.trace.push({
     id: `${run.id}:edge:${run.trace.length}`,
     nodeId,
@@ -315,6 +350,18 @@ export function transition(
     chosen: target,
     reason,
     repeatCount: route.repeat ? (run.repeats[identity] ?? 0) : null,
+    ...(input.control === undefined ? {} : { route: input.control }),
+    ...(route.repeat
+      ? {
+          repeat: {
+            max: route.repeat.max,
+            atLimit: route.repeat.atLimit,
+            exhausted: outcome === "limit",
+            outcome,
+          },
+        }
+      : {}),
+    ...(outcome === "visit-limit" || outcome === "automation-stopped" ? { diverted: outcome } : {}),
     at: now,
   });
   admit(run, target, now);
@@ -325,12 +372,18 @@ export function choose(
   values: Record<string, Value>,
 ) {
   const considered: { predicate: Predicate; matched: boolean }[] = [];
-  for (const rule of rules) {
+  for (const [index, rule] of rules.entries()) {
     const matched = evaluate(rule.when, values);
     considered.push({ predicate: rule.when, matched });
-    if (matched) return { route: rule.route, considered, reason: "First matching rule." };
+    if (matched)
+      return {
+        route: rule.route,
+        considered,
+        reason: "First matching rule.",
+        control: `rules.${index}`,
+      };
   }
-  return { route: otherwise, considered, reason: "Otherwise route." };
+  return { route: otherwise, considered, reason: "Otherwise route.", control: "otherwise" };
 }
 export function launchInstruction(agent: Agent, attempt: Attempt, head?: string): string {
   const invocation = attempt.skill
@@ -340,3 +393,73 @@ export function launchInstruction(agent: Agent, attempt: Attempt, head?: string)
 }
 export const commandId = (attempt: Attempt, kind: string, revision = 0) =>
   CommandId.make(`${attempt.id}:${kind}:${revision}`);
+
+/**
+ * What a person must do for this run, newest-relevant first: a human gate, every pending
+ * native request of every waiting attempt in its thread's queue order, or the stop of an
+ * unresolved run. Running work without a request is progress and yields nothing.
+ */
+export function attentionItems(run: Run): Omit<AttentionItem, "title">[] {
+  const items: Omit<AttentionItem, "title">[] = [];
+  if (run.state === "awaiting-review" && run.gate)
+    items.push({
+      id: `${run.id}:gate:${run.gate.nodeId}:${run.visits}`,
+      kind: "needs-review",
+      nodeId: run.gate.nodeId,
+      branchId: null,
+      attemptId: null,
+      threadId: null,
+      gateRevision: run.gate.revision,
+      request: null,
+    });
+  if (run.state === "running" || run.state === "unresolved")
+    for (const attempt of run.attempts) {
+      if (attempt.phase !== "waiting-input") continue;
+      const base = {
+        kind: "needs-input" as const,
+        nodeId: attempt.nodeId,
+        branchId: attempt.branchId,
+        attemptId: attempt.id,
+        threadId: attempt.threadId,
+        gateRevision: null,
+      };
+      const requests = attempt.requests ?? [];
+      if (requests.length === 0)
+        items.push({ ...base, id: `${run.id}:input:${attempt.id}`, request: null });
+      requests.forEach((request, index) =>
+        items.push({
+          ...base,
+          id: `${run.id}:request:${attempt.id}:${request.id}`,
+          request: {
+            ...request,
+            position: index + 1,
+            pending: Math.max(attempt.pendingRequests ?? 0, requests.length),
+          },
+        }),
+      );
+    }
+  if (run.state === "unresolved") {
+    const attempt = run.stop?.attemptId
+      ? run.attempts.find((item) => item.id === run.stop!.attemptId)
+      : undefined;
+    items.push({
+      id: `${run.id}:stop:${run.visits}`,
+      kind: run.stop?.kind ?? "unresolved",
+      nodeId: attempt?.nodeId ?? run.currentNode,
+      branchId: attempt?.branchId ?? null,
+      attemptId: attempt?.id ?? null,
+      threadId: attempt?.threadId ?? null,
+      gateRevision: null,
+      request: null,
+    });
+  }
+  return items;
+}
+
+/** Whether a run currently has, or could be listed with, something a person must do. */
+export const attentionRelevant = (run: Run) =>
+  run.state === "awaiting-review" ||
+  run.state === "unresolved" ||
+  run.attempts.some(
+    (attempt) => attempt.phase === "waiting-input" || (attempt.requests ?? []).length > 0,
+  );

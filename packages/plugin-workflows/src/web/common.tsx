@@ -1,0 +1,271 @@
+import type {
+  PluginBreadcrumbItem,
+  PluginDraftStore,
+  PluginWebContext,
+} from "@t3tools/plugin-host-contract/web";
+import type { ProjectId } from "@t3tools/plugin-host-contract/schema";
+import { useEffect, useState, type ReactNode } from "react";
+import type {
+  Definition,
+  ProjectSummary,
+  WorkflowClient,
+  WorkflowPermissions,
+} from "../contracts.ts";
+import { isDefinitionLike } from "./editing.ts";
+
+export type PageProps = PluginWebContext & { readonly client: WorkflowClient };
+/** Mutations stay unavailable until the environment grants them. */
+export const noPermissions: WorkflowPermissions = {
+  save: false,
+  replace: false,
+  remove: false,
+  start: false,
+  cancel: false,
+  retry: false,
+  resume: false,
+  gate: false,
+  schedule: false,
+};
+
+export function errorMessage(cause: unknown): string {
+  if (typeof cause === "object" && cause !== null && "message" in cause) {
+    const message = (cause as { message: unknown }).message;
+    if (typeof message === "string" && message.length > 0) return message;
+  }
+  return "The request failed. Check the connection to this environment and try again.";
+}
+export function errorCode(cause: unknown): string | null {
+  if (typeof cause !== "object" || cause === null) return null;
+  if ((cause as { _tag?: unknown })._tag === "EnvironmentAuthorizationError") return "unauthorized";
+  const code = (cause as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+/**
+ * Only the workflow service's own refusal of `operation`, made after it consulted the command's
+ * stored result, proves nothing was committed. Transport, registry or client availability,
+ * authorization and service errors may follow a committed earlier send, so callers keep the
+ * request identity and its input for reconciliation.
+ */
+export function rejected(cause: unknown, operation: string): boolean {
+  if (typeof cause !== "object" || cause === null) return false;
+  const error = cause as { _tag?: unknown; pluginId?: unknown; operation?: unknown };
+  return (
+    error._tag === "PluginError" &&
+    error.pluginId === "workflows" &&
+    error.operation === operation &&
+    errorCode(cause) !== "service"
+  );
+}
+
+/**
+ * Narrow layouts move the palette and inspector into labeled sheets. Docked, the two panels
+ * take ~32rem, so below this width (with the app sidebar open) the canvas would be cramped.
+ */
+const narrowQuery = () =>
+  typeof window === "undefined" || typeof window.matchMedia !== "function"
+    ? null
+    : window.matchMedia("(max-width: 1279px)");
+export function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => narrowQuery()?.matches ?? false);
+  useEffect(() => {
+    const query = narrowQuery();
+    if (query === null) return;
+    const update = () => setNarrow(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return narrow;
+}
+
+export function Labeled({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  readonly id: string;
+  readonly label: string;
+  readonly hint?: ReactNode;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+        {label}
+      </label>
+      {children}
+      {hint === undefined || hint === null || hint === false ? null : (
+        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The project breadcrumb segment: switches projects within this environment only, and is the
+ * page's project picker when it was opened without one.
+ */
+export function projectCrumb(
+  props: PageProps,
+  projects: ReadonlyArray<ProjectSummary> | null,
+  pageId = "workflows.library",
+): PluginBreadcrumbItem {
+  const { projectId, connection } = props;
+  const current = projects?.find((project) => project.id === projectId);
+  // Same-titled projects are told apart by their folder.
+  const name = (project: ProjectSummary) =>
+    projects?.some((other) => other.id !== project.id && other.title === project.title) === true
+      ? `${project.title} · ${project.location}`
+      : project.title;
+  return {
+    label:
+      current === undefined ? (projectId === null ? "Choose a project" : projectId) : name(current),
+    ariaLabel: "Project",
+    value: projectId ?? "",
+    disabled: connection === "disconnected" || projects === null,
+    options: (projects ?? []).map((project) => ({ value: project.id, label: name(project) })),
+    onChange: (value) => props.navigate({ pageId, projectId: value as ProjectId }),
+  };
+}
+
+/** A failed project list, with Retry; shown even when the page already has a project. */
+export function ProjectsAlert({
+  props,
+  projects,
+}: {
+  readonly props: PageProps;
+  readonly projects: ReturnType<typeof useProjects>;
+}) {
+  if (projects.error === null) return null;
+  return (
+    <props.Alert
+      variant="error"
+      title="Could not load projects"
+      actions={
+        <props.Button size="xs" variant="outline" onClick={projects.retry}>
+          Retry
+        </props.Button>
+      }
+    >
+      {projects.error}
+    </props.Alert>
+  );
+}
+
+/** Mirrors the host's permission grants for this environment. */
+export function usePermissions(client: WorkflowClient): WorkflowPermissions {
+  const [permissions, setPermissions] = useState<WorkflowPermissions>(noPermissions);
+  useEffect(() => client.subscribePermissions(setPermissions), [client]);
+  return permissions;
+}
+
+export function useProjects(props: PageProps) {
+  const [projects, setProjects] = useState<ReadonlyArray<ProjectSummary> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const { client, connection } = props;
+  useEffect(() => {
+    if (connection === "disconnected") return;
+    let active = true;
+    setError(null);
+    client.projects().then(
+      (value) => {
+        if (active) setProjects(value);
+      },
+      (cause: unknown) => {
+        if (active) setError(errorMessage(cause));
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [client, connection, attempt]);
+  return { projects, error, retry: () => setAttempt((value) => value + 1) };
+}
+
+/** What a local draft is based on; it is editing state, never execution state. */
+export interface DraftBase {
+  readonly mode: "new" | "edit" | "replace";
+  readonly source: string | null;
+  readonly fingerprint: string | null;
+  readonly revision: number | null;
+}
+export interface DraftEnvelope {
+  readonly version: 1;
+  readonly base: DraftBase;
+  readonly definition: Definition;
+  readonly updatedAt: number;
+}
+/** Drafts are keyed by project and workflow inside the host's environment/plugin scope. */
+export const draftKey = (projectId: ProjectId, workflow: string) => `${projectId}:${workflow}`;
+export function readDraft(store: PluginDraftStore, key: string): DraftEnvelope | null {
+  const raw = store.read(key);
+  if (raw === null) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== "object" || value === null) return null;
+    const envelope = value as Partial<DraftEnvelope>;
+    return envelope.version === 1 &&
+      typeof envelope.base === "object" &&
+      envelope.base !== null &&
+      isDefinitionLike(envelope.definition)
+      ? (envelope as DraftEnvelope)
+      : null;
+  } catch {
+    return null;
+  }
+}
+export function writeDraft(store: PluginDraftStore, key: string, envelope: DraftEnvelope) {
+  return store.write(key, JSON.stringify(envelope));
+}
+
+/** Local drafts for one project, newest last, with where each one reopens. */
+export function projectDrafts(store: PluginDraftStore, projectId: ProjectId) {
+  const prefix = `${projectId}:`;
+  return store.keys().flatMap((key) => {
+    if (!key.startsWith(prefix)) return [];
+    const envelope = readDraft(store, key);
+    if (envelope === null) return [];
+    const workflow = key.slice(prefix.length);
+    return [
+      {
+        key,
+        title: envelope.definition.title || envelope.definition.id,
+        state: workflow.startsWith("new:") ? { draft: workflow } : { source: workflow },
+        isNew: workflow.startsWith("new:"),
+      },
+    ];
+  });
+}
+
+/** An identity not used by the catalog or a local draft: `base`, then `base-2`, `base-3`… */
+export async function unusedWorkflowId(
+  client: WorkflowClient,
+  store: PluginDraftStore,
+  projectId: ProjectId,
+  base: string,
+): Promise<string> {
+  let page = await client.library({ projectId, query: base, limit: 50 });
+  const used = new Set<string>();
+  for (;;) {
+    // Saving a new workflow writes `<id>.yaml`, so authored file names (including invalid
+    // files with no readable identity) are taken too.
+    for (const entry of page.entries) {
+      if (entry.definitionId !== null) used.add(entry.definitionId);
+      if (!entry.packaged) used.add((entry.source.split("/").at(-1) ?? "").replace(/\.ya?ml$/, ""));
+    }
+    if (page.nextOffset === null) break;
+    page = await client.library({ projectId, query: base, offset: page.nextOffset, limit: 50 });
+  }
+  for (const id of projectDrafts(store, projectId).flatMap(
+    (draft) => readDraft(store, draft.key)?.definition.id ?? [],
+  ))
+    used.add(id);
+  for (let index = 1; ; index++) {
+    const candidate = index === 1 ? base : `${base}-${index}`;
+    if (!used.has(candidate)) return candidate;
+  }
+}

@@ -52,6 +52,8 @@ export const fixture = Effect.gen(function* () {
   let head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   let dirty = false;
   let providerAvailable = true;
+  let forgeAvailable = true;
+  let redactions = 0;
   let lostAcknowledgement = false;
   let checkExecution = Effect.succeed({
     exitCode: 0,
@@ -63,25 +65,39 @@ export const fixture = Effect.gen(function* () {
   const sendStarted = yield* Deferred.make<void>();
   const sendReleased = yield* Deferred.make<void>();
   let holdSend = false;
+  const providersStarted = yield* Deferred.make<void>();
+  const providersReleased = yield* Deferred.make<void>();
+  let holdProviders = false;
   const checkStarts = yield* Queue.unbounded<string>();
   yield* Effect.addFinalizer(() => Queue.shutdown(checkStarts));
   const host = Host.of({
     environmentId,
     cancelPending: () => Effect.void,
-    redact: (input) => Effect.succeed(input.text),
+    redact: (input) =>
+      Effect.sync(() => {
+        redactions++;
+        return input.text;
+      }),
     projects: () =>
       Effect.succeed([{ id: projectId, title: "Workflow", workspaceRoot: directory }]),
     providers: () =>
-      Effect.succeed([
-        {
-          instanceId: ProviderInstanceId.make("codex"),
-          driver: "codex",
-          toolsSupported: true,
-          available: providerAvailable,
-          reason: null,
-          runtimeModes: ["approval-required", "full-access"],
-        },
-      ]),
+      Effect.gen(function* () {
+        if (holdProviders) {
+          holdProviders = false;
+          yield* Deferred.succeed(providersStarted, undefined);
+          yield* Deferred.await(providersReleased);
+        }
+        return [
+          {
+            instanceId: ProviderInstanceId.make("codex"),
+            driver: "codex",
+            toolsSupported: true,
+            available: providerAvailable,
+            reason: null,
+            runtimeModes: ["approval-required", "full-access"],
+          },
+        ];
+      }),
     skills: () => Effect.succeed([{ name: "code-review", path: skillPath, enabled: true }]),
     workspace: () => Effect.succeed({ path: directory, branch: "main", head }),
     resolveRef: () => Effect.succeed(head),
@@ -94,7 +110,19 @@ export const fixture = Effect.gen(function* () {
         yield* Queue.offer(checkStarts, input.command);
         return yield* checkExecution;
       }),
-    verifyPullRequestHead: () => Effect.succeed({ head, branch: "feature" }),
+    verifyPullRequestHead: () =>
+      Effect.suspend(() =>
+        forgeAvailable
+          ? Effect.succeed({ head, branch: "feature" })
+          : Effect.fail(
+              new PluginError({
+                pluginId: "host",
+                code: "unavailable",
+                operation: "verify-pull-request-head",
+                message: "The forge is unreachable.",
+              }),
+            ),
+      ),
     receipt: (id) => Effect.succeed(receipts.get(id) ?? null),
     retryPreparation: () =>
       Effect.fail(
@@ -240,6 +268,18 @@ export const fixture = Effect.gen(function* () {
     if (!Effect.isEffect(result)) return yield* Effect.die("Expected request");
     return yield* result;
   });
+  /** A subscription API on the currently running plugin (after any restart). */
+  const stream = (method: string, input: unknown) =>
+    Stream.unwrap(
+      Effect.suspend(() => runtime.registry.api(`plugins.workflows.${method}`)).pipe(
+        Effect.flatMap((api) => {
+          const result = api.invoke(input);
+          return Stream.isStream(result)
+            ? Effect.succeed(result)
+            : Effect.die("Expected a subscription");
+        }),
+      ),
+    );
   const query = (runId: string) =>
     invoke("get", { environmentId, projectId, runId }).pipe(Effect.flatMap(decodeRun));
   const reconcile = invoke("reconcile", { environmentId, projectId }).pipe(Effect.asVoid);
@@ -276,9 +316,15 @@ export const fixture = Effect.gen(function* () {
     query,
     reconcile,
     invoke,
+    stream,
     report,
     launches,
     commands,
+    holdProviders: () => {
+      holdProviders = true;
+    },
+    providersStarted: Deferred.await(providersStarted),
+    releaseProviders: Deferred.succeed(providersReleased, undefined),
     setSkillPath: (path: string) => {
       skillPath = path;
     },
@@ -290,6 +336,10 @@ export const fixture = Effect.gen(function* () {
     nextCheck: Queue.take(checkStarts),
     holdCheck: () => {
       checkExecution = Effect.never;
+    },
+    /** Result the next check commands return. */
+    setCheck: (result: { exitCode: number; timedOut: boolean; stdout: string }) => {
+      checkExecution = Effect.succeed({ ...result, stderr: "" });
     },
     threads,
     restart: Effect.gen(function* () {
@@ -327,6 +377,14 @@ export const fixture = Effect.gen(function* () {
     setHead: (value: string) => {
       head = value;
     },
+    /** Display reads redact through the host; counting them shows when a view re-read. */
+    redactions: () => redactions,
+    /** Whether the forge can verify the pull request head. */
+    setForgeAvailable: (value: boolean) => {
+      forgeAvailable = value;
+    },
+    /** The host's attention stream of the currently running plugin (after any restart). */
+    hostAttention: Stream.unwrap(Effect.sync(() => runtime.registry.attention(environmentId))),
     setDirty: (value: boolean) => {
       dirty = value;
     },

@@ -1,5 +1,6 @@
 import "vite-plus/test/config";
-import { defineConfig } from "vite-plus";
+import { defineConfig, type Plugin } from "vite-plus";
+import * as NodeModule from "node:module";
 import * as NodeURL from "node:url";
 
 /** Import restrictions every file keeps, including the one module exempt from the glyph rule. */
@@ -53,7 +54,44 @@ const RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS = {
     "Pick a glyph by meaning from PullRequestGlyph in apps/web/src/components/pullRequest/pullRequestIcons.tsx so every surface draws the same pull request the same way.",
 };
 
+/**
+ * `vp test` from the repo root runs this config, not apps/web/vite.config.ts or
+ * apps/web/integration/vite.config.ts, so the web integration tests would render uncompiled
+ * JSX. Under test only, components (.tsx) under apps/web/src and packages/plugin-workflows/src/web
+ * compile as in the app (compiler bailouts and crashes included). `reactCompilerPreset()` from
+ * @vitejs/plugin-react is not used: its `applyToEnvironmentHook` is client-only, which would
+ * skip Vitest's node environment.
+ */
+const loadWebReactCompiler = async (): Promise<Plugin> => {
+  const webRequire = NodeModule.createRequire(new URL("./apps/web/package.json", import.meta.url));
+  // Non-literal specifier resolves from apps/web; its types do not resolve from the repo root.
+  const {
+    default: reactCompilerBabel,
+  }: {
+    default: (options: {
+      include: RegExp[];
+      exclude: RegExp[];
+      parserOpts: { plugins: string[] };
+      presets: object[];
+    }) => Promise<Plugin>;
+  } = await import(NodeURL.pathToFileURL(webRequire.resolve("@rolldown/plugin-babel")).href);
+  return reactCompilerBabel({
+    include: [/\/apps\/web\/src\/.*\.tsx$/, /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/],
+    exclude: [/\.test\.tsx$/, /\/node_modules\//],
+    parserOpts: { plugins: ["typescript", "jsx"] },
+    presets: [
+      {
+        preset: () => ({
+          plugins: [[webRequire.resolve("babel-plugin-react-compiler"), {}]],
+        }),
+        rolldown: { filter: { code: /\b[A-Z]|\buse/ } },
+      },
+    ],
+  });
+};
+
 export default defineConfig({
+  plugins: [process.env.VITEST ? loadWebReactCompiler() : null],
   resolve: {
     alias: {
       "~": NodeURL.fileURLToPath(new URL("./apps/web/src", import.meta.url)),

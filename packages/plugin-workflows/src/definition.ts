@@ -1,4 +1,13 @@
-import type { Definition, Node, Agent, Field, Predicate, Route, Value } from "./contracts.ts";
+import type {
+  Definition,
+  Node,
+  Agent,
+  Field,
+  Predicate,
+  Problem,
+  Route,
+  Value,
+} from "./contracts.ts";
 import { limits } from "./contracts.ts";
 
 export function routes(node: Node): ReadonlyArray<Route> {
@@ -56,7 +65,8 @@ function reportFields(agent: Agent): Map<string, Field> {
     ...agent.report.fields.map((field) => [`data.${field.name}`, field] as const),
   ]);
 }
-function sourceFields(node: Node | undefined, definition: Definition): Map<string, Field> {
+/** Declared fields a decision, binding or predicate may read from a source node. */
+export function sourceFields(node: Node | undefined, definition: Definition): Map<string, Field> {
   if (node?.kind === "agent") return reportFields(node);
   if (node?.kind === "check")
     return new Map([
@@ -94,91 +104,187 @@ function sourceFields(node: Node | undefined, definition: Definition): Map<strin
   }
   return new Map();
 }
-export function definitionProblems(definition: Definition): string[] {
-  const errors: string[] = [];
+/** Each outgoing route with the inspector control that owns it. */
+export function routeControls(node: Node): ReadonlyArray<{ control: string; route: Route }> {
+  switch (node.kind) {
+    case "agent":
+    case "check":
+      return [
+        { control: "next", route: node.next },
+        ...(node.onUnresolved ? [{ control: "onUnresolved", route: node.onUnresolved }] : []),
+      ];
+    case "decision":
+    case "join":
+      return [
+        ...node.rules.map((rule, index) => ({ control: `rules.${index}`, route: rule.route })),
+        { control: "otherwise", route: node.otherwise },
+      ];
+    case "human":
+      return [
+        { control: "approve", route: node.approve },
+        { control: "changes", route: node.changes },
+      ];
+    case "parallel":
+      return [{ control: "next", route: { to: node.next } }];
+    case "end":
+      return [];
+  }
+}
+const routeNames: Record<string, string> = {
+  next: "Next",
+  onUnresolved: "If unresolved",
+  otherwise: "Otherwise",
+  approve: "Approve",
+  changes: "Request changes",
+};
+const routeName = (control: string) =>
+  control.startsWith("rules.")
+    ? `Rule ${Number(control.split(".")[1]) + 1}`
+    : (routeNames[control] ?? control);
+/** Located validation results; errors block publication, warnings never do. */
+export function definitionDiagnostics(definition: Definition): Problem[] {
+  const problems: Problem[] = [];
+  const add = (
+    message: string,
+    location: { readonly nodeId?: string; readonly control?: string } = {},
+    severity: Problem["severity"] = "error",
+  ) => problems.push({ severity, message, ...location });
   const nodes = new Map(definition.nodes.map((node) => [node.id, node]));
-  if (nodes.size !== definition.nodes.length) errors.push("Node identities must be unique.");
-  if (!nodes.has(definition.entry)) errors.push("The entry node does not exist.");
+  if (nodes.size !== definition.nodes.length) add("Node identities must be unique.");
+  if (!nodes.has(definition.entry)) add("The entry node does not exist.", { control: "entry" });
   if (nodes.get(definition.entry)?.kind === "join")
-    errors.push("The entry node cannot be a join; start at its fork.");
+    add("The entry node cannot be a join; start at its fork.", { control: "entry" });
   const terminal = (id: string) => ["end", "human"].includes(nodes.get(id)?.kind ?? "");
   if (!terminal(definition.atLimit))
-    errors.push("The run At limit destination must be an end or human gate.");
+    add("The run At limit destination must be an end or human gate.", { control: "atLimit" });
   let edges = 0;
   for (const node of definition.nodes) {
-    for (const route of routes(node)) {
+    // Repeat counters are keyed by step and Return to, so two such routes would share one.
+    const repeatTargets = new Map<string, string>();
+    for (const { control, route } of routeControls(node)) {
       edges++;
-      if (!nodes.has(route.to)) errors.push(`${node.id}: unknown route target ${route.to}.`);
+      if (route.repeat) {
+        const first = repeatTargets.get(route.to);
+        if (first === undefined) repeatTargets.set(route.to, control);
+        else
+          add(
+            `${node.id}: ${routeName(first)} already repeats back to ${route.to}, and repeats from one step to the same step share one counter. Return to a different step or keep a single repeat route.`,
+            { nodeId: node.id, control: `${control}.repeat` },
+          );
+      }
+      if (!nodes.has(route.to))
+        add(`${node.id}: unknown route target ${route.to}.`, { nodeId: node.id, control });
       const target = nodes.get(route.to);
       if (target?.kind === "join" && (node.kind !== "parallel" || node.id !== target.fork))
-        errors.push(`${node.id}: join ${target.id} must be entered through fork ${target.fork}.`);
+        add(`${node.id}: join ${target.id} must be entered through fork ${target.fork}.`, {
+          nodeId: node.id,
+          control,
+        });
       if (route.repeat) {
         edges++;
         if (!terminal(route.repeat.atLimit))
-          errors.push(`${node.id}: repeat At limit must be an end or human gate.`);
+          add(`${node.id}: repeat At limit must be an end or human gate.`, {
+            nodeId: node.id,
+            control: `${control}.repeat`,
+          });
       }
     }
     if (node.kind === "parallel") {
       if (new Set(node.branches.map((branch) => branch.id)).size !== node.branches.length)
-        errors.push(`${node.id}: duplicate branch identity.`);
+        add(`${node.id}: duplicate branch identity.`, { nodeId: node.id, control: "branches" });
       if (
         nodes.get(node.next)?.kind !== "join" ||
         (nodes.get(node.next) as Extract<Node, { kind: "join" }>).fork !== node.id
       )
-        errors.push(`${node.id}: the next node must join this fork.`);
-      for (const branch of node.branches)
+        add(`${node.id}: the next node must join this fork.`, { nodeId: node.id, control: "next" });
+      node.branches.forEach((branch, index) => {
         if (branch.interactionMode !== "plan" || branch.runtimeMode !== "approval-required")
-          errors.push(
+          add(
             `${node.id}/${branch.id}: reviewers require native plan mode with approval-required external actions.`,
+            { nodeId: node.id, control: `branches.${index}` },
           );
+      });
     }
     if (node.kind === "join" && nodes.get(node.fork)?.kind !== "parallel")
-      errors.push(`${node.id}: unknown fork.`);
+      add(`${node.id}: unknown fork.`, { nodeId: node.id, control: "fork" });
     if (node.kind === "decision" || node.kind === "join") {
       const fields = sourceFields(node.kind === "join" ? node : nodes.get(node.source), definition);
       if (fields.size === 0)
-        errors.push(`${node.id}: decisions require a report, check or join source.`);
+        add(`${node.id}: decisions require a report, check or join source.`, {
+          nodeId: node.id,
+          control: node.kind === "join" ? "fork" : "source",
+        });
       let terms = 0;
-      const visit = (predicate: Predicate, depth: number) => {
+      const visit = (predicate: Predicate, depth: number, control: string) => {
         terms++;
         if (depth > limits.predicateDepth) {
-          errors.push(`${node.id}: predicate nesting exceeds ${limits.predicateDepth}.`);
+          add(`${node.id}: predicate nesting exceeds ${limits.predicateDepth}.`, {
+            nodeId: node.id,
+            control,
+          });
           return;
         }
         if (predicate.op === "all" || predicate.op === "any") {
-          for (const term of predicate.terms ?? []) visit(term, depth + 1);
+          // Each term is located by its index path, so a problem names the exact condition.
+          (predicate.terms ?? []).forEach((term, index) =>
+            visit(term, depth + 1, `${control}.${index}`),
+          );
           return;
         }
         const field = fields.get(predicate.path ?? "");
         if (!field) {
-          errors.push(`${node.id}: unknown predicate path ${predicate.path}.`);
+          // A join rule that reads a removed reviewer names it, so the dangling rule is obvious.
+          const reviewer =
+            node.kind === "join"
+              ? /^branches\.([^.]+)\./.exec(predicate.path ?? "")?.[1]
+              : undefined;
+          const fork = node.kind === "join" ? nodes.get(node.fork) : undefined;
+          add(
+            reviewer !== undefined &&
+              fork?.kind === "parallel" &&
+              !fork.branches.some((branch) => branch.id === reviewer)
+              ? `${node.id}: a rule reads reviewer ${reviewer}, which is no longer in ${fork.id}. Choose another field or remove the condition.`
+              : `${node.id}: unknown predicate path ${predicate.path}.`,
+            { nodeId: node.id, control },
+          );
           return;
         }
         if (["gt", "gte", "lt", "lte"].includes(predicate.op) && field.type !== "number")
-          errors.push(`${node.id}: numeric comparison requires a number field.`);
+          add(`${node.id}: numeric comparison requires a number field.`, {
+            nodeId: node.id,
+            control,
+          });
         if (predicate.op === "in" && !["string", "enum"].includes(field.type))
-          errors.push(`${node.id}: membership requires a string or enum.`);
+          add(`${node.id}: membership requires a string or enum.`, { nodeId: node.id, control });
         for (const value of predicate.values ??
           (predicate.value === undefined ? [] : [predicate.value]))
           if (!matchesField(field, value))
-            errors.push(`${node.id}: predicate operand is incompatible with ${predicate.path}.`);
+            add(`${node.id}: predicate operand is incompatible with ${predicate.path}.`, {
+              nodeId: node.id,
+              control,
+            });
       };
-      for (const rule of node.rules) visit(rule.when, 1);
-      if (terms > limits.predicateTerms) errors.push(`${node.id}: too many predicate terms.`);
+      node.rules.forEach((rule, index) => visit(rule.when, 1, `rules.${index}.when`));
+      if (terms > limits.predicateTerms)
+        add(`${node.id}: too many predicate terms.`, { nodeId: node.id, control: "rules" });
     }
   }
-  if (edges > limits.edges) errors.push(`At most ${limits.edges} edges are allowed.`);
-  for (const agent of agents(definition)) {
+  if (edges > limits.edges) add(`At most ${limits.edges} edges are allowed.`);
+  for (const { nodeId, prefix, agent } of agentLocations(definition)) {
     if (new Set(agent.report.fields.map((field) => field.name)).size !== agent.report.fields.length)
-      errors.push("Report field names must be unique.");
-    for (const field of agent.report.fields)
+      add("Report field names must be unique.", { nodeId, control: `${prefix}report.fields` });
+    agent.report.fields.forEach((field, index) => {
       if (
         field.type === "enum"
           ? !field.values?.length || new Set(field.values).size !== field.values.length
           : field.values !== undefined
       )
-        errors.push(`Field ${field.name} has an invalid enum contract.`);
-    for (const binding of agent.bindings ?? []) {
+        add(`Field ${field.name} has an invalid enum contract.`, {
+          nodeId,
+          control: `${prefix}report.fields.${index}`,
+        });
+    });
+    (agent.bindings ?? []).forEach((binding, index) => {
       const field = sourceFields(nodes.get(binding.node), definition).get(binding.path);
       if (
         !field ||
@@ -187,18 +293,21 @@ export function definitionProblems(definition: Definition): string[] {
         (field.type === "enum" &&
           field.values?.some((value) => !binding.field.values?.includes(value)))
       )
-        errors.push(`Invalid input binding ${binding.name}.`);
-    }
+        add(`Invalid input binding ${binding.name}.`, {
+          nodeId,
+          control: `${prefix}bindings.${index}`,
+        });
+    });
     if (
       new Set(agent.bindings?.map((binding) => binding.name)).size !== (agent.bindings?.length ?? 0)
     )
-      errors.push("Input names must be unique.");
+      add("Input names must be unique.", { nodeId, control: `${prefix}bindings` });
   }
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const walk = (id: string) => {
     if (visiting.has(id)) {
-      errors.push("Every cycle must cross a bounded repeat route.");
+      add("Every cycle must cross a bounded repeat route.", { nodeId: id });
       return;
     }
     if (visited.has(id)) return;
@@ -209,17 +318,28 @@ export function definitionProblems(definition: Definition): string[] {
     visited.add(id);
   };
   for (const id of nodes.keys()) walk(id);
+  const destinations = (node: Node) =>
+    routes(node).flatMap((route) => [
+      route.to,
+      ...(route.repeat && terminal(route.repeat.atLimit) ? [route.repeat.atLimit] : []),
+    ]);
   const predecessors = new Map<string, string[]>();
   for (const node of nodes.values())
-    for (const route of routes(node)) {
-      const destinations = [route.to];
-      if (route.repeat && terminal(route.repeat.atLimit)) destinations.push(route.repeat.atLimit);
-      for (const destination of destinations) {
-        const previous = predecessors.get(destination) ?? [];
-        previous.push(node.id);
-        predecessors.set(destination, previous);
-      }
+    for (const destination of destinations(node)) {
+      const previous = predecessors.get(destination) ?? [];
+      previous.push(node.id);
+      predecessors.set(destination, previous);
     }
+  // A decision can only read a source that runs before it on some path.
+  for (const node of definition.nodes) {
+    if (node.kind !== "decision" || !nodes.has(node.source)) continue;
+    const before = upstreamOf(definition, node.id);
+    if (!before.has(node.source))
+      add(
+        `${node.id}: ${node.source} never runs before this decision, so there is no result to decide on. Choose an earlier step.`,
+        { nodeId: node.id, control: "source" },
+      );
+  }
   const reachable = new Set([...nodes.keys()].filter(terminal));
   const pending = [...reachable];
   for (let index = 0; index < pending.length; index++)
@@ -228,8 +348,85 @@ export function definitionProblems(definition: Definition): string[] {
         reachable.add(predecessor);
         pending.push(predecessor);
       }
-  for (const id of nodes.keys()) if (!reachable.has(id)) errors.push(`${id}: no terminal path.`);
-  return errors;
+  for (const id of nodes.keys())
+    if (!reachable.has(id)) add(`${id}: no terminal path.`, { nodeId: id });
+  // The run At limit destination is reached when the visit bound is exhausted: by a bounded
+  // repeat, or by a flow with more step visits than the limit allows.
+  const visitsPossible = (ids: Iterable<string>) => {
+    let total = 0;
+    for (const id of ids) {
+      const node = nodes.get(id);
+      if (node === undefined || node.kind === "end") continue;
+      // The runtime admits every visited node; a group costs its branches plus open and join.
+      total += node.kind === "parallel" ? node.branches.length + 2 : 1;
+    }
+    return total;
+  };
+  const entered = new Set(nodes.has(definition.entry) ? [definition.entry] : []);
+  const frontier = [...entered];
+  let repeats = false;
+  for (let index = 0; index < frontier.length; index++) {
+    const node = nodes.get(frontier[index]!)!;
+    if (routes(node).some((route) => route.repeat)) repeats = true;
+    for (const destination of destinations(node))
+      if (nodes.has(destination) && !entered.has(destination)) {
+        entered.add(destination);
+        frontier.push(destination);
+      }
+    if (
+      index === frontier.length - 1 &&
+      (repeats || visitsPossible(entered) > (definition.maxVisits ?? 100)) &&
+      nodes.has(definition.atLimit) &&
+      !entered.has(definition.atLimit)
+    ) {
+      entered.add(definition.atLimit);
+      frontier.push(definition.atLimit);
+    }
+  }
+  for (const node of definition.nodes)
+    if (!entered.has(node.id))
+      add(
+        `${node.id}: this ${node.kind === "end" ? "end" : "step"} is unreachable from the entry step.`,
+        { nodeId: node.id },
+        "warning",
+      );
+  return problems;
+}
+/** Steps that run before `id` on some path, following every route and repeat At limit. */
+export function upstreamOf(definition: Definition, id: string): Set<string> {
+  const predecessors = new Map<string, string[]>();
+  for (const node of definition.nodes)
+    for (const route of routes(node))
+      for (const to of [route.to, ...(route.repeat ? [route.repeat.atLimit] : [])])
+        predecessors.set(to, [...(predecessors.get(to) ?? []), node.id]);
+  const before = new Set<string>();
+  const queue = [id];
+  for (let index = 0; index < queue.length; index++)
+    for (const predecessor of predecessors.get(queue[index]!) ?? [])
+      if (!before.has(predecessor)) {
+        before.add(predecessor);
+        queue.push(predecessor);
+      }
+  return before;
+}
+export function definitionProblems(definition: Definition): string[] {
+  return definitionDiagnostics(definition)
+    .filter((problem) => problem.severity === "error")
+    .map((problem) => problem.message);
+}
+/** Agents with the node and inspector-control prefix that owns them. */
+export function agentLocations(definition: Definition) {
+  return definition.nodes.flatMap((node) =>
+    node.kind === "agent"
+      ? [{ nodeId: node.id, prefix: "", agent: node as Agent }]
+      : node.kind === "parallel"
+        ? node.branches.map((branch, index) => ({
+            nodeId: node.id,
+            prefix: `branches.${index}.`,
+            agent: branch as Agent,
+          }))
+        : [],
+  );
 }
 export function evaluate(predicate: Predicate, values: Readonly<Record<string, Value>>): boolean {
   if (predicate.op === "all") return predicate.terms!.every((term) => evaluate(term, values));

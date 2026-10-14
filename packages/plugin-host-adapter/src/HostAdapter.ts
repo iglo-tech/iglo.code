@@ -2,6 +2,7 @@ import {
   CommandId,
   MessageId,
   RunId,
+  resolveProjectProviderInstanceEnabled,
   type OrchestrationV2DomainEvent,
   type ProjectId,
   type VcsRef,
@@ -452,11 +453,19 @@ const make = Effect.gen(function* () {
       ),
     );
   const providerList = Effect.fn("PluginHost.providers")(
-    function* () {
+    function* (input?: { readonly projectId: ProjectId }) {
       const current = yield* providers.getProviders;
       const configuration = yield* settings.getSettings;
       const configured = deriveProviderInstanceConfigMap(configuration);
       return current.map((provider) => {
+        const enabled =
+          input === undefined
+            ? provider.enabled
+            : resolveProjectProviderInstanceEnabled(
+                configuration,
+                input.projectId,
+                provider.instanceId,
+              );
         const config = configured[provider.instanceId]?.config;
         const external =
           (provider.driver === "opencode" || provider.driver === "opencode2") &&
@@ -472,17 +481,26 @@ const make = Effect.gen(function* () {
         return {
           instanceId: provider.instanceId,
           driver,
+          ...(provider.displayName === undefined ? {} : { displayName: provider.displayName }),
+          models: provider.models.map((model) => ({
+            slug: model.slug,
+            name: model.name,
+            isCustom: model.isCustom,
+            optionDescriptors: model.capabilities?.optionDescriptors ?? [],
+          })),
           toolsSupported: capability.supported,
           available:
-            provider.enabled &&
+            enabled &&
             provider.installed &&
             provider.availability !== "unavailable" &&
             !["error", "disabled"].includes(provider.status) &&
             provider.auth.status !== "unauthenticated",
           reason:
             capability.reason ??
-            (!provider.enabled
-              ? "The provider is disabled."
+            (!enabled
+              ? input === undefined
+                ? "The provider is disabled."
+                : "The provider is disabled in this project. Enable it in the project's provider settings."
               : !provider.installed
                 ? "The provider is not installed."
                 : provider.availability === "unavailable"
@@ -611,7 +629,7 @@ const make = Effect.gen(function* () {
         const snapshots = yield* providers.refreshWorkspaceSnapshot({
           instanceId: input.providerInstanceId,
           cwd: workspace.workspaceRoot,
-          fresh: true,
+          fresh: input.fresh ?? true,
         });
         const found = snapshots.find(
           (provider) => provider.instanceId === input.providerInstanceId,

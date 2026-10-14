@@ -29,6 +29,10 @@ import {
   RunSummary,
   RunListInput,
   StartInput,
+  StartSavedInput,
+  ThreadInput,
+  type StartSource,
+  type ThreadLink,
   ReportInput,
   ReportReceipt,
   CommandInput,
@@ -36,8 +40,17 @@ import {
   ScopeInput,
   RunInput,
   ScheduleInput,
+  SchedulePayload,
+  LegacySchedulePayload,
+  ScheduleOccurrence,
+  type ScheduleHistory,
+  type ScheduleHistoryInput,
   limits,
   type Attempt,
+  type StopKind,
+  type AttentionInput,
+  type AttentionKind,
+  type AttentionPage,
 } from "./contracts.ts";
 import * as Catalog from "./Catalog.ts";
 import * as Display from "./display.ts";
@@ -60,14 +73,30 @@ import {
   commandId,
   allowedActions,
   recoveryNode,
+  withheldDecisions,
+  attentionItems,
+  attentionRelevant,
   type State,
 } from "./graph.ts";
 
 export class Workflow extends Context.Service<
   Workflow,
   {
-    readonly attention: Stream.Stream<ReadonlyArray<PluginAttentionItem>, PluginError>;
+    /** The host's environment summary: capped items with the distinct-run total. */
+    readonly attention: Stream.Stream<
+      { readonly items: ReadonlyArray<PluginAttentionItem>; readonly total: number },
+      PluginError
+    >;
+    /** Newest page of runs needing attention, re-emitted when it changes. */
+    readonly watchAttention: (input: AttentionInput) => Stream.Stream<AttentionPage, PluginError>;
+    readonly readAttention: (input: AttentionInput) => Effect.Effect<AttentionPage, PluginError>;
     readonly start: (input: StartInput) => Effect.Effect<Run, PluginError>;
+    /** Start the catalog's saved snapshot; the receipt is consulted before the catalog. */
+    readonly startSaved: (input: StartSavedInput) => Effect.Effect<Run, PluginError>;
+    /** One run's display snapshot, re-emitted whenever its revision changes. */
+    readonly watch: (input: typeof RunInput.Type) => Stream.Stream<Run, PluginError>;
+    /** The run and attempt a native thread was launched for, if any. */
+    readonly thread: (input: ThreadInput) => Stream.Stream<ThreadLink | null, PluginError>;
     readonly get: (input: typeof RunInput.Type) => Effect.Effect<Run, PluginError>;
     readonly list: (
       input: typeof RunListInput.Type,
@@ -87,22 +116,62 @@ export class Workflow extends Context.Service<
     readonly resume: (input: typeof CommandInput.Type) => Effect.Effect<Run, PluginError>;
     readonly gate: (input: typeof GateInput.Type) => Effect.Effect<Run, PluginError>;
     readonly schedule: (input: typeof ScheduleInput.Type) => Effect.Effect<void, PluginError>;
+    /** Newest occurrences of one workflow schedule with the exact run each started. */
+    readonly scheduleHistory: (
+      input: ScheduleHistoryInput,
+    ) => Effect.Effect<ScheduleHistory, PluginError>;
+    /** One schedule occurrence through the same saved start; its identity is the run's. */
     readonly scheduledStart: (input: {
       readonly projectId: ProjectId;
       readonly occurrenceId: string;
-      readonly definitionId: string;
-      readonly input: StartInput["input"];
+      readonly payload: unknown;
     }) => Effect.Effect<Run, PluginError>;
   }
 >()("@t3tools/plugin-workflows/Workflow") {}
 
-const decodeRun = Schema.decodeUnknownEffect(Schema.fromJsonString(Run));
+const decodeStoredRun = Schema.decodeUnknownEffect(Schema.fromJsonString(Run));
+// Stored runs and command receipts can retain actions derived by an older policy.
+const decodeRun = (data: string) =>
+  decodeStoredRun(data).pipe(
+    Effect.map((run) => ({ ...run, allowedActions: allowedActions(run) })),
+  );
 const encodeRun = Schema.encodeEffect(Schema.fromJsonString(Run));
 const decodeReport = Schema.decodeUnknownEffect(ReportInput);
 const encodeReceipt = Schema.encodeEffect(Schema.fromJsonString(ReportReceipt));
 const decodeDisplay = Schema.decodeUnknownEffect(Run);
 const decodeSummary = Schema.decodeUnknownEffect(RunSummary);
 const decodeStart = Schema.decodeUnknownEffect(StartInput);
+const decodeStartSaved = Schema.decodeUnknownEffect(StartSavedInput);
+const decodeSchedulePayload = Schema.decodeUnknownEffect(
+  Schema.Union([SchedulePayload, LegacySchedulePayload]),
+);
+const decodeOccurrenceRun = Schema.decodeUnknownEffect(ScheduleOccurrence.fields.run.members[0]);
+/** The registered target every workflow schedule dispatches to. */
+export const scheduleTarget = "workflows.start";
+const attentionLabels: Record<AttentionKind, string> = {
+  "needs-review": "Needs review",
+  "needs-input": "Needs input",
+  interrupted: "Interrupted",
+  "missing-report": "Missing report",
+  "timed-out": "Timed out",
+  failed: "Failed",
+  "review-stale": "Review is stale",
+  "review-unverifiable": "Review input cannot be verified",
+  unavailable: "Could not continue",
+  unresolved: "Unresolved",
+};
+/** Server-worded reason for one run, from its stable kinds and counts only. */
+const attentionReason = (run: AttentionPage["runs"][number]) => {
+  const kinds = [...new Set(run.items.map((item) => item.kind))];
+  const requests = run.items.filter((item) => item.request !== null).length;
+  return kinds
+    .map((kind) =>
+      kind === "needs-input" && requests > 0
+        ? `${attentionLabels[kind]}: ${requests}${run.itemTotal > run.items.length ? "+" : ""} native ${requests === 1 ? "request" : "requests"}`
+        : attentionLabels[kind],
+    )
+    .join(" · ");
+};
 const activeRun = (state: PluginThreadState) =>
   state.runs.findLast(
     (run) =>
@@ -156,6 +225,13 @@ const make = Effect.gen(function* () {
   let reconcileAfter = 0;
   let outboxAfter = 0;
   const projectVersions = new Map<string, number>();
+  // Committed run revisions and new thread bindings, so watchers skip unrelated commits.
+  const runVersions = new Map<string, number>();
+  let bindingVersion = 0;
+  // Commits that can change what needs a person; attention reads skip all other commits.
+  // Runs not seen since start count as relevant, so a restart never hides a resolution.
+  let attentionVersion = 0;
+  const attentionRelevance = new Map<string, boolean>();
   yield* Effect.addFinalizer(() => PubSub.shutdown(changes));
   const checks = new Map<string, Fiber.Fiber<void, PluginError>>();
   const environment = (environmentId: string) =>
@@ -212,15 +288,26 @@ const make = Effect.gen(function* () {
         yield* enqueue(run, interruptId(attempt), "interrupt", attempt.id);
     }
     mutation++;
+    runVersions.set(run.id, run.revision);
+    const relevant = attentionRelevant(run);
+    if (relevant || attentionRelevance.get(run.id) !== false) attentionVersion++;
+    attentionRelevance.set(run.id, relevant);
+    if (run.attempts.some((attempt) => attempt.phase === "launching")) bindingVersion++;
     projectVersions.set(run.projectId, (projectVersions.get(run.projectId) ?? 0) + 1);
     return run;
   });
+  // A rolled-back commit may have recorded relevance it never wrote; forget it so the next
+  // persist of any run re-reads attention.
+  const commit = <A, E, R>(action: Effect.Effect<A, E, R>) =>
+    sql
+      .withTransaction(action)
+      .pipe(Effect.onError(() => Effect.sync(() => attentionRelevance.clear())));
   const transaction = <A, E, R>(operation: string, action: Effect.Effect<A, E, R>) =>
     protect(
       operation,
       Effect.gen(function* () {
         const before = mutation;
-        const result = yield* sql.withTransaction(action);
+        const result = yield* commit(action);
         if (mutation !== before) yield* notify;
         return result;
       }).pipe(lock.withPermits(1)),
@@ -237,15 +324,128 @@ const make = Effect.gen(function* () {
       }),
     );
   // Queries page durable history; routing always reads the complete private snapshot.
-  const display = Effect.fnUntraced(function* (run: Run, offset = 0, limit = 50, tail = false) {
+  // Without an explicit offset the newest page is shown. The overview is computed from the
+  // complete snapshot so it never depends on which history page is loaded.
+  const display = Effect.fnUntraced(function* (
+    run: Run,
+    request: Pick<RunInput, "historyOffset" | "attemptId" | "traceOffset"> = {},
+  ) {
+    const limit = 50;
+    const newest = Math.max(0, run.attempts.length - limit);
+    // A requested attempt opens the page that contains it.
+    const located = request.attemptId
+      ? run.attempts.findIndex((attempt) => attempt.id === request.attemptId)
+      : -1;
+    const offset =
+      request.historyOffset ??
+      (located >= 0 && located < newest ? Math.floor(located / limit) * limit : newest);
+    const tail = request.historyOffset === undefined && offset === newest;
+    const attempts = run.attempts.slice(offset, offset + limit);
+    // Route history pages independently: it grows at its own rate.
+    const traceOffset = request.traceOffset ?? Math.max(0, run.trace.length - limit);
+    const trace = run.trace.slice(traceOffset, traceOffset + limit);
+    const pageIds = new Set(
+      attempts.flatMap((attempt) => [
+        attempt.id,
+        `${attempt.id}:report`,
+        ...(attempt.reviewId ? [attempt.reviewId] : []),
+      ]),
+    );
+    const shown = new Set(trace.map((item) => item.id));
+    // Routing records of this page's visits stay reachable wherever route history is paged.
+    const relatedTrace = run.trace
+      .filter(
+        (item) =>
+          !shown.has(item.id) &&
+          ((item.attemptId !== null && pageIds.has(item.attemptId)) ||
+            item.sourceIds.some((id) => pageIds.has(id))),
+      )
+      .slice(-limits.relatedTrace);
+    const reviewIds = new Set([
+      ...attempts.flatMap((attempt) => (attempt.reviewId ? [attempt.reviewId] : [])),
+      ...(run.gate?.reviewId ? [run.gate.reviewId] : []),
+    ]);
+    const reviews = run.reviews.filter(
+      (review, index) => index >= run.reviews.length - limit || reviewIds.has(review.id),
+    );
+    const review = run.reviews.at(-1);
+    // The newest generation's complete required set, whichever history page is loaded.
+    const branches = review
+      ? review.branches.flatMap((branch) => {
+          const attempt = run.attempts.find((attempt) => attempt.id === branch.attemptId);
+          return attempt ? [{ id: branch.id, attempt }] : [];
+        })
+      : [];
     const page = {
       ...run,
-      attempts: tail ? run.attempts.slice(-limit) : run.attempts.slice(offset, offset + limit),
-      trace: tail ? run.trace.slice(-limit) : run.trace.slice(offset, offset + limit),
-      reviews: tail ? run.reviews.slice(-limit) : run.reviews.slice(offset, offset + limit),
+      // Recovery targets come from the same rules that admit Retry and Resume.
+      recovery: {
+        retryNodeId: run.allowedActions.includes("retry") ? (recoveryNode(run) ?? null) : null,
+        resumeAttemptId: run.allowedActions.includes("resume")
+          ? (latestAttempt(run, run.currentNode)?.id ?? null)
+          : null,
+      },
+      withheld: withheldDecisions(run),
+      overview: {
+        visits: run.attempts.length,
+        completedVisits: run.attempts.filter((attempt) => attempt.phase === "completed").length,
+        activeAttempts: run.attempts
+          .filter((attempt) => !terminalAttempt(attempt))
+          .slice(-limits.activeAttempts)
+          .map(({ id, nodeId, branchId, generation, threadId, phase }) => ({
+            id,
+            nodeId,
+            branchId,
+            generation,
+            threadId,
+            phase,
+          })),
+        review: review
+          ? {
+              id: review.id,
+              fork: review.fork,
+              generation: review.generation,
+              head: review.head,
+              pullRequest: review.pullRequest,
+              required: review.branches.length,
+              reported: branches.filter(({ attempt }) => attempt.report).length,
+              settled: branches.filter(({ attempt }) => terminalAttempt(attempt)).length,
+              result: review.result,
+              ...(review.cause === undefined ? {} : { cause: review.cause }),
+              branches: branches.map(({ id, attempt }) => ({
+                id,
+                attemptId: attempt.id,
+                threadId: attempt.threadId,
+                phase: attempt.phase,
+                reason: attempt.reason,
+                report: attempt.report
+                  ? {
+                      outcome: attempt.report.outcome,
+                      acceptedAt: attempt.report.receipt.acceptedAt,
+                    }
+                  : null,
+                deadline: attempt.deadline,
+                workspace:
+                  attempt.launch?.workspace.type === "existing"
+                    ? {
+                        path: attempt.launch.workspace.path,
+                        branch: attempt.launch.workspace.branch,
+                        frozenHead: attempt.launch.workspace.frozenHead ?? null,
+                      }
+                    : null,
+              })),
+            }
+          : null,
+      },
+      attempts,
+      trace,
+      relatedTrace,
+      reviews,
       history: {
         offset,
         tail,
+        traceOffset,
+        traceTail: traceOffset + limit >= run.trace.length,
         limit,
         attempts: run.attempts.length,
         trace: run.trace.length,
@@ -278,6 +478,7 @@ const make = Effect.gen(function* () {
       gate: run.gate,
       allowedActions: run.allowedActions,
       createdAt: run.createdAt,
+      ...(run.source === undefined ? {} : { source: run.source }),
       attempts: run.attempts.slice(-5).map((attempt) => ({
         id: attempt.id,
         nodeId: attempt.nodeId,
@@ -333,53 +534,255 @@ const make = Effect.gen(function* () {
         );
       }),
     );
-  const attentionItems = protect(
-    "attention",
-    Effect.gen(function* () {
-      const rows = yield* sql<{
-        data: string;
-      }>`SELECT data FROM workflow_runs WHERE state IN ('awaiting-review', 'unresolved') OR (state = 'running' AND EXISTS (SELECT 1 FROM json_each(workflow_runs.data, '$.attempts') WHERE json_extract(value, '$.phase') = 'waiting-input')) ORDER BY rowid LIMIT 100`;
-      return yield* Effect.forEach(rows, (row) =>
-        Effect.gen(function* () {
-          const run = yield* decodeRun(row.data);
-          const threadIds = run.attempts.flatMap((attempt) =>
-            attempt.threadId ? [attempt.threadId] : [],
-          );
-          const reason = yield* host.redact({
-            text:
-              run.reason ??
-              (run.state === "awaiting-review"
-                ? "The workflow needs a human decision."
-                : "Native execution requires your input."),
-            threadIds,
-          });
-          const summary = yield* host.redact({ text: run.definition.title, threadIds });
-          const relatedThread =
-            run.attempts.find((attempt) => attempt.phase === "waiting-input")?.threadId ??
-            run.attempts.at(-1)?.threadId;
-          return {
-            id: run.id,
-            summary: summary.slice(0, 240).trim(),
-            severity: "warning" as const,
-            reason: reason.slice(0, 500).trim(),
-            link: {
-              pageId: "workflows.runs",
+  const watch = (input: typeof RunInput.Type) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        yield* environment(input.environmentId);
+        // Subscribe before the first read so no committed revision is missed.
+        const subscription = yield* PubSub.subscribe(changes);
+        let observed: number | null = null;
+        const next = protect(
+          "watch",
+          Effect.gen(function* () {
+            if (observed !== null && (runVersions.get(input.runId) ?? observed) === observed)
+              return [];
+            const run = yield* get(input);
+            observed = run.revision;
+            return [yield* display(run, input)];
+          }),
+        );
+        return Stream.concat(
+          Stream.fromEffect(next),
+          Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => next)),
+        ).pipe(Stream.flatMap((runs) => Stream.fromIterable(runs)));
+      }),
+    );
+  const threadLink = Effect.fnUntraced(function* (input: ThreadInput) {
+    const [binding] = yield* sql<{
+      run_id: string;
+      attempt_id: string;
+    }>`SELECT run_id, attempt_id FROM workflow_bindings WHERE thread_id = ${input.threadId}`;
+    if (!binding) return null;
+    const run = yield* load(binding.run_id);
+    const attempt = run.attempts.find((attempt) => attempt.id === binding.attempt_id);
+    if (run.projectId !== input.projectId || !attempt) return null;
+    const node = run.definition.nodes.find((node) => node.id === attempt.nodeId);
+    const branch =
+      node?.kind === "parallel"
+        ? node.branches.find((branch) => branch.id === attempt.branchId)
+        : undefined;
+    const [workflowTitle, nodeTitle] = yield* Display.displayTexts(
+      host,
+      [
+        run.definition.title,
+        branch && node ? `${node.title} · ${branch.title}` : (node?.title ?? attempt.nodeId),
+      ],
+      [input.threadId],
+    );
+    return {
+      revision: run.revision,
+      link: {
+        runId: run.id,
+        attemptId: attempt.id,
+        nodeId: attempt.nodeId,
+        branchId: attempt.branchId,
+        generation: attempt.generation,
+        workflowTitle: workflowTitle!.slice(0, 240).trim(),
+        nodeTitle: nodeTitle!.slice(0, 240).trim(),
+        runState: run.state,
+        phase: attempt.phase,
+        reportAccepted: attempt.report !== null,
+      } satisfies ThreadLink,
+    };
+  });
+  /** A thread's owning run and attempt, re-emitted when that run commits a new revision. */
+  const thread = (input: ThreadInput) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        yield* environment(input.environmentId);
+        const subscription = yield* PubSub.subscribe(changes);
+        let observed: { readonly runId: string; readonly revision: number } | null = null;
+        let observedBindings = bindingVersion;
+        let sent: string | null = null;
+        const read = protect(
+          "thread",
+          Effect.gen(function* () {
+            observedBindings = bindingVersion;
+            const found = yield* threadLink(input);
+            if (found !== null) observed = { runId: found.link.runId, revision: found.revision };
+            return found?.link ?? null;
+          }),
+        );
+        // A new run revision often leaves this attempt's link unchanged; send only changes.
+        const fresh = (link: ThreadLink | null) => {
+          const encoded = canonical(link);
+          if (encoded === sent) return [];
+          sent = encoded;
+          return [link];
+        };
+        // Unowned threads are re-checked only when new bindings commit.
+        const changed = () =>
+          observed === null
+            ? observedBindings !== bindingVersion
+            : (runVersions.get(observed.runId) ?? observed.revision) !== observed.revision;
+        return Stream.concat(
+          Stream.fromEffect(read.pipe(Effect.map(fresh))),
+          Stream.fromSubscription(subscription).pipe(
+            Stream.mapEffect(() =>
+              changed()
+                ? read.pipe(Effect.map((link) => (link === null ? [] : fresh(link))))
+                : Effect.succeed([]),
+            ),
+          ),
+        ).pipe(Stream.flatMap((links) => Stream.fromIterable(links)));
+      }),
+    );
+  /**
+   * Runs needing a person, newest first, with the distinct-run total of the whole scope. The
+   * same predicate selects and counts, so a capped page is never mistaken for the total.
+   */
+  const attentionPage = (input: {
+    readonly projectId: string | null;
+    readonly before: string | null;
+    readonly limit: number;
+  }) =>
+    protect(
+      "attention",
+      Effect.gen(function* () {
+        const [count] = yield* sql<{
+          total: number;
+        }>`SELECT COUNT(*) AS total FROM workflow_runs WHERE (${input.projectId} IS NULL OR project_id = ${input.projectId}) AND (state IN ('awaiting-review', 'unresolved') OR (state = 'running' AND EXISTS (SELECT 1 FROM json_each(workflow_runs.data, '$.attempts') WHERE json_extract(value, '$.phase') = 'waiting-input')))`;
+        const rows = yield* sql<{
+          data: string;
+        }>`SELECT data FROM workflow_runs WHERE (${input.projectId} IS NULL OR project_id = ${input.projectId}) AND (state IN ('awaiting-review', 'unresolved') OR (state = 'running' AND EXISTS (SELECT 1 FROM json_each(workflow_runs.data, '$.attempts') WHERE json_extract(value, '$.phase') = 'waiting-input'))) AND (${input.before} IS NULL OR rowid < (SELECT rowid FROM workflow_runs WHERE id = ${input.before})) ORDER BY rowid DESC LIMIT ${input.limit + 1}`;
+        const runs = yield* Effect.forEach(rows.slice(0, input.limit), (row) =>
+          Effect.gen(function* () {
+            const run = yield* decodeRun(row.data);
+            const all = attentionItems(run);
+            // Native queues retain only their oldest IDs; their uncapped counts still name
+            // every item, including those revealed as earlier requests are answered.
+            const hiddenRequests =
+              run.state === "running" || run.state === "unresolved"
+                ? run.attempts.reduce(
+                    (total, attempt) =>
+                      total +
+                      (attempt.phase === "waiting-input"
+                        ? Math.max(
+                            0,
+                            (attempt.pendingRequests ?? 0) -
+                              Math.max(1, attempt.requests?.length ?? 0),
+                          )
+                        : 0),
+                    0,
+                  )
+                : 0;
+            const listed = all.slice(0, limits.attentionItems);
+            const label = (nodeId: string, branchId: string | null) => {
+              const node = run.definition.nodes.find((node) => node.id === nodeId);
+              const branch =
+                node?.kind === "parallel"
+                  ? node.branches.find((branch) => branch.id === branchId)
+                  : undefined;
+              return branch && node ? `${node.title} · ${branch.title}` : (node?.title ?? nodeId);
+            };
+            const [workflowTitle, ...titles] = yield* Display.displayTexts(
+              host,
+              [run.definition.title, ...listed.map((item) => label(item.nodeId, item.branchId))],
+              run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : [])),
+            );
+            const items = listed.map((item, index) => ({
+              ...item,
+              title: titles[index]!.slice(0, 240).trim(),
+            }));
+            return {
+              runId: run.id,
               projectId: run.projectId,
-              ...(relatedThread ? { threadId: relatedThread } : {}),
+              workflowTitle: workflowTitle!.slice(0, 240).trim(),
+              state: run.state,
+              revision: run.revision,
+              createdAt: run.createdAt,
+              allowedActions: run.allowedActions,
+              items,
+              itemTotal: all.length + hiddenRequests,
+            };
+          }),
+        );
+        return {
+          total: count?.total ?? 0,
+          runs,
+          before: rows.length > input.limit ? (runs.at(-1)?.runId ?? null) : null,
+        } satisfies AttentionPage;
+      }),
+    );
+  /** Re-read only after attention-relevant commits, and deliver only pages that differ. */
+  const followAttention = (load: Effect.Effect<AttentionPage, PluginError>) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        // Subscribe before the first read so no committed change is missed.
+        const subscription = yield* PubSub.subscribe(changes);
+        let sent: string | null = null;
+        let observed: number | null = null;
+        // The version is taken before reading, so a commit during the read triggers another.
+        const read = Effect.suspend(() => {
+          if (observed === attentionVersion) return Effect.succeed(null);
+          observed = attentionVersion;
+          return load;
+        });
+        const fresh = (page: AttentionPage | null) => {
+          if (page === null) return [];
+          const encoded = canonical(page);
+          if (encoded === sent) return [];
+          sent = encoded;
+          return [page];
+        };
+        return Stream.concat(
+          Stream.fromEffect(read),
+          Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => read)),
+        ).pipe(Stream.flatMap((page) => Stream.fromIterable(fresh(page))));
+      }),
+    );
+  const attentionInput = (input: AttentionInput) =>
+    environment(input.environmentId).pipe(
+      Effect.as({
+        projectId: input.projectId ?? null,
+        before: input.before ?? null,
+        limit: input.limit ?? limits.attentionRuns,
+      }),
+    );
+  const watchAttention = (input: AttentionInput) =>
+    Stream.unwrap(
+      attentionInput(input).pipe(Effect.map((scope) => followAttention(attentionPage(scope)))),
+    );
+  const readAttention = (input: AttentionInput) =>
+    attentionInput(input).pipe(Effect.flatMap(attentionPage));
+  /** The host's environment summary: one item per run with its exact place to act. */
+  const attention = followAttention(
+    attentionPage({ projectId: null, before: null, limit: 100 }),
+  ).pipe(
+    Stream.map((page) => ({
+      total: page.total,
+      items: page.runs.map((run) => {
+        const first = run.items[0];
+        return {
+          id: run.runId,
+          summary: run.workflowTitle || run.runId,
+          severity: "warning" as const,
+          reason: attentionReason(run).slice(0, 500),
+          link: {
+            pageId: "workflows.runs",
+            projectId: run.projectId,
+            state: {
+              run: run.runId,
+              ...(first?.attemptId
+                ? { attempt: first.attemptId }
+                : first
+                  ? { node: first.nodeId }
+                  : {}),
             },
-          };
-        }),
-      );
-    }),
-  );
-  const attention = Stream.unwrap(
-    Effect.gen(function* () {
-      const subscription = yield* PubSub.subscribe(changes);
-      return Stream.concat(
-        Stream.fromEffect(attentionItems),
-        Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => attentionItems)),
-      );
-    }),
+          },
+        };
+      }),
+    })),
   );
   const snapshots = Effect.fnUntraced(function* (
     projectId: ProjectId,
@@ -492,11 +895,18 @@ const make = Effect.gen(function* () {
         "unsupported",
       );
   });
-  const start = Effect.fn("Workflows.start")(function* (requested: StartInput) {
+  const runIdentity = (input: { readonly projectId: string; readonly clientRequestId: string }) =>
+    hash([host.environmentId, input.projectId, input.clientRequestId]).pipe(
+      Effect.map((value) => `workflow-${value.slice(0, 32)}`),
+    );
+  const start = Effect.fn("Workflows.start")(function* (
+    requested: StartInput,
+    options: { readonly digest?: string; readonly source?: StartSource } = {},
+  ) {
     const input = yield* decodeStart(requested);
     yield* environment(input.environmentId);
-    const id = `workflow-${(yield* hash([input.environmentId, input.projectId, input.clientRequestId])).slice(0, 32)}`;
-    const requestDigest = yield* hash(input);
+    const id = yield* runIdentity(input);
+    const requestDigest = options.digest ?? (yield* hash(input));
     const [previous] = yield* sql<{
       digest: string;
       result: string;
@@ -580,6 +990,7 @@ const make = Effect.gen(function* () {
           gate: null,
           allowedActions: [],
           createdAt: now,
+          source: options.source ?? { trigger: "manual", catalogSource: null },
         };
         yield* sql`INSERT INTO workflow_runs (id, project_id, data, state) VALUES (${run.id}, ${run.projectId}, ${yield* encodeRun(run)}, ${run.state})`;
         if (resolvedWorkspace.type === "exact-ref")
@@ -589,6 +1000,81 @@ const make = Effect.gen(function* () {
         yield* sql`INSERT INTO workflow_commands (id, digest, result) VALUES (${id}, ${requestDigest}, ${yield* encodeRun(run)})`;
         return run;
       }),
+    );
+  });
+  /**
+   * The one saved-workflow start: resolve the catalog's current saved snapshot and start it.
+   * `revision` is the revision a person reviewed; null starts whatever is saved now, which is
+   * how a schedule occurrence resolves its workflow at dispatch time.
+   */
+  const startCatalog = Effect.fnUntraced(function* (
+    input: {
+      readonly projectId: ProjectId;
+      readonly clientRequestId: string;
+      readonly definitionId: string;
+      readonly revision: number | null;
+      readonly input: StartInput["input"];
+      readonly workspace: StartSavedInput["workspace"];
+    },
+    options: { readonly digest?: string; readonly trigger: StartSource["trigger"] },
+  ) {
+    const entry = yield* catalog.resolve(
+      { environmentId: host.environmentId, projectId: input.projectId },
+      input.definitionId,
+    );
+    if (!entry?.definition)
+      return yield* error(
+        "start",
+        "This workflow is no longer in the project catalog.",
+        "unavailable",
+      );
+    if (input.revision !== null && entry.definition.revision !== input.revision)
+      return yield* error(
+        "start",
+        `The saved workflow changed to revision ${entry.definition.revision} after you reviewed revision ${input.revision}. Review it and start again.`,
+        "conflict",
+      );
+    if (!entry.runnable) return yield* error("start", entry.reasons.join(" "), "unsupported");
+    return yield* start(
+      {
+        environmentId: host.environmentId,
+        projectId: input.projectId,
+        clientRequestId: input.clientRequestId,
+        definition: entry.definition,
+        input: input.input,
+        ...(input.workspace === "current" ? { workspace: { type: "current" as const } } : {}),
+      },
+      {
+        ...(options.digest === undefined ? {} : { digest: options.digest }),
+        source: { trigger: options.trigger, catalogSource: entry.source },
+      },
+    );
+  });
+  const startSaved = Effect.fn("Workflows.startSaved")(function* (requested: StartSavedInput) {
+    const input = yield* decodeStartSaved(requested);
+    yield* environment(input.environmentId);
+    const id = yield* runIdentity(input);
+    const requestDigest = yield* hash(["saved", input]);
+    // A committed intent returns its run even if the catalog changed after it started.
+    const [previous] = yield* sql<{
+      digest: string;
+      result: string;
+    }>`SELECT digest, result FROM workflow_commands WHERE id = ${id}`;
+    if (previous) {
+      if (previous.digest !== requestDigest)
+        return yield* error("start", "This retry identity belongs to different input.", "conflict");
+      return yield* decodeRun(previous.result);
+    }
+    return yield* startCatalog(
+      {
+        projectId: input.projectId,
+        clientRequestId: input.clientRequestId,
+        definitionId: input.definitionId,
+        revision: input.revision,
+        input: input.task.trim() === "" ? {} : { task: input.task },
+        workspace: input.workspace,
+      },
+      { digest: requestDigest, trigger: "manual" },
     );
   });
   const report = Effect.fn("Workflows.report")(function* (
@@ -712,6 +1198,7 @@ const make = Effect.gen(function* () {
         run.state = "canceled";
         run.reason = "Canceled by the user.";
         run.gate = null;
+        run.stop = null;
         for (const review of run.reviews) if (!review.result) review.result = "canceled";
         for (const attempt of run.attempts)
           if (!terminalAttempt(attempt)) {
@@ -758,6 +1245,7 @@ const make = Effect.gen(function* () {
         attempt.resumable = false;
         run.state = "running";
         run.reason = null;
+        run.stop = null;
         yield* enqueue(run, `${attempt.id}:resume:${attempt.resumeCount}`, "resume", attempt.id);
       }),
     );
@@ -783,6 +1271,7 @@ const make = Effect.gen(function* () {
             freshness?._tag === "Success"
               ? "The pull request head changed after review."
               : "The reviewed pull request head cannot be verified.",
+            freshness?._tag === "Success" ? "review-stale" : "review-unverifiable",
           );
           return;
         }
@@ -791,6 +1280,7 @@ const make = Effect.gen(function* () {
         transition(run, node.id, input.decision === "approve" ? node.approve : node.changes, now, {
           sourceIds: review ? [review.id] : [],
           reason: `Human decision: ${input.decision}.`,
+          control: input.decision === "approve" ? "approve" : "changes",
         });
       }),
     );
@@ -825,7 +1315,7 @@ const make = Effect.gen(function* () {
       );
       const now = yield* Clock.currentTimeMillis;
       const before = mutation;
-      yield* sql.withTransaction(
+      yield* commit(
         Effect.gen(function* () {
           const active = activeRun(state);
           const pendingRequests = state.requests.filter((request) =>
@@ -864,12 +1354,29 @@ const make = Effect.gen(function* () {
               return end > accountingFrom && end - request.createdAt >= agent.humanTimeoutMs!;
             });
           attempt.nativeSessionId = state.nativeSession?.id ?? null;
+          // Why this attempt stopped, recorded with the run's disposition below.
+          let cause: StopKind = "unresolved";
+          // Pending requests in native queue order; a change is new attention to show.
+          const queued = pendingRequests
+            .toSorted((left, right) => left.createdAt - right.createdAt)
+            .slice(0, limits.requests)
+            .map(({ id, kind, createdAt }) => ({ id, kind, createdAt }));
+          // The uncapped count keeps "request N of M" truthful beyond the retained list.
+          const requestsChanged =
+            canonical(attempt.requests ?? []) !== canonical(queued) ||
+            (attempt.pendingRequests ?? queued.length) !== pendingRequests.length;
+          if (requestsChanged) {
+            attempt.requests = queued;
+            attempt.pendingRequests = pendingRequests.length;
+          }
           if (attempt.deadline !== null && until >= attempt.deadline) {
             attempt.phase = "unresolved";
             attempt.reason = "The review branch deadline expired.";
+            cause = "timed-out";
           } else if (humanExpired) {
             attempt.phase = "unresolved";
             attempt.reason = "The human-response deadline expired.";
+            cause = "timed-out";
           } else if (request) {
             const waitStartedAt = Math.min(
               now,
@@ -889,8 +1396,9 @@ const make = Effect.gen(function* () {
             if (attempt.remainingMs === 0) {
               attempt.phase = "unresolved";
               attempt.reason = "The execution timeout expired.";
+              cause = "timed-out";
             } else {
-              if (enteredWait) yield* persist(run);
+              if (enteredWait || requestsChanged) yield* persist(run);
               return;
             }
           } else {
@@ -914,15 +1422,17 @@ const make = Effect.gen(function* () {
             ) {
               attempt.phase = "unresolved";
               attempt.reason = "The execution timeout expired.";
+              cause = "timed-out";
             } else if (
               active ||
               state.outstandingWork.length > 0 ||
               checkpoints.some((checkpoint) =>
                 ["pending", "capturing", "running"].includes(checkpoint.status),
               )
-            )
+            ) {
+              if (requestsChanged) yield* persist(run);
               return;
-            else {
+            } else {
               const execution = state.runs.findLast(
                 (run) => state.resultRunId === undefined || run.id === state.resultRunId,
               );
@@ -948,6 +1458,7 @@ const make = Effect.gen(function* () {
                   attempt.remainingMs > 0 &&
                   (attempt.deadline === null || attempt.deadline > now);
                 attempt.reason = "Native execution was explicitly interrupted.";
+                cause = "interrupted";
               } else if (
                 generation.some((run) => run.resultRelevant !== false && run.status === "failed") ||
                 execution.status === "failed" ||
@@ -957,8 +1468,11 @@ const make = Effect.gen(function* () {
               ) {
                 attempt.phase = "failed";
                 attempt.reason = "Native execution or checkpoint failed.";
-              } else if (execution.status !== "completed") return;
-              else if (!attempt.report) {
+                cause = "failed";
+              } else if (execution.status !== "completed") {
+                if (requestsChanged) yield* persist(run);
+                return;
+              } else if (!attempt.report) {
                 if (!attempt.reminderSent) {
                   attempt.remainingMs = Math.max(
                     0,
@@ -972,13 +1486,16 @@ const make = Effect.gen(function* () {
                 }
                 attempt.phase = "unresolved";
                 attempt.reason = "Execution settled after one reminder without an accepted report.";
-              } else
+                cause = "missing-report";
+              } else {
                 attempt.phase =
                   attempt.report.outcome === "completed"
                     ? "completed"
                     : attempt.report.outcome === "failed"
                       ? "failed"
                       : "unresolved";
+                if (attempt.phase === "failed") cause = "failed";
+              }
             }
           }
           if (attempt.branchId === null) {
@@ -988,13 +1505,21 @@ const make = Effect.gen(function* () {
                 transition(run, node.id, node.next, now, {
                   attemptId,
                   sourceIds: [attempt.report!.receipt.id],
+                  control: "next",
                 });
               else if (node.onUnresolved)
                 transition(run, node.id, node.onUnresolved, now, {
                   attemptId,
                   reason: attempt.reason ?? "The agent reported unsuccessful execution.",
+                  control: "onUnresolved",
                 });
-              else unresolved(run, attempt.reason ?? "The agent reported unsuccessful execution.");
+              else
+                unresolved(
+                  run,
+                  attempt.reason ?? "The agent reported unsuccessful execution.",
+                  cause,
+                  attempt.id,
+                );
             }
           } else yield* enqueue(run, `${run.id}:join:${attempt.id}`, "node");
           yield* persist(run);
@@ -1065,7 +1590,7 @@ const make = Effect.gen(function* () {
             ? "The execution reminder deadline expired."
             : "The execution launch deadline expired.";
         if (owned.branchId) yield* enqueue(current, `${current.id}:join:${owned.id}`, "node");
-        else unresolved(current, owned.reason);
+        else unresolved(current, owned.reason, "timed-out", owned.id);
         yield* persist(current);
       }),
     );
@@ -1113,7 +1638,7 @@ const make = Effect.gen(function* () {
                 if (terminalAttempt(current) || state.state !== "running") return;
                 current.phase = "unresolved";
                 current.reason = "The owning native thread is unavailable.";
-                if (!current.branchId) unresolved(state, current.reason);
+                if (!current.branchId) unresolved(state, current.reason, "unavailable", current.id);
                 else yield* enqueue(state, `${state.id}:join:${current.id}`, "node");
                 yield* persist(state);
               }),
@@ -1149,13 +1674,21 @@ const make = Effect.gen(function* () {
             attemptId,
             sourceIds: [attempt.id],
             reason: "Recorded deterministic check result.",
+            control: "next",
           });
         else if (node.onUnresolved)
           transition(run, node.id, node.onUnresolved, now, {
             attemptId,
             reason: "The check was interrupted or timed out.",
+            control: "onUnresolved",
           });
-        else unresolved(run, "The check result is unresolved. An explicit retry is required.");
+        else
+          unresolved(
+            run,
+            "The check result is unresolved. An explicit retry is required.",
+            result!.timedOut ? "timed-out" : result!.interrupted ? "interrupted" : "unresolved",
+            attemptId,
+          );
         yield* persist(run);
       }),
     );
@@ -1181,7 +1714,11 @@ const make = Effect.gen(function* () {
             const run = yield* load(runId);
             if (run.state !== "running" || run.currentNode !== node.id) return;
             run.currentNode = review.fork;
-            unresolved(run, "The reviewed pull request head changed or cannot be verified.");
+            unresolved(
+              run,
+              "The reviewed pull request head changed or cannot be verified.",
+              freshness?._tag === "Success" ? "review-stale" : "review-unverifiable",
+            );
             yield* persist(run);
           }),
         );
@@ -1199,7 +1736,7 @@ const make = Effect.gen(function* () {
               ? run.reviews.findLast((review) => review.fork === source.fork)
               : null;
           if (!review?.result && !attempt?.check && !attempt?.report) {
-            unresolved(run, `Decision input ${node.source} is unavailable.`);
+            unresolved(run, `Decision input ${node.source} is unavailable.`, "unavailable");
             yield* persist(run);
             return;
           }
@@ -1233,7 +1770,11 @@ const make = Effect.gen(function* () {
           const run = yield* load(runId);
           if (run.state !== "running" || run.currentNode !== node.id) return;
           if (freshness._tag !== "Success" || commit?._tag !== "Success") {
-            unresolved(run, "The intended committed pull request head cannot be verified.");
+            unresolved(
+              run,
+              "The intended committed pull request head cannot be verified.",
+              "review-unverifiable",
+            );
             yield* persist(run);
             return;
           }
@@ -1278,7 +1819,11 @@ const make = Effect.gen(function* () {
             if (run.state !== "running" || run.currentNode !== node.id) return;
             const current = run.reviews.findLast((review) => review.fork === node.fork);
             if (current && !current.result && !current.consumed) return;
-            unresolved(run, `Join ${node.id} has no fresh, unconsumed fork generation.`);
+            unresolved(
+              run,
+              `Join ${node.id} has no fresh, unconsumed fork generation.`,
+              "unresolved",
+            );
             yield* persist(run);
           }),
         );
@@ -1329,6 +1874,18 @@ const make = Effect.gen(function* () {
               attempt.reason = "The reviewer checkout changed from its frozen input.";
             }
           }
+          // Record what decided the aggregate when the branches alone do not explain it.
+          const cause =
+            freshness._tag !== "Success"
+              ? ("head-unverifiable" as const)
+              : freshness.success.head !== current.head
+                ? ("head-changed" as const)
+                : workspaceEvidence.some((item) => item?._tag !== "Success")
+                  ? ("workspace-unavailable" as const)
+                  : workspaceEvidence.some((item) => item._tag === "Success" && !item.success.valid)
+                    ? ("workspace-changed" as const)
+                    : undefined;
+          if (cause) current.cause = cause;
           current.result =
             freshness._tag !== "Success"
               ? "unresolved"
@@ -1407,7 +1964,7 @@ const make = Effect.gen(function* () {
             "The resumed execution identity is unavailable.",
             "service",
           );
-        yield* sql.withTransaction(
+        yield* commit(
           Effect.gen(function* () {
             // The command lock remains held until the new owned execution is retained.
             if (kind === "resume" && execution) attempt.executionRunId = execution.id;
@@ -1417,7 +1974,7 @@ const make = Effect.gen(function* () {
               attempt.phase = "unresolved";
               attempt.reason = receipt.error ?? "The follow-up was rejected.";
               if (attempt.branchId) yield* enqueue(run, `${run.id}:join:${attempt.id}`, "node");
-              else unresolved(run, attempt.reason);
+              else unresolved(run, attempt.reason, "unavailable", attempt.id);
             }
             yield* persist(run);
           }),
@@ -1446,7 +2003,12 @@ const make = Effect.gen(function* () {
         current.reason =
           "The reviewed pull request head changed or cannot be verified before execution.";
         run.currentNode = review?.fork ?? current.nodeId;
-        unresolved(run, current.reason);
+        unresolved(
+          run,
+          current.reason,
+          freshness?._tag === "Success" ? "review-stale" : "review-unverifiable",
+          current.id,
+        );
         yield* persist(run);
       }),
     );
@@ -1704,7 +2266,7 @@ const make = Effect.gen(function* () {
         if (receipt.status === "rejected" || receipt.threadId !== current.threadId) {
           current.phase = "unresolved";
           current.reason = receipt.error ?? "The launch receipt did not match the bound thread.";
-          if (!current.branchId) unresolved(run, current.reason);
+          if (!current.branchId) unresolved(run, current.reason, "unavailable", current.id);
           else yield* enqueue(run, `${run.id}:join:${current.id}`, "node");
         } else {
           current.phase = current.report ? "reported" : "running";
@@ -1750,9 +2312,10 @@ const make = Effect.gen(function* () {
                 const attempt = run.attempts.find((attempt) => attempt.id === item.attempt_id)!;
                 attempt.phase = "unresolved";
                 attempt.reason = result.failure.message;
-                if (!attempt.branchId) unresolved(run, result.failure.message);
+                if (!attempt.branchId)
+                  unresolved(run, result.failure.message, "unavailable", attempt.id);
                 else yield* enqueue(run, `${run.id}:join:${attempt.id}`, "node");
-              } else unresolved(run, result.failure.message);
+              } else unresolved(run, result.failure.message, "unavailable");
               yield* persist(run);
             }),
           );
@@ -1829,7 +2392,7 @@ const make = Effect.gen(function* () {
                     owned.reason = validation.failure.message;
                     if (owned.branchId)
                       yield* enqueue(current, `${current.id}:join:${owned.id}`, "node");
-                    else unresolved(current, owned.reason);
+                    else unresolved(current, owned.reason, "unavailable", owned.id);
                     yield* persist(current);
                   }),
                 );
@@ -1869,59 +2432,200 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* environment(input.environmentId);
         const entry = yield* catalog.resolve(input, input.definitionId);
-        if (!entry?.runnable)
-          return yield* error("schedule", "The workflow is unavailable or not runnable.");
+        if (!entry?.definition)
+          return yield* error(
+            "schedule",
+            "This workflow is no longer in the project catalog.",
+            "unavailable",
+          );
+        if (!entry.runnable)
+          return yield* error("schedule", entry.reasons.join(" "), "unsupported");
         yield* schedules.upsert({
           id: input.id,
           title: input.title,
           projectId: input.projectId,
-          target: "workflows.start",
-          enabled: true,
+          target: scheduleTarget,
+          enabled: input.enabled,
           schedule: input.schedule,
-          payload: { definitionId: input.definitionId, input: input.input },
+          payload: {
+            definitionId: input.definitionId,
+            task: input.task,
+            workspace: input.workspace,
+          } satisfies SchedulePayload,
         });
       }),
     );
+  /** Run identities an occurrence may have used; receipts from older versions used the raw id. */
+  const occurrenceRunIds = Effect.fnUntraced(function* (projectId: string, occurrenceId: string) {
+    const clientRequestId = `schedule:${yield* hash(occurrenceId)}`;
+    return {
+      clientRequestId,
+      ids: [
+        yield* runIdentity({ projectId, clientRequestId }),
+        `workflow-${(yield* hash([host.environmentId, projectId, occurrenceId])).slice(0, 32)}`,
+      ],
+    };
+  });
   const scheduledStart = Effect.fn("Workflows.scheduledStart")(function* (input: {
     readonly projectId: ProjectId;
     readonly occurrenceId: string;
-    readonly definitionId: string;
-    readonly input: StartInput["input"];
+    readonly payload: unknown;
   }) {
-    const clientRequestId = `schedule:${yield* hash(input.occurrenceId)}`;
-    const id = `workflow-${(yield* hash([host.environmentId, input.projectId, clientRequestId])).slice(0, 32)}`;
-    // Receipts retained by older versions used the raw occurrence identity.
-    const legacyId = `workflow-${(yield* hash([host.environmentId, input.projectId, input.occurrenceId])).slice(0, 32)}`;
+    const { clientRequestId, ids } = yield* occurrenceRunIds(input.projectId, input.occurrenceId);
+    // Redelivery of a committed occurrence returns its run before the catalog is consulted.
     const [previous] = yield* sql<{
       result: string;
-    }>`SELECT result FROM workflow_commands WHERE id IN (${id}, ${legacyId})`;
+    }>`SELECT result FROM workflow_commands WHERE id IN (${ids[0]!}, ${ids[1]!})`;
     if (previous) return yield* decodeRun(previous.result);
-    const entry = yield* catalog.resolve(
+    const payload = yield* decodeSchedulePayload(input.payload);
+    return yield* startCatalog(
       {
-        environmentId: host.environmentId,
         projectId: input.projectId,
+        clientRequestId,
+        definitionId: payload.definitionId,
+        revision: null,
+        ...("input" in payload
+          ? { input: payload.input, workspace: "new-worktree" as const }
+          : {
+              input: payload.task.trim() === "" ? {} : { task: payload.task },
+              workspace: payload.workspace,
+            }),
       },
-      input.definitionId,
+      { trigger: "schedule" },
     );
-    if (!entry?.definition || !entry.runnable)
-      return yield* error(
-        "scheduled-start",
-        "The scheduled workflow is unavailable or invalid.",
-        "unavailable",
-      );
-    return yield* start({
-      environmentId: host.environmentId,
-      projectId: input.projectId,
-      clientRequestId,
-      definition: entry.definition,
-      input: input.input,
-    });
   });
+  const scheduleHistory = (input: ScheduleHistoryInput) =>
+    protect(
+      "schedule-history",
+      Effect.gen(function* () {
+        yield* environment(input.environmentId);
+        const limit = input.limit ?? 10;
+        const owned = (yield* schedules.list()).find(
+          (item) =>
+            item.id === input.scheduleId &&
+            item.target === scheduleTarget &&
+            item.projectId === input.projectId,
+        );
+        if (owned === undefined)
+          return { schedule: null, current: null, occurrences: [], more: false };
+        const saved = yield* decodeSchedulePayload(owned.payload).pipe(Effect.option);
+        const payload = saved._tag === "Some" && !("input" in saved.value) ? saved.value : null;
+        const legacyInput =
+          saved._tag === "Some" && "input" in saved.value ? saved.value.input : null;
+        const definitionId = saved._tag === "Some" ? saved.value.definitionId : null;
+        const entry =
+          definitionId === null ? undefined : yield* catalog.resolve(input, definitionId);
+        const receipts = yield* schedules.occurrences(input.scheduleId, limit + 1);
+        const shown = receipts.slice(0, limit);
+        // Each receipt started its run in the project recorded with it, even if the
+        // schedule has since moved to another project.
+        const identities = yield* Effect.forEach(shown, (receipt) =>
+          occurrenceRunIds(receipt.projectId, receipt.id),
+        );
+        const candidates = identities.flatMap((item) => item.ids);
+        // Only the listed fields are read; the full run document is not decoded.
+        const rows =
+          candidates.length === 0
+            ? []
+            : yield* sql<{
+                id: string;
+                project_id: string;
+                state: string;
+                definition_id: string;
+                revision: number;
+                title: string;
+                created_at: number;
+              }>`SELECT id, project_id, state, json_extract(data, '$.definition.id') AS definition_id, json_extract(data, '$.definition.revision') AS revision, json_extract(data, '$.definition.title') AS title, json_extract(data, '$.createdAt') AS created_at FROM workflow_runs WHERE id IN ${sql.in(candidates)}`;
+        const runs = new Map<string, NonNullable<ScheduleHistory["occurrences"][number]["run"]>>();
+        for (const row of rows)
+          runs.set(
+            row.id,
+            yield* decodeOccurrenceRun({
+              id: row.id,
+              projectId: row.project_id,
+              state: row.state,
+              definition: { id: row.definition_id, revision: row.revision, title: row.title },
+              createdAt: row.created_at,
+            }),
+          );
+        const history: ScheduleHistory = {
+          schedule: {
+            id: owned.id,
+            title: owned.title,
+            enabled: owned.enabled,
+            payload,
+            legacyInput,
+          },
+          current: entry?.definition
+            ? {
+                title: entry.definition.title,
+                revision: entry.definition.revision,
+                runnable: entry.runnable,
+                reasons: entry.reasons,
+              }
+            : null,
+          occurrences: shown.map((receipt, index) => {
+            const run = identities[index]!.ids.map((id) => runs.get(id)).find(
+              (item) => item !== undefined,
+            );
+            return {
+              id: receipt.id,
+              startedAt: receipt.startedAt,
+              dispatch: receipt.status,
+              error: receipt.error,
+              run: run ?? null,
+            };
+          }),
+          more: receipts.length > limit,
+        };
+        // Authored and server-worded texts pass the host's redaction in one call, like every
+        // other workflow read; run titles keep the run list's 240-character cap.
+        const visible = yield* Display.displayTexts(host, [
+          ...(history.current === null ? [] : [history.current.title, ...history.current.reasons]),
+          ...history.occurrences.flatMap((item) => [
+            ...(item.error === null ? [] : [item.error]),
+            ...(item.run === null ? [] : [item.run.definition.title]),
+          ]),
+        ]);
+        let index = 0;
+        const next = () => visible[index++]!;
+        return {
+          ...history,
+          current:
+            history.current === null
+              ? null
+              : {
+                  ...history.current,
+                  title: next(),
+                  reasons: history.current.reasons.map(next),
+                },
+          occurrences: history.occurrences.map((item) => ({
+            ...item,
+            error: item.error === null ? null : next(),
+            run:
+              item.run === null
+                ? null
+                : {
+                    ...item.run,
+                    definition: {
+                      ...item.run.definition,
+                      title: next().slice(0, 240).trim(),
+                    },
+                  },
+          })),
+        } satisfies ScheduleHistory;
+      }),
+    );
   return Workflow.of({
     attention,
+    watchAttention,
+    readAttention,
     start: (input) => protect("start", start(input).pipe(Effect.flatMap((run) => display(run)))),
-    get: (input) =>
-      protect("get", get(input).pipe(Effect.flatMap((run) => display(run, input.historyOffset)))),
+    startSaved: (input) =>
+      protect("start", startSaved(input).pipe(Effect.flatMap((run) => display(run)))),
+    watch,
+    thread,
+    get: (input) => protect("get", get(input).pipe(Effect.flatMap((run) => display(run, input)))),
     list,
     subscribe,
     reconcile,
@@ -1931,6 +2635,7 @@ const make = Effect.gen(function* () {
     resume: (input) => protect("resume", resume(input).pipe(Effect.flatMap((run) => display(run)))),
     gate: (input) => protect("gate", gate(input).pipe(Effect.flatMap((run) => display(run)))),
     schedule,
+    scheduleHistory,
     scheduledStart: (input) =>
       protect("scheduled-start", scheduledStart(input).pipe(Effect.flatMap((run) => display(run)))),
   });

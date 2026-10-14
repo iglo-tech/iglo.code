@@ -18,14 +18,17 @@ import type * as Rpc from "effect/rpc/Rpc";
 
 import type {
   PluginAttentionItem,
+  PluginAttentionSummary,
   PluginCommandReceipt,
   PluginError,
   PluginLaunchInput,
   PluginLifecycleItem,
   PluginLifecycleScope,
   PluginManifest,
+  PluginProvider,
   PluginSchedule,
   PluginScheduleInput,
+  PluginScheduleOccurrence,
   PluginTarget,
   PluginThreadState,
   EnvironmentId,
@@ -89,20 +92,19 @@ export class Host extends Context.Service<
     readonly reconcile: (
       input: PluginLifecycleScope,
     ) => Effect.Effect<Extract<PluginLifecycleItem, { kind: "snapshot" }>, PluginError>;
-    readonly providers: () => Effect.Effect<
-      ReadonlyArray<{
-        readonly instanceId: ProviderInstanceId;
-        readonly driver: string;
-        readonly toolsSupported: boolean;
-        readonly available?: boolean;
-        readonly reason: string | null;
-        readonly runtimeModes: ReadonlyArray<RuntimeMode>;
-      }>,
-      PluginError
-    >;
+    /** Pass a project for effective enablement; omit it for the environment's runtime snapshot. */
+    readonly providers: (input?: {
+      readonly projectId: ProjectId;
+    }) => Effect.Effect<ReadonlyArray<PluginProvider>, PluginError>;
+    /**
+     * Rescans fresh by default, which invalidates provider caches and drops other instances'
+     * snapshots for the cwd. `fresh: false` does neither; it may still rescan this instance's
+     * workspace snapshot when none is in progress.
+     */
     readonly skills: (input: {
       readonly projectId: ProjectId;
       readonly providerInstanceId: ProviderInstanceId;
+      readonly fresh?: boolean;
     }) => Effect.Effect<ReadonlyArray<ServerProviderSkill>, PluginError>;
     readonly workspace: (
       projectId: ProjectId,
@@ -216,7 +218,11 @@ export interface PluginServices {
       readonly payload: Schema.Json;
     }) => Effect.Effect<void, PluginError>;
   }>;
-  readonly attention: Stream.Stream<ReadonlyArray<PluginAttentionItem>, PluginError>;
+  /** Capped items, or items with the plugin's total so a capped list is never read as the count. */
+  readonly attention: Stream.Stream<
+    ReadonlyArray<PluginAttentionItem> | PluginAttentionSummary,
+    PluginError
+  >;
 }
 
 export class Schedules extends Context.Service<
@@ -227,6 +233,11 @@ export class Schedules extends Context.Service<
     readonly delete: (id: string) => Effect.Effect<void, PluginError>;
     /** The retry identity is private to this plugin; dispatch receives a host-scoped id. */
     readonly runNow: (id: string, occurrenceId: string) => Effect.Effect<void, PluginError>;
+    /** Newest dispatch receipts of one of this plugin's schedules, at most `limit`. */
+    readonly occurrences: (
+      id: string,
+      limit: number,
+    ) => Effect.Effect<ReadonlyArray<PluginScheduleOccurrence>, PluginError>;
     readonly registerDueWork: (
       run: Effect.Effect<void, PluginError>,
     ) => Effect.Effect<void, never, Scope.Scope>;

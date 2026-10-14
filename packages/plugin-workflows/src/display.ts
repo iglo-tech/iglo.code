@@ -48,6 +48,15 @@ const redact = <A>(
   });
 
 const title = (value: string, text: Text, limit = 4_000) => text(value, limit).trim();
+const source = (value: Run["source"], text: Text) =>
+  value === undefined
+    ? {}
+    : {
+        source: {
+          ...value,
+          catalogSource: value.catalogSource === null ? null : text(value.catalogSource, Infinity),
+        },
+      };
 const threadIds = (run: Run) =>
   run.attempts.flatMap((attempt) => (attempt.threadId ? [attempt.threadId] : []));
 
@@ -107,7 +116,8 @@ const workspace = (value: PluginLaunchInput["workspace"], text: Text) =>
     : value.type === "exact-ref" && value.branch !== undefined
       ? { ...value, branch: text(value.branch, Infinity) }
       : value;
-const definition = (value: Definition, text: Text): Definition => ({
+/** Map every authored text of a definition; identities and protocol values are untouched. */
+export const projectDefinition = (value: Definition, text: Text): Definition => ({
   ...value,
   title: title(value.title, text),
   nodes: value.nodes.map((node) => {
@@ -141,12 +151,22 @@ const definition = (value: Definition, text: Text): Definition => ({
   }),
 });
 
+const traceItem = (item: Run["trace"][number], text: Text) => ({
+  ...item,
+  reason: text(item.reason, Infinity),
+  considered: item.considered.map((choice) => ({
+    ...choice,
+    predicate: predicate(choice.predicate, text),
+  })),
+});
+
 export const displayRun = (host: Host["Service"], run: Run) =>
   redact(host, threadIds(run), (text) => ({
     ...run,
-    definition: definition(run.definition, text),
+    definition: projectDefinition(run.definition, text),
     input: data(run.input, text),
     reason: run.reason === null ? null : text(run.reason, Infinity),
+    ...source(run.source, text),
     workspace: workspace(run.workspace, text),
     workspacePath: run.workspacePath === null ? null : text(run.workspacePath, Infinity),
     branch: run.branch === null ? null : text(run.branch, Infinity),
@@ -190,18 +210,40 @@ export const displayRun = (host: Host["Service"], run: Run) =>
               stderr: text(attempt.check.stderr, Infinity),
             },
     })),
-    trace: run.trace.map((item) => ({
-      ...item,
-      reason: text(item.reason, Infinity),
-      considered: item.considered.map((choice) => ({
-        ...choice,
-        predicate: predicate(choice.predicate, text),
-      })),
-    })),
+    trace: run.trace.map((item) => traceItem(item, text)),
+    ...(run.relatedTrace === undefined
+      ? {}
+      : { relatedTrace: run.relatedTrace.map((item) => traceItem(item, text)) }),
     reviews: run.reviews.map((review) => ({
       ...review,
       pullRequest: pullRequest(review.pullRequest, text),
     })),
+    ...(run.overview?.review == null
+      ? {}
+      : {
+          overview: {
+            ...run.overview,
+            review: {
+              ...run.overview.review,
+              pullRequest: pullRequest(run.overview.review.pullRequest, text),
+              branches: run.overview.review.branches.map((branch) => ({
+                ...branch,
+                reason: branch.reason === null ? null : text(branch.reason, Infinity),
+                workspace:
+                  branch.workspace === null
+                    ? null
+                    : {
+                        ...branch.workspace,
+                        path: text(branch.workspace.path, Infinity),
+                        branch:
+                          branch.workspace.branch === null
+                            ? null
+                            : text(branch.workspace.branch, Infinity),
+                      },
+              })),
+            },
+          },
+        }),
   }));
 
 export const displaySummary = (host: Host["Service"], run: Run, summary: RunSummary) =>
@@ -209,6 +251,7 @@ export const displaySummary = (host: Host["Service"], run: Run, summary: RunSumm
     ...summary,
     definition: { ...summary.definition, title: title(summary.definition.title, text, 240) },
     reason: summary.reason === null ? null : text(summary.reason, 500),
+    ...source(summary.source, text),
     attempts: summary.attempts.map((attempt) => ({
       ...attempt,
       reason: attempt.reason === null ? null : text(attempt.reason, 500),
@@ -220,14 +263,32 @@ export const displaySummary = (host: Host["Service"], run: Run, summary: RunSumm
     })),
   }));
 
+/** Redact independent display texts in one host call, preserving order. */
+export const displayTexts = (
+  host: Host["Service"],
+  texts: ReadonlyArray<string>,
+  threadIds: ReadonlyArray<PluginTarget["threadId"]> = [],
+) =>
+  texts.length === 0
+    ? Effect.succeed<ReadonlyArray<string>>([])
+    : redact(host, threadIds, (text) => texts.map((value) => text(value, Infinity)));
+
 export const displayCatalog = (host: Host["Service"], entries: ReadonlyArray<CatalogEntry>) =>
   protect(
     "display",
     redact(host, [], (text) =>
       entries.map((entry) => ({
         ...entry,
-        definition: entry.definition === null ? null : definition(entry.definition, text),
+        definition: entry.definition === null ? null : projectDefinition(entry.definition, text),
         reasons: entry.reasons.map((reason) => text(reason, Infinity)),
+        ...(entry.problems === undefined
+          ? {}
+          : {
+              problems: entry.problems.map((problem) => ({
+                ...problem,
+                message: text(problem.message, Infinity),
+              })),
+            }),
       })),
     ).pipe(Effect.flatMap(decodeCatalog)),
   );

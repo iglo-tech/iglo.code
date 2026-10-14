@@ -189,6 +189,7 @@ const acquire = Effect.gen(function* () {
                 pageId: "fixture.reports",
                 projectId: report.projectId,
                 threadId: report.threadId,
+                state: { report: report.id },
               },
             }) satisfies PluginAttentionItem,
         ),

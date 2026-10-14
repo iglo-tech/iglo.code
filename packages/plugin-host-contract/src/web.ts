@@ -1,27 +1,311 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, KeyboardEvent, ReactElement, ReactNode } from "react";
 import type {
   EnvironmentId,
   PluginDescriptor,
   PluginManifest,
   PluginPageLink,
+  PluginPageState,
+  PluginScheduleInput,
   PluginTarget,
   ProjectId,
 } from "./schema.ts";
 
-export interface PluginWebContext {
+/** Bounded editing state scoped to one environment and plugin; never execution state. */
+export interface PluginDraftStore {
+  readonly read: (key: string) => string | null;
+  /** Stored keys, least recently written first. */
+  readonly keys: () => ReadonlyArray<string>;
+  /** Returns false when the value exceeds the host bound or storage is unavailable. */
+  readonly write: (key: string, value: string) => boolean;
+  readonly remove: (key: string) => void;
+}
+
+interface ControlProps {
+  readonly id?: string;
+  readonly ariaLabel?: string;
+  readonly ariaDescribedBy?: string;
+  readonly disabled?: boolean;
+  readonly invalid?: boolean;
+}
+
+/**
+ * Icons the host renders for plugin navigation and actions. Names follow lucide; the host owns
+ * the set so plugin entries look like the app's own and ship no icon code in the shell bundle.
+ */
+export type PluginIconName =
+  | "workflow"
+  | "list-checks"
+  | "git-branch"
+  | "file-text"
+  | "bell"
+  | "inbox"
+  | "calendar-clock"
+  | "play"
+  | "bot"
+  | "layout-grid"
+  | "puzzle";
+
+/** One action in a host menu. */
+export interface PluginMenuItem {
+  readonly label: string;
+  readonly onSelect: () => void;
+  readonly icon?: ReactNode;
+  readonly disabled?: boolean;
+  readonly destructive?: boolean;
+}
+
+/** One header breadcrumb segment; the last one is the current page. */
+export interface PluginBreadcrumbItem {
+  readonly label: string;
+  /** Makes the segment a link back to its page. Truncated labels show in full on hover. */
+  readonly onSelect?: () => void;
+  /** Makes the segment a switcher, like the project segment of a page with a project. */
+  readonly options?: ReadonlyArray<{ readonly value: string; readonly label: string }>;
+  readonly value?: string;
+  readonly onChange?: (value: string) => void;
+  readonly ariaLabel?: string;
+  readonly disabled?: boolean;
+}
+
+/** Host-owned controls; plugins choose a variant instead of restyling them. */
+export interface PluginDesign {
+  readonly Button: ComponentType<{
+    readonly children: ReactNode;
+    readonly id?: string;
+    readonly ariaLabel?: string;
+    readonly ariaPressed?: boolean;
+    readonly ariaKeyShortcuts?: string;
+    readonly disabled?: boolean;
+    readonly onClick: () => void;
+    readonly onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
+    /** Shown on hover and focus; icon-only buttons should always have one. */
+    readonly tooltip?: string;
+    readonly variant?: "default" | "outline" | "ghost" | "destructive";
+    /** `row` is a full-width, start-aligned list row, as in a palette or menu list. */
+    readonly size?: "sm" | "default" | "xs" | "icon-sm" | "icon-xs" | "row";
+  }>;
+  readonly Input: ComponentType<
+    ControlProps & {
+      readonly value: string;
+      readonly onChange: (value: string) => void;
+      readonly type?: "text" | "number" | "search";
+      readonly placeholder?: string;
+      readonly readOnly?: boolean;
+      readonly autoFocus?: boolean;
+      readonly size?: "sm" | "default";
+    }
+  >;
+  readonly Textarea: ComponentType<
+    ControlProps & {
+      readonly value: string;
+      readonly onChange: (value: string) => void;
+      readonly rows?: number;
+      readonly placeholder?: string;
+      readonly readOnly?: boolean;
+      /** `code` is monospace and fills its container's height, for source text such as YAML. */
+      readonly variant?: "default" | "code";
+    }
+  >;
+  /** A native select: keyboard, touch and screen-reader behavior without a popup layer. */
+  readonly Select: ComponentType<
+    ControlProps & {
+      readonly value: string;
+      readonly onChange: (value: string) => void;
+      /** `sm` for dense rows such as a condition's field, operator and value. */
+      readonly size?: "sm" | "default";
+      readonly options: ReadonlyArray<{
+        readonly value: string;
+        readonly label: string;
+        /** Trailing muted text in the list, such as a type; the trigger shows only the label. */
+        readonly detail?: string;
+        readonly disabled?: boolean;
+      }>;
+    }
+  >;
+  /**
+   * A searchable picker: a select-like trigger whose popup has a search field. With
+   * `onQueryChange` the plugin owns the search (for example a server query) and `options` are
+   * the results (keep the selected option among them so the trigger can name it); without it
+   * the host filters `options` by label.
+   */
+  readonly Combobox: ComponentType<
+    ControlProps & {
+      readonly value: string;
+      readonly onChange: (value: string) => void;
+      readonly options: ReadonlyArray<{
+        readonly value: string;
+        readonly label: string;
+        /** Trailing muted text, such as a revision. */
+        readonly detail?: string;
+        readonly disabled?: boolean;
+      }>;
+      /** Trigger text while nothing is selected. */
+      readonly placeholder?: string;
+      readonly searchPlaceholder?: string;
+      readonly emptyText?: string;
+      readonly query?: string;
+      readonly onQueryChange?: (query: string) => void;
+    }
+  >;
+  readonly Badge: ComponentType<{
+    readonly children: ReactNode;
+    readonly variant?: "outline" | "secondary" | "info" | "success" | "warning" | "error";
+  }>;
+  /** Shows `label` on hover and focus of its single child element, e.g. a truncated text. */
+  readonly Tooltip: ComponentType<{
+    readonly label: string;
+    readonly children: ReactElement;
+    /** Suppresses the tooltip while keeping the child mounted, e.g. when nothing is truncated. */
+    readonly disabled?: boolean;
+  }>;
+  /** A transient app toast for an outcome that needs no further action. */
+  readonly toast: (input: {
+    readonly title: string;
+    readonly description?: string;
+    readonly variant?: "success" | "info" | "warning" | "error";
+  }) => void;
+  /** A host-owned icon, for icon buttons in host slots such as the chat header. */
+  readonly Icon: ComponentType<{ readonly name: PluginIconName }>;
+  /** An overflow (`…`) menu, or a menu behind custom trigger content. */
+  readonly Menu: ComponentType<{
+    readonly ariaLabel: string;
+    readonly items: ReadonlyArray<PluginMenuItem>;
+    readonly trigger?: ReactNode;
+    readonly disabled?: boolean;
+  }>;
+  /** A small segmented switch between views of the same content. */
+  readonly SegmentedControl: ComponentType<{
+    readonly ariaLabel: string;
+    readonly value: string;
+    readonly onChange: (value: string) => void;
+    readonly options: ReadonlyArray<{ readonly value: string; readonly label: string }>;
+    readonly disabled?: boolean;
+  }>;
+  /** A status or failure notice with optional actions; `children` is the short detail. */
+  readonly Alert: ComponentType<{
+    readonly variant: "info" | "warning" | "error";
+    readonly title: string;
+    readonly children?: ReactNode;
+    readonly actions?: ReactNode;
+  }>;
+  /** The app's empty state: a title, an optional one-line description and actions. */
+  readonly Empty: ComponentType<{
+    readonly title: string;
+    readonly description?: string;
+    readonly icon?: ReactNode;
+    readonly children?: ReactNode;
+  }>;
+  /** A titled group of rows on the app's card surface, as on Settings pages. */
+  readonly ListGroup: ComponentType<{
+    readonly title?: string;
+    readonly action?: ReactNode;
+    readonly ariaLabel?: string;
+    readonly busy?: boolean;
+    /** False for a group holding a form or other content instead of rows. */
+    readonly list?: boolean;
+    readonly children: ReactNode;
+  }>;
+  /**
+   * One row of a list group: a title with badges, a muted one-line description, and trailing
+   * actions. `onOpen` makes the row's title area the primary action.
+   */
+  readonly ListRow: ComponentType<{
+    readonly title: string;
+    readonly badges?: ReactNode;
+    readonly description?: ReactNode;
+    readonly leading?: ReactNode;
+    readonly onOpen?: () => void;
+    readonly openLabel?: string;
+    readonly actions?: ReactNode;
+    readonly children?: ReactNode;
+  }>;
+  /**
+   * The page's own header bar: a breadcrumb and trailing actions. A page that renders it
+   * replaces the host's title bar and manages its own scrolling below it.
+   */
+  readonly PageHeader: ComponentType<{
+    readonly breadcrumb: ReadonlyArray<PluginBreadcrumbItem>;
+    readonly children?: ReactNode;
+  }>;
+  /**
+   * The app's modal dialog: a title, optional one-line description, a scrolling body and a
+   * footer for its actions. Closing (Escape, the close button, the backdrop) calls
+   * `onOpenChange(false)`; the plugin decides whether to close.
+   */
+  readonly Dialog: ComponentType<{
+    readonly open: boolean;
+    readonly onOpenChange: (open: boolean) => void;
+    readonly title: string;
+    readonly description?: string;
+    readonly footer?: ReactNode;
+    readonly children: ReactNode;
+  }>;
+  /** Labeled panel for narrow layouts; plugins render the same content inline when wide. */
+  readonly Sheet: ComponentType<{
+    readonly open: boolean;
+    readonly onOpenChange: (open: boolean) => void;
+    readonly title: string;
+    readonly side?: "left" | "right" | "bottom";
+    readonly children: ReactNode;
+  }>;
+  /** A destructive-action confirmation (no close button): Cancel, or the confirm action. */
+  readonly ConfirmDialog: ComponentType<{
+    readonly open: boolean;
+    readonly onOpenChange: (open: boolean) => void;
+    readonly title: string;
+    readonly description?: string;
+    readonly confirmLabel: string;
+    readonly onConfirm: () => void;
+  }>;
+  /**
+   * Holds in-app navigation while `when` is true and offers Keep editing or Discard, plus
+   * `keepLabel` to leave while keeping a stored draft. `protectReload` also asks before a
+   * reload or tab close, for edits that would not survive one.
+   */
+  readonly NavigationGuard: ComponentType<{
+    readonly when: boolean;
+    readonly title: string;
+    readonly description?: string;
+    readonly onDiscard?: () => void;
+    readonly keepLabel?: string;
+    readonly protectReload?: boolean;
+  }>;
+}
+
+export interface PluginWebContext extends PluginDesign {
   readonly environmentId: EnvironmentId;
+  /** Human label of the bound environment, shown so users know where work runs. */
+  readonly environmentLabel: string;
   readonly descriptor: PluginDescriptor;
   readonly projectId: ProjectId | null;
   readonly threadId: PluginTarget["threadId"] | null;
-  readonly navigate: (link: PluginPageLink) => void;
+  /** Validated, bounded selection from the current link. */
+  readonly pageState: PluginPageState;
+  /** Disconnected pages keep their last snapshot; mutations wait until reconnection. */
+  readonly connection: "connected" | "disconnected";
+  readonly navigate: (link: PluginPageLink, options?: { readonly replace?: boolean }) => void;
   readonly openThread: (target: PluginTarget) => void;
-  readonly Button: ComponentType<{
-    readonly children: ReactNode;
-    readonly disabled?: boolean;
-    readonly onClick: () => void;
-    readonly variant?: "default" | "outline" | "ghost";
-    readonly size?: "sm" | "default";
-  }>;
+  readonly drafts: PluginDraftStore;
+  /** A short toast, such as "Copied"; `warning` for something the user should look at. */
+  readonly notify: (message: string, tone?: "success" | "warning") => void;
+}
+
+/** Fields a schedule target adds to the host's own schedule editor. */
+export interface PluginScheduleTargetEditorProps {
+  readonly projectId: ProjectId;
+  /** The saved payload when editing an existing schedule; null for a new one. */
+  readonly payload: unknown;
+  /** What to save, or null while it cannot be saved yet; the target explains why itself. */
+  readonly onChange: (payload: PluginScheduleInput["payload"] | null) => void;
+}
+/** The host's common schedule fields, saved through the plugin's own validating API. */
+export type PluginScheduleTargetSaveInput = Omit<PluginScheduleInput, "target">;
+export interface PluginScheduleTargetHistoryProps {
+  readonly projectId: ProjectId;
+  /** The schedule's identity within the plugin. */
+  readonly scheduleId: string;
+  /** Changes whenever the host's schedule row changes, such as after a dispatch. */
+  readonly revision: string;
 }
 
 /** The host supplies an authenticated, environment-bound typed client to each contribution. */
@@ -35,15 +319,45 @@ export interface WebPlugin<Client> {
   readonly navigation: ReadonlyArray<{
     readonly id: string;
     readonly title: string;
+    readonly icon: PluginIconName;
     readonly link: PluginPageLink;
   }>;
   readonly projectActions: ReadonlyArray<{
     readonly id: string;
     readonly title: string;
+    readonly icon: PluginIconName;
     readonly link: (projectId: ProjectId) => PluginPageLink;
+    /**
+     * Opens this dialog over the current view instead of navigating to `link`, so dismissing it
+     * keeps the user where they were. The dialog calls `onClose` when dismissed and navigates
+     * itself when its action leads somewhere.
+     */
+    readonly dialog?: ComponentType<
+      PluginWebContext & { readonly client: Client; readonly onClose: () => void }
+    >;
   }>;
   readonly threadContext: ReadonlyArray<{
     readonly id: string;
     readonly render: (context: PluginWebContext & { readonly client: Client }) => ReactNode;
   }>;
+  /**
+   * Targets the host's schedule controls can run instead of a prompt. Each `id` names one of the
+   * plugin's server schedule targets; the host keeps timing, pause, run-now and deletion.
+   */
+  readonly scheduleTargets?: ReadonlyArray<{
+    readonly id: string;
+    readonly title: string;
+    readonly editor: ComponentType<
+      PluginWebContext & PluginScheduleTargetEditorProps & { readonly client: Client }
+    >;
+    readonly history: ComponentType<
+      PluginWebContext & PluginScheduleTargetHistoryProps & { readonly client: Client }
+    >;
+    readonly save: (client: Client, input: PluginScheduleTargetSaveInput) => Promise<void>;
+  }>;
+  /**
+   * The plugin's own view of everything its attention stream counts. The host shows the
+   * plugin's total beside it; opening it resolves nothing.
+   */
+  readonly attention?: { readonly title: string; readonly link: PluginPageLink };
 }

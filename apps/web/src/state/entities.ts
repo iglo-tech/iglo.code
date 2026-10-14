@@ -10,7 +10,11 @@ import {
   type ThreadHistoryMeta,
 } from "@t3tools/client-runtime/state/threads";
 import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
-import type { EnvironmentId, OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationV2ProjectedTurnItem,
+  ProjectId,
+} from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
@@ -120,6 +124,15 @@ export function useThreadShell(ref: ScopedThreadRef | null): EnvironmentThreadSh
 export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_SHELLS_ATOM : environmentThreadShells.childThreadInputsAtom(ref),
+  );
+}
+
+const shellProjectId = (shell: EnvironmentThreadShell | null) => shell?.projectId ?? null;
+/** Only a thread's project; unlike the shell it does not change while the thread runs. */
+export function useThreadProjectId(ref: ScopedThreadRef | null): ProjectId | null {
+  return useAtomValue(
+    ref === null ? EMPTY_THREAD_SHELL_ATOM : environmentThreadShells.threadShellAtom(ref),
+    shellProjectId,
   );
 }
 
