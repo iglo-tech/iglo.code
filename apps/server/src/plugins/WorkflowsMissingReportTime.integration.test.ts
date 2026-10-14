@@ -115,7 +115,7 @@ it.live.each([
       const admission = yield* runtime
         .invoke("get", { ...test.scope, runId: started.id })
         .pipe(Effect.flatMap(decodeRun));
-      // The durable core receipt acknowledges admission even when the host response is lost.
+      // A retried launch adopts its committed receipt even when the ACK is lost.
       expect(admission.attempts[0]!.phase).toBe("running");
       expect(admission.allowedActions).toEqual(["cancel"]);
       const launchReceipt = yield* test.core.receipt(

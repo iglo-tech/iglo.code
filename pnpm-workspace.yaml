@@ -28,14 +28,14 @@ catalog:
   "@clerk/electron": 0.0.44
   "@clerk/react": 6.16.1
   "@clerk/shared": 4.33.0
-  "@effect/atom-react": 4.0.2
-  "@effect/openapi-generator": 4.0.2
-  "@effect/platform-node": 4.0.2
-  "@effect/platform-node-shared": 4.0.2
-  "@effect/sql-pg": 4.0.2
-  "@effect/sql-sqlite-do": 4.0.2
+  "@effect/atom-react": 4.0.4
+  "@effect/openapi-generator": 4.0.4
+  "@effect/platform-node": 4.0.4
+  "@effect/platform-node-shared": 4.0.4
+  "@effect/sql-pg": 4.0.4
+  "@effect/sql-sqlite-do": 4.0.4
   "@effect/tsgo": 0.51.1
-  "@effect/vitest": 4.0.2
+  "@effect/vitest": 4.0.4
   "@legendapp/list": 3.3.5
   "@noble/curves": 1.9.1
   "@noble/hashes": 1.8.0
@@ -45,7 +45,7 @@ catalog:
   "@tailwindcss/vite": 4.3.3
   "@types/node": 24.12.4
   "@types/ws": 8.18.2
-  effect: 4.0.2
+  effect: 4.0.4
   jose: 6.2.2
   lightningcss: 1.33.0
   tailwindcss: 4.3.3
@@ -83,15 +83,15 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/core@1.0.0-rc.13"
   - "@distilled.cloud/neon@1.0.0-rc.13"
   - "@distilled.cloud/planetscale@1.0.0-rc.13"
-  - "@effect/atom-react@4.0.2"
-  - "@effect/openapi-generator@4.0.2"
-  - "@effect/platform-node-shared@4.0.2"
-  - "@effect/platform-node@4.0.2"
-  - "@effect/sql-pg@4.0.2"
-  - "@effect/sql-sqlite-do@4.0.2"
-  - "@effect/vitest@4.0.2"
+  - "@effect/atom-react@4.0.4"
+  - "@effect/openapi-generator@4.0.4"
+  - "@effect/platform-node-shared@4.0.4"
+  - "@effect/platform-node@4.0.4"
+  - "@effect/sql-pg@4.0.4"
+  - "@effect/sql-sqlite-do@4.0.4"
+  - "@effect/vitest@4.0.4"
   - alchemy@2.0.0-beta.80
-  - effect@4.0.2
+  - effect@4.0.4
   - "@legendapp/list@3.3.5"
   - "@anthropic-ai/claude-agent-sdk@0.3.276"
   - "@alchemy.run/cloudflare-runtime@2.0.0-beta.80"
@@ -110,9 +110,9 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/gcp@1.0.0-rc.13"
   - "@distilled.cloud/infisical@1.0.0-rc.13"
   - "@distilled.cloud/zerossl@1.0.0-rc.13"
-  - "@opencode/client@2.0.23"
-  - "@opencode/protocol@2.0.23"
-  - "@opencode/schema@2.0.23"
+  - "@opencode/client@2.0.28"
+  - "@opencode/protocol@2.0.28"
+  - "@opencode/schema@2.0.28"
   - "@muse-code/sdk@1.4.6"
 
 overrides:
@@ -162,13 +162,10 @@ overrides:
   "@tailwindcss/vite": "catalog:"
   "@types/node": "catalog:"
   effect: "catalog:"
-  # OpenCode 2's protocol and schema packages hard-pin an older Effect rc as a
+  # OpenCode 2's protocol and schema packages hard-pin an exact Effect version as a
   # dependency, and their schemas fail to decode under a second Effect copy.
   # The `effect` override above already collapses them; these name the edge so it
   # stays pinned on its own. OpenCode2Client.live.test.ts re-proves it on bumps.
-  # All three still target Effect rc.112 APIs (effect/unstable/*, Encoding,
-  # Schema.isStartsWith) that 4.0 removed; their patches port those call sites
-  # until OpenCode moves to stable Effect.
   "@opencode/protocol>effect": "catalog:"
   "@opencode/schema>effect": "catalog:"
   lightningcss: "catalog:"
@@ -190,19 +187,14 @@ packageExtensions:
       vite-plus: "catalog:"
 
 patchedDependencies:
-  "@effect/platform-node@4.0.2": patches/@effect__platform-node@4.0.2.patch
+  "@effect/platform-node@4.0.4": patches/@effect__platform-node@4.0.4.patch
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
-  "@effect/platform-node-shared@4.0.2": patches/@effect__platform-node-shared@4.0.2.patch
-  "@effect/vitest@4.0.2": patches/@effect__vitest@4.0.2.patch
+  "@effect/vitest@4.0.4": patches/@effect__vitest@4.0.4.patch
   "@ff-labs/fff-node@0.11.0": patches/@ff-labs__fff-node@0.11.0.patch
   "@legendapp/list@3.3.5": patches/@legendapp__list@3.3.5.patch
-  "@opencode/client@2.0.23": patches/@opencode__client@2.0.23.patch
-  "@opencode/protocol@2.0.23": patches/@opencode__protocol@2.0.23.patch
-  "@opencode/schema@2.0.23": patches/@opencode__schema@2.0.23.patch
   # Exports the dependency-light subpaths mobile and the web diff parser import, and keeps
   # measured wrapped-row heights above an edit (fileEditorVirtualization.test.ts).
   "@pierre/diffs@1.5.2": patches/@pierre%2Fdiffs@1.5.2.patch
-  effect@4.0.2: patches/effect@4.0.2.patch
 
 peerDependencyRules:
   allowAny:
