@@ -130,6 +130,7 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
                   messages: Stream.fromQueue(nativeFrames),
                   offer: () => Effect.void,
                   setModel: () => Effect.void,
+                  applyFlagSettings: () => Effect.void,
                   setPermissionMode: () => Effect.void,
                   stopTask: () => Effect.void,
                   interrupt: Effect.void,

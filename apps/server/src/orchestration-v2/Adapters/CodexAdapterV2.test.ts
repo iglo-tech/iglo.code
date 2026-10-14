@@ -2114,7 +2114,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 cwd: "/workspace",
                 model: "gpt-5.4",
                 config: {
-                  "tools.update_plan.enabled": true,
+                  ...CodexAdapterV2.CODEX_THREAD_CONFIG,
                   mcp_servers: {
                     "t3-code": {
                       url: first.endpoint,
@@ -2140,7 +2140,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 cwd: "/workspace",
                 model: "gpt-5.4",
                 config: {
-                  "tools.update_plan.enabled": true,
+                  ...CodexAdapterV2.CODEX_THREAD_CONFIG,
                   mcp_servers: {
                     "t3-code": {
                       url: refreshed.endpoint,
