@@ -156,6 +156,7 @@ it.live(
                   applyFlagSettings: () => Effect.void,
                   setPermissionMode: () => Effect.void,
                   stopTask: () => Effect.void,
+                  backgroundTasks: () => Effect.succeed(false),
                   interrupt: Effect.void,
                   close: Effect.sync(() => {}).pipe(Effect.andThen(Queue.shutdown(nativeFrames))),
                 };

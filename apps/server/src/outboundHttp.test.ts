@@ -69,19 +69,25 @@ const versionViaBuiltinFetch = () =>
   );
 
 describe("installHttp1FetchDispatcher", () => {
-  it("makes the global dispatcher negotiate HTTP/1.1 and keeps the env proxy agent", async () => {
-    // undici 8's default agent, the one Node 26's fetch uses.
-    Undici.setGlobalDispatcher(new Undici.Agent());
-    expect(await versionViaGlobalDispatcher()).toBe("2.0");
+  // Bun resolves `undici` to its built-in shim, which neither speaks h2 nor reads
+  // Node's CA store. The server never installs the dispatcher there: Bun reports
+  // no `process.versions.undici`, so `keepOutboundFetchOnHttp1` is a no-op.
+  it.skipIf("Bun" in globalThis)(
+    "makes the global dispatcher negotiate HTTP/1.1 and keeps the env proxy agent",
+    async () => {
+      // undici 8's default agent, the one Node 26's fetch uses.
+      Undici.setGlobalDispatcher(new Undici.Agent());
+      expect(await versionViaGlobalDispatcher()).toBe("2.0");
 
-    installHttp1FetchDispatcher();
-    expect(await versionViaGlobalDispatcher()).toBe("1.1");
+      installHttp1FetchDispatcher();
+      expect(await versionViaGlobalDispatcher()).toBe("1.1");
 
-    // Node installs this agent for --use-env-proxy; replacing it would drop the proxy.
-    Undici.setGlobalDispatcher(new Undici.EnvHttpProxyAgent());
-    installHttp1FetchDispatcher();
-    expect(Undici.getGlobalDispatcher()).toBeInstanceOf(Undici.EnvHttpProxyAgent);
-  });
+      // Node installs this agent for --use-env-proxy; replacing it would drop the proxy.
+      Undici.setGlobalDispatcher(new Undici.EnvHttpProxyAgent());
+      installHttp1FetchDispatcher();
+      expect(Undici.getGlobalDispatcher()).toBeInstanceOf(Undici.EnvHttpProxyAgent);
+    },
+  );
 
   // Only a runtime that bundles undici 8 (Node 26+) offers h2 through the
   // built-in fetch, so only there can this prove fetch reads the new dispatcher.

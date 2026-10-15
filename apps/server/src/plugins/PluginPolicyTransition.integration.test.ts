@@ -133,6 +133,7 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
                   applyFlagSettings: () => Effect.void,
                   setPermissionMode: () => Effect.void,
                   stopTask: () => Effect.void,
+                  backgroundTasks: () => Effect.succeed(false),
                   interrupt: Effect.void,
                   close: Effect.sync(() => {
                     closed++;

@@ -143,6 +143,7 @@ it.live.each(["late predecessor", "cancelled predecessor"] as const)(
                   applyFlagSettings: () => Effect.void,
                   setPermissionMode: () => Effect.void,
                   stopTask: () => Effect.void,
+                  backgroundTasks: () => Effect.succeed(false),
                   interrupt: Effect.void,
                   close: Queue.shutdown(frames),
                 };
