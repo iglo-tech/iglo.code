@@ -1,10 +1,12 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { assert, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
+import * as ServerConfig from "./config.ts";
 import { resolveStaticDir } from "./config.ts";
 
 it.layer(NodeServices.layer)("static client resolution", (it) => {
@@ -66,4 +68,18 @@ it.layer(NodeServices.layer)("static client resolution", (it) => {
       assert.isUndefined(resolved);
     }),
   );
+});
+
+describe("otlpResource", () => {
+  const resource = (resourceAttributes: Record<string, string>) =>
+    ServerConfig.otlpResource(
+      { mode: "web", otelEnvironment: { ...OtelEnvironment.none, resourceAttributes } },
+      "box-1",
+    );
+
+  it("names the host, unless OTEL_RESOURCE_ATTRIBUTES already does", () => {
+    assert.equal(resource({}).attributes["host.name"], "box-1");
+    assert.equal(resource({ "host.name": "from-env" }).attributes["host.name"], "from-env");
+    assert.equal(resource({ "host.name": "" }).attributes["host.name"], "box-1");
+  });
 });

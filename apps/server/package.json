@@ -58,6 +58,7 @@
     "proper-lockfile": "4.1.2",
     "stream-chain": "^4.2.5",
     "stream-json": "3.6.0",
+    "undici": "catalog:",
     "ws-rpc": "npm:ws@8.22.0",
     "yaml": "catalog:",
     "yauzl": "^3.4.0"
