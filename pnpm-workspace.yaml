@@ -23,9 +23,9 @@ allowBuilds:
   workerd: false
 
 catalog:
-  "@clerk/backend": 3.24.0
-  "@clerk/clerk-js": 6.39.0
-  "@clerk/electron": 0.1.0
+  "@clerk/backend": 3.25.0
+  "@clerk/clerk-js": 6.39.1
+  "@clerk/electron": 0.1.1
   "@clerk/react": 6.17.8
   "@clerk/shared": 4.40.0
   "@effect/atom-react": 4.0.5
@@ -73,9 +73,9 @@ catalog:
 minimumReleaseAgeExclude:
   - tsc-rs
   - "@tsc-rs/*"
-  - "@clerk/backend@3.24.0"
-  - "@clerk/clerk-js@6.39.0"
-  - "@clerk/electron@0.1.0"
+  - "@clerk/backend@3.25.0"
+  - "@clerk/clerk-js@6.39.1"
+  - "@clerk/electron@0.1.1"
   - "@clerk/react@6.17.8"
   - "@clerk/shared@4.40.0"
   - "@distilled.cloud/aws@1.0.0-rc.13"

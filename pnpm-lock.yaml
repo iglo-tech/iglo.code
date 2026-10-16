@@ -87,15 +87,15 @@ overrides:
   '@alchemy.run/sigil>react-reconciler': '-'
   '@alchemy.run/sigil>scheduler': '-'
   alchemy>@prisma/dev: '-'
-  '@clerk/backend': 3.24.0
-  '@clerk/clerk-js': 6.39.0
+  '@clerk/backend': 3.25.0
+  '@clerk/clerk-js': 6.39.1
   '@clerk/clerk-js>@base-org/account': '-'
   '@clerk/clerk-js>@coinbase/wallet-sdk': '-'
   '@clerk/clerk-js>@solana/wallet-adapter-base': '-'
   '@clerk/clerk-js>@solana/wallet-adapter-react': '-'
   '@clerk/clerk-js>@solana/wallet-standard': '-'
   '@clerk/clerk-js>@wallet-standard/core': '-'
-  '@clerk/electron': 0.1.0
+  '@clerk/electron': 0.1.1
   '@clerk/react': 6.17.8
   '@clerk/shared': 4.40.0
   '@effect/atom-react': 4.0.5
@@ -351,11 +351,11 @@ importers:
         specifier: ^1.4.1
         version: 1.5.0(@date-fns/tz@1.5.0)(@types/react@19.3.0)(date-fns@4.4.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@clerk/clerk-js':
-        specifier: 6.39.0
-        version: 6.39.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        specifier: 6.39.1
+        version: 6.39.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@clerk/electron':
-        specifier: 0.1.0
-        version: 0.1.0(@clerk/electron-passkeys@0.0.3)(electron-store@8.2.0)(electron@44.4.5)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        specifier: 0.1.1
+        version: 0.1.1(@clerk/electron-passkeys@0.0.3)(electron-store@8.2.0)(electron@44.4.5)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@clerk/react':
         specifier: 6.17.8
         version: 6.17.8(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -604,8 +604,8 @@ importers:
   infra/relay:
     dependencies:
       '@clerk/backend':
-        specifier: 3.24.0
-        version: 3.24.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 3.25.0
+        version: 3.25.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@effect/sql-pg':
         specifier: 4.0.5
         version: 4.0.5(effect@4.0.5)
@@ -2360,12 +2360,12 @@ packages:
     resolution: {integrity: sha512-dlT1m5e/0yUL0kRNcQn7yGLVThkgbB0Ga/1AmfDDC/8ik6AIiSf2QLQO2zPYvefsHP0aFgxO93cVLCCfDp7kzQ==}
     engines: {node: '>= 20.12.0'}
 
-  '@clerk/backend@3.24.0':
-    resolution: {integrity: sha512-ak5U2IabnBvYzhTrPl7de0ywiLmrBqfA4aonjhC5Kmt9IUEwXIPf294zgfXfFeDy3JGTSTvgWAy7p+15OagirA==}
+  '@clerk/backend@3.25.0':
+    resolution: {integrity: sha512-hmJS0a61FO08PDaV2MtZ/hj6pE+cQBRmpxR8oUFGQTXewOQLLOAbcgob0rmFAnMNuHgXfsYf3NVxcQCUOWE+QA==}
     engines: {node: '>=20.9.0'}
 
-  '@clerk/clerk-js@6.39.0':
-    resolution: {integrity: sha512-1vGRCP+220kawQn827xgrcdUubSrCVmSlQT64WBHQoM60FaXkAzNaK7aPNEIMTRfg5Ync4SNBwCBr9YbwIUZLg==}
+  '@clerk/clerk-js@6.39.1':
+    resolution: {integrity: sha512-QtxMDDgtnZ6V/N3rOcjyEGqXHsugWOSFYzv176htNF57wN5lcRieUxwEYbXfpOdq2z4FYmS2bUDB1s+5AU0QsA==}
     engines: {node: '>=20.9.0'}
 
   '@clerk/electron-passkeys-darwin-arm64@0.0.3':
@@ -2392,8 +2392,8 @@ packages:
     resolution: {integrity: sha512-OHhIe88qDL+FxyBalXdXNHAS5eEramr6Rerp+6iNkfkjqT8rx4hHNmfpmjg5/T1/am8QfknbOBZkqoXZlCrjPg==}
     engines: {node: '>=20.9.0'}
 
-  '@clerk/electron@0.1.0':
-    resolution: {integrity: sha512-O91JqP7VFgCl3U13Ht9Mi4R8ddJQS8efoQcVglF2DpNDDmlYU5ZiOI+6Q1XC5hSYoUTzOSsxYg9C7UiHmV3mXg==}
+  '@clerk/electron@0.1.1':
+    resolution: {integrity: sha512-ZnZTVBCjWQ7+YYrzjkG5G9bDpA2wEHdBggyijY4Q6Cny7l9aHdimz/iEaRNvz6ELeVmR2BBL4ictfFfzCqLjnA==}
     engines: {node: '>=20.9.0'}
     peerDependencies:
       '@clerk/electron-passkeys': '*'
@@ -11892,7 +11892,7 @@ snapshots:
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
 
-  '@clerk/backend@3.24.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@clerk/backend@3.25.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@clerk/shared': 4.40.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       standardwebhooks: 1.0.0
@@ -11901,7 +11901,7 @@ snapshots:
       - react
       - react-dom
 
-  '@clerk/clerk-js@6.39.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@clerk/clerk-js@6.39.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
       '@clerk/shared': 4.40.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@stripe/stripe-js': 5.6.0
@@ -11938,9 +11938,9 @@ snapshots:
       '@clerk/electron-passkeys-win32-x64-msvc': 0.0.3
     optional: true
 
-  '@clerk/electron@0.1.0(@clerk/electron-passkeys@0.0.3)(electron-store@8.2.0)(electron@44.4.5)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@clerk/electron@0.1.1(@clerk/electron-passkeys@0.0.3)(electron-store@8.2.0)(electron@44.4.5)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
-      '@clerk/clerk-js': 6.39.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@clerk/clerk-js': 6.39.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@clerk/react': 6.17.8(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@clerk/shared': 4.40.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       electron: 44.4.5
@@ -14385,7 +14385,7 @@ snapshots:
   '@rolldown/plugin-babel@0.2.3(@babel/core@7.29.7)(@babel/plugin-transform-runtime@7.29.7(@babel/core@7.29.7))(@babel/runtime@7.29.7)(@voidzero-dev/vite-plus-core@1.0.0(@types/node@24.12.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(typescript@7.0.2)(unrun@0.2.39)(yaml@2.9.0))(rolldown@1.2.5)':
     dependencies:
       '@babel/core': 7.29.7
-      picomatch: 4.0.4
+      picomatch: 4.0.7
       rolldown: 1.2.5
     optionalDependencies:
       '@babel/plugin-transform-runtime': 7.29.7(@babel/core@7.29.7)
@@ -15967,7 +15967,7 @@ snapshots:
 
   babel-plugin-react-compiler@1.0.0:
     dependencies:
-      '@babel/types': 7.29.7
+      '@babel/types': 7.29.8
     optional: true
 
   babel-plugin-react-native-web@0.21.2:
