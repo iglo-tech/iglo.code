@@ -21,27 +21,15 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
-/**
- * Tracks the live stages of a bootstrap worktree setup per thread so clients
- * can render a progress card while the first turn is still being prepared.
- *
- * State is memory only. It exists from the first `begin` until the turn starts
- * or the setup fails, plus a short grace window so a client that subscribes
- * late still sees the final state. Nothing here is persisted or event-sourced:
- * the durable record of a setup is the thread's worktree path and the setup
- * script activities, both of which already exist.
- */
 export class WorktreeSetupTracker extends Context.Service<
   WorktreeSetupTracker,
   {
-    /** Creates a fresh running snapshot for the thread, replacing any prior one. */
     readonly begin: (input: {
       readonly threadId: ThreadId;
       readonly preparationId?: string;
       readonly branch: string | null;
       readonly baseRef: string | null;
       readonly stages: ReadonlyArray<WorktreeSetupStageId>;
-      /** Interrupting this fiber cancels the bootstrap. */
       readonly fiber: Fiber.Fiber<unknown, unknown> | null;
       /** Returns false when a durable owner cannot record cancellation yet. */
       readonly beforeCancel?: Effect.Effect<boolean>;
@@ -66,15 +54,14 @@ export class WorktreeSetupTracker extends Context.Service<
       stageId: WorktreeSetupStageId,
       line: string,
     ) => Effect.Effect<void>;
-    /** Returns the settled snapshot, or null when nothing was tracked. */
     readonly finish: (
       threadId: ThreadId,
       phase: "done" | "failed" | "cancelled",
       error?: string | null,
     ) => Effect.Effect<WorktreeSetupSnapshot | null>;
     /**
-     * Drops the cancel handle. Called right before the turn is dispatched so a
-     * late cancel cannot roll back a thread whose agent has already started.
+     * Called right before the turn is dispatched so a late cancel cannot roll
+     * back a thread whose agent has already started.
      */
     readonly markUncancellable: (threadId: ThreadId) => Effect.Effect<void>;
     /**
@@ -86,21 +73,18 @@ export class WorktreeSetupTracker extends Context.Service<
      */
     readonly cancel: (threadId: ThreadId, preparationId?: string) => Effect.Effect<boolean>;
     readonly get: (threadId: ThreadId) => Effect.Effect<WorktreeSetupSnapshot | null>;
-    /** Emits the current snapshot (or null) first, then every change until unsubscribed. */
     readonly stream: (threadId: ThreadId) => Stream.Stream<WorktreeSetupSnapshot | null>;
   }
 >()("t3/project/WorktreeSetupTracker") {}
 
 const TAIL_LINE_LIMIT = 4;
 
-/** Keeps free text inside the contract limit, ending in an ellipsis when cut. */
 function clampText(text: string, maxLength: number): string {
   return text.length <= maxLength ? text : `${text.slice(0, maxLength - 1)}\u2026`;
 }
 
 const clampDetail = (detail: string | null): string | null =>
   detail === null ? null : clampText(detail, WORKTREE_SETUP_DETAIL_MAX_LENGTH);
-/** Finished snapshots stay visible this long so a late subscriber sees the outcome. */
 const FINISHED_RETENTION = "30 seconds";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -297,7 +281,6 @@ export const make = Effect.gen(function* () {
         Effect.delay(FINISHED_RETENTION),
         Effect.ensuring(
           Effect.sync(() => {
-            // Only drop our own entry: a newer setup may have replaced it.
             if (retentionFibers.get(threadId) === fiber) retentionFibers.delete(threadId);
           }),
         ),
@@ -334,9 +317,9 @@ export const make = Effect.gen(function* () {
     Ref.get(setups).pipe(Effect.map((current) => current.get(threadId)?.snapshot ?? null));
 
   /**
-   * Each subscriber gets a one-slot sliding mailbox: a slow WebSocket only
-   * ever holds the newest snapshot, so a chatty setup script cannot grow the
-   * server heap. Snapshots are whole states, so skipping intermediates is safe.
+   * Each subscriber gets a one-slot sliding mailbox: a slow WebSocket only ever
+   * holds the newest snapshot, so a chatty setup script cannot grow the server
+   * heap.
    */
   const stream: WorktreeSetupTracker["Service"]["stream"] = (threadId) =>
     Stream.callback<WorktreeSetupSnapshot | null>(

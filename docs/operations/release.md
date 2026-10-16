@@ -41,8 +41,17 @@ to `iglo-tech/iglo.code`; installers and updates default to that fork and never 
 An explicit `T3CODE_RELEASE_BASE_URL` can point at a mirror.
 
 Run the source/archive smoke and real-client checks locally on each target before publishing;
-see [development checks](./development.md#checks). npm packaging tools remain available in
-`scripts/` for manual use.
+see [development checks](./development.md#checks).
+
+The `@iglo-tech/iglo-code` npm package is only a launcher (`scripts/npm-launcher/t3.mjs`): on first
+run it downloads its exact version's archive from the GitHub Release, verifies it against
+`SHA256SUMS`, and unpacks it into `<T3 home>/runtime/versions/<version>`. Publish it only after the
+release archives are live:
+
+```sh
+bun scripts/build-npm-launcher.ts --version "$version" --output-dir /tmp/iglo-npm
+bun apps/server/scripts/cli.ts publish --packages-dir /tmp/iglo-npm
+```
 
 ## T3 Connect relay deployment
 
@@ -176,12 +185,14 @@ Legacy cleanup, on the same disposable stage:
 
 ## Server self-update release invariant
 
-Connected servers update to the client's exact version, not to an npm dist-tag. Every released
-hosted client version must therefore have a matching `@iglo-tech/iglo-code@<version>` package available on
-npm before users can receive that client.
+Connected servers update to the client's exact version, not to an npm dist-tag. Servers that update
+themselves download that version's archive from the GitHub Release; servers run through npm are
+handed an `@iglo-tech/iglo-code@<version>` command to run. Every released hosted client version
+must therefore have its release archives, and then its npm launcher, available before users can
+receive that client.
 
-When publishing manually, make the matching server package and CLI archives available before
-exposing the hosted client. Publishing a client first would leave the **Update server** action
+When publishing manually, publish the CLI archives, then the npm launcher, before exposing the
+hosted client. Publishing a client first would leave the **Update server** action
 targeting a package version that does not exist yet.
 
 For a release smoke test, confirm `npm view @iglo-tech/iglo-code@<version> version` returns the expected version, then

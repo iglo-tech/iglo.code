@@ -103,7 +103,6 @@ const deviceToolchainPaths = (path: Path.Path, baseDir: string): DeviceToolchain
   agentDevice: toolPaths(path, baseDir, AGENT_DEVICE_SPEC),
 });
 
-/** Keep daemon state (daemon.json, sessions) in userdata, separate from tool installs. */
 export const agentDeviceStateDir = (path: Path.Path, stateDir: string): string =>
   path.join(stateDir, "device", "agent-device");
 
@@ -206,16 +205,17 @@ const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
     yield* fs
       .writeFileString(path.join(stagingDir, ".install-complete"), `${spec.version}\n`)
       .pipe(Effect.mapError(fail("recording the completed install")));
-    yield* fs.rename(stagingDir, paths.installDir).pipe(
-      Effect.catch((cause) =>
-        // A concurrent server may have published the same version first.
-        isInstalled(fs, paths, spec.version).pipe(
-          Effect.flatMap((published) =>
-            published ? Effect.void : Effect.fail(fail("publishing the install")(cause)),
+    yield* fs
+      .rename(stagingDir, paths.installDir)
+      .pipe(
+        Effect.catch((cause) =>
+          isInstalled(fs, paths, spec.version).pipe(
+            Effect.flatMap((published) =>
+              published ? Effect.void : Effect.fail(fail("publishing the install")(cause)),
+            ),
           ),
         ),
-      ),
-    );
+      );
     return paths;
   }).pipe(
     Effect.ensuring(fs.remove(stagingDir, { recursive: true, force: true }).pipe(Effect.ignore)),
@@ -255,7 +255,6 @@ export const isDeviceHubInstalled = (baseDir: string) =>
 export const isAgentDeviceInstalled = (baseDir: string) =>
   isToolInstalled(baseDir, AGENT_DEVICE_SPEC, (paths) => paths.agentDevice);
 
-/** Read completed installs without downloading or starting either tool. */
 export const deviceToolVersions = Effect.fn("DeviceToolchain.versions")(function* (
   baseDir: string,
   running: { hub?: string; agent?: string } = {},

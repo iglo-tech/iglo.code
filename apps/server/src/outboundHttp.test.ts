@@ -34,8 +34,6 @@ A+Ke/q0rNPya3fjQa9O5B+kCIQC1SfmdNaFcNJ4JINlus4FfrRnfKiADS2MIJR9f
 -----END CERTIFICATE-----
 `;
 
-// An h2-capable origin, like api.github.com, that answers with the HTTP
-// version the client negotiated.
 const server = NodeHttp2.createSecureServer(
   { allowHTTP1: true, key: TEST_KEY, cert: TEST_CERT },
   (request, response) => response.end(request.httpVersion),
@@ -61,7 +59,6 @@ afterAll(async () => {
 
 const versionViaGlobalDispatcher = async () => (await Undici.request(origin)).body.text();
 
-// Node's built-in fetch, the path the server's own requests take.
 const versionViaBuiltinFetch = () =>
   HttpClient.get(origin).pipe(
     Effect.flatMap((response) => response.text),

@@ -40,17 +40,12 @@ const FETCH_BAD_PORTS = new Set([
   6669, 6679, 6697, 10080,
 ]);
 // Dev servers bind loopback, so loopback is the only interface whose
-// availability decides whether we can use a port. Probing wildcards too made
-// the runner walk away from a perfectly free port whenever something else held
-// the same number on another interface — `tailscale serve` does exactly that,
-// which silently moved the ports out from under a URL that had just been shared.
+// availability decides whether we can use a port.
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "::1"] as const;
 
 /**
- * Bind hosts on which a backend still answers `http://localhost:<port>`, which
- * is where single-origin browser dev proxies to. Loopback and the wildcards
- * qualify; a specific interface (e.g. a LAN IP) does not — the OS binds only
- * that address and the proxy target goes dark.
+ * Loopback and the wildcards qualify; a specific interface (e.g. a LAN IP) does
+ * not — the OS binds only that address and the proxy target goes dark.
  */
 export function isProxiableBindHost(host: string): boolean {
   const normalized = host.trim();
@@ -86,8 +81,7 @@ const MODE_ARGS = {
 type DevMode = keyof typeof MODE_ARGS;
 /**
  * `role` matters because only the backend honours `--host`/`T3CODE_HOST`; the
- * web port is always loopback. Passed explicitly rather than inferred from the
- * port number, which stops distinguishing them under a large port offset.
+ * web port is always loopback.
  */
 type PortAvailabilityCheck<R = never> = (
   port: number,
@@ -250,11 +244,6 @@ export function resolveOffset(config: {
     return Effect.succeed({ offset, source: `hashed T3CODE_DEV_INSTANCE=${seed}` });
   }
 
-  // Worktrees get ports derived from their path so each one is stable across
-  // restarts and distinct from its siblings. Without this every worktree starts
-  // at offset 0 and scan-collides onto whatever happens to be free that minute,
-  // so ports move under you between runs — which breaks any URL you already
-  // shared. The main checkout keeps the documented 5733/13773.
   const worktreePath = config.worktreePath?.trim();
   if (worktreePath) {
     const offset = ((Hash.string(worktreePath) >>> 0) % MAX_HASH_OFFSET) + 1;
@@ -307,8 +296,6 @@ export function createDevRunnerEnv({
   return Effect.gen(function* () {
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
-    // Precedence (--home-dir > worktree .t3 > ambient T3CODE_HOME) is resolved
-    // by the caller; an unset t3Home here genuinely means "use the default".
     const configuredBaseDir = t3Home?.trim() || undefined;
     const resolvedBaseDir = yield* resolveBaseDir(configuredBaseDir);
 
@@ -626,8 +613,6 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       startOffset: offset,
       hasExplicitServerPort: input.port !== undefined,
       hasExplicitDevUrl: input.devUrl !== undefined,
-      // A non-loopback bind host decides whether the backend can actually take
-      // the port, so it has to be probed alongside loopback.
       checkPortAvailability: makeDefaultCheckPortAvailability(input.host),
     });
 
@@ -683,20 +668,9 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
         // process (and reboots), so the cleanup has to be registered atomically
         // with creating it. An interrupt landing in between would otherwise
         // leave a mapping pointing at a port nothing is listening on.
-        //
-        // Deliberately no ownership tracking beyond that: if a second runner
-        // takes this port during a fast restart, the first's exit can briefly
-        // tear down the new mapping — visible (the URL stops working) and fixed
-        // by re-running --share. A lease protocol closing that window existed
-        // and was removed as more machinery than a dev convenience warrants.
-        //
-        // A tailnet that isn't up shouldn't stop the dev server from starting —
-        // warn, and carry on serving locally.
         const shared = yield* Effect.acquireRelease(
           shareDevServer({ webPort: sharedWebPort }),
           () =>
-            // Serve config outlives this process, so a cleanup that did not
-            // take leaves a tailnet URL pointing at a port nothing serves.
             unshareDevServer(sharedWebPort).pipe(
               Effect.flatMap((result) =>
                 result.cleared
@@ -730,17 +704,13 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
           ]
             .filter((entry) => entry && entry.length > 0)
             .join(",");
-          // The server builds its pairing URL from this, so the URL printed at
-          // startup is already the shareable one — no rewriting by hand. An
-          // explicit --dev-url still wins.
           if (input.devUrl === undefined) {
             env.VITE_DEV_SERVER_URL = shared.url;
           }
           // A shared origin serves a remote browser, where unbundled dev's
           // per-module requests each pay a tailnet round trip — a cold module
-          // graph takes minutes to first paint. Bundled dev collapses that to
-          // a few chunk requests. Only defaulted, so T3CODE_BUNDLED_DEV=0
-          // still opts a --share run back out.
+          // graph takes minutes to first paint. Bundled dev collapses that to a
+          // few chunk requests.
           if (env.T3CODE_BUNDLED_DEV === undefined) {
             env.T3CODE_BUNDLED_DEV = "1";
           }

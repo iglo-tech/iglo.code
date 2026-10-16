@@ -115,8 +115,7 @@ export const resolveBunExecutable = Effect.fn("bunRuntime.resolveBunExecutable")
     hostInfo.value.dev === bunInfo.value.dev &&
     Option.isSome(hostInfo.value.ino) &&
     Option.isSome(bunInfo.value.ino) &&
-    Number.isSafeInteger(hostInfo.value.ino.value) &&
-    hostInfo.value.ino.value > 0 &&
+    hostInfo.value.ino.value > 0n &&
     hostInfo.value.ino.value === bunInfo.value.ino.value
   ) {
     return yield* new BunRuntimeUnavailableError({ feature });

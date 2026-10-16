@@ -93,7 +93,6 @@ export class CliArchiveInputMissingError extends Schema.TaggedError<CliArchiveIn
   }
 }
 
-/** Platform/arch pair as it appears in archive names and `process.platform`/`process.arch`. */
 export function cliArchivePlatformKey(platform: BuildPlatform, arch: BuildArch): string {
   const hostPlatform = platform === "mac" ? "darwin" : "linux";
   return `${hostPlatform}-${arch}`;
@@ -114,8 +113,6 @@ const runCommand = Effect.fn("runCommand")(function* (
   label: string,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  // Output is inherited so the build log shows what each tool did; a failing
-  // signing or packaging step is otherwise a bare exit code.
   const child = yield* spawner.spawn(
     ChildProcess.isStandardCommand(command)
       ? ChildProcess.make(command.command, command.args, {
@@ -139,9 +136,8 @@ const requireInput = Effect.fn("requireInput")(function* (inputPath: string, hin
 });
 
 /**
- * Installs the runtime-external packages into `stageDir/node_modules` with a
- * hoisted, symlink-free layout. The tree is archived and unpacked on machines
- * without pnpm, so the store layout cannot be relied on to survive the trip.
+ * The tree is archived and unpacked on machines without pnpm, so the store
+ * layout cannot be relied on to survive the trip.
  */
 const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (input: {
   readonly repoRoot: string;
@@ -256,7 +252,6 @@ const removeNestedBinDirectories = (
     }
   });
 
-/** Copies the web client without its sourcemaps, which nothing serves. */
 const stageWebClient = Effect.fn("stageWebClient")(function* (source: string, target: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

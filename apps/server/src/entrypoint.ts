@@ -1,6 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off
-// Entrypoint detection runs before any Effect runtime is built, so it stays on
-// Node built-ins.
 import * as NodeFS from "node:fs";
 import * as NodeURL from "node:url";
 

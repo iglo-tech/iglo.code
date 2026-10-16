@@ -59,7 +59,7 @@ current when an authorized change replaces a decision.
   Server updates, service updates, install scripts, onboarding, and manual update
   commands must agree; none silently falls back to upstream. Sources are
   [release naming](../../../packages/shared/src/cliRelease.ts),
-  [npm packaging](../../../scripts/build-npm-platform-packages.ts), and
+  [npm launcher](../../../scripts/build-npm-launcher.ts), and
   [the shared update action](../../../apps/web/src/components/ServerUpdateAction.tsx).
 - **Device and remote features.** Retain the Device panel, local/SSH device hosts,
   `expo-device-hub`, `agent-device`, provider helpers, Browser streams, and

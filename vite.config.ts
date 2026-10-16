@@ -3,7 +3,6 @@ import { defineConfig, type Plugin } from "vite-plus";
 import * as NodeModule from "node:module";
 import * as NodeURL from "node:url";
 
-/** Import restrictions every file keeps, including the one module exempt from the glyph rule. */
 const RESTRICTED_IMPORT_PATHS = [
   {
     name: "@t3tools/client-runtime",
@@ -17,11 +16,6 @@ const RESTRICTED_IMPORT_PATHS = [
   },
 ];
 
-/**
- * The cva functions behind components/ui exports. They style a foreign element to look
- * like a Button or Toggle, which bypasses the component's variants; render the component
- * instead (`render={<Button …/>}`, or `SelectButton` for a picker trigger).
- */
 const RESTRICTED_UI_VARIANT_PATTERNS = [
   {
     group: ["**/components/ui/*", "**/ui/*", "./ui/*"],
@@ -31,7 +25,6 @@ const RESTRICTED_UI_VARIANT_PATTERNS = [
   },
 ];
 
-/** Lucide's pull-request glyphs, which only `pullRequestIcons.tsx` may name. */
 const RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS = {
   name: "lucide-react",
   importNames: [
@@ -58,36 +51,56 @@ const RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS = {
  * `vp test` from the repo root runs this config, not apps/web/vite.config.ts or
  * apps/web/integration/vite.config.ts, so the web integration tests would render uncompiled
  * JSX. Under test only, components (.tsx) under apps/web/src and packages/plugin-workflows/src/web
- * compile as in the app (compiler bailouts and crashes included). `reactCompilerPreset()` from
- * @vitejs/plugin-react is not used: its `applyToEnvironmentHook` is client-only, which would
- * skip Vitest's node environment.
+ * compile as in the app (compiler bailouts and crashes included). `react({ compiler: true })` from
+ * @vitejs/plugin-react is not used: it compiles only for client-consumer environments, which
+ * would skip Vitest's node environment.
  */
 const loadWebReactCompiler = async (): Promise<Plugin> => {
   const webRequire = NodeModule.createRequire(new URL("./apps/web/package.json", import.meta.url));
   // Non-literal specifier resolves from apps/web; its types do not resolve from the repo root.
   const {
-    default: reactCompilerBabel,
+    transform,
   }: {
-    default: (options: {
-      include: RegExp[];
-      exclude: RegExp[];
-      parserOpts: { plugins: string[] };
-      presets: object[];
-    }) => Promise<Plugin>;
-  } = await import(NodeURL.pathToFileURL(webRequire.resolve("@rolldown/plugin-babel")).href);
-  return reactCompilerBabel({
-    include: [/\/apps\/web\/src\/.*\.tsx$/, /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/],
-    exclude: [/\.test\.tsx$/, /\/node_modules\//],
-    parserOpts: { plugins: ["typescript", "jsx"] },
-    presets: [
-      {
-        preset: () => ({
-          plugins: [[webRequire.resolve("babel-plugin-react-compiler"), {}]],
-        }),
-        rolldown: { filter: { code: /\b[A-Z]|\buse/ } },
+    transform: (
+      filename: string,
+      code: string,
+      options: { jsx: "preserve"; reactCompiler: boolean; sourcemap: boolean },
+    ) => Promise<{
+      code: string;
+      map?: unknown;
+      fatal: boolean;
+      errors: ReadonlyArray<{ message: string; codeframe?: string | null }>;
+    }>;
+  } = await import(NodeURL.pathToFileURL(webRequire.resolve("oxc-transform-react")).href);
+  return {
+    name: "t3code:test-react-compiler",
+    enforce: "pre",
+    transform: {
+      filter: {
+        id: {
+          include: [
+            /\/apps\/web\/src\/.*\.tsx$/,
+            /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/,
+          ],
+          exclude: [/\.test\.tsx$/, /\/node_modules\//],
+        },
+        code: /\b[A-Z]|\buse/,
       },
-    ],
-  });
+      async handler(code, id) {
+        const result = await transform(id.split("?")[0]!, code, {
+          jsx: "preserve",
+          reactCompiler: true,
+          sourcemap: true,
+        });
+        const diagnostics = result.errors.map(
+          (error) => `${error.message}${error.codeframe ? `\n${error.codeframe}` : ""}`,
+        );
+        if (result.fatal)
+          this.error(diagnostics.join("\n\n") || "React Compiler transform failed.");
+        return { code: result.code, map: result.map as never };
+      },
+    },
+  };
 };
 
 export default defineConfig({
@@ -115,7 +128,6 @@ export default defineConfig({
     ],
   },
   staged: {
-    // Formatter only for now — no lint or typecheck on commit.
     "*": "vp fmt --no-error-on-unmatched-pattern",
   },
   fmt: {
@@ -130,6 +142,8 @@ export default defineConfig({
       "pnpm-lock.yaml",
       "*.tsbuildinfo",
       "**/routeTree.gen.ts",
+      "**/*.graphql.ts",
+      "packages/source-control-github/schema/**",
       "*.icon/**",
     ],
     sortPackageJson: {},
@@ -143,6 +157,8 @@ export default defineConfig({
       "pnpm-lock.yaml",
       "*.tsbuildinfo",
       "**/routeTree.gen.ts",
+      "**/*.graphql.ts",
+      "packages/source-control-github/schema/**",
     ],
     plugins: ["eslint", "oxc", "react", "unicorn", "typescript"],
     jsPlugins: ["./oxlint-plugin-t3code/index.ts", "@shadcn/lint"],
@@ -186,6 +202,7 @@ export default defineConfig({
       ],
       "t3code/no-global-process-runtime": "error",
       "t3code/no-inline-schema-compile": "warn",
+      "t3code/no-low-value-comments": "error",
       "t3code/no-manual-effect-runtime-in-tests": "error",
       "t3code/no-native-title-tooltip": "error",
       "t3code/no-raw-mcp-registration": "error",
@@ -235,7 +252,6 @@ export default defineConfig({
         rules: { "t3code/no-rpc-permission-bypass": ["error", { allowRawClientAccess: false }] },
       },
       {
-        // Only shared command boundaries install the session-backed permission guard.
         files: [
           "packages/client-runtime/src/state/runtime.ts",
           "packages/client-runtime/src/state/vcsAction.ts",
@@ -257,12 +273,10 @@ export default defineConfig({
         rules: { "t3code/no-rpc-permission-bypass": ["error", { allowRawClientAccess: true }] },
       },
       {
-        // Incompatible hosts cannot open a normal session; their updater uses a dedicated socket.
         files: ["packages/client-runtime/src/connection/outdatedHostUpdate.ts"],
         rules: { "t3code/no-rpc-permission-bypass": "off" },
       },
       {
-        // RPC implementation and transport test fixtures need the raw client.
         files: [
           "packages/client-runtime/src/rpc/**",
           "**/*.{test,spec}.{ts,tsx,js,jsx,mts,cts,mjs,cjs}",
@@ -270,12 +284,18 @@ export default defineConfig({
         rules: { "t3code/no-rpc-permission-bypass": "off" },
       },
       {
-        // The one place that reads the host platform to seed the injected references.
         files: ["packages/shared/src/HostProcess.ts"],
         rules: { "t3code/no-global-process-runtime": "off" },
       },
       {
-        // The registration helpers that only accept handlers built by McpToolAccess.
+        // The `t3` npm launcher is published as plain, dependency-free Node.
+        files: ["scripts/npm-launcher/**"],
+        rules: {
+          "t3code/no-global-process-runtime": "off",
+          "t3code/namespace-node-imports": "off",
+        },
+      },
+      {
         files: ["apps/server/src/mcp/McpHttpServer.ts"],
         rules: { "t3code/no-raw-mcp-registration": "off" },
       },
@@ -293,8 +313,6 @@ export default defineConfig({
         },
       },
       {
-        // The one module allowed to name lucide's pull-request glyphs; everything else picks
-        // from its vocabulary. The other import restrictions still apply here.
         files: ["apps/web/src/components/pullRequest/pullRequestIcons.tsx"],
         rules: { "eslint/no-restricted-imports": ["error", { paths: RESTRICTED_IMPORT_PATHS }] },
       },
@@ -309,19 +327,14 @@ export default defineConfig({
         rules: { "t3code/no-raw-resize-observer": "error" },
       },
       {
-        // Every class in web code must be one Tailwind generates: a typo or a class nothing
-        // declares ships silently unstyled. JS hooks use data attributes, not class names.
         files: ["apps/web/src/**"],
         rules: { "shadcn/no-unknown-classes": "error" },
       },
       {
-        // State indicators paint inward; decorative rings keep their own geometry.
         files: ["apps/web/src/**"],
         rules: { "t3code/no-outset-state-indicators": "error" },
       },
       {
-        // Colors come from theme tokens so status tones follow custom themes. components/ui
-        // has no findings and stays covered too.
         files: ["apps/web/src/**"],
         rules: { "shadcn/no-raw-colors": "error" },
       },
@@ -332,41 +345,24 @@ export default defineConfig({
         rules: { "shadcn/no-raw-colors": "off" },
       },
       {
-        // components/ui exports own their look. App code picks a variant or size instead
-        // of restyling with className; layout classes (width, flex, margin, position) stay
-        // allowed because placement belongs to the parent. components/ui is for generic
-        // primitives: a look that belongs to one feature stays in that feature's component.
         files: ["apps/web/src/**"],
         excludeFiles: ["apps/web/src/components/ui/**"],
         rules: {
-          // A className built at runtime on a ui component is one no-restyle cannot read.
           "shadcn/require-static-classes": "error",
-          // Appearance values come from the theme and Tailwind's scales. Layout stays free
-          // (placement belongs to the parent); the other entries are values no scale can hold.
           "shadcn/no-arbitrary-values": [
             "error",
             {
               allow: [
                 "layout",
-                // Which properties an element animates is per-element behaviour, like layout,
-                // not a design value; timing curves and durations still come from the theme.
                 "transition",
-                // Overlays that follow their frame's corner, which is set at runtime
-                // (floating preview) or by the element they decorate (composer outline).
                 "rounded-[inherit]",
-                // Inline chips size in em so they scale with the text they sit in
-                // (the composer honours the prompt font-size preference).
                 "gap-[0.33em]",
                 "px-[0.5em]",
                 "rounded-[0.5em]",
                 "text-[0.86em]",
-                // Project icons render from 14px to 48px and keep one proportional corner.
                 "rounded-[25%]",
-                // An emoji project icon fills its container, whatever size the parent gives it.
                 "text-[length:80cqh]",
-                // The platform's own selection colour on a selected composer chip.
                 "bg-[Highlight]",
-                // Brand marks keep their brand colours (Cursor, Grok, Claude).
                 "fill-[#26251E]",
                 "fill-[#EDECEC]",
                 "fill-[#0F0F0F]",
@@ -401,7 +397,6 @@ export default defineConfig({
     ],
     options: {
       reportUnusedDisableDirectives: "error",
-      // Revisit once Oxlint's tsgolint path can integrate with @effect/tsgo diagnostics.
       typeAware: false,
       typeCheck: false,
     },

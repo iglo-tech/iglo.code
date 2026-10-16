@@ -25,7 +25,6 @@ const stalled: EventLoopMonitor.EventLoopReadings = {
 };
 const quiet: EventLoopMonitor.EventLoopReadings = { ...stalled, delayMaxNs: ms(1_950) };
 
-// The first sample covers startup, so the monitor discards it.
 const monitor = (
   samples: Array<EventLoopMonitor.EventLoopReadings>,
   stallLog: EventLoopMonitor.StallLogOptions = { filePath: "\0", maxBytes: 1 },
@@ -49,7 +48,6 @@ describe("EventLoopMonitor", () => {
         },
       });
       yield* Effect.gen(function* () {
-        // The default stall log path cannot open, and the span must still be recorded.
         yield* monitor([stalled, quiet, stalled]);
         yield* TestClock.adjust("60 seconds");
         assert.lengthOf(spans, 0);
@@ -82,7 +80,6 @@ describe("EventLoopMonitor", () => {
       const fs = yield* FileSystem.FileSystem;
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-event-loop-" });
       const filePath = `${directory}/event-loop-stalls.ndjson`;
-      // Room for one line, so each new stall rotates the last one into the backup.
       yield* monitor([stalled, stalled, stalled, { ...stalled, delayMaxNs: ms(7_000) }], {
         filePath,
         maxBytes: 300,
@@ -117,8 +114,6 @@ describe("EventLoopMonitor", () => {
     });
     return Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      // A directory at the log path opens, but every append to it fails. The cap
-      // is large so the sink never rotates the directory out of the way.
       const filePath = yield* fs.makeTempDirectoryScoped({ prefix: "t3-event-loop-" });
       yield* monitor([stalled, stalled], { filePath, maxBytes: 1024 * 1024 });
       yield* TestClock.adjust("60 seconds");
