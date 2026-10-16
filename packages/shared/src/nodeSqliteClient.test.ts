@@ -961,3 +961,35 @@ it.effect("does not warn when the client stops its checkpoint worker", () => {
     assert.lengthOf(warnings, 0);
   }).pipe(Effect.provide(logs));
 });
+
+it.effect("releases the database file when a connection with cached statements closes", () =>
+  Effect.gen(function* () {
+    const directory = yield* Effect.promise(() =>
+      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-sqlite-close-")),
+    );
+    const filename = NodePath.join(directory, "state.sqlite");
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`PRAGMA journal_mode = WAL`;
+      yield* sql`CREATE TABLE kept (value TEXT)`;
+      yield* sql`INSERT INTO kept VALUES ('kept')`;
+      yield* sql`SELECT value FROM kept`;
+    }).pipe(Effect.provide(SqliteClient.layer({ filename })));
+
+    // Nothing else may hold the file once the writer has closed.
+    const exclusive = new NodeSqlite.DatabaseSync(filename);
+    exclusive.exec("PRAGMA busy_timeout = 0");
+    exclusive.exec("PRAGMA locking_mode = EXCLUSIVE");
+    exclusive.exec("BEGIN EXCLUSIVE");
+    exclusive.exec("COMMIT");
+    exclusive.close();
+
+    // A cleanly closed WAL database has no -shm file, which a read-only open needs.
+    const rows = yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      return yield* sql<{ readonly value: string }>`SELECT value FROM kept`;
+    }).pipe(Effect.provide(SqliteClient.layer({ filename, readonly: true })));
+    assert.deepEqual(rows, [{ value: "kept" }]);
+    yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));
+  }),
+);

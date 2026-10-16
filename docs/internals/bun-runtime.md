@@ -81,6 +81,14 @@ must not be generalized to plugin/catalog databases. Matching engines do not pro
 shared locking; preserve binding ownership, atomic core persistence and separate
 plugin transactions.
 
+Bun's `node:sqlite` diverges from Node in two places the client absorbs. Closing a
+connection keeps the file open until its prepared statements are collected, and the
+binding has no `finalize`, so the client drops its statement cache and collects on
+close. A read-only open of a WAL database without a `-shm` file, which is what a
+cleanly stopped server leaves, is refused, so an existing file reopens as a
+`query_only` connection. Both break offline maintenance (`t3 doctor`) and usage
+readers that open another program's database in the same process.
+
 ### Subprocesses: retained spawner, inconclusive shell and launcher
 
 [#23](https://github.com/iglo-tech/iglo.code/issues/23) retains the Effect spawner.

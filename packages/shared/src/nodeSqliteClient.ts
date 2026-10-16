@@ -1,3 +1,5 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- the synchronous open needs a synchronous existence check.
+import * as NodeFS from "node:fs";
 import * as NodeSqlite from "node:sqlite";
 import * as NodeUtil from "node:util";
 import * as NodeWorkerThreads from "node:worker_threads";
@@ -46,6 +48,49 @@ export interface SqliteClientConfig {
    */
   readonly checkpointWorker?: boolean | undefined;
 }
+
+/**
+ * Bun's `node:sqlite` close waits for every prepared statement to be collected
+ * before releasing the file, and its binding has no `finalize`. Without a
+ * collection, a later connection in the same process (`t3 doctor` inspecting
+ * and then compacting) sees the database as still in use.
+ */
+const releaseClosedDatabase = () =>
+  (globalThis as { readonly Bun?: { readonly gc: (force: boolean) => void } }).Bun?.gc(true);
+
+/**
+ * Bun refuses a read-only open of a WAL database whose `-shm` file is absent,
+ * which is the state a cleanly stopped server leaves. Node creates the file and
+ * opens it. An existing database falls back to a query-only connection.
+ */
+const openDatabase = (options: SqliteClientConfig): NodeSqlite.DatabaseSync => {
+  const allowExtension = options.allowExtension ?? false;
+  if (!options.readonly) {
+    return new NodeSqlite.DatabaseSync(options.filename, { allowExtension });
+  }
+  const db = new NodeSqlite.DatabaseSync(options.filename, { readOnly: true, allowExtension });
+  try {
+    // Bun opens lazily; the first statement reports the refused open. `exec`
+    // leaves no prepared statement to delay the close below.
+    db.exec("PRAGMA schema_version");
+    return db;
+  } catch (cause) {
+    db.close();
+    const SQLITE_CANTOPEN = 14;
+    if (
+      !("Bun" in globalThis) ||
+      !Predicate.hasProperty(cause, "errcode") ||
+      cause.errcode !== SQLITE_CANTOPEN ||
+      options.filename === ":memory:" ||
+      !NodeFS.existsSync(options.filename)
+    ) {
+      throw cause;
+    }
+    const writable = new NodeSqlite.DatabaseSync(options.filename, { allowExtension });
+    writable.exec("PRAGMA query_only = ON");
+    return writable;
+  }
+};
 
 const ReadOnly = Context.Reference<boolean>("@t3tools/shared/nodeSqliteClient/ReadOnly", {
   defaultValue: () => false,
@@ -581,11 +626,7 @@ const make = Effect.fn("makeWithDatabase")(function* (
   const makeConnection = Effect.gen(function* () {
     const scope = yield* Effect.scope;
     const db = yield* Effect.try({
-      try: () =>
-        new NodeSqlite.DatabaseSync(options.filename, {
-          readOnly: options.readonly ?? false,
-          allowExtension: options.allowExtension ?? false,
-        }),
+      try: () => openDatabase(options),
       catch: (cause) =>
         new SqlError({
           reason: classifyError(cause, "Failed to open database", "open"),
@@ -594,7 +635,10 @@ const make = Effect.fn("makeWithDatabase")(function* (
     yield* Scope.addFinalizer(
       scope,
       Effect.try({
-        try: () => db.close(),
+        try: () => {
+          db.close();
+          releaseClosedDatabase();
+        },
         catch: (cause) =>
           new SqlError({
             reason: classifyError(cause, "Failed to close database", "close"),
@@ -633,6 +677,9 @@ const make = Effect.fn("makeWithDatabase")(function* (
       timeToLive: (exit) =>
         Exit.isSuccess(exit) ? (options.prepareCacheTTL ?? Duration.minutes(10)) : Duration.zero,
     });
+
+    // Runs before the close finalizer above, so no cached statement keeps the file open.
+    yield* Scope.addFinalizer(scope, Cache.invalidateAll(prepareCache));
 
     const statementFor = (sql: string, params: ReadonlyArray<unknown>) =>
       hasLargeBinding(params) ? prepare(sql) : Cache.get(prepareCache, sql);
