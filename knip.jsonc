@@ -37,7 +37,7 @@
       "ignoreDependencies": ["@effect/platform-node-shared", "@t3tools/web", "@napi-rs/keyring"],
     },
     "apps/web": {
-      // Vitest loads this through the per-file @vitest-environment directive.
+      // The fork's plugin integration tests load this through createRequire.
       "ignoreDependencies": ["jsdom"],
       // Worktree setup (scripts/setup-worktree.ts) runs this directly.
       "entry": ["scripts/warm-dep-cache.ts"],
