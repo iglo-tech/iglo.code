@@ -52,6 +52,7 @@ import * as Stream from "effect/Stream";
 import { startEnvironment } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Projects from "../project/ProjectService.ts";
+import * as ServerConfig from "../config.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
@@ -515,6 +516,7 @@ it.live("inspection excludes abandoned background work after native rollback", (
       ).pipe(
         Effect.provide(context.pipe(Context.merge(managerContext))),
         Effect.provideService(Ids.IdAllocatorV2, Context.get(deps, Ids.IdAllocatorV2)),
+        Effect.provideService(ServerConfig.ServerConfig, s.config),
       );
       yield* Context.get(rollbackContext, Rollback.CheckpointRollbackServiceV2).execute({
         threadId,

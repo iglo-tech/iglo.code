@@ -1,7 +1,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useThreadProjectId } from "../state/entities";
 
@@ -23,13 +23,10 @@ export function useRouteProject(): RouteProject | null {
   const environmentId = "environmentId" in params ? params.environmentId : undefined;
   const threadId = "threadId" in params ? params.threadId : undefined;
   const draftId = "draftId" in params ? params.draftId : undefined;
-  const threadRef = useMemo(
-    () =>
-      environmentId !== undefined && threadId !== undefined
-        ? scopeThreadRef(EnvironmentId.make(environmentId), ThreadId.make(threadId))
-        : null,
-    [environmentId, threadId],
-  );
+  const threadRef =
+    environmentId !== undefined && threadId !== undefined
+      ? scopeThreadRef(EnvironmentId.make(environmentId), ThreadId.make(threadId))
+      : null;
   const threadProjectId = useThreadProjectId(threadRef);
   const draftEnvironmentId = useComposerDraftStore((store) =>
     draftId === undefined
@@ -54,13 +51,10 @@ export function useRouteProject(): RouteProject | null {
         : environmentId !== undefined && pluginProjectId !== undefined
           ? [EnvironmentId.make(environmentId), ProjectId.make(pluginProjectId)]
           : [undefined, undefined];
-  const current = useMemo<RouteProject | null>(
-    () =>
-      environment === undefined || project === undefined
-        ? null
-        : { environmentId: environment, projectId: project },
-    [environment, project],
-  );
+  const current: RouteProject | null =
+    environment === undefined || project === undefined
+      ? null
+      : { environmentId: environment, projectId: project };
   useEffect(() => {
     if (environment !== undefined && project !== undefined) lastProjects.set(environment, project);
   }, [environment, project]);

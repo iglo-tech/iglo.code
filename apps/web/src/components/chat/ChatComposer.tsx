@@ -1669,10 +1669,10 @@ function useProviderWorkspaceSnapshotRefresh(input: {
   });
   const workspaceRefreshKeyRef = useRef<string | null>(null);
   const workspacePreviousCheckedAtRef = useRef<string | undefined>(undefined);
-  const workspaceRefreshAttemptRef = useRef<object | null>(null);
-  const workspaceBoundaryRef = useRef({ key: "", pickerOpen: false });
+  const workspaceBoundaryRef = useRef({ key: "", pickerOpen: false, generation: 0 });
   const [workspaceRefreshRetry, setWorkspaceRefreshRetry] = useState<{
     key: string;
+    generation: number;
     notBefore: number;
   } | null>(null);
   const workspaceRefreshScopeKey =
@@ -1683,25 +1683,6 @@ function useProviderWorkspaceSnapshotRefresh(input: {
     selectedProviderStatus?.workspaceSnapshots?.some(
       (snapshot) => snapshot.cwd === gitCwd && snapshot.slashCommandsPending === true,
     ) ?? false;
-  useEffect(() => {
-    const key = JSON.stringify([workspaceRefreshScopeKey, composerDraftTargetKey]);
-    const previous = workspaceBoundaryRef.current;
-    if (previous.key !== key || (workspacePickerOpen && !previous.pickerOpen)) {
-      workspaceRefreshKeyRef.current = null;
-      workspaceRefreshAttemptRef.current = null;
-      workspacePreviousCheckedAtRef.current = selectedProviderStatus?.workspaceSnapshots?.find(
-        (snapshot) => snapshot.cwd === gitCwd,
-      )?.checkedAt;
-      setWorkspaceRefreshRetry(null);
-    }
-    workspaceBoundaryRef.current = { key, pickerOpen: workspacePickerOpen };
-  }, [
-    workspaceRefreshScopeKey,
-    composerDraftTargetKey,
-    workspacePickerOpen,
-    selectedProviderStatus,
-    gitCwd,
-  ]);
   useEffect(() => {
     if (
       !workspaceSlashCommandsPending ||
@@ -1717,42 +1698,71 @@ function useProviderWorkspaceSnapshotRefresh(input: {
     );
     return () => clearTimeout(timeout);
   }, [workspaceRefreshRetry, workspaceRefreshScopeKey, workspaceSlashCommandsPending]);
-  const hadWorkspaceSnapshotRef = useRef(false);
-  useEffect(() => {
-    const hasWorkspaceSnapshot = hasCompleteProviderWorkspaceSnapshot(
-      selectedProviderStatus,
-      gitCwd,
-    );
-    if (hadWorkspaceSnapshotRef.current && !hasWorkspaceSnapshot) {
-      workspaceRefreshKeyRef.current = null;
+  // Losing a snapshot (the server dropped it) lifts the retry cooldown so the
+  // next check rescans at once.
+  const hasWorkspaceSnapshot = hasCompleteProviderWorkspaceSnapshot(selectedProviderStatus, gitCwd);
+  const [hadWorkspaceSnapshot, setHadWorkspaceSnapshot] = useState(hasWorkspaceSnapshot);
+  const [workspaceSnapshotLossCount, setWorkspaceSnapshotLossCount] = useState(0);
+  if (hadWorkspaceSnapshot !== hasWorkspaceSnapshot) {
+    setHadWorkspaceSnapshot(hasWorkspaceSnapshot);
+    if (!hasWorkspaceSnapshot) {
+      setWorkspaceSnapshotLossCount((count) => count + 1);
       setWorkspaceRefreshRetry(null);
     }
-    hadWorkspaceSnapshotRef.current = hasWorkspaceSnapshot;
-  }, [gitCwd, selectedProviderStatus]);
-  const refreshWorkspaceSnapshotIfNeeded = (retry: { key: string; notBefore: number } | null) => {
-    if (!gitCwd || !selectedProviderEntry) return;
-    const key = `${environmentId}:${selectedProviderEntry.instanceId}:${gitCwd}`;
-    if (workspaceRefreshKeyRef.current === key) return;
-    const hasWorkspaceSnapshot = hasCompleteProviderWorkspaceSnapshot(
-      selectedProviderStatus,
-      gitCwd,
-      workspacePreviousCheckedAtRef.current,
-    );
-    if (retry?.key === key && hasWorkspaceSnapshot) {
-      workspaceRefreshKeyRef.current = key;
-      setWorkspaceRefreshRetry(null);
+  }
+  const lastWorkspaceSnapshotLossRef = useRef(workspaceSnapshotLossCount);
+  const refreshWorkspaceSnapshotIfNeeded = (
+    scopeKey: string | null,
+    draftTargetKey: string,
+    pickerOpen: boolean,
+    pendingRetry: { key: string; generation: number; notBefore: number } | null,
+    snapshotLossCount: number,
+  ) => {
+    if (lastWorkspaceSnapshotLossRef.current !== snapshotLossCount) {
+      lastWorkspaceSnapshotLossRef.current = snapshotLossCount;
+      workspaceRefreshKeyRef.current = null;
+    }
+    const boundaryKey = JSON.stringify([scopeKey, draftTargetKey]);
+    const boundary = workspaceBoundaryRef.current;
+    if (boundary.key !== boundaryKey || (pickerOpen && !boundary.pickerOpen)) {
+      // A retry from an earlier boundary no longer applies; the generation
+      // retires it without a state update.
+      workspaceRefreshKeyRef.current = null;
+      workspacePreviousCheckedAtRef.current = selectedProviderStatus?.workspaceSnapshots?.find(
+        (snapshot) => snapshot.cwd === gitCwd,
+      )?.checkedAt;
+      boundary.generation += 1;
+    }
+    boundary.key = boundaryKey;
+    boundary.pickerOpen = pickerOpen;
+    const generation = boundary.generation;
+    if (scopeKey === null || !gitCwd || !selectedProviderEntry) return;
+    if (workspaceRefreshKeyRef.current === scopeKey) return;
+    const retry =
+      pendingRetry?.key === scopeKey && pendingRetry.generation === generation
+        ? pendingRetry
+        : null;
+    if (
+      retry &&
+      hasCompleteProviderWorkspaceSnapshot(
+        selectedProviderStatus,
+        gitCwd,
+        workspacePreviousCheckedAtRef.current,
+      )
+    ) {
+      workspaceRefreshKeyRef.current = scopeKey;
       return;
     }
-    if (retry?.key === key && Date.now() < retry.notBefore) return;
-    workspaceRefreshKeyRef.current = key;
-    const attempt = {};
-    workspaceRefreshAttemptRef.current = attempt;
+    if (retry && Date.now() < retry.notBefore) return;
+    workspaceRefreshKeyRef.current = scopeKey;
     const previousCheckedAt = workspacePreviousCheckedAtRef.current;
     const retryLater = () => {
-      if (workspaceRefreshAttemptRef.current !== attempt) return;
+      if (workspaceBoundaryRef.current.generation !== generation) return;
+      if (workspaceRefreshKeyRef.current !== scopeKey) return;
       workspaceRefreshKeyRef.current = null;
       setWorkspaceRefreshRetry({
-        key,
+        key: scopeKey,
+        generation,
         notBefore: Date.now() + WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS,
       });
     };
@@ -1774,14 +1784,29 @@ function useProviderWorkspaceSnapshotRefresh(input: {
   };
   const refreshWorkspaceSnapshotOnChange = useEffectEvent(refreshWorkspaceSnapshotIfNeeded);
   useEffect(() => {
-    refreshWorkspaceSnapshotOnChange(workspaceRefreshRetry);
+    refreshWorkspaceSnapshotOnChange(
+      workspaceRefreshScopeKey,
+      composerDraftTargetKey,
+      workspacePickerOpen,
+      workspaceRefreshRetry,
+      workspaceSnapshotLossCount,
+    );
   }, [
     workspaceRefreshScopeKey,
     composerDraftTargetKey,
     workspacePickerOpen,
     workspaceRefreshRetry,
+    workspaceSnapshotLossCount,
   ]);
-  return useStableCallback(() => refreshWorkspaceSnapshotIfNeeded(workspaceRefreshRetry));
+  return useStableCallback(() =>
+    refreshWorkspaceSnapshotIfNeeded(
+      workspaceRefreshScopeKey,
+      composerDraftTargetKey,
+      workspacePickerOpen,
+      workspaceRefreshRetry,
+      workspaceSnapshotLossCount,
+    ),
+  );
 }
 
 const NO_PROVIDER_MODELS: ServerProvider["models"] = [];

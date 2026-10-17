@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, PluginPageState, PluginTarget, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
 import { RenderErrorBoundary } from "../components/RenderErrorBoundary";
 import { Button } from "../components/ui/button";
@@ -62,31 +62,27 @@ export function usePluginContributions(
     status === "connected" ? "connected" : "disconnected";
   const label = environment?.label ?? environmentId;
   const stateKey = page.state === undefined ? "" : JSON.stringify(page.state);
-  const contributions = useMemo(
-    () =>
-      compiledWebPlugins.flatMap((plugin) => {
-        const descriptor = catalog?.plugins.find(
-          (item) =>
-            item.manifest.id === plugin.manifest.id &&
-            item.status === "available" &&
-            item.manifest.hostVersion === plugin.manifest.hostVersion,
-        );
-        if (descriptor === undefined) return [];
-        const bound = plugin.bind(environmentId);
-        const context = createPluginWebContext({
-          environmentId,
-          environmentLabel: label,
-          descriptor,
-          projectId,
-          threadId,
-          ...(stateKey === "" ? {} : { pageState: JSON.parse(stateKey) as PluginPageState }),
-          connection,
-          navigate,
-        });
-        return [{ ...bound, context }];
-      }),
-    [catalog, connection, environmentId, label, navigate, projectId, stateKey, threadId],
-  );
+  const contributions = compiledWebPlugins.flatMap((plugin) => {
+    const descriptor = catalog?.plugins.find(
+      (item) =>
+        item.manifest.id === plugin.manifest.id &&
+        item.status === "available" &&
+        item.manifest.hostVersion === plugin.manifest.hostVersion,
+    );
+    if (descriptor === undefined) return [];
+    const bound = plugin.bind(environmentId);
+    const context = createPluginWebContext({
+      environmentId,
+      environmentLabel: label,
+      descriptor,
+      projectId,
+      threadId,
+      ...(stateKey === "" ? {} : { pageState: JSON.parse(stateKey) as PluginPageState }),
+      connection,
+      navigate,
+    });
+    return [{ ...bound, context }];
+  });
   return { catalog, contributions, connection, status, retryCatalog };
 }
 

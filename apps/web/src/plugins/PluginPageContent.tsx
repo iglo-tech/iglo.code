@@ -1,6 +1,6 @@
 import type { PluginCatalog } from "@t3tools/contracts";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
@@ -40,22 +40,19 @@ export function PluginPageContent({
   // A page that renders its own header (PageHeader) replaces the host title bar and scrolls
   // its own content; until then (including while its module loads) the host shows the title.
   const [headers, setHeaders] = useState(0);
-  const claimHeader = useCallback(() => {
+  const claimHeader = () => {
     setHeaders((count) => count + 1);
     return () => setHeaders((count) => count - 1);
-  }, []);
+  };
   const environmentLabel = plugin?.context.environmentLabel ?? "";
-  const chrome = useMemo<PluginPageChrome>(
-    () => ({
-      electron,
-      environmentLabel,
-      showEnvironment,
-      status,
-      claimHeader,
-      ...(onRetryCatalog === undefined ? {} : { onRetryCatalog }),
-    }),
-    [electron, environmentLabel, showEnvironment, status, claimHeader, onRetryCatalog],
-  );
+  const chrome: PluginPageChrome = {
+    electron,
+    environmentLabel,
+    showEnvironment,
+    status,
+    claimHeader,
+    ...(onRetryCatalog === undefined ? {} : { onRetryCatalog }),
+  };
   const ownHeader = page !== undefined && headers > 0;
   // The fallback only renders without a page, so it always sits in the gutter-reserving scroller.
   const body =

@@ -1,5 +1,4 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import { useMemo } from "react";
 import { usePluginContributions } from "./PluginSlots";
 import type { PluginScheduleTarget } from "./scheduleTargetLogic";
 
@@ -15,28 +14,25 @@ export function usePluginScheduleTargets(
   const { contributions, connection, status } = usePluginContributions(environmentId, null, null, {
     retainWhileDisconnected,
   });
-  const targets = useMemo(
-    () =>
-      connection !== "connected" && !retainWhileDisconnected
-        ? []
-        : contributions.flatMap((plugin) =>
-            plugin.scheduleTargets
-              .filter(
-                (target) =>
-                  target.id.startsWith(`${plugin.manifest.id}.`) &&
-                  plugin.context.descriptor.manifest.server.scheduleTargets.includes(target.id),
-              )
-              .map((target): PluginScheduleTarget => ({
-                id: target.id,
-                pluginId: plugin.manifest.id,
-                title: target.title,
-                renderEditor: (props) => target.renderEditor(plugin.context, props),
-                renderHistory: (props) => target.renderHistory(plugin.context, props),
-                save: target.save,
-              })),
-          ),
-    [contributions, connection, retainWhileDisconnected],
-  );
+  const targets =
+    connection !== "connected" && !retainWhileDisconnected
+      ? []
+      : contributions.flatMap((plugin) =>
+          plugin.scheduleTargets
+            .filter(
+              (target) =>
+                target.id.startsWith(`${plugin.manifest.id}.`) &&
+                plugin.context.descriptor.manifest.server.scheduleTargets.includes(target.id),
+            )
+            .map((target): PluginScheduleTarget => ({
+              id: target.id,
+              pluginId: plugin.manifest.id,
+              title: target.title,
+              renderEditor: (props) => target.renderEditor(plugin.context, props),
+              renderHistory: (props) => target.renderHistory(plugin.context, props),
+              save: target.save,
+            })),
+        );
   // Until the catalog is known, a missing target is unknown rather than unavailable.
   return { targets, status };
 }
