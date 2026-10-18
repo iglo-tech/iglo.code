@@ -27,6 +27,7 @@ import {
   ClaudeSettings,
   CodexSettings,
   DEFAULT_SERVER_SETTINGS,
+  PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS,
   ProviderDriverKind,
   ProviderInstanceId,
   ServerSettings,

@@ -627,10 +627,8 @@ it.effect.each([
           limitRecoveryCommand(shell, false, DateTime.toEpochMillis(yield* DateTime.now)),
         );
         yield* orchestrator.resumeQueuedRuns;
-        assert.equal(
-          (yield* threads.getThreadProjection(launched.threadId)).runs[1]?.status,
-          "queued",
-        );
+        const queuedOccurrence = (yield* threads.getThreadProjection(launched.threadId)).runs[1]!;
+        assert.equal(queuedOccurrence.status, "queued");
         yield* threads.dispatch(
           limitRecoveryCommand(armed, true, DateTime.toEpochMillis(yield* DateTime.now))!,
         );
@@ -652,16 +650,16 @@ it.effect.each([
         yield* orchestrator.resumeQueuedRuns;
         yield* orchestrator.resumeQueuedRuns;
         const delivered = yield* threads.getThreadProjection(launched.threadId);
-        assert.equal(delivered.runs[1]?.status, "starting");
+        const occurrence = delivered.runs.find((run) => run.id === queuedOccurrence.id)!;
+        assert.equal(occurrence.status, "starting");
         assert.lengthOf(
           delivered.turnItems.filter(
-            (item) => item.type === "user_message" && item.runId === delivered.runs[1]?.id,
+            (item) => item.type === "user_message" && item.runId === occurrence.id,
           ),
           1,
         );
         yield* scheduled.tick();
         assert.equal((yield* tasks.list()).tasks[0]?.runCount, 1);
-        const occurrence = delivered.runs[1]!;
         yield* events.write({
           events: [
             {
