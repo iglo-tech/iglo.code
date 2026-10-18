@@ -560,6 +560,9 @@ it.live.each(modes)(
               .invoke("get", { ...test.scope, runId: started.id })
               .pipe(Effect.flatMap(decodeRun))).state,
           ).toBe("running");
+          const held = (yield* test.threads.getProjectThreadRecords(target, ["runs"])).runs.find(
+            (item) => item.status === "queued",
+          )!;
           yield* test.threads.dispatch({
             type: "queue.resume",
             threadId,
@@ -570,7 +573,8 @@ it.live.each(modes)(
             "nodes",
             "turnItems",
           ]);
-          checkpointOwner = queued.runs.find((item) => item.ordinal === 2)!;
+          // A held run that starts after newer runs moves to a later ordinal.
+          checkpointOwner = queued.runs.find((item) => item.id === held.id)!;
           expect(checkpointOwner.queueHeld).toBe(false);
           const later = DateTime.makeUnsafe(DateTime.toEpochMillis(endedAt) + 1);
           yield* test.sink.write({
@@ -639,7 +643,7 @@ it.live.each(modes)(
                   nodeId: checkpointOwner.rootNodeId!,
                   parentCheckpointId: null,
                   ordinalWithinScope: 1,
-                  appRunOrdinal: 2,
+                  appRunOrdinal: checkpointOwner.ordinal,
                   ref: CheckpointRef.make("refs/t3/resumed-checkpoint"),
                   status:
                     mode === "resume-checkpoint-current-error" ||
@@ -673,7 +677,10 @@ it.live.each(modes)(
             "nodes",
             "turnItems",
           ]);
-          const last = continued.runs.find((item) => item.ordinal === 4)!;
+          const last = continued.runs.reduce((latest, item) =>
+            item.ordinal > latest.ordinal ? item : latest,
+          );
+          expect(last.id).not.toBe(checkpointOwner.id);
           expect(last).toBeDefined();
           latestResultId = last.id;
           const later = DateTime.makeUnsafe(DateTime.toEpochMillis(endedAt) + 2);
@@ -788,7 +795,8 @@ it.live.each(modes)(
           ]);
           const queuedResult = recorded.runs.find((item) => item.id === checkpointOwner.id)!;
           const resumedResult = recorded.runs.find((item) => item.id === next.id)!;
-          expect(queuedResult.ordinal).toBeLessThan(resumedResult.ordinal);
+          // The held run started after the resumed one, so it sorts after it.
+          expect(queuedResult.ordinal).toBeGreaterThan(resumedResult.ordinal);
           expect(DateTime.toEpochMillis(queuedResult.completedAt!)).toBeGreaterThan(
             DateTime.toEpochMillis(resumedResult.completedAt!),
           );

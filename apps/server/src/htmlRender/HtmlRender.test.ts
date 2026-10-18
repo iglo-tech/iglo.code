@@ -68,7 +68,8 @@ const exitingBrowser = (exit: string) =>
       executable,
       [
         `#!${process.execPath}`,
-        `new (process.getBuiltinModule("node:net").Socket)({ fd: 3 }).on("data", (chunk) => { if (chunk.includes(0)) { ${exit} } });`,
+        // A file stream reads the CDP pipe under both Node and Bun; Bun's fd-backed Socket never emits data.
+        `process.getBuiltinModule("node:fs").createReadStream("", { fd: 3 }).on("data", (chunk) => { if (chunk.includes(0)) { ${exit} } });`,
       ].join("\n"),
     );
     yield* fileSystem.chmod(executable, 0o755);
