@@ -192,7 +192,10 @@ it.effect("a persisted fork leaves PR watching with its parent until explicitly 
       watching: false,
     });
     const stoppedFork = yield* orchestrator.getThreadShell(targetThreadId);
-    assert.deepEqual(stoppedFork?.pullRequests, fork.pullRequests);
+    // Stopping keeps the fork's own watch as news it already got, never the parent's.
+    const { endedWatch, ...stoppedLink } = stoppedFork!.pullRequests![0]!;
+    assert.deepEqual([stoppedLink], fork.pullRequests);
+    assert.equal(endedWatch?.startedAt, watchingFork.pullRequests[0].watch.startedAt);
     assert.deepEqual(stoppedFork?.pendingBackgroundTasks, []);
     assert.deepEqual(yield* orchestrator.getThreadShell(sourceThreadId), parentBefore);
   }).pipe(Effect.provide(forkCases[0]!.layer)),
