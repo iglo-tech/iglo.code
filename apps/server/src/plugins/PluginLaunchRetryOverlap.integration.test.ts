@@ -15,13 +15,13 @@ import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Tracker from "../project/WorktreeSetupTracker.ts";
 import * as Bound from "../../../../packages/plugin-host-adapter/src/BoundHost.ts";
 
+// Setup actions only run in created worktrees, so only an exact-ref launch has a
+// setup phase to fail.
 it.live.each(
   [false, true].flatMap((lost) =>
-    ["public retry", "intent recovery"].flatMap((replayPath) =>
-      ["current", "exact-ref"].map((workspaceMode) => ({ lost, replayPath, workspaceMode })),
-    ),
+    ["public retry", "intent recovery"].map((replayPath) => ({ lost, replayPath })),
   ),
-)("lost original acknowledgement plus newer retry: %o", ({ lost, replayPath, workspaceMode }) =>
+)("lost original acknowledgement plus newer retry: %o", ({ lost, replayPath }) =>
   Effect.scoped(
     Effect.gen(function* () {
       const config = {
@@ -115,10 +115,7 @@ it.live.each(
         title: "Work",
         modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test" },
         runtimeMode: "approval-required" as const,
-        workspace:
-          workspaceMode === "current"
-            ? { type: "current" as const }
-            : { type: "exact-ref" as const, ref, branch: "probe" },
+        workspace: { type: "exact-ref" as const, ref, branch: "probe" },
         instruction: "Initial work",
       };
       const launchResult = yield* bound.host.launch(input).pipe(Effect.result);

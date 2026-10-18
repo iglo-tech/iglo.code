@@ -53,7 +53,9 @@ it.live.each([
           JSON.stringify({ providers: { codex: { binaryPath: binary } } }),
         );
         const git = (...args: string[]) =>
-          spawn.string(ChildProcess.make("git", args, { cwd: config.baseDir }));
+          spawn
+            .string(ChildProcess.make("git", args, { cwd: config.baseDir }))
+            .pipe(Effect.map((x) => x.trim()));
         yield* git("init", "-b", "main");
         yield* git(
           "-c",
@@ -65,6 +67,7 @@ it.live.each([
           "-m",
           "base",
         );
+        const head = yield* git("rev-parse", "HEAD");
         const gate = `${config.baseDir}/gate`;
         yield* spawn.exitCode(ChildProcess.make("mkfifo", [gate]));
         const acquired = yield* Deferred.make<Host["Service"]>();
@@ -102,7 +105,7 @@ it.live.each([
                           model: "gpt-5.4",
                         },
                         runtimeMode: "approval-required",
-                        workspace: { type: "current" },
+                        workspace: { type: "exact-ref", ref: head, branch: "scheduled/child" },
                         instruction: "Start after setup",
                       })
                       .pipe(Effect.asVoid),

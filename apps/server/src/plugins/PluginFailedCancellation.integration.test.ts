@@ -15,6 +15,8 @@ import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { startEnvironment } from "./PluginHost.testkit.ts";
 import * as Startup from "../serverRuntimeStartup.ts";
 
@@ -79,6 +81,23 @@ it.live.each([
   Effect.scoped(
     Effect.gen(function* () {
       const s = yield* fixture;
+      const spawn = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const git = (...args: string[]) =>
+        spawn
+          .string(ChildProcess.make("git", args, { cwd: s.config.baseDir }))
+          .pipe(Effect.map((x) => x.trim()));
+      yield* git("init", "-b", "main");
+      yield* git(
+        "-c",
+        "user.name=Review",
+        "-c",
+        "user.email=review@example.invalid",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "base",
+      );
+      const head = yield* git("rev-parse", "HEAD");
       yield* s.projects.update({
         projectId: s.projectId,
         commandId: CommandId.make("fail-script"),
@@ -96,11 +115,11 @@ it.live.each([
       const input = {
         environmentId: s.bound.host.environmentId,
         projectId: s.projectId,
-        commandId: CommandId.make("failed-current"),
+        commandId: CommandId.make("failed-launch"),
         title: "Fail then stop",
         modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "fixture" },
         runtimeMode: "approval-required" as const,
-        workspace: { type: "current" as const },
+        workspace: { type: "exact-ref" as const, ref: head, branch: "failed/launch" },
       };
       expect((yield* s.bound.host.launch(input).pipe(Effect.result))._tag).toBe("Failure");
       const target = (yield* s.bound.host.reconcile({

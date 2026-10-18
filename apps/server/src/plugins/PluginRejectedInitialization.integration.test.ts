@@ -146,6 +146,22 @@ it.live.each(["healthy", "acquire-error", "contribution-mismatch"] as const)(
         const gate = config.baseDir + "/setup-gate";
         const spawn = yield* ChildProcessSpawner.ChildProcessSpawner;
         yield* spawn.exitCode(ChildProcess.make("mkfifo", [gate]));
+        const git = (...args: string[]) =>
+          spawn
+            .string(ChildProcess.make("git", args, { cwd: config.baseDir }))
+            .pipe(Effect.map((x) => x.trim()));
+        yield* git("init", "-b", "main");
+        yield* git(
+          "-c",
+          "user.name=Review",
+          "-c",
+          "user.email=review@example.invalid",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "base",
+        );
+        const head = yield* git("rev-parse", "HEAD");
         yield* Context.get(first.context, Projects.ProjectService).create({
           projectId,
           commandId: CommandId.make("project"),
@@ -178,7 +194,7 @@ it.live.each(["healthy", "acquire-error", "contribution-mismatch"] as const)(
               title: "Startup",
               modelSelection: selection,
               runtimeMode: "approval-required",
-              workspace: { type: "current" },
+              workspace: { type: "exact-ref", ref: head, branch: "startup/held" },
               instruction: "Held until setup",
             });
             yield* Deferred.succeed(threadReady, result.threadId);

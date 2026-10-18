@@ -6,6 +6,8 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { PluginError, type PluginCommandReceipt } from "@t3tools/plugin-host-contract/schema";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
@@ -58,6 +60,23 @@ it.live.each([
           traceTimingEnabled: false,
         };
         const fs = yield* FileSystem.FileSystem;
+        const spawn = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const git = (...args: string[]) =>
+          spawn
+            .string(ChildProcess.make("git", args, { cwd: config.baseDir }))
+            .pipe(Effect.map((x) => x.trim()));
+        yield* git("init", "-b", "main");
+        yield* git(
+          "-c",
+          "user.name=Review",
+          "-c",
+          "user.email=review@example.invalid",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "base",
+        );
+        const head = yield* git("rev-parse", "HEAD");
         yield* fs.writeFileString(
           config.settingsPath,
           JSON.stringify({
@@ -122,7 +141,7 @@ it.live.each([
                     model: "fixture",
                   },
                   runtimeMode: "approval-required",
-                  workspace: { type: "current" },
+                  workspace: { type: "exact-ref", ref: head, branch: "failed/init" },
                 })
                 .pipe(Effect.result);
               expect(result._tag).toBe("Failure");
@@ -236,7 +255,7 @@ it.live.each([
             title: "Failed initialization work",
             modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "fixture" },
             runtimeMode: "approval-required",
-            workspace: { type: "current" },
+            workspace: { type: "exact-ref", ref: head, branch: "failed/init" },
           });
           expect(explicit.status).toBe("accepted");
           expect(yield* fs.exists(marker)).toBe(true);
