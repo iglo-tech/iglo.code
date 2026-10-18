@@ -23,6 +23,7 @@ import {
   LOCAL_DEVICE_HOST_ID,
   type ThreadId,
 } from "@t3tools/contracts";
+import { SshCommandError } from "@t3tools/ssh/errors";
 import * as FileSystem from "effect/FileSystem";
 import { resolveBunExecutable, bunRuntimeUnavailableMessage } from "@t3tools/shared/bunRuntime";
 import * as Path from "effect/Path";
@@ -59,6 +60,28 @@ import * as Exit from "effect/Exit";
 import * as LocalDeviceHost from "./LocalDeviceHost.ts";
 
 export const DEVICE_HUB_ROUTE_PREFIX = "/api/device-hub";
+
+const sshProbeFailureMessage = (error: DeviceHost.DeviceHostError): string => {
+  const cause = error.cause;
+  if (
+    !(cause instanceof SshCommandError) ||
+    cause.exitCode === null ||
+    cause.exitCode < 1 ||
+    cause.exitCode > 254
+  )
+    return "Could not connect to this host over SSH.";
+
+  // Only the known bootstrap diagnostic is safe to expose as Bun guidance.
+  if (
+    cause.exitCode === 1 &&
+    cause.stderr
+      .split(/\r?\n/u)
+      .some((line) => line.trim().startsWith("Bun is missing from the non-interactive SSH PATH."))
+  )
+    return "Connected over SSH, but Bun is not on this host's PATH for non-interactive SSH commands.";
+
+  return `Connected over SSH, but the device host check failed (exit code ${cause.exitCode}).`;
+};
 
 const BOOT_TIMEOUT = Duration.minutes(3);
 const SCREENSHOT_TIMEOUT = Duration.seconds(20);
@@ -251,7 +274,13 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
         )
         .pipe(
           Effect.tapError((error) =>
-            setHostStatus(host.id, { status: "failed", detail: error.message }),
+            setHostStatus(host.id, {
+              status: "failed",
+              detail:
+                error._tag === "DeviceHostError" && error.step === "probe"
+                  ? sshProbeFailureMessage(error)
+                  : error.message,
+            }),
           ),
           Effect.mapError(
             (error) =>
@@ -261,7 +290,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
                   error._tag === "BunRuntimeUnavailableError"
                     ? bunRuntimeUnavailableMessage("Local device support")
                     : error.step === "probe"
-                      ? "Could not connect to this host over SSH."
+                      ? sshProbeFailureMessage(error)
                       : `Device support failed during ${error.step}.`,
                 cause: error,
               }),
@@ -306,7 +335,13 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
         )
         .pipe(
           Effect.tapError((error) =>
-            setHostStatus(host.id, { status: "failed", detail: error.message }),
+            setHostStatus(host.id, {
+              status: "failed",
+              detail:
+                error._tag === "DeviceHostError" && error.step === "probe"
+                  ? sshProbeFailureMessage(error)
+                  : error.message,
+            }),
           ),
           Effect.mapError(
             (error) =>
@@ -320,7 +355,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
                       : error._tag === "AgentDeviceStartError"
                         ? error.message
                         : error.step === "probe"
-                          ? "Could not connect to this host over SSH."
+                          ? sshProbeFailureMessage(error)
                           : `Device support failed during ${error.step}.`,
                 cause: error,
               }),
@@ -1036,6 +1071,8 @@ export const make = Effect.gen(function* () {
             new DeviceOperationError({
               operation: "update device tool",
               reason: "command_failed",
+              // Only the exit code goes into the shown message; npm's stderr can carry registry credentials.
+              ...(cause.exitCode !== undefined ? { exitCode: cause.exitCode } : {}),
               cause,
             }),
         ),

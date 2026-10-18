@@ -10,6 +10,7 @@ const requireCursorSdk = NodeModule.createRequire(
 export const {
   Agent,
   AuthenticationError,
+  ConfigurationError,
   createAgentPlatform,
   Cursor,
   CursorSdkError,

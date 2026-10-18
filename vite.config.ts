@@ -417,6 +417,13 @@ export default defineConfig({
         files: ["apps/web/src/components/auth/AuthSurfaceShell.tsx"],
         rules: { "shadcn/no-arbitrary-values": "off" },
       },
+      {
+        // The compiler only compiles a use* function that calls a hook; one that calls none is
+        // silently left as a plain function, so whatever it returns loses its caching.
+        files: ["apps/web/src/**/*.{ts,tsx}"],
+        excludeFiles: ["**/*.test.ts", "**/*.test.tsx"],
+        rules: { "t3code/no-hookless-use-function": "error" },
+      },
     ],
     options: {
       reportUnusedDisableDirectives: "error",

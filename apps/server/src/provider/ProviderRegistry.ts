@@ -150,16 +150,29 @@ export function upsertProviderWorkspaceSnapshot(
 }
 
 const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean => {
+  if (provider.driver === ProviderDriverKind.make("pi")) {
+    // Pi reports known auth only after RPC inventory discovery completes.
+    // An empty inventory is warning/unauthenticated; failed or interactive
+    // discovery stays ready/unknown and must keep the last known models.
+    return !(
+      provider.installed &&
+      (provider.status === "ready" || provider.status === "warning") &&
+      provider.auth.status !== "unknown"
+    );
+  }
+
   if (provider.driver === ProviderDriverKind.make("acpRegistry")) {
     // ACP Registry discovery probes return the agent's complete inventory, so
-    // a completed probe (ready and authenticated) replaces the model list —
-    // otherwise agents that rename or collapse models leave stale entries
-    // pinned forever through the snapshot cache. Readiness-only and failed
-    // probe snapshots only know the "default" placeholder and stay partial.
+    // a completed probe replaces the model list — otherwise agents that rename
+    // or collapse models leave stale entries pinned forever through the
+    // snapshot cache. Only a completed probe reports `nativeSessions`;
+    // readiness-only and failed probe snapshots only know the "default"
+    // placeholder and stay partial. Auth is no signal here: agents without
+    // sign-in stay "unknown" after every probe.
     return !(
       provider.installed &&
       provider.status === "ready" &&
-      provider.auth.status === "authenticated"
+      provider.nativeSessions !== undefined
     );
   }
 
@@ -935,13 +948,10 @@ export const layer = Layer.effect(
         : Effect.void;
       return yield* refreshMachineSnapshot.pipe(
         Effect.andThen(instance.snapshotForCwd(input.cwd)),
+        // A failed scan fails this effect, so a returned snapshot is a real
+        // inventory even while the provider's health check reports an error.
         Effect.flatMap((scopedSnapshot) =>
           Effect.gen(function* () {
-            if (
-              scopedSnapshot.status === "error" &&
-              scopedSnapshot.slashCommandsPending === undefined
-            )
-              return yield* Ref.get(providersRef);
             const now = yield* DateTime.now;
             const checkedAt = DateTime.formatIso(
               DateTime.makeUnsafe(
@@ -963,12 +973,18 @@ export const layer = Layer.effect(
                   return [yield* Ref.get(providersRef), refreshes] as const;
                 // Native providers merge accepted skills with their current
                 // commands. Other probes must not replace a newer catalog.
+                const scannedSnapshot = {
+                  ...scopedSnapshot,
+                  checkedAt,
+                  // Unless the driver reports its own command discovery,
+                  // commands come from the health check. A failed check
+                  // leaves them unknown, so keep the last ones and retry.
+                  slashCommandsPending:
+                    scopedSnapshot.slashCommandsPending ?? scopedSnapshot.status === "error",
+                };
                 const acceptedSnapshot = instance.commitWorkspaceSnapshot
-                  ? yield* instance.commitWorkspaceSnapshot(input.cwd, {
-                      ...scopedSnapshot,
-                      checkedAt,
-                    })
-                  : { ...scopedSnapshot, checkedAt };
+                  ? yield* instance.commitWorkspaceSnapshot(input.cwd, scannedSnapshot)
+                  : scannedSnapshot;
                 // The native commit can yield while Settings rebuilds an
                 // instance. Recheck identity under the live-source sync lock,
                 // so publication cannot land in its replacement's projection.
