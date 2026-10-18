@@ -17,22 +17,18 @@ import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import * as Startup from "../serverRuntimeStartup.ts";
 import * as Tracker from "../project/WorktreeSetupTracker.ts";
 import * as Recovery from "../orchestration-v2/ProviderRuntimeRecoveryService.ts";
+// Setup actions only run in created worktrees, so only an exact-ref launch has a
+// setup phase to interrupt and retry.
 it.live.each([
-  { scenario: "cancelled", workspace: "current", restartBeforeRetry: false },
-  { scenario: "cancelled", workspace: "current", restartBeforeRetry: true },
-  { scenario: "failed", workspace: "current", restartBeforeRetry: false },
-  { scenario: "released", workspace: "current", restartBeforeRetry: false },
-  { scenario: "cancelled", workspace: "exact-ref", restartBeforeRetry: false },
-  { scenario: "cancelled", workspace: "exact-ref", restartBeforeRetry: true },
-  { scenario: "failed", workspace: "exact-ref", restartBeforeRetry: false },
-  { scenario: "released", workspace: "exact-ref", restartBeforeRetry: false },
-  { scenario: "shutdown", workspace: "current", restartBeforeRetry: true },
-  { scenario: "process-loss", workspace: "current", restartBeforeRetry: true },
-  { scenario: "shutdown", workspace: "exact-ref", restartBeforeRetry: true },
-  { scenario: "process-loss", workspace: "exact-ref", restartBeforeRetry: true },
+  { scenario: "cancelled", restartBeforeRetry: false },
+  { scenario: "cancelled", restartBeforeRetry: true },
+  { scenario: "failed", restartBeforeRetry: false },
+  { scenario: "released", restartBeforeRetry: false },
+  { scenario: "shutdown", restartBeforeRetry: true },
+  { scenario: "process-loss", restartBeforeRetry: true },
 ] as const)(
-  "instructed preparation recovery: $scenario $workspace",
-  ({ scenario, workspace, restartBeforeRetry }) =>
+  "instructed preparation recovery: $scenario exact-ref",
+  ({ scenario, restartBeforeRetry }) =>
     Effect.scoped(
       Effect.gen(function* () {
         const config = {
@@ -117,10 +113,7 @@ it.live.each([
           title: "Fresh launch",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
           runtimeMode: "approval-required" as const,
-          workspace:
-            workspace === "current"
-              ? { type: "current" as const }
-              : { type: "exact-ref" as const, ref: head, branch: "fresh/owned" },
+          workspace: { type: "exact-ref" as const, ref: head, branch: "fresh/owned" },
           instruction: "First instruction",
         };
         const launch = yield* host.launch(input);
