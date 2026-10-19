@@ -58,6 +58,10 @@ it.effect.each(["delete", "legacy orphan"] as const)(
                       launches.push(input);
                     }).pipe(Effect.andThen(Effect.die("Recovery must not launch prompt work"))),
                 }),
+                Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+                  namedProjectsRoot: "/projects",
+                  isScratchProject: () => Effect.succeed(false),
+                }),
                 Layer.mock(ThreadManagementService.ThreadManagementService)({}),
                 Layer.mock(SecretRequests.SecretRequests)({}),
                 NodeCrypto.layer,
