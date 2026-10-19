@@ -48,6 +48,7 @@ import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
@@ -397,6 +398,7 @@ export const layer = Layer.effect(
     const crypto = yield* Crypto.Crypto;
     const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+    const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
     const secretRequests = yield* SecretRequests.SecretRequests;
     const scheduler = yield* Scheduler.Scheduler;
     const targets = yield* Effect.serviceOption(ScheduleTargets.ScheduleTargets);
@@ -1300,6 +1302,11 @@ export const layer = Layer.effect(
                 return { token, secret, secretChanged };
               })
             : { token: null, secret: null, secretChanged: true };
+        const workspaceStrategy: ScheduledTask["workspaceStrategy"] =
+          input.workspaceStrategy.type === "worktree" &&
+          (yield* managedFolders.isScratchProject(input.projectId))
+            ? { type: "root" }
+            : input.workspaceStrategy;
         const scheduleUnchanged =
           existingTask !== null &&
           existingTask.enabled === input.enabled &&
@@ -1315,7 +1322,7 @@ export const layer = Layer.effect(
           schedule,
           projectId: input.projectId,
           threadId: input.threadId ?? null,
-          workspaceStrategy: input.workspaceStrategy,
+          workspaceStrategy,
           modelSelection: input.modelSelection,
           runtimeMode: input.runtimeMode,
           interactionMode: input.interactionMode,
@@ -1693,8 +1700,9 @@ export const layer = Layer.effect(
         // because the delivery log is trimmed. A rate-limited delivery stays
         // held on the relay, so it must give up its claim or the next pass
         // would treat it as already delivered.
+        let claimAcquired = false;
         const releaseClaim = <A>(result: A) =>
-          request.relayDeliveryId === undefined
+          !claimAcquired || request.relayDeliveryId === undefined
             ? Effect.succeed(result)
             : sql`
                 DELETE FROM scheduled_task_webhook_relay_deliveries
@@ -1722,6 +1730,7 @@ export const layer = Layer.effect(
                 yield* observe("duplicate");
                 return { _tag: "accepted" as const, deliveryId, outcome: "duplicate" as const };
               }
+              claimAcquired = true;
               yield* sql`
                 DELETE FROM scheduled_task_webhook_relay_deliveries
                 WHERE seen_at < ${iso(DateTime.subtract(now, { hours: 48 }))}
@@ -1879,8 +1888,10 @@ export const layer = Layer.effect(
               Effect.ensuring(release),
               Effect.forkIn(serviceScope),
             );
+            // Dispatch owns the accepted delivery now; retries must keep its claim.
+            claimAcquired = false;
             return { _tag: "accepted" as const, deliveryId, outcome: "accepted" as const };
-          }),
+          }).pipe(Effect.onError(() => releaseClaim(undefined))),
         );
       });
 

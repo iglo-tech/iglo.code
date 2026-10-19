@@ -8,6 +8,7 @@ import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
+// Effect wraps this raw Node HTTP server after its startup and write-error guards attach.
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 
@@ -33,7 +34,10 @@ import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
 import { withUntracedRequests } from "./http.ts";
 import * as ServerHttp from "./http.ts";
-import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
+import {
+  guardHttpResponseWriteErrors,
+  rejectRequestsUntilServing,
+} from "./httpResponseErrorGuard.ts";
 import * as RpcHttpServer from "./rpcHttpServer.ts";
 import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
@@ -294,11 +298,14 @@ const layerRelayClient = Layer.unwrap(
 const layerHttpServer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
-    return RpcHttpServer.layer(() => guardHttpResponseWriteErrors(NodeHttp.createServer()), {
-      host: config.host ?? "127.0.0.1",
-      port: config.port,
-      gracefulShutdownTimeout: HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS,
-    });
+    return RpcHttpServer.layer(
+      () => rejectRequestsUntilServing(guardHttpResponseWriteErrors(NodeHttp.createServer())),
+      {
+        host: config.host ?? "127.0.0.1",
+        port: config.port,
+        gracefulShutdownTimeout: HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS,
+      },
+    );
   }),
 );
 
