@@ -47,14 +47,32 @@ import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderRepl
 const decodeWorkflowRun = Schema.decodeUnknownEffect(WorkflowRun);
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
+/**
+ * Pipe-backed stand-in for Bun's PTY. The shell leads its own process group so
+ * signals reach the scripts it runs, as a terminal session's hangup does;
+ * signalling only the shell would orphan a script blocked on a gate.
+ */
 const scriptRuntime: typeof BunPtyRuntime.Service = {
   spawn: (command, options) => {
     const child = NodeChildProcess.spawn(command[0]!, command.slice(1), {
       cwd: options.cwd,
       env: options.env,
       stdio: "pipe",
+      detached: true,
     });
-    if (child.pid === undefined) throw new Error("Setup script did not start.");
+    const pid = child.pid;
+    if (pid === undefined) throw new Error("Setup script did not start.");
+    const signalGroup = (signal: NodeJS.Signals) => {
+      try {
+        process.kill(-pid, signal);
+      } catch (cause) {
+        // The group is gone; macOS reports EPERM when only zombies remain in it.
+        const code = (cause as NodeJS.ErrnoException).code;
+        if (code !== "ESRCH" && code !== "EPERM") throw cause;
+      }
+    };
+    // A session ends with a hangup to whatever the shell left running.
+    child.once("exit", () => signalGroup("SIGHUP"));
     const terminal = {
       write: (data: string) => {
         child.stdin.write(data.replaceAll("\r", "\n"));
@@ -70,13 +88,13 @@ const scriptRuntime: typeof BunPtyRuntime.Service = {
       child.once("close", (code) => resolve(code ?? 0));
     });
     return {
-      pid: child.pid,
+      pid,
       terminal,
       exited,
       get signalCode() {
         return child.signalCode;
       },
-      kill: (signal) => process.kill(child.pid!, signal),
+      kill: (signal) => signalGroup(signal as NodeJS.Signals),
     };
   },
 };
