@@ -982,6 +982,8 @@ export const layer = Layer.effect(
                 creationSource: active.creationSource,
               });
             } else {
+              // The stored selection only seeds fresh threads. A bound run
+              // follows the thread's current provider, so it passes none.
               return yield* threadManagement.sendToThread({
                 projectId: active.projectId,
                 commandId,
@@ -990,7 +992,6 @@ export const layer = Layer.effect(
                 scheduledTaskId: active.id,
                 text: prompt,
                 attachments: [],
-                modelSelection: active.modelSelection,
                 // Scheduled prompts must not interrupt tools in the bound thread.
                 mode: "queue",
                 createdBy: active.createdBy,

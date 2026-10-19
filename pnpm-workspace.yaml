@@ -45,10 +45,14 @@ catalog:
   "@tailwindcss/oxide": 4.3.3
   "@tailwindcss/vite": 4.3.3
   "@types/node": 24.12.4
+  "@types/react": ~19.3.0
+  "@types/react-dom": ~19.3.0
   "@types/ws": 8.18.2
   effect: 4.0.5
   jose: 6.2.2
   lightningcss: 1.33.0
+  react: 19.3.0
+  react-dom: 19.3.0
   tailwindcss: 4.3.3
   typescript: 7.0.2
   undici: 8.11.2

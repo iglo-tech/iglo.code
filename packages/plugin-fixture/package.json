@@ -14,10 +14,10 @@
   "dependencies": {
     "@t3tools/plugin-host-contract": "workspace:*",
     "effect": "catalog:",
-    "react": "19.2.6"
+    "react": "catalog:"
   },
   "devDependencies": {
-    "@types/react": "~19.3.0",
+    "@types/react": "catalog:",
     "vite-plus": "catalog:"
   }
 }
