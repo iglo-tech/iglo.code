@@ -250,6 +250,9 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
           );
         const operation = scenario === "changed-user-turn" ? "session.prompt" : "session.compact";
         entries.push(
+          // Each turn re-adds T3's MCP server in case OpenCode evicted the idle Location.
+          out("mcp.add", "<any>"),
+          reply("mcp.add", null),
           out(operation, "<any>"),
           reply(
             operation,

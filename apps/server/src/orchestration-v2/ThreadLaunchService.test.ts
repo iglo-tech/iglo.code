@@ -859,7 +859,8 @@ it.effect(
           const edited = projection.messages.find((message) => message.text === "Edited check")!;
           assert.equal(
             projection.runs.find((run) => run.userMessageId === edited.id)?.modelSelection.model,
-            "gpt-5.4",
+            // A bound delivery follows the thread's provider, not the edited selection.
+            modelSelection.model,
           );
           assert.isTrue(
             projection.messages.some((message) => message.id === MessageId.make("pending:user")),
@@ -889,70 +890,76 @@ it.effect(
   },
 );
 
-it.effect("keeps fresh queue-mode sends behind a held queue and replays admission once", () => {
-  const harness = makeHarness({ runSetup: () => Effect.never });
-  return Effect.gen(function* () {
-    const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const threads = yield* ThreadManagement.ThreadManagementService;
-    const events = yield* EventSink.EventSinkV2;
-    const launched = yield* launches.launch(
-      launchInput({ command: "held:create", thread: "held:thread", message: "Work" }),
-    );
-    const input = {
-      projectId,
-      threadId: launched.threadId,
-      commandId: CommandId.make("held:first"),
-      messageId: MessageId.make("held:first"),
-      text: "First follow-up",
-      attachments: [],
-      mode: "queue",
-      createdBy: "user",
-      creationSource: "web",
-    } as const;
-    const first = yield* threads.sendToThread(input);
-    const source = (yield* threads.getThreadProjection(launched.threadId)).runs[0]!;
-    const now = yield* DateTime.now;
-    yield* events.write({
-      events: [
-        {
-          id: EventId.make("held:stop"),
-          type: "run.updated",
-          threadId: launched.threadId,
-          runId: source.id,
-          occurredAt: now,
-          payload: { ...source, status: "interrupted", completedAt: now },
-        },
-        {
-          id: EventId.make("held:hold"),
-          type: "run.updated",
-          threadId: launched.threadId,
-          runId: first.run.id,
-          occurredAt: now,
-          payload: { ...first.run, queueHeld: true },
-        },
-      ],
-    });
-    const followup = {
-      ...input,
-      commandId: CommandId.make("held:second"),
-      messageId: MessageId.make("held:second"),
-      text: "Second follow-up",
-    };
-    const second = yield* threads.sendToThread(followup);
-    assert.equal(second.delivery, "queued");
-    assert.isTrue(second.run.queueHeld);
-    assert.equal((yield* threads.sendToThread(followup)).run.id, second.run.id);
-    assert.lengthOf((yield* threads.getThreadProjection(launched.threadId)).runs, 3);
-    yield* threads.dispatch({
-      type: "queue.resume",
-      commandId: CommandId.make("held:resume"),
-      threadId: launched.threadId,
-    });
-    const resumed = yield* threads.getThreadProjection(launched.threadId);
-    assert.equal(resumed.runs.find((run) => run.id === first.run.id)?.status, "starting");
-    assert.equal(resumed.runs.find((run) => run.id === second.run.id)?.status, "queued");
-  }).pipe(Effect.provide(harness.layer));
-});
+it.effect(
+  "keeps fresh agent queue-mode sends behind a held queue and replays admission once",
+  () => {
+    const harness = makeHarness({ runSetup: () => Effect.never });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const events = yield* EventSink.EventSinkV2;
+      const launched = yield* launches.launch(
+        launchInput({ command: "held:create", thread: "held:thread", message: "Work" }),
+      );
+      const input = {
+        projectId,
+        threadId: launched.threadId,
+        commandId: CommandId.make("held:first"),
+        messageId: MessageId.make("held:first"),
+        text: "First follow-up",
+        attachments: [],
+        mode: "queue",
+        createdBy: "user",
+        creationSource: "web",
+      } as const;
+      const first = yield* threads.sendToThread(input);
+      const source = (yield* threads.getThreadProjection(launched.threadId)).runs[0]!;
+      const now = yield* DateTime.now;
+      yield* events.write({
+        events: [
+          {
+            id: EventId.make("held:stop"),
+            type: "run.updated",
+            threadId: launched.threadId,
+            runId: source.id,
+            occurredAt: now,
+            payload: { ...source, status: "interrupted", completedAt: now },
+          },
+          {
+            id: EventId.make("held:hold"),
+            type: "run.updated",
+            threadId: launched.threadId,
+            runId: first.run.id,
+            occurredAt: now,
+            payload: { ...first.run, queueHeld: true },
+          },
+        ],
+      });
+      const followup = {
+        ...input,
+        commandId: CommandId.make("held:second"),
+        messageId: MessageId.make("held:second"),
+        text: "Second follow-up",
+        // A user's client send releases the hold; an agent's waits behind it.
+        createdBy: "agent",
+        creationSource: "mcp",
+      } as const;
+      const second = yield* threads.sendToThread(followup);
+      assert.equal(second.delivery, "queued");
+      assert.isTrue(second.run.queueHeld);
+      assert.equal((yield* threads.sendToThread(followup)).run.id, second.run.id);
+      assert.lengthOf((yield* threads.getThreadProjection(launched.threadId)).runs, 3);
+      yield* threads.dispatch({
+        type: "queue.resume",
+        commandId: CommandId.make("held:resume"),
+        threadId: launched.threadId,
+      });
+      const resumed = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(resumed.runs.find((run) => run.id === first.run.id)?.status, "starting");
+      assert.equal(resumed.runs.find((run) => run.id === second.run.id)?.status, "queued");
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
 
 it.effect("preserves an existing 400-message automation backlog and ordinary queued input", () => {
   const harness = makeHarness({ runSetup: () => Effect.never });
@@ -1081,7 +1088,7 @@ it.effect.each(["pause", "edit", "rebind pending"] as const)(
         assert.equal(admitted.text, "Edited prompt");
         assert.equal(
           target.runs.find((run) => run.id === admitted.runId)?.modelSelection.model,
-          "gpt-5.4",
+          modelSelection.model,
         );
       }
     }).pipe(Effect.provide(Layer.provideMerge(scheduled.layer, harness.layer)));
