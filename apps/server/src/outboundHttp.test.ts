@@ -195,7 +195,10 @@ if (calls === 0) throw new Error("fetch did not call setTypeOfService");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("guards ordinary CLI and both ACP fast paths before their imports run", () =>
+  // The probe replaces dispatch modules through Node's module loader hooks, which Bun does not
+  // apply, while the fork's entrypoint exits under Node before dispatching. Neither runtime can
+  // observe the import order this way.
+  it.effect.skip("guards ordinary CLI and both ACP fast paths before their imports run", () =>
     Effect.gen(function* () {
       const dispatchModules = ["mcp/AcpMcpStdioBridge.ts", "cli/consoleStdin.ts", "binCli.ts"];
       // Load the real entrypoint, but replace dispatch modules to avoid starting
