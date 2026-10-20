@@ -27,9 +27,17 @@ import type {
   ScheduledTaskWebhookDeliverySummary,
   ThreadId,
 } from "@t3tools/contracts";
-import { DEFAULT_WEBHOOK_PROMPT } from "@t3tools/client-runtime/scheduled-task-webhook";
+import {
+  DEFAULT_WEBHOOK_PROMPT,
+  emptyWebhookFilterDraft,
+  parseWebhookFilterDrafts,
+  removeWebhookFilterDraft,
+  WEBHOOK_FILTER_OPS,
+  type WebhookFilterDraft,
+} from "@t3tools/client-runtime/scheduled-task-webhook";
 import {
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
+  MAX_WEBHOOK_FILTERS,
   MIN_SCHEDULED_TASK_INTERVAL_MS,
   ProviderInstanceId,
   resolveEnvironmentMachineKind,
@@ -155,7 +163,102 @@ const EMPTY_DRAFT: DraftState = {
   ...WEBHOOK_SIGNATURE_DEFAULTS,
   signatureSecret: "",
   maxDeliveryAgeMinutes: "",
+  filters: [],
+  savedFilters: [],
 };
+
+function WebhookFiltersField({
+  filters,
+  onChange,
+}: {
+  filters: ReadonlyArray<WebhookFilterDraft>;
+  onChange: (filters: ReadonlyArray<WebhookFilterDraft>) => void;
+}) {
+  const update = (index: number, patch: Partial<WebhookFilterDraft>) =>
+    onChange(filters.map((filter, at) => (at === index ? { ...filter, ...patch } : filter)));
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <Label>Filters</Label>
+          <p className="text-sm text-muted-foreground">
+            Run only when every filter matches. Other requests are logged as filtered. Separate “is
+            one of” values with commas; a value can't contain a comma.
+          </p>
+        </div>
+        <Button
+          className="shrink-0"
+          variant="outline"
+          size="sm"
+          disabled={filters.length >= MAX_WEBHOOK_FILTERS}
+          onClick={() => onChange([...filters, emptyWebhookFilterDraft()])}
+        >
+          <PlusIcon />
+          Add filter
+        </Button>
+      </div>
+      {filters.map((filter, index) => (
+        // Always stacked: the dialog stays narrow on wide windows, so a single line
+        // would cut off typical paths and values. The grid wrappers size each control
+        // without restyling it; a grid item stretches to its minmax(0, 1fr) track.
+        <div key={filter.id} className="space-y-2 pt-1">
+          <div className="flex items-center gap-2">
+            <div className="grid min-w-0 flex-1 grid-cols-1">
+              <Input
+                aria-label={`Filter ${index + 1} path`}
+                placeholder="body.action"
+                value={filter.path}
+                onChange={(event) => update(index, { path: event.target.value })}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove filter ${index + 1}`}
+              onClick={() => onChange(removeWebhookFilterDraft(filters, filter.id))}
+            >
+              <Trash2Icon />
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={filter.op}
+              onValueChange={(op) => {
+                const known = WEBHOOK_FILTER_OPS.find((option) => option.op === op);
+                if (known) update(index, { op: known.op });
+              }}
+            >
+              <div className="grid w-44 shrink-0 grid-cols-1">
+                <SelectTrigger size="sm" aria-label={`Filter ${index + 1} test`}>
+                  <SelectValue>
+                    {WEBHOOK_FILTER_OPS.find((option) => option.op === filter.op)?.label}
+                  </SelectValue>
+                </SelectTrigger>
+              </div>
+              <SelectPopup>
+                {WEBHOOK_FILTER_OPS.map((option) => (
+                  <SelectItem key={option.op} value={option.op}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            {filter.op === "exists" ? null : (
+              <div className="grid min-w-0 flex-1 grid-cols-1">
+                <Input
+                  aria-label={`Filter ${index + 1} value`}
+                  placeholder={filter.op === "in" ? "opened, reopened" : "opened"}
+                  value={filter.value}
+                  onChange={(event) => update(index, { value: event.target.value })}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function Field({
   label,
@@ -190,11 +293,7 @@ function splitModelKey(value: string): ModelSelection | null {
   };
 }
 
-function scheduleTimeZoneLabel(timeZone: string | undefined) {
-  return timeZone === "Etc/UTC" ? "UTC" : timeZone;
-}
-
-export function scheduleLabel(schedule: ScheduledTaskSchedule, timeZone?: string): string {
+export function scheduleLabel(schedule: ScheduledTaskSchedule): string {
   if (schedule.type === "webhook") return "On webhook";
   if (schedule.type === "interval") {
     const minutes = schedule.everyMs / 60_000;
@@ -209,8 +308,7 @@ export function scheduleLabel(schedule: ScheduledTaskSchedule, timeZone?: string
       : weekdays.length === 5 && weekdays.every((day) => day >= 1 && day <= 5)
         ? "Weekdays"
         : weekdays.map((day) => WEEKDAY_LABELS[day]).join(", ");
-  const zone = scheduleTimeZoneLabel(timeZone);
-  return `${days} at ${schedule.timeOfDay}${zone === undefined ? "" : ` ${zone}`}`;
+  return `${days} at ${schedule.timeOfDay}`;
 }
 
 /**
@@ -248,14 +346,23 @@ const DELIVERY_OUTCOME_LABELS: Record<ScheduledTaskWebhookDeliveryOutcome, strin
   disabled: "Task paused",
   rate_limited: "Rate limited",
   expired: "Too old",
+  filtered: "Filtered",
 };
 
-function deliveryOutcomeVariant(outcome: ScheduledTaskWebhookDeliveryOutcome) {
+// A newer server can report an outcome this client has no label for.
+function deliveryOutcomeLabel(outcome: string): string {
+  return Object.hasOwn(DELIVERY_OUTCOME_LABELS, outcome)
+    ? DELIVERY_OUTCOME_LABELS[outcome as ScheduledTaskWebhookDeliveryOutcome]
+    : outcome.replaceAll("_", " ");
+}
+
+function deliveryOutcomeVariant(outcome: string) {
   if (outcome === "accepted") return "success";
   if (outcome === "disabled" || outcome === "rate_limited" || outcome === "expired") {
     return "warning";
   }
-  return "error";
+  if (outcome === "dispatch_failed" || outcome === "rejected_signature") return "error";
+  return "outline";
 }
 
 function statusVariant(status: ScheduledTask["lastRunStatus"]) {
@@ -380,7 +487,6 @@ function ScheduledTaskEnvironmentList({
     return {
       environment,
       connected: index >= 0,
-      timeZone: data?.timeZone,
       tasks: data?.tasks.filter((task) =>
         matchesScheduledTaskScope(scope, environment.environmentId, task.projectId),
       ),
@@ -422,7 +528,7 @@ function ScheduledTaskEnvironmentList({
 
   return (
     <SettingsGroup>
-      {populated.map(({ environment, tasks, timeZone }) => {
+      {populated.map(({ environment, tasks }) => {
         const { primary, secondary } = settingsScopeEnvironmentLabels(environment, environments);
         const transport = environmentTransportLabel(environment);
         return (
@@ -451,7 +557,6 @@ function ScheduledTaskEnvironmentList({
               <ScheduledTaskEnvironmentRows
                 environmentId={environment.environmentId}
                 tasks={tasks}
-                timeZone={timeZone}
                 onEdit={onEdit}
               />
             ) : null}
@@ -498,12 +603,10 @@ function ScheduledTaskEnvironmentList({
 function ScheduledTaskEnvironmentRows({
   environmentId,
   tasks,
-  timeZone,
   onEdit,
 }: {
   readonly environmentId: EnvironmentId;
   readonly tasks: ReadonlyArray<ScheduledTask>;
-  readonly timeZone: string | undefined;
   readonly onEdit: (environmentId: EnvironmentId, task: ScheduledTask) => void;
 }) {
   const scheduleTargets = usePluginScheduleTargets(environmentId);
@@ -513,7 +616,6 @@ function ScheduledTaskEnvironmentRows({
       environmentId={environmentId}
       task={task}
       scheduleTargets={scheduleTargets}
-      timeZone={timeZone}
       onEdit={() => onEdit(environmentId, task)}
     />
   ));
@@ -594,7 +696,6 @@ function ScheduledTaskEnvironmentSection({
                 environmentId={environment.environmentId}
                 task={task}
                 scheduleTargets={scheduleTargets}
-                timeZone={tasksQuery.data?.timeZone}
                 onEdit={() => onEdit(environment.environmentId, task)}
               />
             ))
@@ -609,13 +710,11 @@ function ScheduledTaskRow({
   environmentId,
   task,
   scheduleTargets,
-  timeZone,
   onEdit,
 }: {
   readonly environmentId: EnvironmentId;
   readonly task: ScheduledTask;
   readonly scheduleTargets: ReturnType<typeof usePluginScheduleTargets>;
-  readonly timeZone: string | undefined;
   readonly onEdit: () => void;
 }) {
   const owner = pluginScheduleOwner(task);
@@ -677,7 +776,7 @@ function ScheduledTaskRow({
       status={
         <div className="flex flex-wrap items-center gap-2">
           <span>
-            {scheduleLabel(task.schedule, timeZone)} ·{" "}
+            {scheduleLabel(task.schedule)} ·{" "}
             {!task.enabled ? (
               "Paused"
             ) : isWebhook ? (
@@ -798,7 +897,10 @@ function WebhookDeliveriesDialog({
   readonly onClose: () => void;
 }) {
   const deliveriesQuery = useEnvironmentQuery(
-    serverEnvironment.scheduledTaskWebhookDeliveries({ environmentId, input: { id: task.id } }),
+    serverEnvironment.scheduledTaskWebhookDeliveries({
+      environmentId,
+      input: { id: task.id, acceptAnyOutcome: true },
+    }),
   );
   const [selectedId, setSelectedId] = useState<ScheduledTaskWebhookDeliverySummary["id"] | null>(
     null,
@@ -837,7 +939,7 @@ function WebhookDeliveriesDialog({
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <Badge variant={deliveryOutcomeVariant(selected.outcome)}>
-                  {DELIVERY_OUTCOME_LABELS[selected.outcome]}
+                  {deliveryOutcomeLabel(selected.outcome)}
                 </Badge>
                 <span>
                   {selected.method} · <ScheduledRelativeLabel value={selected.receivedAt} />
@@ -846,7 +948,17 @@ function WebhookDeliveriesDialog({
                   <span className="text-muted-foreground">Signature verified</span>
                 ) : null}
               </div>
-              {selected.error ? <p className="text-sm text-destructive">{selected.error}</p> : null}
+              {selected.error ? (
+                <p
+                  className={
+                    selected.outcome === "filtered"
+                      ? "text-sm text-muted-foreground"
+                      : "text-sm text-destructive"
+                  }
+                >
+                  {selected.error}
+                </p>
+              ) : null}
               <DeliveryBlock title="Prompt sent to the agent">
                 {selected.renderedPrompt ?? "No run was started for this request."}
               </DeliveryBlock>
@@ -883,12 +995,15 @@ function WebhookDeliveriesDialog({
                     onClick={() => setSelectedId(delivery.id)}
                   >
                     <Badge variant={deliveryOutcomeVariant(delivery.outcome)}>
-                      {DELIVERY_OUTCOME_LABELS[delivery.outcome]}
+                      {deliveryOutcomeLabel(delivery.outcome)}
                     </Badge>
                     <span>{delivery.method}</span>
                     <span className="text-muted-foreground">
                       <ScheduledRelativeLabel value={delivery.receivedAt} />
                     </span>
+                    {delivery.outcome === "filtered" && delivery.error ? (
+                      <span className="text-muted-foreground">{delivery.error}</span>
+                    ) : null}
                     {delivery.missingFields.length > 0 ? (
                       <span className="text-muted-foreground">
                         {delivery.missingFields.length} empty placeholder
@@ -1111,7 +1226,6 @@ function ScheduledTaskEditorForm({
     draft.editingId !== null &&
     tasksQuery.data !== null &&
     !tasksQuery.data.tasks.some((entry) => entry.id === draft.editingId);
-  const runAtZone = scheduleTimeZoneLabel(tasksQuery.data?.timeZone);
   const liveTask = tasksQuery.data
     ? (tasksQuery.data.tasks.find((entry) => entry.id === draft.editingId) ?? null)
     : task;
@@ -1209,6 +1323,11 @@ function ScheduledTaskEditorForm({
       selection === null
     ) {
       reportFailure("Scheduled task is incomplete", "Add a title, prompt, project, and model.");
+      return;
+    }
+    const parsedFilters = parseWebhookFilterDrafts(draft.filters);
+    if (draft.scheduleMode === "webhook" && "error" in parsedFilters) {
+      reportFailure("Invalid filter", parsedFilters.error);
       return;
     }
     const schedule = scheduleFromDraft(draft);
@@ -1328,7 +1447,8 @@ function ScheduledTaskEditorForm({
       </DialogHeader>
 
       <DialogPanel>
-        <fieldset disabled={saving} className="space-y-5">
+        {/* Fieldsets default to min-width: min-content, which lets one wide control widen the form past the dialog. */}
+        <fieldset disabled={saving} className="min-w-0 space-y-5">
           {!connected ? (
             <p className="text-sm text-destructive">Reconnect this environment before saving.</p>
           ) : null}
@@ -1579,7 +1699,8 @@ function ScheduledTaskEditorForm({
                 minute.
               </p>
             ) : null}
-            <div className="flex items-center justify-between gap-2">
+            {/* Wraps the toggle below the label when both don't fit, as on phones. */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>Schedule</Label>
               <ToggleGroup
                 aria-label="Schedule type"
@@ -1632,6 +1753,10 @@ function ScheduledTaskEditorForm({
                     }
                   />
                 </Field>
+                <WebhookFiltersField
+                  filters={draft.filters}
+                  onChange={(filters) => setDraft((current) => ({ ...current, filters }))}
+                />
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 space-y-1">
                     <Label htmlFor="scheduled-task-signature">Require signature</Label>
@@ -1729,9 +1854,6 @@ function ScheduledTaskEditorForm({
                       setDraft((current) => ({ ...current, timeOfDay: event.target.value }))
                     }
                   />
-                  {runAtZone === undefined ? null : (
-                    <span className="text-xs text-muted-foreground">{runAtZone}</span>
-                  )}
                   <span className="text-xs text-muted-foreground">on</span>
                 </div>
                 <ToggleGroup

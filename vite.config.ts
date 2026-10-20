@@ -261,6 +261,13 @@ export default defineConfig({
         rules: { "t3code/prefer-effect-fn": "off" },
       },
       {
+        files: ["apps/web/**/*.test.{ts,tsx}"],
+        // The fork's plugin tests render through react-test-renderer and jsdom, outside the
+        // browser runner that apps/web/test/render.tsx serves.
+        excludeFiles: ["apps/web/integration/**", "apps/web/src/plugins/workflowsEditor.test.tsx"],
+        rules: { "t3code/require-disposable-render": "error" },
+      },
+      {
         files: ["apps/**/src/**", "packages/**/src/**"],
         excludeFiles: DOM_TEST_ENVIRONMENT_ALLOWLIST,
         rules: { "t3code/no-dom-test-environment": "error" },

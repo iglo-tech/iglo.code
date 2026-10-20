@@ -501,16 +501,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     var(--app-scrollbar-width) 100%;
 }
 
-@utility timeline-scroll-bottom-fade {
-  --virtualized-scroll-fade-mask: linear-gradient(
-    to bottom,
-    black 0,
-    black calc(100% - var(--timeline-composer-overlay-height) - 0.75rem),
-    transparent calc(100% - var(--timeline-composer-overlay-height)),
-    transparent 100%
-  );
-}
-
 /* Stage-channel art needs a mask and pseudo-element gradient, so keep the
    behavior composable without tying it to the global components layer. */
 @utility sidebar-stage-backdrop {
@@ -2068,7 +2058,7 @@ code {
 }
 
 .chat-markdown pre::-webkit-scrollbar {
-  height: 7px;
+  height: var(--app-scrollbar-width);
 }
 
 .chat-markdown pre::-webkit-scrollbar-thumb {
@@ -2130,7 +2120,7 @@ code {
 .chat-markdown th,
 .chat-markdown td {
   padding: 0.45rem 0.75rem;
-  text-align: center;
+  text-align: left;
 }
 
 .chat-markdown thead th {
