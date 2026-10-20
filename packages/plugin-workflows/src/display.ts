@@ -25,27 +25,26 @@ const decodeCatalog = Schema.decodeUnknownEffect(Schema.Array(CatalogEntry));
 
 // Redact authored text in one host call. Identities, discriminants and protocol
 // values remain usable even when a configured secret happens to equal one.
-const redact = <A>(
+const redact = Effect.fn("WorkflowDisplay.redact")(function* <A>(
   host: Host["Service"],
   threadIds: ReadonlyArray<PluginTarget["threadId"]>,
   project: (text: Text) => A,
-) =>
-  Effect.gen(function* () {
-    const texts: string[] = [];
-    project((value) => {
-      texts.push(value);
-      return value;
-    });
-    const visible = yield* host
-      .redact({
-        text: encodeTexts(texts),
-        format: "json",
-        threadIds,
-      })
-      .pipe(Effect.flatMap(decodeTexts));
-    let index = 0;
-    return project((_value, limit = 4_000) => visible[index++]!.slice(0, limit));
+) {
+  const texts: string[] = [];
+  project((value) => {
+    texts.push(value);
+    return value;
   });
+  const visible = yield* host
+    .redact({
+      text: encodeTexts(texts),
+      format: "json",
+      threadIds,
+    })
+    .pipe(Effect.flatMap(decodeTexts));
+  let index = 0;
+  return project((_value, limit = 4_000) => visible[index++]!.slice(0, limit));
+});
 
 const title = (value: string, text: Text, limit = 4_000) => text(value, limit).trim();
 const source = (value: Run["source"], text: Text) =>

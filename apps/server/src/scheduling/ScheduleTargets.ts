@@ -50,24 +50,23 @@ export const layer = Layer.effect(
               if (targets.get(id) === invoke) targets.delete(id);
             }),
         ),
-      dispatch: (target, occurrenceId, projectId) =>
-        Effect.gen(function* () {
-          const invoke = targets.get(target.id);
-          if (invoke === undefined)
-            return yield* new ScheduledTaskError({
-              message: `Schedule target ${target.id} is unavailable in this environment. Its state has been retained.`,
-            });
-          const ambient = yield* DispatchModeLimit;
-          const limits =
-            target.dispatchLimits === undefined
-              ? ambient
-              : ambient === undefined
-                ? target.dispatchLimits
-                : intersectDispatchModes(target.dispatchLimits, ambient);
-          return yield* invoke({ occurrenceId, projectId, payload: target.payload }).pipe(
-            Effect.provideService(DispatchModeLimit, limits),
-          );
-        }),
+      dispatch: Effect.fn("ScheduleTargets.dispatch")(function* (target, occurrenceId, projectId) {
+        const invoke = targets.get(target.id);
+        if (invoke === undefined)
+          return yield* new ScheduledTaskError({
+            message: `Schedule target ${target.id} is unavailable in this environment. Its state has been retained.`,
+          });
+        const ambient = yield* DispatchModeLimit;
+        const limits =
+          target.dispatchLimits === undefined
+            ? ambient
+            : ambient === undefined
+              ? target.dispatchLimits
+              : intersectDispatchModes(target.dispatchLimits, ambient);
+        return yield* invoke({ occurrenceId, projectId, payload: target.payload }).pipe(
+          Effect.provideService(DispatchModeLimit, limits),
+        );
+      }),
     });
   }),
 );

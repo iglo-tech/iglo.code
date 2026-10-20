@@ -22,6 +22,10 @@ export interface EnvironmentOption {
   machine: EnvironmentMachineKind;
 }
 
+/** "Add to another machine" stays muted until hovered: easy to find, quieter than the machines. */
+export const ADD_TO_MACHINE_LABEL_CLASS =
+  "flex min-w-0 items-center gap-1.5 opacity-55 in-data-highlighted:opacity-100 in-data-popup-open:opacity-100";
+
 export const EnvMode = Schema.Literals(["local", "worktree"]);
 export type EnvMode = typeof EnvMode.Type;
 
@@ -55,8 +59,9 @@ export function resolveEnvironmentOptionLabel(input: {
 export function shouldShowEnvironmentIndicator(input: {
   activeEnvironment: Pick<EnvironmentOption, "isPrimary"> | null;
   canPickEnvironment: boolean;
+  serverUpdateAvailable?: boolean;
 }): boolean {
-  if (input.canPickEnvironment) return true;
+  if (input.canPickEnvironment || input.serverUpdateAvailable) return true;
   return input.activeEnvironment !== null && !input.activeEnvironment.isPrimary;
 }
 
@@ -67,10 +72,13 @@ export function shouldShowComposerContextStrip(input: {
   isGitRepo: boolean;
   showEnvironmentIndicator: boolean;
   hostsRestingComposerControls: boolean;
+  serverUpdateAvailable?: boolean;
 }): boolean {
   return (
     input.hasActiveProject &&
-    (input.isDraftHeroState || input.persistInActiveThreads) &&
+    (input.isDraftHeroState ||
+      input.persistInActiveThreads ||
+      input.serverUpdateAvailable === true) &&
     (input.isGitRepo || input.showEnvironmentIndicator || input.hostsRestingComposerControls)
   );
 }
@@ -215,11 +223,10 @@ export function resolveBranchTriggerLabel(input: {
     return "Select ref";
   }
   if (effectiveEnvMode === "worktree" && !activeWorktreePath) {
-    const baseRef =
-      startFromOrigin && resolvedActiveBranchIsRemote === false
-        ? `origin/${resolvedActiveBranch}`
-        : resolvedActiveBranch;
-    return `From ${baseRef}`;
+    // Only the server can determine a local branch's configured remote.
+    return startFromOrigin && resolvedActiveBranchIsRemote === false
+      ? `From ${resolvedActiveBranch} (remote)`
+      : `From ${resolvedActiveBranch}`;
   }
   return resolvedActiveBranch;
 }

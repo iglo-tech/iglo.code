@@ -135,14 +135,13 @@ const make = Effect.gen(function* () {
       host.skills({ projectId, providerInstanceId, fresh }).pipe(Effect.result);
     return {
       providers,
-      skills: (instanceId: ProviderInstanceId) =>
-        Effect.gen(function* () {
-          const cached = cache.get(instanceId);
-          if (cached) return yield* cached;
-          const created = yield* Effect.cached(skillsOf(instanceId));
-          cache.set(instanceId, created);
-          return yield* created;
-        }),
+      skills: Effect.fn("WorkflowCatalog.skills")(function* (instanceId: ProviderInstanceId) {
+        const cached = cache.get(instanceId);
+        if (cached) return yield* cached;
+        const created = yield* Effect.cached(skillsOf(instanceId));
+        cache.set(instanceId, created);
+        return yield* created;
+      }),
     };
   });
   type Discovery = Effect.Success<ReturnType<typeof discovery>>;
@@ -506,23 +505,27 @@ const make = Effect.gen(function* () {
       Effect.ensuring(fs.remove(staging, { recursive: true, force: true }).pipe(Effect.ignore)),
     );
   });
-  const written = (scope: Scope, source: string, text: string, definition: Definition) =>
-    Effect.gen(function* () {
-      const fingerprint = yield* hash(text);
-      return yield* authoring(
-        {
-          source,
-          packaged: false,
-          fingerprint,
-          contents: text,
-          parsed: undefined,
-          definition,
-          reason: null,
-          duplicate: false,
-        },
-        scope,
-      );
-    });
+  const written = Effect.fn("WorkflowCatalog.written")(function* (
+    scope: Scope,
+    source: string,
+    text: string,
+    definition: Definition,
+  ) {
+    const fingerprint = yield* hash(text);
+    return yield* authoring(
+      {
+        source,
+        packaged: false,
+        fingerprint,
+        contents: text,
+        parsed: undefined,
+        definition,
+        reason: null,
+        duplicate: false,
+      },
+      scope,
+    );
+  });
   const save = (input: SaveInput) =>
     protect(
       "save",

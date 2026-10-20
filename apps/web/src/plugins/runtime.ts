@@ -16,10 +16,6 @@ import {
   createEnvironmentRpcCommand,
   followStreamInEnvironment,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentSupervisor } from "@t3tools/client-runtime/connection";
-import type { EnvironmentAuthorizationError } from "@t3tools/contracts";
-import type { EnvironmentRpcUnavailableError } from "@t3tools/client-runtime/rpc";
-import type { RpcClientError } from "effect/rpc/RpcClientError";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -73,16 +69,12 @@ export const attentionAtom = models.attention;
 const unavailable = (pluginId: string, message: string) =>
   new PluginError({ pluginId, operation: "client", code: "unavailable", message });
 /** Verify the selected environment still publishes this plugin API before calling it. */
-export const authorizePluginApi = (
-  plugin: { readonly id: string; readonly displayName: string },
-  environmentId: EnvironmentId,
-  method: string,
-): Effect.Effect<
-  void,
-  PluginError | EnvironmentAuthorizationError | EnvironmentRpcUnavailableError | RpcClientError,
-  EnvironmentSupervisor.EnvironmentSupervisor
-> =>
-  Effect.gen(function* () {
+export const authorizePluginApi = Effect.fn("PluginRuntime.authorizePluginApi")(
+  function* (
+    plugin: { readonly id: string; readonly displayName: string },
+    environmentId: EnvironmentId,
+    method: string,
+  ) {
     if (!supportsPlugins(yield* getInitialServerConfig()))
       return yield* new PluginError({
         pluginId: plugin.id,
@@ -105,12 +97,15 @@ export const authorizePluginApi = (
         plugin.id,
         `${plugin.displayName} is unavailable in this environment.`,
       );
-  }).pipe(
-    Effect.catchTags({
-      ConnectionBlockedError: (cause) => Effect.fail(unavailable(plugin.id, cause.message)),
-      ConnectionTransientError: (cause) => Effect.fail(unavailable(plugin.id, cause.message)),
-    }),
-  );
+  },
+  (effect, plugin) =>
+    effect.pipe(
+      Effect.catchTags({
+        ConnectionBlockedError: (cause) => Effect.fail(unavailable(plugin.id, cause.message)),
+        ConnectionTransientError: (cause) => Effect.fail(unavailable(plugin.id, cause.message)),
+      }),
+    ),
+);
 const fixture = { id: "fixture", displayName: "Reports" };
 const authorize = (environmentId: EnvironmentId, method: string) =>
   authorizePluginApi(fixture, environmentId, method);

@@ -7,11 +7,13 @@ import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Metric from "effect/Metric";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
 import * as ServerConfig from "../config.ts";
+import * as Metrics from "./Metrics.ts";
 
 // Bun's native histogram records timer lateness, already excluding the resolution.
 // It can undercount a stall by up to RESOLUTION_MS. Every stall over 3 s is caught
@@ -34,6 +36,9 @@ export interface EventLoopReadings {
     | "involuntaryContextSwitches"
   >;
   readonly rssBytes: number;
+  readonly heapUsedBytes: number;
+  /** Wall time the readings cover. */
+  readonly elapsedMs: number;
 }
 
 // Enables the delay histogram for the layer's lifetime. Each read returns the
@@ -53,6 +58,7 @@ const makeBunSampler = Effect.gen(function* () {
   let awakeTime = NodePerfHooks.performance.now();
   let wallTime = clock.currentTimeMillisUnsafe();
   let usage = process.resourceUsage();
+  let sampledAt = NodePerfHooks.performance.now();
 
   // @effect-diagnostics-next-line returnEffectInGen:off - the read effect is the result.
   return Effect.sync(() => {
@@ -63,6 +69,8 @@ const makeBunSampler = Effect.gen(function* () {
     // Rust's CLOCK_UPTIME_RAW. Their elapsed-time difference excludes sleep (and
     // forward wall-clock adjustments) from warnings. Linux's histogram clock
     // already excludes host suspension.
+    const nextSampledAt = NodePerfHooks.performance.now();
+    const memory = process.memoryUsage();
     const readings: EventLoopReadings = {
       delayMaxNs: histogram.max,
       suspendedMs:
@@ -77,12 +85,15 @@ const makeBunSampler = Effect.gen(function* () {
         involuntaryContextSwitches:
           nextUsage.involuntaryContextSwitches - usage.involuntaryContextSwitches,
       },
-      rssBytes: process.memoryUsage.rss(),
+      rssBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+      elapsedMs: nextSampledAt - sampledAt,
     };
     histogram.reset();
     awakeTime = nextAwakeTime;
     wallTime = nextWallTime;
     usage = nextUsage;
+    sampledAt = nextSampledAt;
     return readings;
   });
 });
@@ -95,6 +106,20 @@ export const stallMs = ({ delayMaxNs, suspendedMs }: EventLoopReadings) => {
   if (delayMs <= STALL_THRESHOLD_MS) return undefined;
   return delayMs;
 };
+
+// Untraced: it runs inside every 30-second tick, which already has the monitor's own span.
+const recordGauges = Effect.fnUntraced(function* (readings: EventLoopReadings) {
+  const cpuMs = (readings.usage.userCPUTime + readings.usage.systemCPUTime) / 1000;
+  yield* Metric.update(Metrics.serverResidentBytes, readings.rssBytes);
+  yield* Metric.update(Metrics.serverHeapUsedBytes, readings.heapUsedBytes);
+  yield* Metric.update(
+    Metrics.serverEventLoopDelayMax,
+    Math.max(0, Math.round(readings.delayMaxNs / 1e6 - readings.suspendedMs)),
+  );
+  if (readings.elapsedMs > 0) {
+    yield* Metric.update(Metrics.serverCpuUtilization, cpuMs / readings.elapsedMs);
+  }
+});
 
 const encodeStallLine = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 
@@ -127,6 +152,7 @@ export const layerWith = (
       );
       const tick = Effect.gen(function* () {
         const readings = yield* sample;
+        yield* recordGauges(readings);
         const delayMaxMs = stallMs(readings);
         if (delayMaxMs === undefined) return;
         const { usage, rssBytes } = readings;

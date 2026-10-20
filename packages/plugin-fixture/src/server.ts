@@ -237,34 +237,35 @@ const acquire = Effect.gen(function* () {
     scheduleTargets: [
       {
         id: "fixture.reminder",
-        invoke: ({ occurrenceId, projectId, payload }) =>
-          Effect.gen(function* () {
-            const input = yield* decodeReminder(payload).pipe(
-              Effect.mapError((cause) => error("reminder", "Invalid reminder payload.", cause)),
+        invoke: Effect.fn("FixturePlugin.reminder")(function* ({
+          occurrenceId,
+          projectId,
+          payload,
+        }) {
+          const input = yield* decodeReminder(payload).pipe(
+            Effect.mapError((cause) => error("reminder", "Invalid reminder payload.", cause)),
+          );
+          yield* sql
+            .withTransaction(
+              Effect.gen(function* () {
+                const [receipt] =
+                  yield* sql`SELECT id FROM reminder_receipts WHERE id = ${occurrenceId}`;
+                if (receipt !== undefined) return;
+                const report = yield* find(input.id);
+                if (report === undefined || report.projectId !== projectId)
+                  return yield* error(
+                    "reminder",
+                    "The report is unavailable in this schedule's project.",
+                  );
+                yield* sql`UPDATE reports SET resolved = 0 WHERE id = ${input.id} AND project_id = ${projectId}`;
+                yield* sql`INSERT INTO reminder_receipts (id) VALUES (${occurrenceId})`;
+              }),
+            )
+            .pipe(
+              Effect.mapError((cause) => error("reminder", "Could not dispatch reminder.", cause)),
             );
-            yield* sql
-              .withTransaction(
-                Effect.gen(function* () {
-                  const [receipt] =
-                    yield* sql`SELECT id FROM reminder_receipts WHERE id = ${occurrenceId}`;
-                  if (receipt !== undefined) return;
-                  const report = yield* find(input.id);
-                  if (report === undefined || report.projectId !== projectId)
-                    return yield* error(
-                      "reminder",
-                      "The report is unavailable in this schedule's project.",
-                    );
-                  yield* sql`UPDATE reports SET resolved = 0 WHERE id = ${input.id} AND project_id = ${projectId}`;
-                  yield* sql`INSERT INTO reminder_receipts (id) VALUES (${occurrenceId})`;
-                }),
-              )
-              .pipe(
-                Effect.mapError((cause) =>
-                  error("reminder", "Could not dispatch reminder.", cause),
-                ),
-              );
-            yield* PubSub.publish(changes, undefined);
-          }),
+          yield* PubSub.publish(changes, undefined);
+        }),
       },
     ],
     attention,

@@ -572,8 +572,8 @@ const make = Effect.gen(function* () {
     environmentId,
     // Durable plugin intents belong to BoundHost, not the core adapter.
     cancelPending: () => Effect.void,
-    redact: (input) =>
-      Effect.gen(function* () {
+    redact: Effect.fn("HostAdapter.redact")(
+      function* (input) {
         const configuration = yield* settings.getSettings;
         const secrets = new Set<string>();
         // Follow the settings redactor's actual secret fields, including host-keyed maps.
@@ -610,7 +610,9 @@ const make = Effect.gen(function* () {
         return input.format === "json"
           ? encodeJson(redactJson(decodeJson(input.text)))
           : redactText(input.text);
-      }).pipe(Effect.mapError((cause) => fail("redact", "Could not redact known secrets.", cause))),
+      },
+      Effect.mapError((cause) => fail("redact", "Could not redact known secrets.", cause)),
+    ),
     receipt,
     inspect,
     reconcile,
@@ -623,29 +625,26 @@ const make = Effect.gen(function* () {
         Effect.mapError((cause) => fail("projects", "Could not discover projects.", cause)),
       ),
     providers: providerList,
-    skills: (input) =>
-      Effect.gen(function* () {
-        const workspace = yield* project(input.projectId);
-        const snapshots = yield* providers.refreshWorkspaceSnapshot({
-          instanceId: input.providerInstanceId,
-          cwd: workspace.workspaceRoot,
-          fresh: input.fresh ?? true,
+    skills: Effect.fn("HostAdapter.skills")(function* (input) {
+      const workspace = yield* project(input.projectId);
+      const snapshots = yield* providers.refreshWorkspaceSnapshot({
+        instanceId: input.providerInstanceId,
+        cwd: workspace.workspaceRoot,
+        fresh: input.fresh ?? true,
+      });
+      const found = snapshots.find((provider) => provider.instanceId === input.providerInstanceId);
+      if (found === undefined)
+        return yield* new PluginError({
+          pluginId: "host",
+          code: "unavailable",
+          operation: "skills",
+          message: "The provider is absent from this environment.",
         });
-        const found = snapshots.find(
-          (provider) => provider.instanceId === input.providerInstanceId,
-        );
-        if (found === undefined)
-          return yield* new PluginError({
-            pluginId: "host",
-            code: "unavailable",
-            operation: "skills",
-            message: "The provider is absent from this environment.",
-          });
-        return (
-          found.workspaceSnapshots?.find((snapshot) => snapshot.cwd === workspace.workspaceRoot)
-            ?.skills ?? found.skills
-        );
-      }),
+      return (
+        found.workspaceSnapshots?.find((snapshot) => snapshot.cwd === workspace.workspaceRoot)
+          ?.skills ?? found.skills
+      );
+    }),
     workspace: (projectId) =>
       project(projectId).pipe(
         Effect.flatMap((project) =>
@@ -673,8 +672,8 @@ const make = Effect.gen(function* () {
       project(projectId).pipe(
         Effect.flatMap((project) => resolveWorkspaceRef(project.workspaceRoot, ref)),
       ),
-    prepareWorkspace: (input) =>
-      Effect.gen(function* () {
+    prepareWorkspace: Effect.fn("HostAdapter.prepareWorkspace")(
+      function* (input) {
         const workspace = yield* project(input.projectId);
         if (!/^[a-zA-Z0-9_-]{1,100}$/.test(input.key))
           return yield* fail("prepare", "Invalid workspace identity.");
@@ -694,14 +693,12 @@ const make = Effect.gen(function* () {
           })).worktree.path;
         const head = yield* git.resolveCommit({ cwd: path, revision: "HEAD" });
         return { path: yield* fs.realPath(path), branch, head: head.commitSha };
-      }).pipe(
-        Effect.mapError((cause) =>
-          fail("prepare", "Could not prepare the owned workspace.", cause),
-        ),
-      ),
+      },
+      Effect.mapError((cause) => fail("prepare", "Could not prepare the owned workspace.", cause)),
+    ),
     verifyWorkspace,
-    execute: (input) =>
-      Effect.gen(function* () {
+    execute: Effect.fn("HostAdapter.execute")(
+      function* (input) {
         yield* ownedWorkspace(input);
         const result = yield* processRunner.run({
           command: input.command,
@@ -718,7 +715,9 @@ const make = Effect.gen(function* () {
           stdout: result.stdout,
           stderr: result.stderr,
         };
-      }).pipe(Effect.mapError((cause) => fail("execute", "Could not execute the command.", cause))),
+      },
+      Effect.mapError((cause) => fail("execute", "Could not execute the command.", cause)),
+    ),
     verifyPullRequestHead: (input) =>
       pullRequests
         .verifyHead(input)
@@ -727,404 +726,394 @@ const make = Effect.gen(function* () {
             fail("pull-request-head", "Could not verify the current pull request head.", cause),
           ),
         ),
-    launch: (input) =>
-      Effect.gen(function* () {
-        yield* environment(input.environmentId);
-        const limit = yield* DispatchModeLimit;
-        if (
-          limit !== undefined &&
-          exceededDispatchModeLimit(limit, {
-            runtimeMode: input.runtimeMode,
-            interactionMode: limit.interactionMode,
-          }) !== undefined
-        )
-          return yield* new PluginError({
-            pluginId: "host",
-            code: "unauthorized",
-            operation: "launch",
-            message: "The requested runtime mode is broader than the command's permission ceiling.",
-          });
-        const existing = yield* receipt(input.commandId);
-        if (existing !== null) {
-          if (existing.status !== "accepted") return existing;
-          const shell = yield* threads
-            .getThreadShell(existing.threadId)
-            .pipe(
-              Effect.mapError((cause) =>
-                fail("launch", "Could not reconcile the launched thread.", cause),
-              ),
-            );
-          // Deleted or archived targets still own their committed acknowledgement.
-          // Live launches continue through preparation replay below.
-          if (shell === null || shell.deletedAt !== null || shell.archivedAt !== null)
-            return existing;
-          if (input.instruction !== undefined) {
-            const records = yield* threads
-              .getThreadRecords(existing.threadId, ["runs"])
-              .pipe(
-                Effect.mapError((cause) =>
-                  fail("launch", "Could not reconcile launch preparation.", cause),
-                ),
-              );
-            const original = records.runs.find(
-              (run) => run.userMessageId === `${input.commandId}:message`,
-            );
-            if (
-              original !== undefined &&
-              (yield* hasNewerPreparation(existing.threadId, original.id, existing.cursor).pipe(
-                Effect.mapError((cause) =>
-                  fail("launch", "Could not reconcile launch preparation.", cause),
-                ),
-              ))
-            )
-              return existing;
-          }
-        }
-        const workspace = yield* project(input.projectId);
-        if (
-          existing === null &&
-          input.workspace.type === "existing" &&
-          input.workspace.frozenHead !== undefined
-        ) {
-          const evidence = yield* verifyWorkspace({
-            projectId: input.projectId,
-            path: input.workspace.path,
-          });
-          if (evidence.head !== input.workspace.frozenHead || !evidence.clean)
-            return yield* new PluginError({
-              pluginId: "host",
-              operation: "launch",
-              code: "conflict",
-              message: "The checkout differs from its frozen launch input.",
-            });
-        }
-        const ref =
-          input.workspace.type === "exact-ref"
-            ? yield* resolveWorkspaceRef(workspace.workspaceRoot, input.workspace.ref)
-            : null;
-        const cancellation = yield* Effect.serviceOption(LaunchCancellation.LaunchCancellation);
-        const launched = yield* launch
-          .launch({
-            commandId: input.commandId,
-            ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
-            projectId: input.projectId,
-            title: input.title,
-            modelSelection: input.modelSelection,
-            runtimeMode: input.runtimeMode,
-            interactionMode:
-              input.interactionMode === "plan" || limit?.interactionMode === "plan"
-                ? "plan"
-                : "default",
-            workspaceStrategy:
-              input.workspace.type === "current"
-                ? { type: "root" }
-                : input.workspace.type === "existing"
-                  ? {
-                      type: "existing_worktree",
-                      worktreePath: input.workspace.path,
-                      ...(input.workspace.branch === null
-                        ? {}
-                        : { branch: input.workspace.branch }),
-                    }
-                  : {
-                      type: "worktree",
-                      baseRef: ref!,
-                      ...(input.workspace.branch === undefined
-                        ? {}
-                        : { branch: input.workspace.branch }),
-                    },
-            ...(input.instruction === undefined
-              ? {}
-              : {
-                  initialMessage: {
-                    text: input.instruction,
-                    attachments: [],
-                    messageId: MessageId.make(`${input.commandId}:message`),
-                  },
-                }),
-            createdBy: "agent",
-            creationSource: "mcp",
-            ...(Option.isNone(cancellation)
-              ? {}
-              : { beforeCancel: cancellation.value.beforeCancel }),
-          })
+    launch: Effect.fn("HostAdapter.launch")(function* (input) {
+      yield* environment(input.environmentId);
+      const limit = yield* DispatchModeLimit;
+      if (
+        limit !== undefined &&
+        exceededDispatchModeLimit(limit, {
+          runtimeMode: input.runtimeMode,
+          interactionMode: limit.interactionMode,
+        }) !== undefined
+      )
+        return yield* new PluginError({
+          pluginId: "host",
+          code: "unauthorized",
+          operation: "launch",
+          message: "The requested runtime mode is broader than the command's permission ceiling.",
+        });
+      const existing = yield* receipt(input.commandId);
+      if (existing !== null) {
+        if (existing.status !== "accepted") return existing;
+        const shell = yield* threads
+          .getThreadShell(existing.threadId)
           .pipe(
             Effect.mapError((cause) =>
-              fail(
-                "launch",
-                "Could not commit thread launch intent. Retry with the same command identity.",
-                cause,
-              ),
+              fail("launch", "Could not reconcile the launched thread.", cause),
             ),
           );
-        // Preparation owns the checkout until it releases the agent stage. Async setup
-        // may continue afterward, but a cancellable checkout cannot own a final receipt.
-        if (input.instruction === undefined) {
-          const workspaceReady = () =>
-            receipts.getByCommandId(CommandId.make(`${input.commandId}:workspace-ready`)).pipe(
-              Effect.map(
-                (stored) =>
-                  Option.isSome(stored) &&
-                  stored.value.status === "accepted" &&
-                  stored.value.commandType === "thread.metadata.update" &&
-                  stored.value.threadId === launched.threadId,
-              ),
-              Effect.mapError((cause) =>
-                fail("launch", "Could not reconcile workspace preparation.", cause),
-              ),
-            );
-          const current = yield* setup.get(launched.threadId);
-          const completed =
-            !(yield* workspaceReady()) ||
-            (input.workspace.type === "exact-ref" &&
-              launched.projection.thread.worktreePath === null) ||
-            current?.phase === "running"
-              ? yield* setup.stream(launched.threadId).pipe(
-                  Stream.filter(
-                    (snapshot) =>
-                      snapshot !== null &&
-                      (snapshot.phase !== "running" ||
-                        snapshot.stages.some(
-                          (stage) => stage.id === "agent" && stage.status === "done",
-                        )),
-                  ),
-                  Stream.runHead,
-                )
-              : Option.fromNullishOr(current);
-          const prepared = yield* threads
-            .getThreadShell(launched.threadId)
+        // Deleted or archived targets still own their committed acknowledgement.
+        // Live launches continue through preparation replay below.
+        if (shell === null || shell.deletedAt !== null || shell.archivedAt !== null)
+          return existing;
+        if (input.instruction !== undefined) {
+          const records = yield* threads
+            .getThreadRecords(existing.threadId, ["runs"])
             .pipe(
               Effect.mapError((cause) =>
-                fail("launch", "Could not reconcile workspace preparation.", cause),
+                fail("launch", "Could not reconcile launch preparation.", cause),
               ),
             );
-          const cancelledBeforeRelease =
-            Option.isSome(completed) &&
-            completed.value?.phase === "cancelled" &&
-            !completed.value.stages.some(
-              (stage) => stage.id === "agent" && stage.status === "done",
-            );
-          if (
-            !(yield* workspaceReady()) ||
-            (input.workspace.type === "exact-ref" && prepared?.worktreePath == null) ||
-            cancelledBeforeRelease
-          )
-            return yield* fail(
-              "launch",
-              Option.isSome(completed)
-                ? (completed.value?.error ??
-                    "The requested workspace was not prepared. Retry with the same identity.")
-                : "The requested workspace was not prepared. Retry with the same identity.",
-            );
-        }
-        return yield* committed(input.commandId);
-      }),
-    send: (input) =>
-      Effect.gen(function* () {
-        yield* environment(input.environmentId);
-        const existing = yield* receipt(input.commandId);
-        if (existing !== null) return existing;
-        const preparation = yield* setup.get(input.threadId);
-        const trackedBeforeRelease =
-          preparation !== null &&
-          !preparation.stages.some((stage) => stage.id === "agent" && stage.status === "done") &&
-          !(yield* threads
-            .getThreadRecords(input.threadId, ["runs"])
-            .pipe(
-              Effect.mapError((cause) =>
-                fail("send", "Could not inspect workspace preparation.", cause),
-              ),
-            )).runs.some((run) =>
-            ["preparing", "starting", "running", "waiting"].includes(run.status),
+          const original = records.runs.find(
+            (run) => run.userMessageId === `${input.commandId}:message`,
           );
-        if (
-          trackedBeforeRelease ||
-          (yield* receipts
-            .hasPendingWorkspacePreparation(input.threadId, input.commandId, true)
-            .pipe(
+          if (
+            original !== undefined &&
+            (yield* hasNewerPreparation(existing.threadId, original.id, existing.cursor).pipe(
               Effect.mapError((cause) =>
-                fail("send", "Could not reconcile workspace preparation.", cause),
+                fail("launch", "Could not reconcile launch preparation.", cause),
               ),
             ))
-        )
+          )
+            return existing;
+        }
+      }
+      const workspace = yield* project(input.projectId);
+      if (
+        existing === null &&
+        input.workspace.type === "existing" &&
+        input.workspace.frozenHead !== undefined
+      ) {
+        const evidence = yield* verifyWorkspace({
+          projectId: input.projectId,
+          path: input.workspace.path,
+        });
+        if (evidence.head !== input.workspace.frozenHead || !evidence.clean)
           return yield* new PluginError({
             pluginId: "host",
-            code: "unavailable",
-            operation: "send",
-            message:
-              "Workspace preparation has not released this thread. Retry workspace preparation before sending more instructions.",
+            operation: "launch",
+            code: "conflict",
+            message: "The checkout differs from its frozen launch input.",
           });
-        yield* threads
-          .sendToThread({
-            projectId: input.projectId,
-            threadId: input.threadId,
-            commandId: input.commandId,
-            messageId: MessageId.make(`${input.commandId}:message`),
-            text: input.instruction,
-            attachments: [],
-            mode: input.mode,
-            createdBy: "agent",
-            creationSource: "mcp",
-          })
-          .pipe(Effect.mapError((cause) => fail("send", "Could not commit instructions.", cause)));
-        return yield* committed(input.commandId);
-      }),
-    retryPreparation: (input) =>
-      Effect.gen(function* () {
-        yield* environment(input.environmentId);
-        // Native retry reconciles a committed acknowledgement and schedules a
-        // preparing run again after restart, without duplicating its instruction.
-        yield* threads
-          .getProjectThreadRecords(input, ["runs"])
+      }
+      const ref =
+        input.workspace.type === "exact-ref"
+          ? yield* resolveWorkspaceRef(workspace.workspaceRoot, input.workspace.ref)
+          : null;
+      const cancellation = yield* Effect.serviceOption(LaunchCancellation.LaunchCancellation);
+      const launched = yield* launch
+        .launch({
+          commandId: input.commandId,
+          ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+          projectId: input.projectId,
+          title: input.title,
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          interactionMode:
+            input.interactionMode === "plan" || limit?.interactionMode === "plan"
+              ? "plan"
+              : "default",
+          workspaceStrategy:
+            input.workspace.type === "current"
+              ? { type: "root" }
+              : input.workspace.type === "existing"
+                ? {
+                    type: "existing_worktree",
+                    worktreePath: input.workspace.path,
+                    ...(input.workspace.branch === null ? {} : { branch: input.workspace.branch }),
+                  }
+                : {
+                    type: "worktree",
+                    baseRef: ref!,
+                    ...(input.workspace.branch === undefined
+                      ? {}
+                      : { branch: input.workspace.branch }),
+                  },
+          ...(input.instruction === undefined
+            ? {}
+            : {
+                initialMessage: {
+                  text: input.instruction,
+                  attachments: [],
+                  messageId: MessageId.make(`${input.commandId}:message`),
+                },
+              }),
+          createdBy: "agent",
+          creationSource: "mcp",
+          ...(Option.isNone(cancellation) ? {} : { beforeCancel: cancellation.value.beforeCancel }),
+        })
+        .pipe(
+          Effect.mapError((cause) =>
+            fail(
+              "launch",
+              "Could not commit thread launch intent. Retry with the same command identity.",
+              cause,
+            ),
+          ),
+        );
+      // Preparation owns the checkout until it releases the agent stage. Async setup
+      // may continue afterward, but a cancellable checkout cannot own a final receipt.
+      if (input.instruction === undefined) {
+        const workspaceReady = () =>
+          receipts.getByCommandId(CommandId.make(`${input.commandId}:workspace-ready`)).pipe(
+            Effect.map(
+              (stored) =>
+                Option.isSome(stored) &&
+                stored.value.status === "accepted" &&
+                stored.value.commandType === "thread.metadata.update" &&
+                stored.value.threadId === launched.threadId,
+            ),
+            Effect.mapError((cause) =>
+              fail("launch", "Could not reconcile workspace preparation.", cause),
+            ),
+          );
+        const current = yield* setup.get(launched.threadId);
+        const completed =
+          !(yield* workspaceReady()) ||
+          (input.workspace.type === "exact-ref" &&
+            launched.projection.thread.worktreePath === null) ||
+          current?.phase === "running"
+            ? yield* setup.stream(launched.threadId).pipe(
+                Stream.filter(
+                  (snapshot) =>
+                    snapshot !== null &&
+                    (snapshot.phase !== "running" ||
+                      snapshot.stages.some(
+                        (stage) => stage.id === "agent" && stage.status === "done",
+                      )),
+                ),
+                Stream.runHead,
+              )
+            : Option.fromNullishOr(current);
+        const prepared = yield* threads
+          .getThreadShell(launched.threadId)
           .pipe(
             Effect.mapError((cause) =>
-              fail("retry-preparation", "The thread is unavailable in this project.", cause),
+              fail("launch", "Could not reconcile workspace preparation.", cause),
             ),
           );
-        const existing = yield* receipt(input.commandId);
-        if (existing !== null) {
-          // An old acknowledgement cannot schedule a newer preparation attempt.
-          // Its own transition remains replayable after restart until superseded.
-          const superseding = yield* hasNewerPreparation(
-            input.threadId,
-            input.runId,
-            existing.cursor,
-          ).pipe(
-            Effect.mapError((cause) =>
-              fail("retry-preparation", "Could not reconcile the preparation attempt.", cause),
-            ),
+        const cancelledBeforeRelease =
+          Option.isSome(completed) &&
+          completed.value?.phase === "cancelled" &&
+          !completed.value.stages.some((stage) => stage.id === "agent" && stage.status === "done");
+        if (
+          !(yield* workspaceReady()) ||
+          (input.workspace.type === "exact-ref" && prepared?.worktreePath == null) ||
+          cancelledBeforeRelease
+        )
+          return yield* fail(
+            "launch",
+            Option.isSome(completed)
+              ? (completed.value?.error ??
+                  "The requested workspace was not prepared. Retry with the same identity.")
+              : "The requested workspace was not prepared. Retry with the same identity.",
           );
-          if (superseding) return existing;
-        }
-        yield* launch
-          .retryPreparation({
-            commandId: input.commandId,
-            threadId: input.threadId,
-            runId: RunId.make(input.runId),
-          })
+      }
+      return yield* committed(input.commandId);
+    }),
+    send: Effect.fn("HostAdapter.send")(function* (input) {
+      yield* environment(input.environmentId);
+      const existing = yield* receipt(input.commandId);
+      if (existing !== null) return existing;
+      const preparation = yield* setup.get(input.threadId);
+      const trackedBeforeRelease =
+        preparation !== null &&
+        !preparation.stages.some((stage) => stage.id === "agent" && stage.status === "done") &&
+        !(yield* threads
+          .getThreadRecords(input.threadId, ["runs"])
           .pipe(
             Effect.mapError((cause) =>
-              fail("retry-preparation", "Could not retry workspace preparation.", cause),
+              fail("send", "Could not inspect workspace preparation.", cause),
             ),
-          );
-        return yield* committed(input.commandId);
-      }),
-    interrupt: (input) =>
-      Effect.gen(function* () {
-        yield* environment(input.environmentId);
-        const existing = yield* receipt(input.commandId);
-        if (existing !== null) return existing;
-        const state = yield* inspect(input);
-        if (input.runId !== undefined && input.preparationId !== undefined)
-          return yield* fail("interrupt", "Choose one run or workspace preparation to interrupt.");
-        const activeRun = state.runs.findLast((run) =>
+          )).runs.some((run) =>
           ["preparing", "starting", "running", "waiting"].includes(run.status),
         );
-        const preparationId =
-          input.preparationId ??
-          ((input.runId === undefined && activeRun === undefined) ||
-          (activeRun?.status === "preparing" &&
-            (input.runId === undefined || input.runId === activeRun.id))
-            ? state.preparationId
-            : undefined);
-        if (preparationId !== undefined) {
-          if (state.preparationId === preparationId && activeRun?.status === "preparing") {
-            yield* threads
-              .dispatch({
-                type: "run.interrupt",
-                commandId: CommandId.make(`${input.commandId}:preparing-run`),
-                threadId: input.threadId,
-                runId: RunId.make(activeRun.id),
-                holdQueue: true,
-              })
-              .pipe(
-                Effect.mapError((cause) =>
-                  fail("interrupt", "Could not interrupt the preparing run.", cause),
-                ),
-              );
-          }
-          const cancelled = yield* setup.cancel(input.threadId, preparationId);
-          if (!cancelled) {
-            const current = yield* setup.get(input.threadId);
-            if (
-              current?.phase === "running" &&
-              current.preparationId === preparationId &&
-              !current.stages.some((stage) => stage.id === "agent" && stage.status !== "pending")
-            )
-              return yield* new PluginError({
-                pluginId: "host",
-                code: "unavailable",
-                operation: "interrupt",
-                message:
-                  "Workspace cancellation could not be persisted. Retry with the same command identity.",
-              });
-          }
+      if (
+        trackedBeforeRelease ||
+        (yield* receipts
+          .hasPendingWorkspacePreparation(input.threadId, input.commandId, true)
+          .pipe(
+            Effect.mapError((cause) =>
+              fail("send", "Could not reconcile workspace preparation.", cause),
+            ),
+          ))
+      )
+        return yield* new PluginError({
+          pluginId: "host",
+          code: "unavailable",
+          operation: "send",
+          message:
+            "Workspace preparation has not released this thread. Retry workspace preparation before sending more instructions.",
+        });
+      yield* threads
+        .sendToThread({
+          projectId: input.projectId,
+          threadId: input.threadId,
+          commandId: input.commandId,
+          messageId: MessageId.make(`${input.commandId}:message`),
+          text: input.instruction,
+          attachments: [],
+          mode: input.mode,
+          createdBy: "agent",
+          creationSource: "mcp",
+        })
+        .pipe(Effect.mapError((cause) => fail("send", "Could not commit instructions.", cause)));
+      return yield* committed(input.commandId);
+    }),
+    retryPreparation: Effect.fn("HostAdapter.retryPreparation")(function* (input) {
+      yield* environment(input.environmentId);
+      // Native retry reconciles a committed acknowledgement and schedules a
+      // preparing run again after restart, without duplicating its instruction.
+      yield* threads
+        .getProjectThreadRecords(input, ["runs"])
+        .pipe(
+          Effect.mapError((cause) =>
+            fail("retry-preparation", "The thread is unavailable in this project.", cause),
+          ),
+        );
+      const existing = yield* receipt(input.commandId);
+      if (existing !== null) {
+        // An old acknowledgement cannot schedule a newer preparation attempt.
+        // Its own transition remains replayable after restart until superseded.
+        const superseding = yield* hasNewerPreparation(
+          input.threadId,
+          input.runId,
+          existing.cursor,
+        ).pipe(
+          Effect.mapError((cause) =>
+            fail("retry-preparation", "Could not reconcile the preparation attempt.", cause),
+          ),
+        );
+        if (superseding) return existing;
+      }
+      yield* launch
+        .retryPreparation({
+          commandId: input.commandId,
+          threadId: input.threadId,
+          runId: RunId.make(input.runId),
+        })
+        .pipe(
+          Effect.mapError((cause) =>
+            fail("retry-preparation", "Could not retry workspace preparation.", cause),
+          ),
+        );
+      return yield* committed(input.commandId);
+    }),
+    interrupt: Effect.fn("HostAdapter.interrupt")(function* (input) {
+      yield* environment(input.environmentId);
+      const existing = yield* receipt(input.commandId);
+      if (existing !== null) return existing;
+      const state = yield* inspect(input);
+      if (input.runId !== undefined && input.preparationId !== undefined)
+        return yield* fail("interrupt", "Choose one run or workspace preparation to interrupt.");
+      const activeRun = state.runs.findLast((run) =>
+        ["preparing", "starting", "running", "waiting"].includes(run.status),
+      );
+      const preparationId =
+        input.preparationId ??
+        ((input.runId === undefined && activeRun === undefined) ||
+        (activeRun?.status === "preparing" &&
+          (input.runId === undefined || input.runId === activeRun.id))
+          ? state.preparationId
+          : undefined);
+      if (preparationId !== undefined) {
+        if (state.preparationId === preparationId && activeRun?.status === "preparing") {
           yield* threads
             .dispatch({
-              type: "thread.metadata.update",
-              commandId: input.commandId,
+              type: "run.interrupt",
+              commandId: CommandId.make(`${input.commandId}:preparing-run`),
               threadId: input.threadId,
+              runId: RunId.make(activeRun.id),
+              holdQueue: true,
             })
             .pipe(
               Effect.mapError((cause) =>
-                fail("interrupt", "Could not acknowledge workspace cancellation.", cause),
+                fail("interrupt", "Could not interrupt the preparing run.", cause),
               ),
             );
-          return yield* receipt(input.commandId);
         }
-        const selected =
-          input.runId === undefined
-            ? (state.runs.findLast((run) =>
-                ["preparing", "starting", "running", "waiting"].includes(run.status),
-              ) ??
-              (state.outstandingWork.length > 0
-                ? state.runs.findLast((run) => run.status !== "queued")
-                : undefined))
-            : state.runs.find((run) => run.id === input.runId);
-        if (selected === undefined) {
-          if (input.runId !== undefined)
-            return yield* fail("interrupt", "The requested run is not in this thread.");
-          return null;
-        }
-        if (!["preparing", "starting", "running", "waiting"].includes(selected.status)) {
+        const cancelled = yield* setup.cancel(input.threadId, preparationId);
+        if (!cancelled) {
+          const current = yield* setup.get(input.threadId);
           if (
-            selected.id !== state.runs.findLast((run) => run.status !== "queued")?.id ||
-            selected.status === "rolled_back"
+            current?.phase === "running" &&
+            current.preparationId === preparationId &&
+            !current.stages.some((stage) => stage.id === "agent" && stage.status !== "pending")
           )
-            return null;
-          const records = yield* threads
-            .getProjectThreadRecords(input, ["runs", "providerThreads", "turnItems"])
-            .pipe(
-              Effect.mapError((cause) =>
-                fail("interrupt", "Could not reconcile background work.", cause),
-              ),
-            );
-          // Queued nodes remain outstanding, but only native background work
-          // makes a settled run interruptible.
-          if (
-            derivePendingBackgroundWork({
-              latestRun: records.runs.find((run) => run.id === selected.id),
-              runs: records.runs,
-              providerThreads: records.providerThreads,
-              turnItems: records.turnItems,
-              activeProviderThreadId: records.thread.activeProviderThreadId,
-            }).length === 0
-          )
-            return null;
+            return yield* new PluginError({
+              pluginId: "host",
+              code: "unavailable",
+              operation: "interrupt",
+              message:
+                "Workspace cancellation could not be persisted. Retry with the same command identity.",
+            });
         }
         yield* threads
           .dispatch({
-            type: "run.interrupt",
-            threadId: input.threadId,
+            type: "thread.metadata.update",
             commandId: input.commandId,
-            runId: RunId.make(selected.id),
-            holdQueue: true,
+            threadId: input.threadId,
           })
           .pipe(
-            Effect.mapError((cause) => fail("interrupt", "Could not interrupt the thread.", cause)),
+            Effect.mapError((cause) =>
+              fail("interrupt", "Could not acknowledge workspace cancellation.", cause),
+            ),
           );
         return yield* receipt(input.commandId);
-      }),
+      }
+      const selected =
+        input.runId === undefined
+          ? (state.runs.findLast((run) =>
+              ["preparing", "starting", "running", "waiting"].includes(run.status),
+            ) ??
+            (state.outstandingWork.length > 0
+              ? state.runs.findLast((run) => run.status !== "queued")
+              : undefined))
+          : state.runs.find((run) => run.id === input.runId);
+      if (selected === undefined) {
+        if (input.runId !== undefined)
+          return yield* fail("interrupt", "The requested run is not in this thread.");
+        return null;
+      }
+      if (!["preparing", "starting", "running", "waiting"].includes(selected.status)) {
+        if (
+          selected.id !== state.runs.findLast((run) => run.status !== "queued")?.id ||
+          selected.status === "rolled_back"
+        )
+          return null;
+        const records = yield* threads
+          .getProjectThreadRecords(input, ["runs", "providerThreads", "turnItems"])
+          .pipe(
+            Effect.mapError((cause) =>
+              fail("interrupt", "Could not reconcile background work.", cause),
+            ),
+          );
+        // Queued nodes remain outstanding, but only native background work
+        // makes a settled run interruptible.
+        if (
+          derivePendingBackgroundWork({
+            latestRun: records.runs.find((run) => run.id === selected.id),
+            runs: records.runs,
+            providerThreads: records.providerThreads,
+            turnItems: records.turnItems,
+            activeProviderThreadId: records.thread.activeProviderThreadId,
+          }).length === 0
+        )
+          return null;
+      }
+      yield* threads
+        .dispatch({
+          type: "run.interrupt",
+          threadId: input.threadId,
+          commandId: input.commandId,
+          runId: RunId.make(selected.id),
+          holdQueue: true,
+        })
+        .pipe(
+          Effect.mapError((cause) => fail("interrupt", "Could not interrupt the thread.", cause)),
+        );
+      return yield* receipt(input.commandId);
+    }),
   });
 });
 

@@ -114,70 +114,66 @@ export const make = Effect.gen(function* () {
             })
             .pipe(
               Effect.provideService(CommandAccess.PluginCommandAccess, {
-                authorize: (action) =>
-                  Effect.gen(function* () {
-                    const credential = yield* mcpSessions.read(caller.threadId);
-                    const current = yield* threads.getThreadShell(caller.threadId).pipe(
+                authorize: Effect.fn("PluginToolService.authorize")(function* (action) {
+                  const credential = yield* mcpSessions.read(caller.threadId);
+                  const current = yield* threads.getThreadShell(caller.threadId).pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new PluginError({
+                          pluginId,
+                          code: "unavailable",
+                          operation: tool.id,
+                          message: "The calling thread is unavailable.",
+                          cause,
+                        }),
+                    ),
+                  );
+                  if (
+                    credential?.providerSessionId !== caller.providerSessionId ||
+                    credential.providerInstanceId !== caller.providerInstanceId ||
+                    current === null ||
+                    current.deletedAt !== null ||
+                    current.archivedAt !== null ||
+                    current.activeRunId === null ||
+                    current.providerInstanceId !== caller.providerInstanceId
+                  )
+                    return yield* denied(
+                      "The calling provider no longer owns an active thread run.",
+                    );
+                  const limits = {
+                    runtimeMode: current.runtimeMode,
+                    interactionMode: current.interactionMode,
+                  };
+                  if (
+                    action.runtimeMode !== undefined &&
+                    exceededDispatchModeLimit(limits, {
+                      runtimeMode: action.runtimeMode,
+                      interactionMode: limits.interactionMode,
+                    }) !== undefined
+                  )
+                    return yield* denied(
+                      "The requested runtime mode is broader than the calling thread's mode.",
+                    );
+                  if (action.threadId !== undefined) {
+                    const target = yield* threads.getThreadShell(action.threadId).pipe(
                       Effect.mapError(
                         (cause) =>
                           new PluginError({
                             pluginId,
                             code: "unavailable",
                             operation: tool.id,
-                            message: "The calling thread is unavailable.",
+                            message: "The target thread is unavailable.",
                             cause,
                           }),
                       ),
                     );
-                    if (
-                      credential?.providerSessionId !== caller.providerSessionId ||
-                      credential.providerInstanceId !== caller.providerInstanceId ||
-                      current === null ||
-                      current.deletedAt !== null ||
-                      current.archivedAt !== null ||
-                      current.activeRunId === null ||
-                      current.providerInstanceId !== caller.providerInstanceId
-                    )
+                    if (target !== null && exceededDispatchModeLimit(limits, target) !== undefined)
                       return yield* denied(
-                        "The calling provider no longer owns an active thread run.",
+                        "The target thread runs above the calling thread's permission modes.",
                       );
-                    const limits = {
-                      runtimeMode: current.runtimeMode,
-                      interactionMode: current.interactionMode,
-                    };
-                    if (
-                      action.runtimeMode !== undefined &&
-                      exceededDispatchModeLimit(limits, {
-                        runtimeMode: action.runtimeMode,
-                        interactionMode: limits.interactionMode,
-                      }) !== undefined
-                    )
-                      return yield* denied(
-                        "The requested runtime mode is broader than the calling thread's mode.",
-                      );
-                    if (action.threadId !== undefined) {
-                      const target = yield* threads.getThreadShell(action.threadId).pipe(
-                        Effect.mapError(
-                          (cause) =>
-                            new PluginError({
-                              pluginId,
-                              code: "unavailable",
-                              operation: tool.id,
-                              message: "The target thread is unavailable.",
-                              cause,
-                            }),
-                        ),
-                      );
-                      if (
-                        target !== null &&
-                        exceededDispatchModeLimit(limits, target) !== undefined
-                      )
-                        return yield* denied(
-                          "The target thread runs above the calling thread's permission modes.",
-                        );
-                    }
-                    return limits;
-                  }),
+                  }
+                  return limits;
+                }),
               }),
             );
           const encoded = yield* encodeOutput(result).pipe(

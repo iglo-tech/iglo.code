@@ -20,8 +20,8 @@ type RegisterTool = (
 ) => Effect.Effect<void, never, Scope.Scope>;
 
 /** Waits for core recovery; the transport forks registration during startup. */
-export const register = (registerTool: RegisterTool) =>
-  Effect.gen(function* () {
+export const register = Effect.fn("McpRegistration.register")(
+  function* (registerTool: RegisterTool) {
     const optionalRegistry = yield* Effect.serviceOption(Registry.PluginRegistry);
     if (Option.isNone(optionalRegistry)) return;
     const registry = optionalRegistry.value;
@@ -67,12 +67,12 @@ export const register = (registerTool: RegisterTool) =>
         }),
       );
     }
-  }).pipe(
-    Effect.ensuring(
-      Effect.serviceOption(Registry.PluginRegistry).pipe(
-        Effect.flatMap((registry) =>
-          Option.isSome(registry) ? registry.value.markToolsReady : Effect.void,
-        ),
+  },
+  Effect.ensuring(
+    Effect.serviceOption(Registry.PluginRegistry).pipe(
+      Effect.flatMap((registry) =>
+        Option.isSome(registry) ? registry.value.markToolsReady : Effect.void,
       ),
     ),
-  );
+  ),
+);

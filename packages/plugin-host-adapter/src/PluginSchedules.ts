@@ -52,11 +52,10 @@ export const make = Effect.gen(function* () {
       message: "Plugin schedules require the environment's persisted schedule service.",
       ...(cause === undefined ? {} : { cause }),
     });
-  const service = () =>
-    Effect.gen(function* () {
-      if (Option.isNone(tasks)) return yield* error("schedules");
-      return tasks.value;
-    });
+  const service = Effect.fn("PluginSchedules.service")(function* () {
+    if (Option.isNone(tasks)) return yield* error("schedules");
+    return tasks.value;
+  });
   const convert = (task: import("@t3tools/contracts").ScheduledTask) =>
     service().pipe(
       Effect.flatMap((core) => core.lastOccurrence(task.id)),
@@ -99,8 +98,8 @@ export const make = Effect.gen(function* () {
         ? authorized
         : intersectDispatchModes(authorized, ambient);
   });
-  const upsert = (input: PluginScheduleInput) =>
-    Effect.gen(function* () {
+  const upsert = Effect.fn("PluginSchedules.upsert")(
+    function* (input: PluginScheduleInput) {
       const limits = yield* commandLimits;
       if (!targets().some((target) => target.id === input.target))
         return yield* new PluginError({
@@ -131,7 +130,9 @@ export const make = Effect.gen(function* () {
         creationSource: "server",
       });
       return yield* convert(result.task);
-    }).pipe(Effect.mapError((cause) => (isPluginError(cause) ? cause : error("upsert", cause))));
+    },
+    Effect.mapError((cause) => (isPluginError(cause) ? cause : error("upsert", cause))),
+  );
   return {
     service: Schedules.of({
       upsert,
@@ -143,17 +144,17 @@ export const make = Effect.gen(function* () {
           Effect.asVoid,
           Effect.mapError((cause) => (isPluginError(cause) ? cause : error("delete", cause))),
         ),
-      runNow: (value, occurrenceId) =>
-        Effect.gen(function* () {
+      runNow: Effect.fn("PluginSchedules.runNow")(
+        function* (value, occurrenceId) {
           const limits = yield* commandLimits;
           const core = yield* service();
           const scopedOccurrenceId = `plugin:${yield* encodeOccurrenceIdentity([pluginId, occurrenceId])}`;
           yield* core
             .runNow({ id: id(value), occurrenceId: scopedOccurrenceId })
             .pipe(Effect.provideService(DispatchModeLimit, limits));
-        }).pipe(
-          Effect.mapError((cause) => (isPluginError(cause) ? cause : error("runNow", cause))),
-        ),
+        },
+        Effect.mapError((cause) => (isPluginError(cause) ? cause : error("runNow", cause))),
+      ),
       // Receipts are read under this plugin's own schedule namespace only.
       occurrences: (value, limit) =>
         service().pipe(

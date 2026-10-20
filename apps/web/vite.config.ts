@@ -19,6 +19,7 @@ import { DEV_WEB_READY_MESSAGE } from "../../scripts/lib/environment-startup";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
+import { warmBundledDevPlugin } from "./vite/warmBundledDev";
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -211,6 +212,7 @@ export default defineConfig(() => {
       tanstackRouter({ autoCodeSplitting: true }),
       react({ compiler: true }),
       tailwindPlugins(bundledDev),
+      warmBundledDevPlugin(),
     ],
     optimizeDeps: {
       include: [
@@ -261,6 +263,14 @@ export default defineConfig(() => {
       port,
       strictPort: true,
       allowedHosts,
+      // Transform the whole module graph at server start instead of on the
+      // first request. Without this, a cold worktree discovers and transforms
+      // modules one import-level at a time while the browser waits — which
+      // over a tailnet origin turns into minutes of waterfall. Bundled dev
+      // ignores this; warmBundledDevPlugin covers it there.
+      warmup: {
+        clientFiles: ["./src/main.tsx"],
+      },
       ...(devProxyTarget
         ? {
             // One entry per shared prefix; the server's dev catch-all 404s the

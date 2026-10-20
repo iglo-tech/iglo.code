@@ -18,6 +18,7 @@ import { Tool, Toolkit } from "effect/ai";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
@@ -59,6 +60,8 @@ const DeviceOpenTool = Tool.make("device_open", {
     Path.Path,
     ServerConfig.ServerConfig,
     ChildProcessSpawner.ChildProcessSpawner,
+    // The thread's project can name the EAS project a cloud device runs under.
+    ProjectService.ProjectService,
   ],
 })
   .annotate(Tool.Title, "Open device")
