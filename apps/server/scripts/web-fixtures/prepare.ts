@@ -45,6 +45,12 @@ export async function prepareWebDependencies(
   // Git is an independently documented prerequisite, not a JavaScript runtime.
   const git = process.env.T3_WEB_REGRESSION_GIT ?? "/usr/bin/git";
   await NodeFSP.symlink(git, NodePath.join(bin, "git"));
+  // Opening an emulator first checks for ffmpeg with libx264; the boot itself must fail.
+  await NodeFSP.writeFile(
+    NodePath.join(bin, "ffmpeg"),
+    "#!/bin/sh\nprintf ' V....D libx264              libx264 H.264\\n'\n",
+    { mode: 0o755 },
+  );
   const sdk = NodePath.join(paths.scratch, "android-sdk");
   await NodeFSP.mkdir(NodePath.join(sdk, "platform-tools"), { recursive: true });
   await NodeFSP.mkdir(NodePath.join(sdk, "emulator"));
