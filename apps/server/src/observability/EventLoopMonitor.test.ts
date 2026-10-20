@@ -83,7 +83,7 @@ describe("EventLoopMonitor", () => {
 
   it.effect("reports a long stall when a client connects, before the next timed sample", () =>
     Effect.gen(function* () {
-      const long = { ...stalled, delayMaxNs: ms(13_000), activeMs: 13_000 };
+      const long = { ...stalled, delayMaxNs: ms(12_000) };
       const context = yield* monitor([quiet, stalled, long]);
       const eventLoop = Context.get(context, EventLoopMonitor.EventLoopMonitor);
       // The startup sample is skipped, so a connect before it reads nothing.
