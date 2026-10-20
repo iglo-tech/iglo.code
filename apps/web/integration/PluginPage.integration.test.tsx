@@ -31,14 +31,31 @@ import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { vi } from "vite-plus/test";
 import * as Projects from "../../server/src/project/ProjectService.ts";
-import * as Registry from "@t3tools/plugin-host-adapter/registry";
+import * as Registry from "../../../packages/plugin-host-adapter/src/PluginRegistry.ts";
 import * as McpSessions from "../../server/src/mcp/McpSessionRegistry.ts";
-import * as ProviderSessions from "@t3tools/provider-core/server/mcpSession";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { makeReplayServerConfig } from "../../server/src/orchestration-v2/testkit/ProviderReplayHarness.ts";
 import { startEnvironment, makeClient } from "../../server/src/plugins/PluginHost.testkit.ts";
 import { createPluginWebContext } from "../src/plugins/context";
 import { bind } from "../src/plugins/contributions";
 import { PluginPageContent } from "../src/plugins/PluginPageContent";
+
+// Base UI portals need a document, which this node harness lacks. Render the alert dialog in
+// place so the real navigation guard and its blocker wiring stay under test.
+vi.mock("../src/components/ui/alert-dialog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/components/ui/alert-dialog")>();
+  const AlertDialog: typeof actual.AlertDialog = ({ open, children }) => (
+    <>{open ? children : null}</>
+  );
+  const AlertDialogPopup: typeof actual.AlertDialogPopup = ({ children }) => (
+    <div role="alertdialog">{children}</div>
+  );
+  const AlertDialogTitle: typeof actual.AlertDialogTitle = ({ children }) => <h2>{children}</h2>;
+  const AlertDialogDescription: typeof actual.AlertDialogDescription = ({ children }) => (
+    <p>{children}</p>
+  );
+  return { ...actual, AlertDialog, AlertDialogPopup, AlertDialogTitle, AlertDialogDescription };
+});
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 it.live(
@@ -79,10 +96,12 @@ it.live(
               threadId: launched.threadId,
               providerInstanceId: ProviderInstanceId.make("codex"),
             });
-            ProviderSessions.setMcpProviderSession(credential.config);
-            yield* Effect.addFinalizer(() =>
-              Effect.sync(() => ProviderSessions.clearMcpProviderSession(launched.threadId)),
+            const mcpSessions = Context.get(
+              server.context,
+              McpProviderSessions.McpProviderSessions,
             );
+            yield* mcpSessions.set(credential.config);
+            yield* Effect.addFinalizer(() => mcpSessions.clear(launched.threadId));
             const http = Context.get(server.context, HttpClient.HttpClient);
             const headers = {
               authorization: credential.config.authorizationHeader,
