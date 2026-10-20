@@ -504,6 +504,38 @@ it.live.each(modes)(
           startedAt: endedAt,
           completedAt: null,
         };
+        // Capture commits the checkpoint with its run's completion, so the
+        // generation never appears settled without it.
+        const capturedCheckpoint = (owner: typeof next) =>
+          checkpointRecovery
+            ? [
+                {
+                  id: EventId.make("resumed-checkpoint"),
+                  type: "checkpoint.captured" as const,
+                  threadId,
+                  runId: owner.id,
+                  occurredAt: endedAt,
+                  payload: {
+                    id: CheckpointId.make("resumed-checkpoint"),
+                    threadId,
+                    scopeId: CheckpointScopeId.make("resumed-scope"),
+                    runId: owner.id,
+                    nodeId: owner.rootNodeId!,
+                    parentCheckpointId: null,
+                    ordinalWithinScope: 1,
+                    appRunOrdinal: owner.ordinal,
+                    ref: CheckpointRef.make("refs/t3/resumed-checkpoint"),
+                    status:
+                      mode === "resume-checkpoint-current-error" ||
+                      mode === "resume-checkpoint-released-error"
+                        ? ("error" as const)
+                        : ("ready" as const),
+                    files: [],
+                    capturedAt: endedAt,
+                  },
+                },
+              ]
+            : [];
         yield* test.sink.write({
           events: [
             {
@@ -550,7 +582,7 @@ it.live.each(modes)(
                     payload: releaseBarrier,
                   },
                 ]
-              : []),
+              : capturedCheckpoint(next)),
           ],
         });
         let checkpointOwner = next;
@@ -623,39 +655,10 @@ it.live.each(modes)(
                     updatedAt: later,
                   },
                 })),
+              ...capturedCheckpoint(checkpointOwner),
             ],
           });
         }
-        if (checkpointRecovery)
-          yield* test.sink.write({
-            events: [
-              {
-                id: EventId.make("resumed-checkpoint"),
-                type: "checkpoint.captured",
-                threadId,
-                runId: checkpointOwner.id,
-                occurredAt: endedAt,
-                payload: {
-                  id: CheckpointId.make("resumed-checkpoint"),
-                  threadId,
-                  scopeId: CheckpointScopeId.make("resumed-scope"),
-                  runId: checkpointOwner.id,
-                  nodeId: checkpointOwner.rootNodeId!,
-                  parentCheckpointId: null,
-                  ordinalWithinScope: 1,
-                  appRunOrdinal: checkpointOwner.ordinal,
-                  ref: CheckpointRef.make("refs/t3/resumed-checkpoint"),
-                  status:
-                    mode === "resume-checkpoint-current-error" ||
-                    mode === "resume-checkpoint-released-error"
-                      ? "error"
-                      : "ready",
-                  files: [],
-                  capturedAt: endedAt,
-                },
-              },
-            ],
-          });
         let latestResultId = checkpointOwner.id;
         if (
           mode === "resume-checkpoint-released-failed-followup" ||
