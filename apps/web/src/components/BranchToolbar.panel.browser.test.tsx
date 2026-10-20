@@ -199,7 +199,7 @@ it.each([
     await userEvent.click(chip);
     await vi.waitFor(() =>
       expect(state.writeTextToClipboard).toHaveBeenCalledWith(
-        "npm install --global --prefix '/opt/node' t3@0.0.31",
+        "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.31' T3CODE_INSTALL_BIN_DIR='/opt/node/bin' sh",
         "update command",
       ),
     );

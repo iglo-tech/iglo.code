@@ -582,8 +582,10 @@ describe("server updates from the environment selector", () => {
     await userEvent.click(picker);
     await expect.element(page.getByRole("option", { name: "Other machine" })).toBeVisible();
     expect(testState.clipboard).not.toHaveBeenCalled();
-    await userEvent.click(page.getByRole("option", { name: /Copy relaunch command/ }));
-    expect(testState.clipboard).toHaveBeenCalledExactlyOnceWith("npx t3@0.0.31");
+    await userEvent.click(page.getByRole("option", { name: /Copy update command/ }));
+    expect(testState.clipboard).toHaveBeenCalledExactlyOnceWith(
+      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.31' sh",
+    );
     expect(testState.updateServer).not.toHaveBeenCalled();
     await expect.element(picker).toHaveTextContent("Build box");
     await userEvent.click(picker);
