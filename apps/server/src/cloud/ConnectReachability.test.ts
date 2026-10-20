@@ -39,7 +39,7 @@ describe("classifyReachability", () => {
         "  Cloudflare's tunnel port (7844) times out from this machine.",
         '  Tailscale exit node "home-pi" is on. Traffic to Cloudflare goes through it.',
         "  Fix: tailscale set --exit-node=   (or allow outbound 7844 on that network)",
-        "  More info: https://github.com/pingdotgg/t3code/blob/main/docs/user/t3-connect-troubleshooting.md#port-7844-is-blocked-on-the-host",
+        "  More info: https://github.com/iglo-tech/iglo.code/blob/main/docs/user/t3-connect-troubleshooting.md#port-7844-is-blocked-on-the-host",
       ].join("\n"),
     );
   });
