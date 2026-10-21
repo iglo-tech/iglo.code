@@ -1553,7 +1553,8 @@ it.effect("removes a window with a render defect and dispatches the task's next 
           });
         const bad = request(
           "bad-render",
-          '{"deep":' + "[".repeat(20000) + "0" + "]".repeat(20000) + "}",
+          // Deep enough to overflow both V8's and Bun's (JavaScriptCore) stacks.
+          '{"deep":' + "[".repeat(100000) + "0" + "]".repeat(100000) + "}",
         );
         assert.throws(() => renderWebhookPrompt(task.prompt, bad, "frame"), RangeError);
         const accepted = yield* service.triggerWebhook(bad);

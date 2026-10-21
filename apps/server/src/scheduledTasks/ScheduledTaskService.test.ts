@@ -48,10 +48,13 @@ it.effect.each(["delete", "legacy orphan"] as const)(
               Layer.mergeAll(
                 ScheduleTargets.layer,
                 Layer.succeed(Scheduler.Scheduler, {
-                  register: <E, R>(_name: string, run: Effect.Effect<void, E, R>) =>
+                  register: <E, R>(name: string, run: Effect.Effect<void, E, R>) =>
                     Effect.gen(function* () {
                       const context = yield* Effect.context<R>();
-                      tick = run.pipe(Effect.provideContext(context), Effect.orDie);
+                      // Webhook coalescing registers its own job; recovery runs on this one.
+                      if (name === "scheduled-tasks") {
+                        tick = run.pipe(Effect.provideContext(context), Effect.orDie);
+                      }
                     }),
                 }),
                 Layer.mock(ThreadLaunchService.ThreadLaunchService)({

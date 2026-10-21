@@ -541,10 +541,13 @@ it.effect("retains automation and sender attribution while a message waits in th
 function makeScheduledHarness() {
   let tick = Effect.void;
   const scheduler = Layer.succeed(Scheduler.Scheduler, {
-    register: <E, R>(_name: string, due: Effect.Effect<void, E, R>) =>
+    register: <E, R>(name: string, due: Effect.Effect<void, E, R>) =>
       Effect.context<R>().pipe(
         Effect.map((context) => {
-          tick = due.pipe(Effect.provideContext(context), Effect.orDie);
+          // Webhook coalescing registers its own job; these tests drive occurrences.
+          if (name === "scheduled-tasks") {
+            tick = due.pipe(Effect.provideContext(context), Effect.orDie);
+          }
         }),
       ),
   });
