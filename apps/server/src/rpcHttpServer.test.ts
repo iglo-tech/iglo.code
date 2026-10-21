@@ -159,6 +159,7 @@ it("bounds shutdown for live RPC peers including one that never acknowledges clo
   await opened.promise;
   const closed = NodeEvents.EventEmitter.once(socket, "close");
   const exited = NodeEvents.EventEmitter.once(server, "exit");
+  // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- shutdown of a real server subprocess is bounded in wall time; that bound is the behavior under test
   const start = performance.now();
   server.kill("SIGTERM");
   const [code] = await closed;
@@ -168,9 +169,10 @@ it("bounds shutdown for live RPC peers including one that never acknowledges clo
   expect(raw.frames[0]!.payload.readUInt16BE()).toBe(1001);
   expect(raw.trailing.length).toBe(0);
   await exited;
+  // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- shutdown of a real server subprocess is bounded in wall time; that bound is the behavior under test
   expect(performance.now() - start).toBeLessThan(2000);
   expect(server.exitCode).toBe(130);
-}, 5000);
+});
 
 // A raw peer lets us inspect bytes after close, which ws normally stops parsing.
 function rawSocket(path: string, compression: boolean, acknowledge: boolean, onOpen?: () => void) {

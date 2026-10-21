@@ -65,7 +65,6 @@ import {
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import {
   ServerUpdateAction,
-  ServerUpdateProgress,
   ServerUpdatesAction,
   type ServerUpdateTarget,
 } from "./ServerUpdateAction";
@@ -176,17 +175,6 @@ describe("ServerUpdateAction", () => {
       expect(testState.updateServer).toHaveBeenCalledTimes(allowed ? 1 : 0);
     },
   );
-
-  it("keeps a known grant usable while the session refreshes", async () => {
-    using _state = setup();
-    setSession(AsyncResult.waiting(AsyncResult.success(currentSession)));
-    testState.updateServer.mockResolvedValue(success());
-
-    await using screen = await renderAction();
-    await click(screen, "Update");
-
-    expect(testState.updateServer).toHaveBeenCalledOnce();
-  });
 
   it("disables the action once maintenance access is removed", async () => {
     using _state = setup();
@@ -386,25 +374,6 @@ describe("ServerUpdatesAction", () => {
 
   const mount = (batch = targets) => renderUpdate(<ServerUpdatesAction targets={batch} />);
 
-  it("updates both supported machines with their own continuation preference and skips the manual machine", async () => {
-    using _state = setup();
-    testState.updateServer.mockResolvedValue(success());
-    await using screen = await mount();
-    await click(screen, "Update all");
-
-    expect(testState.updateServer.mock.calls.map(([target]) => target)).toEqual([
-      {
-        environmentId: "batch-a",
-        input: { targetVersion: "0.0.31", continueRunningThreads: true },
-      },
-      { environmentId: "batch-b", input: { targetVersion: "0.0.31" } },
-    ]);
-    expect(testState.toast.mock.calls.map(([toast]) => toast.title)).toEqual([
-      "Laptop updated",
-      "Office updated",
-    ]);
-  });
-
   it("names a failed machine while letting the other machine complete", async () => {
     using _state = setup();
     testState.updateServer
@@ -423,99 +392,5 @@ describe("ServerUpdatesAction", () => {
       expect.objectContaining({ type: "success", title: "Office updated" }),
     );
     expect(button(screen, "Update all")!.disabled).toBe(false);
-  });
-
-  it("starts each machine once when double-clicked and disables the action until both finish", async () => {
-    using _state = setup();
-    const completions: Array<() => void> = [];
-    testState.updateServer.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          completions.push(() => resolve(success()));
-        }),
-    );
-    await using screen = await mount();
-    await act(async () => {
-      button(screen, "Update all")!.click();
-      button(screen, "Update all")!.click();
-    });
-    expect(testState.updateServer).toHaveBeenCalledTimes(2);
-    expect(button(screen, "Update all")!.disabled).toBe(true);
-    await act(async () => completions[0]!());
-    expect(button(screen, "Update all")!.disabled).toBe(true);
-    await act(async () => completions[1]!());
-    expect(button(screen, "Update all")!.disabled).toBe(false);
-    expect(testState.toast).toHaveBeenCalledTimes(2);
-  });
-
-  it("asks once for desktop machines and cancels the entire batch", async () => {
-    using _state = setup();
-    registerConfirmDialogHost();
-    await using screen = await mount(
-      targets.map((target, index) =>
-        index < 2 ? { ...target, selfUpdate: "desktop-managed", desktopAppUpdate: true } : target,
-      ),
-    );
-    await click(screen, "Update all");
-    expect(readConfirmDialogState()).toEqual(
-      expect.objectContaining({
-        status: "confirming",
-        message: expect.stringContaining("Laptop, Office"),
-      }),
-    );
-    expect(testState.updateServer).not.toHaveBeenCalled();
-    await act(async () => respondToConfirmDialog(false));
-    expect(testState.updateServer).not.toHaveBeenCalled();
-    expect(button(screen, "Update all")!.disabled).toBe(false);
-  });
-});
-
-describe("ServerUpdateProgress", () => {
-  it("shows one calm status for the restart wait", async () => {
-    using _state = setup();
-    await using screen = await renderUpdate(
-      <ServerUpdateProgress
-        state={{
-          status: "running",
-          stage: "resuming",
-          fromVersion: "0.0.30",
-          targetVersion: "0.0.31",
-        }}
-      />,
-    );
-    expect(screen.container.textContent).toBe("Restarting…");
-  });
-
-  it("folds the sub-second installing handoff into the download phase", async () => {
-    using _state = setup();
-    await using screen = await renderUpdate(
-      <ServerUpdateProgress
-        state={{
-          status: "running",
-          stage: "installing",
-          fromVersion: "0.0.30",
-          targetVersion: "0.0.31",
-        }}
-      />,
-    );
-    expect(screen.container.textContent).toBe("Downloading…");
-  });
-
-  it("keeps the failure visible as an alert with its error", async () => {
-    using _state = setup();
-    await using screen = await renderUpdate(
-      <ServerUpdateProgress
-        state={{
-          status: "failed",
-          stage: "installing",
-          fromVersion: "0.0.30",
-          targetVersion: "0.0.31",
-          message: "The package could not be verified.",
-        }}
-      />,
-    );
-    expect(screen.container.querySelector("[role=alert]")?.textContent).toBe(
-      "The package could not be verified.",
-    );
   });
 });

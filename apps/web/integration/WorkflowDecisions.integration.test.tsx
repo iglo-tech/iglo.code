@@ -444,6 +444,7 @@ const memoryStorage = () => {
     removeItem: (key: string) => void values.delete(key),
   };
 };
+// oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a zero-delay macrotask boundary that lets queued socket messages land, not a wait for time
 const flush = () => act(() => new Promise<void>((resolve) => setImmediate(resolve)));
 const textOf = (node: ReactTestInstance): string =>
   node.children.map((child) => (typeof child === "string" ? child : textOf(child))).join("");
@@ -1522,5 +1523,4 @@ it.live(
         // #28 reviewer deadlines end.
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 120_000 },
 );

@@ -137,5 +137,4 @@ it.live.each(["cancel", "shutdown"] as const)(
         yield* Fiber.interrupt(server.fiber);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  30_000,
 );

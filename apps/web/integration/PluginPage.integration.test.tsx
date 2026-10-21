@@ -399,11 +399,13 @@ it.live(
             });
             vi.unstubAllGlobals();
             vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+            // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a zero-delay macrotask boundary that lets queued socket messages land, not a wait for time
             await new Promise<void>((resolve) => setImmediate(resolve));
           });
         const press = (label: string) =>
           act(async () => {
             button(label).props.onClick();
+            // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a zero-delay macrotask boundary that lets queued socket messages land, not a wait for time
             await new Promise<void>((resolve) => setImmediate(resolve));
           });
         yield* Effect.promise(leave);
@@ -442,5 +444,4 @@ it.live(
         yield* Fiber.interrupt(second.fiber);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60_000 },
 );

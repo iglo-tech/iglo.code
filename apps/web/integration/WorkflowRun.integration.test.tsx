@@ -664,6 +664,7 @@ const memoryStorage = () => {
     removeItem: (key: string) => void values.delete(key),
   };
 };
+// oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a zero-delay macrotask boundary that lets queued socket messages land, not a wait for time
 const flush = () => act(() => new Promise<void>((resolve) => setImmediate(resolve)));
 const displayedTime = (at: number) =>
   new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -2172,5 +2173,4 @@ it.live(
         expect(second.tracked.openSubscriptions()).toBe(0);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 120_000 },
 );

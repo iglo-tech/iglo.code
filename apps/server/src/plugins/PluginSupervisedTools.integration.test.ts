@@ -320,5 +320,4 @@ it.live(
         expect(reports[0]!.summary).toBe("Supervised mutation accepted");
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60_000 },
 );

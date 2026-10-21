@@ -51,12 +51,8 @@ it.each([
   { count: 10, valid: false },
   { count: 40, valid: true },
   { count: 40, valid: false },
-])(
-  "catalog validation returns for $count decisions, valid=$valid",
-  async ({ count, valid }) => {
-    const result = await validate(count, valid);
-    expect(result.timedOut).toBe(false);
-    expect(result.runnable).toBe(valid);
-  },
-  30_000,
-);
+])("catalog validation returns for $count decisions, valid=$valid", async ({ count, valid }) => {
+  const result = await validate(count, valid);
+  expect(result.timedOut).toBe(false);
+  expect(result.runnable).toBe(valid);
+});

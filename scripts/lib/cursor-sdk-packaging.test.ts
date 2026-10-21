@@ -140,4 +140,4 @@ it("loads packaged Cursor catalog chunks without credentials or checkout depende
   } finally {
     await NodeFSP.rm(scratch, { recursive: true, force: true });
   }
-}, 60_000);
+});

@@ -744,5 +744,4 @@ it.live(
         );
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 120_000 },
 );

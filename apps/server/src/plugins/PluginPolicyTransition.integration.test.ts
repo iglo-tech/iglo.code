@@ -361,5 +361,4 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
         expect(reports).toEqual([]);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60000 },
 );

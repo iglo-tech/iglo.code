@@ -1,6 +1,6 @@
 {
   "name": "t3",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -16,6 +16,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/bin.ts",
+    "dev:built": "vp run dev",
     "build:bundle": "vp pack",
     "build:exe": "bun scripts/cli.ts build-exe",
     "start": "bun dist/bin.mjs",

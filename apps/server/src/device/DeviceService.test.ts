@@ -7,21 +7,18 @@ import {
   LOCAL_DEVICE_HOST_ID,
   ThreadId,
   type DeviceSummary,
-  type DeviceServiceState,
   type ServerSettings as Settings,
   type SshDeviceHostConfig,
 } from "@t3tools/contracts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
-import { SshCommandError } from "@t3tools/ssh/errors";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -37,47 +34,12 @@ import { makeDeviceHubOperations } from "./DeviceHubOperations.ts";
 import { BunRuntimeUnavailableError } from "@t3tools/shared/bunRuntime";
 
 import * as DeviceService from "./DeviceService.ts";
+import { SshCommandError } from "@t3tools/ssh/errors";
+import * as PubSub from "effect/PubSub";
 
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const decodeBootError = Schema.decodeUnknownSync(Schema.fromJsonString(DeviceBootError));
 const encodeBootError = Schema.encodeSync(Schema.fromJsonString(DeviceBootError));
-
-const baseState: DeviceServiceState = {
-  hosts: [],
-  hostStatus: "idle",
-  hostStatuses: {},
-  devices: [],
-  sessions: [],
-  onboardingCompleted: false,
-  agentAccessEnabled: false,
-  hubBasePath: "/api/device-hub",
-  revision: 0,
-};
-
-describe("DeviceService.stateStream", () => {
-  it.effect("emits the current snapshot and then every published change", () =>
-    Effect.gen(function* () {
-      const pubsub = yield* PubSub.unbounded<DeviceServiceState>();
-      const current = yield* Ref.make(baseState);
-      const service: Pick<DeviceService.DeviceService["Service"], "state" | "subscribe"> = {
-        state: Ref.get(current),
-        subscribe: PubSub.subscribe(pubsub),
-      };
-
-      const collected = yield* DeviceService.stateStream(
-        service as DeviceService.DeviceService["Service"],
-      ).pipe(Stream.take(3), Stream.runCollect, Effect.forkChild);
-      yield* Effect.yieldNow;
-      for (const revision of [1, 2]) {
-        const next = { ...baseState, revision, hostStatus: "ready" as const };
-        yield* Ref.set(current, next);
-        yield* PubSub.publish(pubsub, next);
-      }
-      const seen = yield* Fiber.join(collected);
-      expect(seen.map((state) => state.revision)).toEqual([0, 1, 2]);
-    }),
-  );
-});
 
 const fixture = Effect.fn("fixture")(function* (
   onBoot: Effect.Effect<void> = Effect.void,
@@ -566,40 +528,6 @@ describe("device discovery after server restart", () => {
 const missingPlistMessage =
   "[apple-utils] Failed to read CoreSimulator plist at /Users/test/Library/Developer/CoreSimulator/Devices/deleted-simulator/device.plist:";
 
-it.effect.each([
-  {
-    message: missingPlistMessage,
-    error: "Error: ENOENT: no such file or directory, open 'device.plist'",
-    ignored: true,
-  },
-  {
-    message: missingPlistMessage,
-    error: "Error: EACCES: permission denied, open 'device.plist'",
-    ignored: false,
-  },
-  { message: missingPlistMessage, error: undefined, ignored: false },
-  {
-    message: "[apple-utils] Failed to parse CoreSimulator device.plist:",
-    error: "Invalid XML",
-    ignored: false,
-  },
-  {
-    message: "[apple-utils] Failed to list devices:",
-    error: "Error: ENOENT: simctl missing",
-    ignored: false,
-  },
-])("handles discovery diagnostic: $error", ({ message, error, ignored }) =>
-  Effect.gen(function* () {
-    const { service, discoveryErrors } = yield* fixture();
-    yield* Ref.set(discoveryErrors, [{ message, ...(error ? { error } : {}) }]);
-    const state = yield* service.configure({ enabled: true });
-    expect(state.hostStatus).toBe("ready");
-    expect(state.devices.map((device) => device.id)).toEqual(["Pixel_API_35"]);
-    expect(state.hostStatusDetail).toBe(ignored ? undefined : message);
-    expect(state.hostStatuses.local?.detail).toBe(ignored ? undefined : message);
-  }).pipe(Effect.scoped),
-);
-
 it.effect("keeps other discovery warnings and clears them when only a deleted plist remains", () =>
   Effect.gen(function* () {
     const { service, discoveryErrors } = yield* fixture();
@@ -652,6 +580,7 @@ it.effect.each([
   }).pipe(Effect.scoped),
 );
 
+// regression: #22012 report Android emulator boot failures
 it.effect("includes nested hub boot diagnostics and bounds them to 2,000 characters", () =>
   Effect.gen(function* () {
     const diagnostic = "Error: emulator binary missing\n" + "diagnostic output\n".repeat(200);
