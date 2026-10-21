@@ -34,8 +34,12 @@ if (!TELEMETRY_CHANNELS.includes(telemetryChannel)) {
 // preserves its shared HTTP/auth context across source and executable builds.
 const packExecutable = process.env.T3CODE_PACK_EXE === "1";
 
+// The root config's `projects` route repo-root runs to package configs,
+// including this one. Inheriting them would make this config a container.
+const { projects: _rootTestProjects, ...baseTestConfig } = baseConfig.test ?? {};
+
 export default mergeConfig(
-  baseConfig,
+  { ...baseConfig, test: baseTestConfig },
   defineConfig({
     run: {
       tasks: {

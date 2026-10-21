@@ -197,5 +197,4 @@ it.live.each(["ordinary", "empty", "unsupported"] as const)(
         expect(core).toContain('"isError":false');
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60000 },
 );

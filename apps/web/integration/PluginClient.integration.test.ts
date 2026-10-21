@@ -233,5 +233,4 @@ it.live(
         appAtomRegistry.dispose();
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 30000 },
 );

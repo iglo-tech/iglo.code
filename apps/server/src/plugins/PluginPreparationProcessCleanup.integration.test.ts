@@ -45,6 +45,7 @@ it.live.each(["cancel", "shutdown"] as const)(
           "-m",
           "base",
         );
+        const pinned = (yield* git("rev-parse", "HEAD")).trim();
         const gate = config.baseDir + "/setup-gate";
         const held = config.baseDir + "/setup-held";
         yield* spawn.exitCode(ChildProcess.make("mkfifo", [gate, held]));
@@ -99,7 +100,7 @@ it.live.each(["cancel", "shutdown"] as const)(
             title: "Gated setup",
             modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "fixture" },
             runtimeMode: "approval-required",
-            workspace: { type: "current" },
+            workspace: { type: "exact-ref", ref: pinned, branch: "t3/cleanup1" },
           })
           .pipe(Effect.result, Effect.forkScoped);
         const created = yield* host
@@ -137,5 +138,4 @@ it.live.each(["cancel", "shutdown"] as const)(
         yield* Fiber.interrupt(server.fiber);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  30_000,
 );

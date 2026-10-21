@@ -134,5 +134,4 @@ it.live.each(["retry", "restart"] as const)(
         yield* Fiber.interrupt(server.fiber);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 30000 },
 );

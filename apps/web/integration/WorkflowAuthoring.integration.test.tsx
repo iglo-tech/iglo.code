@@ -339,7 +339,7 @@ const memoryStorage = () => {
   };
 };
 /** Every microtask-driven router/blocker transition has settled once a macrotask runs. */
-const flush = () => act(() => new Promise<void>((resolve) => setImmediate(resolve)));
+const flush = () => act(async () => {});
 const textOf = (node: ReactTestInstance): string =>
   node.children.map((child) => (typeof child === "string" ? child : textOf(child))).join("");
 
@@ -1436,5 +1436,4 @@ it.live(
         expect((yield* fs.readDirectory(second.directory)).sort()).toEqual(["second-only.yaml"]);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 120_000 },
 );

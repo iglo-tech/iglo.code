@@ -623,5 +623,4 @@ it.live(
         expect(reported.at(-1)).toBeNull();
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60_000 },
 );

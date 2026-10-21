@@ -47,306 +47,303 @@ const ToolResult = Schema.fromJsonString(
 const decodeToolResult = Schema.decodeUnknownSync(ToolResult);
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-it.live(
-  "reports through authenticated MCP into the real environment's private plugin store",
-  () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const config = {
-          ...(yield* makeReplayServerConfig("plugin-host")),
-          noBrowser: true,
-          traceTimingEnabled: false,
-        };
-        const { context, fiber: environment } = yield* startEnvironment(config);
-        const server = Context.get(context, HttpServer.HttpServer);
-        const address = server.address;
-        if (!NetAddress.isInetAddress(address)) return yield* Effect.die("Expected a TCP server");
-        const origin = `http://127.0.0.1:${address.port}`;
-        const host = Context.get(context, Host);
-        const projects = Context.get(context, Projects.ProjectService);
-        const projectId = ProjectId.make("fixture-project");
-        yield* projects.create({
-          commandId: CommandId.make("fixture-project"),
-          projectId,
-          title: "Fixture",
-          workspaceRoot: config.baseDir,
-        });
-        const launched = yield* host.launch({
-          environmentId: host.environmentId,
-          commandId: CommandId.make("fixture-launch"),
-          projectId,
-          title: "Fixture report",
-          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-          runtimeMode: "approval-required",
-          workspace: { type: "current" },
-        });
-        const registry = Context.get(context, Registry.PluginRegistry);
-        expect((yield* registry.catalog).plugins[0]?.status).toBe("available");
-        const credential = yield* Context.get(context, McpSessions.McpSessionRegistry).issue({
-          threadId: launched.threadId,
-          providerInstanceId: ProviderInstanceId.make("codex"),
-        });
-        const mcpSessions = Context.get(context, McpProviderSessions.McpProviderSessions);
-        yield* mcpSessions.set(credential.config);
-        yield* Effect.addFinalizer(() => mcpSessions.clear(launched.threadId));
-        const client = Context.get(context, HttpClient.HttpClient);
-        const init = yield* client.post(`${origin}/mcp`, {
-          headers: {
-            authorization: credential.config.authorizationHeader,
-            accept: "application/json, text/event-stream",
-          },
-          body: HttpBody.text(
-            encodeJson({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "initialize",
-              params: {
-                protocolVersion: "2025-06-18",
-                capabilities: {},
-                clientInfo: { name: "fixture", version: "1" },
-              },
-            }),
-            "application/json",
-          ),
-        });
-        expect(init.status).toBe(200);
-        yield* init.text;
-        const call = (
-          method: string,
-          params: Schema.JsonObject,
-          authorization = credential.config.authorizationHeader,
-        ) =>
-          client
-            .post(`${origin}/mcp`, {
-              headers: {
-                authorization,
-                accept: "application/json, text/event-stream",
-                "mcp-protocol-version": "2025-06-18",
-                ...(init.headers["mcp-session-id"] === undefined
-                  ? {}
-                  : { "mcp-session-id": init.headers["mcp-session-id"] }),
-              },
-              body: HttpBody.text(
-                encodeJson({ jsonrpc: "2.0", id: 2, method, params }),
-                "application/json",
-              ),
-            })
-            .pipe(
-              Effect.flatMap((response) =>
-                response.text.pipe(Effect.map((text) => ({ status: response.status, text }))),
-              ),
-            );
-        const discovered = yield* call("tools/list", {});
-        expect(discovered.status).toBe(200);
-        expect(discovered.text).toContain('"name":"plugin_fixture_report"');
-        expect(discovered.text).toContain('"readOnlyHint":false');
-        expect(credential.config.readOnlyPluginTools).toContain("plugin_fixture_report");
-        const response = yield* call("tools/call", {
+it.live("reports through authenticated MCP into the real environment's private plugin store", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const config = {
+        ...(yield* makeReplayServerConfig("plugin-host")),
+        noBrowser: true,
+        traceTimingEnabled: false,
+      };
+      const { context, fiber: environment } = yield* startEnvironment(config);
+      const server = Context.get(context, HttpServer.HttpServer);
+      const address = server.address;
+      if (!NetAddress.isInetAddress(address)) return yield* Effect.die("Expected a TCP server");
+      const origin = `http://127.0.0.1:${address.port}`;
+      const host = Context.get(context, Host);
+      const projects = Context.get(context, Projects.ProjectService);
+      const projectId = ProjectId.make("fixture-project");
+      yield* projects.create({
+        commandId: CommandId.make("fixture-project"),
+        projectId,
+        title: "Fixture",
+        workspaceRoot: config.baseDir,
+      });
+      const launched = yield* host.launch({
+        environmentId: host.environmentId,
+        commandId: CommandId.make("fixture-launch"),
+        projectId,
+        title: "Fixture report",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+        runtimeMode: "approval-required",
+        workspace: { type: "current" },
+      });
+      const registry = Context.get(context, Registry.PluginRegistry);
+      expect((yield* registry.catalog).plugins[0]?.status).toBe("available");
+      const credential = yield* Context.get(context, McpSessions.McpSessionRegistry).issue({
+        threadId: launched.threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+      });
+      const mcpSessions = Context.get(context, McpProviderSessions.McpProviderSessions);
+      yield* mcpSessions.set(credential.config);
+      yield* Effect.addFinalizer(() => mcpSessions.clear(launched.threadId));
+      const client = Context.get(context, HttpClient.HttpClient);
+      const init = yield* client.post(`${origin}/mcp`, {
+        headers: {
+          authorization: credential.config.authorizationHeader,
+          accept: "application/json, text/event-stream",
+        },
+        body: HttpBody.text(
+          encodeJson({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name: "fixture", version: "1" },
+            },
+          }),
+          "application/json",
+        ),
+      });
+      expect(init.status).toBe(200);
+      yield* init.text;
+      const call = (
+        method: string,
+        params: Schema.JsonObject,
+        authorization = credential.config.authorizationHeader,
+      ) =>
+        client
+          .post(`${origin}/mcp`, {
+            headers: {
+              authorization,
+              accept: "application/json, text/event-stream",
+              "mcp-protocol-version": "2025-06-18",
+              ...(init.headers["mcp-session-id"] === undefined
+                ? {}
+                : { "mcp-session-id": init.headers["mcp-session-id"] }),
+            },
+            body: HttpBody.text(
+              encodeJson({ jsonrpc: "2.0", id: 2, method, params }),
+              "application/json",
+            ),
+          })
+          .pipe(
+            Effect.flatMap((response) =>
+              response.text.pipe(Effect.map((text) => ({ status: response.status, text }))),
+            ),
+          );
+      const discovered = yield* call("tools/list", {});
+      expect(discovered.status).toBe(200);
+      expect(discovered.text).toContain('"name":"plugin_fixture_report"');
+      expect(discovered.text).toContain('"readOnlyHint":false');
+      expect(credential.config.readOnlyPluginTools).toContain("plugin_fixture_report");
+      const response = yield* call("tools/call", {
+        name: "plugin_fixture_report",
+        arguments: { id: "report-1", summary: "Needs a decision" },
+      });
+      expect(response.status, response.text).toBe(200);
+      const result = decodeToolResult(response.text.match(/\{.*\}/s)?.[0] ?? response.text);
+      expect(result.result.isError, response.text).toBe(false);
+      expect(result.result.structuredContent).toMatchObject({
+        id: "report-1",
+        threadId: launched.threadId,
+        projectId,
+        environmentId: host.environmentId,
+        resolved: false,
+      });
+      const invalid = yield* call("tools/call", {
+        name: "plugin_fixture_report",
+        arguments: { id: "bad-report", summary: "x".repeat(241) },
+      });
+      expect(invalid.text).toContain('"isError":true');
+      for (const arguments_ of [
+        { id: "blank-summary", summary: "   " },
+        { id: "blank-summary-newline", summary: "\n\t" },
+        { id: "blank-summary-leading", summary: " Needs a decision" },
+        { id: "blank-summary-trailing", summary: "Needs a decision " },
+        { id: "   ", summary: "Needs a decision" },
+        { id: " report-leading", summary: "Needs a decision" },
+        { id: "report-trailing ", summary: "Needs a decision" },
+      ]) {
+        const rejected = yield* call("tools/call", {
           name: "plugin_fixture_report",
-          arguments: { id: "report-1", summary: "Needs a decision" },
+          arguments: arguments_,
         });
-        expect(response.status, response.text).toBe(200);
-        const result = decodeToolResult(response.text.match(/\{.*\}/s)?.[0] ?? response.text);
-        expect(result.result.isError, response.text).toBe(false);
-        expect(result.result.structuredContent).toMatchObject({
-          id: "report-1",
-          threadId: launched.threadId,
-          projectId,
-          environmentId: host.environmentId,
-          resolved: false,
-        });
-        const invalid = yield* call("tools/call", {
-          name: "plugin_fixture_report",
-          arguments: { id: "bad-report", summary: "x".repeat(241) },
-        });
-        expect(invalid.text).toContain('"isError":true');
-        for (const arguments_ of [
-          { id: "blank-summary", summary: "   " },
-          { id: "blank-summary-newline", summary: "\n\t" },
-          { id: "blank-summary-leading", summary: " Needs a decision" },
-          { id: "blank-summary-trailing", summary: "Needs a decision " },
-          { id: "   ", summary: "Needs a decision" },
-          { id: " report-leading", summary: "Needs a decision" },
-          { id: "report-trailing ", summary: "Needs a decision" },
-        ]) {
-          const rejected = yield* call("tools/call", {
-            name: "plugin_fixture_report",
-            arguments: arguments_,
+        expect(rejected.text).toContain('"isError":true');
+        expect(rejected.text).toContain('"code":"validation"');
+      }
+      const fresh = yield* Context.get(context, McpSessions.McpSessionRegistry).issue({
+        threadId: launched.threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+      });
+      yield* mcpSessions.set(fresh.config);
+      const stale = yield* call("tools/call", {
+        name: "plugin_fixture_report",
+        arguments: { id: "stale-report", summary: "Must be rejected" },
+      });
+      expect(stale.text).toContain('"unauthorized"');
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const reader = yield* makeClient(context, [AuthOrchestrationReadScope]);
+          const writer = yield* makeClient(context, [
+            AuthOrchestrationReadScope,
+            AuthOrchestrationOperateScope,
+          ]);
+          const openAttention = yield* reader["plugins.attention"]({
+            environmentId: host.environmentId,
+          }).pipe(Stream.take(1), Stream.runCollect);
+          expect(openAttention[0]?.items).toMatchObject([
+            {
+              id: "report-1",
+              link: { pageId: "fixture.reports", projectId, threadId: launched.threadId },
+            },
+          ]);
+          expect(
+            yield* reader["plugins.fixture.list"]({
+              environmentId: EnvironmentId.make("wrong-environment"),
+            }).pipe(Effect.flip),
+          ).toMatchObject({ code: "unavailable" });
+          const listed = yield* reader["plugins.fixture.list"]({
+            environmentId: host.environmentId,
           });
-          expect(rejected.text).toContain('"isError":true');
-          expect(rejected.text).toContain('"code":"validation"');
-        }
-        const fresh = yield* Context.get(context, McpSessions.McpSessionRegistry).issue({
-          threadId: launched.threadId,
-          providerInstanceId: ProviderInstanceId.make("codex"),
-        });
-        yield* mcpSessions.set(fresh.config);
-        const stale = yield* call("tools/call", {
-          name: "plugin_fixture_report",
-          arguments: { id: "stale-report", summary: "Must be rejected" },
-        });
-        expect(stale.text).toContain('"unauthorized"');
-        yield* Effect.scoped(
-          Effect.gen(function* () {
-            const reader = yield* makeClient(context, [AuthOrchestrationReadScope]);
-            const writer = yield* makeClient(context, [
-              AuthOrchestrationReadScope,
-              AuthOrchestrationOperateScope,
-            ]);
-            const openAttention = yield* reader["plugins.attention"]({
-              environmentId: host.environmentId,
-            }).pipe(Stream.take(1), Stream.runCollect);
-            expect(openAttention[0]?.items).toMatchObject([
-              {
-                id: "report-1",
-                link: { pageId: "fixture.reports", projectId, threadId: launched.threadId },
-              },
-            ]);
-            expect(
-              yield* reader["plugins.fixture.list"]({
-                environmentId: EnvironmentId.make("wrong-environment"),
-              }).pipe(Effect.flip),
-            ).toMatchObject({ code: "unavailable" });
-            const listed = yield* reader["plugins.fixture.list"]({
-              environmentId: host.environmentId,
-            });
-            expect(listed).toHaveLength(1);
-            expect(
-              yield* reader["plugins.fixture.resolve"]({
-                environmentId: host.environmentId,
-                id: "report-1",
-              }).pipe(Effect.flip),
-            ).toMatchObject({
-              _tag: "EnvironmentAuthorizationError",
-              requiredScope: AuthOrchestrationOperateScope,
-            });
-            const initial = yield* Deferred.make<void>();
-            const resolved = yield* Deferred.make<void>();
-            const subscription = yield* reader["plugins.fixture.subscribe"]({
-              environmentId: host.environmentId,
-            }).pipe(
-              Stream.runForEach((reports) =>
-                reports[0]?.resolved
-                  ? Deferred.succeed(resolved, undefined)
-                  : Deferred.succeed(initial, undefined),
-              ),
-              Effect.forkScoped,
-            );
-            yield* Deferred.await(initial);
-            yield* writer["plugins.fixture.resolve"]({
+          expect(listed).toHaveLength(1);
+          expect(
+            yield* reader["plugins.fixture.resolve"]({
               environmentId: host.environmentId,
               id: "report-1",
-            });
-            yield* Deferred.await(resolved);
-            yield* Fiber.interrupt(subscription);
-            const attention = yield* reader["plugins.attention"]({
-              environmentId: host.environmentId,
-            }).pipe(Stream.take(1), Stream.runCollect);
-            expect(attention[0]?.items).toEqual([]);
-            yield* writer["plugins.fixture.schedule"]({
-              environmentId: host.environmentId,
-              id: "report-1",
-              everyMs: 60_000,
-            });
-            const scheduled = (yield* reader["scheduledTasks.list"]({})).tasks[0]!;
-            expect(scheduled.dispatchTarget).toEqual({
-              id: "fixture.reminder",
-              payload: { id: "report-1" },
-            });
-            const occurrenceId = "fixture-reminder-occurrence";
-            expect(
-              (yield* writer["scheduledTasks.runNow"]({ id: scheduled.id, occurrenceId })).task
-                .lastRunStatus,
-            ).toBe("succeeded");
-            yield* writer["plugins.fixture.resolve"]({
-              environmentId: host.environmentId,
-              id: "report-1",
-            });
-            yield* writer["scheduledTasks.runNow"]({ id: scheduled.id, occurrenceId });
-            expect(
-              (yield* reader["plugins.fixture.list"]({ environmentId: host.environmentId }))[0]
-                ?.resolved,
-            ).toBe(true);
-            expect((yield* reader["scheduledTasks.list"]({})).tasks[0]?.runCount).toBe(1);
-          }),
-        );
-        yield* Fiber.interrupt(environment);
-        const restarted = yield* startEnvironment(config);
-        yield* Effect.scoped(
-          Effect.gen(function* () {
-            const refreshedClient = yield* makeClient(restarted.context, [
-              AuthOrchestrationReadScope,
-            ]);
-            expect(
-              yield* refreshedClient["plugins.fixture.list"]({ environmentId: host.environmentId }),
-            ).toMatchObject([{ id: "report-1", resolved: true, threadId: launched.threadId }]);
-            const refreshedCredential = yield* Context.get(
-              restarted.context,
-              McpSessions.McpSessionRegistry,
-            ).issue({
-              threadId: launched.threadId,
-              providerInstanceId: ProviderInstanceId.make("codex"),
-            });
-            expect(refreshedCredential.config.authorizationHeader).not.toBe(
-              credential.config.authorizationHeader,
-            );
-            // The restarted environment starts with an empty session map.
-            yield* Context.get(restarted.context, McpProviderSessions.McpProviderSessions).set(
-              refreshedCredential.config,
-            );
-            const restartedHttp = Context.get(restarted.context, HttpClient.HttpClient);
-            const discovery = yield* restartedHttp.post(`${testOrigin(restarted.context)}/mcp`, {
-              headers: {
-                authorization: refreshedCredential.config.authorizationHeader,
-                accept: "application/json, text/event-stream",
-              },
-              body: HttpBody.text(
-                encodeJson({
-                  jsonrpc: "2.0",
-                  id: 4,
-                  method: "initialize",
-                  params: {
-                    protocolVersion: "2025-06-18",
-                    capabilities: {},
-                    clientInfo: { name: "restarted-fixture", version: "1" },
-                  },
-                }),
-                "application/json",
-              ),
-            });
-            expect(discovery.status).toBe(200);
-            yield* discovery.text;
-            const tool = yield* restartedHttp.post(`${testOrigin(restarted.context)}/mcp`, {
-              headers: {
-                authorization: refreshedCredential.config.authorizationHeader,
-                accept: "application/json, text/event-stream",
-                "mcp-protocol-version": "2025-06-18",
-                ...(discovery.headers["mcp-session-id"] === undefined
-                  ? {}
-                  : { "mcp-session-id": discovery.headers["mcp-session-id"] }),
-              },
-              body: HttpBody.text(
-                encodeJson({
-                  jsonrpc: "2.0",
-                  id: 5,
-                  method: "tools/call",
-                  params: {
-                    name: "plugin_fixture_report",
-                    arguments: { id: "report-1", summary: "Needs a decision" },
-                  },
-                }),
-                "application/json",
-              ),
-            });
-            const text = yield* tool.text;
-            expect(tool.status, text).toBe(200);
-            expect(decodeToolResult(text.match(/\{.*\}/s)?.[0] ?? text).result.isError).toBe(false);
-          }),
-        );
-        yield* Fiber.interrupt(restarted.fiber);
-      }),
-    ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 30_000 },
+            }).pipe(Effect.flip),
+          ).toMatchObject({
+            _tag: "EnvironmentAuthorizationError",
+            requiredScope: AuthOrchestrationOperateScope,
+          });
+          const initial = yield* Deferred.make<void>();
+          const resolved = yield* Deferred.make<void>();
+          const subscription = yield* reader["plugins.fixture.subscribe"]({
+            environmentId: host.environmentId,
+          }).pipe(
+            Stream.runForEach((reports) =>
+              reports[0]?.resolved
+                ? Deferred.succeed(resolved, undefined)
+                : Deferred.succeed(initial, undefined),
+            ),
+            Effect.forkScoped,
+          );
+          yield* Deferred.await(initial);
+          yield* writer["plugins.fixture.resolve"]({
+            environmentId: host.environmentId,
+            id: "report-1",
+          });
+          yield* Deferred.await(resolved);
+          yield* Fiber.interrupt(subscription);
+          const attention = yield* reader["plugins.attention"]({
+            environmentId: host.environmentId,
+          }).pipe(Stream.take(1), Stream.runCollect);
+          expect(attention[0]?.items).toEqual([]);
+          yield* writer["plugins.fixture.schedule"]({
+            environmentId: host.environmentId,
+            id: "report-1",
+            everyMs: 60_000,
+          });
+          const scheduled = (yield* reader["scheduledTasks.list"]({})).tasks[0]!;
+          expect(scheduled.dispatchTarget).toEqual({
+            id: "fixture.reminder",
+            payload: { id: "report-1" },
+          });
+          const occurrenceId = "fixture-reminder-occurrence";
+          expect(
+            (yield* writer["scheduledTasks.runNow"]({ id: scheduled.id, occurrenceId })).task
+              .lastRunStatus,
+          ).toBe("succeeded");
+          yield* writer["plugins.fixture.resolve"]({
+            environmentId: host.environmentId,
+            id: "report-1",
+          });
+          yield* writer["scheduledTasks.runNow"]({ id: scheduled.id, occurrenceId });
+          expect(
+            (yield* reader["plugins.fixture.list"]({ environmentId: host.environmentId }))[0]
+              ?.resolved,
+          ).toBe(true);
+          expect((yield* reader["scheduledTasks.list"]({})).tasks[0]?.runCount).toBe(1);
+        }),
+      );
+      yield* Fiber.interrupt(environment);
+      const restarted = yield* startEnvironment(config);
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const refreshedClient = yield* makeClient(restarted.context, [
+            AuthOrchestrationReadScope,
+          ]);
+          expect(
+            yield* refreshedClient["plugins.fixture.list"]({ environmentId: host.environmentId }),
+          ).toMatchObject([{ id: "report-1", resolved: true, threadId: launched.threadId }]);
+          const refreshedCredential = yield* Context.get(
+            restarted.context,
+            McpSessions.McpSessionRegistry,
+          ).issue({
+            threadId: launched.threadId,
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          });
+          expect(refreshedCredential.config.authorizationHeader).not.toBe(
+            credential.config.authorizationHeader,
+          );
+          // The restarted environment starts with an empty session map.
+          yield* Context.get(restarted.context, McpProviderSessions.McpProviderSessions).set(
+            refreshedCredential.config,
+          );
+          const restartedHttp = Context.get(restarted.context, HttpClient.HttpClient);
+          const discovery = yield* restartedHttp.post(`${testOrigin(restarted.context)}/mcp`, {
+            headers: {
+              authorization: refreshedCredential.config.authorizationHeader,
+              accept: "application/json, text/event-stream",
+            },
+            body: HttpBody.text(
+              encodeJson({
+                jsonrpc: "2.0",
+                id: 4,
+                method: "initialize",
+                params: {
+                  protocolVersion: "2025-06-18",
+                  capabilities: {},
+                  clientInfo: { name: "restarted-fixture", version: "1" },
+                },
+              }),
+              "application/json",
+            ),
+          });
+          expect(discovery.status).toBe(200);
+          yield* discovery.text;
+          const tool = yield* restartedHttp.post(`${testOrigin(restarted.context)}/mcp`, {
+            headers: {
+              authorization: refreshedCredential.config.authorizationHeader,
+              accept: "application/json, text/event-stream",
+              "mcp-protocol-version": "2025-06-18",
+              ...(discovery.headers["mcp-session-id"] === undefined
+                ? {}
+                : { "mcp-session-id": discovery.headers["mcp-session-id"] }),
+            },
+            body: HttpBody.text(
+              encodeJson({
+                jsonrpc: "2.0",
+                id: 5,
+                method: "tools/call",
+                params: {
+                  name: "plugin_fixture_report",
+                  arguments: { id: "report-1", summary: "Needs a decision" },
+                },
+              }),
+              "application/json",
+            ),
+          });
+          const text = yield* tool.text;
+          expect(tool.status, text).toBe(200);
+          expect(decodeToolResult(text.match(/\{.*\}/s)?.[0] ?? text).result.isError).toBe(false);
+        }),
+      );
+      yield* Fiber.interrupt(restarted.fiber);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
 );
 
 it.live(
@@ -535,7 +532,6 @@ it.live(
         yield* Fiber.interrupt(environment.fiber);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 30_000 },
 );
 
 it.live(
@@ -698,77 +694,71 @@ it.live(
         yield* Fiber.interrupt(second.fiber);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 30_000 },
 );
 
-it.live(
-  "boots ordinary thread and scheduling services with zero compiled plugins",
-  () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const config = {
-          ...(yield* makeReplayServerConfig("zero-plugins")),
-          noBrowser: true,
-          traceTimingEnabled: false,
-        };
-        const server = yield* startEnvironment(config, []);
-        expect(
-          (yield* Context.get(server.context, Registry.PluginRegistry).catalog).plugins,
-        ).toEqual([]);
-        const host = Context.get(server.context, Host);
-        const settings = Context.get(server.context, Settings.ServerSettingsService);
-        yield* settings.updateSettings({
-          providerInstances: {
-            [ProviderInstanceId.make("opencode")]: {
-              driver: ProviderDriverKind.make("opencode"),
-              enabled: true,
-              config: { serverUrl: "http://127.0.0.1:1" },
-            },
+it.live("boots ordinary thread and scheduling services with zero compiled plugins", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const config = {
+        ...(yield* makeReplayServerConfig("zero-plugins")),
+        noBrowser: true,
+        traceTimingEnabled: false,
+      };
+      const server = yield* startEnvironment(config, []);
+      expect((yield* Context.get(server.context, Registry.PluginRegistry).catalog).plugins).toEqual(
+        [],
+      );
+      const host = Context.get(server.context, Host);
+      const settings = Context.get(server.context, Settings.ServerSettingsService);
+      yield* settings.updateSettings({
+        providerInstances: {
+          [ProviderInstanceId.make("opencode")]: {
+            driver: ProviderDriverKind.make("opencode"),
+            enabled: true,
+            config: { serverUrl: "http://127.0.0.1:1" },
           },
-        });
-        const external = (yield* host.providers()).find(
-          (provider) => provider.instanceId === "opencode",
-        );
-        expect(external).toMatchObject({
-          toolsSupported: false,
-          reason: expect.stringContaining("Externally owned"),
-        });
+        },
+      });
+      const external = (yield* host.providers()).find(
+        (provider) => provider.instanceId === "opencode",
+      );
+      expect(external).toMatchObject({
+        toolsSupported: false,
+        reason: expect.stringContaining("Externally owned"),
+      });
 
-        const projectId = ProjectId.make("ordinary-project");
-        yield* Context.get(server.context, Projects.ProjectService).create({
-          commandId: CommandId.make("ordinary-project"),
-          projectId,
-          title: "Ordinary",
-          workspaceRoot: config.baseDir,
-        });
-        const launched = yield* host.launch({
-          environmentId: host.environmentId,
-          projectId,
-          commandId: CommandId.make("ordinary-launch"),
-          title: "Ordinary thread",
-          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-          runtimeMode: "approval-required",
-          workspace: { type: "current" },
-        });
-        expect(launched.status).toBe("accepted");
-        const tasks = Context.get(server.context, ScheduledTasks.ScheduledTaskService);
-        const scheduled = yield* tasks.upsert({
-          projectId,
-          title: "Ordinary prompt",
-          prompt: "Continue",
-          enabled: false,
-          schedule: { type: "interval", everyMs: 60_000 },
-          workspaceStrategy: { type: "root" },
-          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-          runtimeMode: "approval-required",
-          interactionMode: "default",
-        });
-        expect(scheduled.task.dispatchTarget).toBeUndefined();
-        expect((yield* tasks.runNow({ id: scheduled.task.id })).task.lastRunStatus).toBe(
-          "succeeded",
-        );
-        yield* Fiber.interrupt(server.fiber);
-      }),
-    ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 30_000 },
+      const projectId = ProjectId.make("ordinary-project");
+      yield* Context.get(server.context, Projects.ProjectService).create({
+        commandId: CommandId.make("ordinary-project"),
+        projectId,
+        title: "Ordinary",
+        workspaceRoot: config.baseDir,
+      });
+      const launched = yield* host.launch({
+        environmentId: host.environmentId,
+        projectId,
+        commandId: CommandId.make("ordinary-launch"),
+        title: "Ordinary thread",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+        runtimeMode: "approval-required",
+        workspace: { type: "current" },
+      });
+      expect(launched.status).toBe("accepted");
+      const tasks = Context.get(server.context, ScheduledTasks.ScheduledTaskService);
+      const scheduled = yield* tasks.upsert({
+        projectId,
+        title: "Ordinary prompt",
+        prompt: "Continue",
+        enabled: false,
+        schedule: { type: "interval", everyMs: 60_000 },
+        workspaceStrategy: { type: "root" },
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+      });
+      expect(scheduled.task.dispatchTarget).toBeUndefined();
+      expect((yield* tasks.runNow({ id: scheduled.task.id })).task.lastRunStatus).toBe("succeeded");
+      yield* Fiber.interrupt(server.fiber);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
 );

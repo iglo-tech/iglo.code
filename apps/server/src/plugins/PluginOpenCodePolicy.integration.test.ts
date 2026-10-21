@@ -405,5 +405,4 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
         expect(reports).toHaveLength(scenario === "unchanged-compaction" ? 1 : 0);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60000 },
 );

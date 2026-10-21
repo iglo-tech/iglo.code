@@ -16,130 +16,127 @@ const decodeAuthoring = Schema.decodeUnknownEffect(AuthoringEntry);
 const decodeDefinition = Schema.decodeUnknownSync(Definition);
 const decodeCandidate = Schema.decodeUnknownEffect(Definition);
 
-it.live(
-  "preserves protected values through authoring read, save and YAML round trips",
-  () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const test = yield* makeCoreWorkflowFixture;
-        const marker = "fabricated-authoring-token";
-        yield* Context.get(test.context, Settings.ServerSettingsService).updateSettings({
-          sourceControlHosts: { bitbucket: { accessToken: marker } },
-        });
-        const runtime = yield* test.boot(Host.of({ ...test.core, lifecycle: () => Stream.never }));
-        const fs = yield* FileSystem.FileSystem;
-        const filename = `${test.config.baseDir}/.t3code/workflows/protected.yaml`;
-        const authored = decodeDefinition({
-          ...sequence,
-          id: "protected",
-          nodes: sequence.nodes.map((node) =>
-            node.kind === "agent"
-              ? {
-                  ...node,
-                  instruction: `Deploy with ${marker}`,
-                  report: {
-                    fields: [
-                      { name: "ready", type: "boolean", required: true },
-                      { name: "target", type: "enum", required: false, values: ["pass", marker] },
-                    ],
-                  },
-                }
-              : node,
-          ),
-        });
-        const created = yield* runtime
-          .invoke("save", { ...test.scope, definition: authored, expectedRevision: null })
-          .pipe(Effect.flatMap(decodeAuthoring));
-        expect(yield* fs.readFileString(filename)).toContain(marker);
-        expect(created.text).not.toContain(marker);
-        expect(created.protectedValues).toBe(2);
-        const read = yield* runtime
-          .invoke("read", { ...test.scope, source: created.source })
-          .pipe(Effect.flatMap(decodeAuthoring));
-        expect(JSON.stringify(read)).not.toContain(marker);
-        const agent = read.definition!.nodes.find((node) => node.kind === "agent")!;
-        if (agent.kind !== "agent") return yield* Effect.die("Expected agent");
-        expect(agent.instruction).toMatch(/^⟦protected:[a-f0-9]{12}:0⟧$/);
-        // The canonical export is the authoring view; importing it restores the same graph.
-        expect(decodeDefinition(Yaml.parse(read.text))).toEqual(read.definition);
-        const edited = {
-          ...decodeDefinition(Yaml.parse(read.text)),
-          revision: 2,
-          title: "Renamed",
-        };
-        const tampered = {
-          ...edited,
-          nodes: edited.nodes.map((node) =>
-            node.kind === "agent" ? { ...node, instruction: `${agent.instruction} extra` } : node,
-          ),
-        };
-        const partial = yield* runtime
-          .invoke("save", {
-            ...test.scope,
-            definition: tampered,
-            expectedRevision: 1,
-            fingerprint: read.fingerprint,
-          })
-          .pipe(Effect.result);
-        expect(partial).toMatchObject({ _tag: "Failure", failure: { code: "validation" } });
-        const saved = yield* runtime
-          .invoke("save", {
-            ...test.scope,
-            definition: edited,
-            expectedRevision: 1,
-            fingerprint: read.fingerprint,
-          })
-          .pipe(Effect.flatMap(decodeAuthoring));
-        expect(saved.definition?.title).toBe("Renamed");
-        const persisted = decodeDefinition(Yaml.parse(yield* fs.readFileString(filename)));
-        expect(persisted).toEqual({ ...authored, revision: 2, title: "Renamed" });
-        // A placeholder issued for an older file cannot be restored after an external edit.
-        yield* fs.writeFileString(filename, Yaml.stringify({ ...persisted, title: "External" }));
-        const stale = yield* runtime
-          .invoke("save", {
-            ...test.scope,
-            definition: { ...edited, revision: 3 },
-            expectedRevision: 2,
-            fingerprint: saved.fingerprint,
-          })
-          .pipe(Effect.result);
-        expect(stale).toMatchObject({ _tag: "Failure", failure: { code: "conflict" } });
-        expect(decodeDefinition(Yaml.parse(yield* fs.readFileString(filename))).title).toBe(
-          "External",
-        );
-        // Repair also restores placeholders from a schema-invalid source, retaining its exact
-        // filename rather than deriving a new file from the candidate's identity.
-        const repairSource = ".t3code/workflows/retained-name.yml";
-        const repairFile = `${test.config.baseDir}/${repairSource}`;
-        const repairDefinition = { ...authored, id: "repaired" };
-        yield* fs.writeFileString(repairFile, Yaml.stringify({ ...repairDefinition, entry: 3 }));
-        const broken = yield* runtime
-          .invoke("read", { ...test.scope, source: repairSource })
-          .pipe(Effect.flatMap(decodeAuthoring));
-        expect(broken.definition).toBeNull();
-        expect(broken.protectedValues).toBe(2);
-        expect(broken.text).not.toContain(marker);
-        const candidate = yield* decodeCandidate({
-          ...Yaml.parse(broken.text),
-          entry: authored.entry,
-        });
-        const repaired = yield* runtime
-          .invoke("replace", {
-            ...test.scope,
-            source: broken.source,
-            fingerprint: broken.fingerprint,
-            definition: candidate,
-          })
-          .pipe(Effect.flatMap(decodeAuthoring));
-        expect(repaired.source).toBe(repairSource);
-        expect(repaired.text).not.toContain(marker);
-        expect(decodeDefinition(Yaml.parse(yield* fs.readFileString(repairFile)))).toEqual(
-          repairDefinition,
-        );
-        expect(yield* fs.exists(`${test.config.baseDir}/.t3code/workflows/repaired.yaml`)).toBe(
-          false,
-        );
-      }),
-    ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60_000 },
+it.live("preserves protected values through authoring read, save and YAML round trips", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* makeCoreWorkflowFixture;
+      const marker = "fabricated-authoring-token";
+      yield* Context.get(test.context, Settings.ServerSettingsService).updateSettings({
+        sourceControlHosts: { bitbucket: { accessToken: marker } },
+      });
+      const runtime = yield* test.boot(Host.of({ ...test.core, lifecycle: () => Stream.never }));
+      const fs = yield* FileSystem.FileSystem;
+      const filename = `${test.config.baseDir}/.t3code/workflows/protected.yaml`;
+      const authored = decodeDefinition({
+        ...sequence,
+        id: "protected",
+        nodes: sequence.nodes.map((node) =>
+          node.kind === "agent"
+            ? {
+                ...node,
+                instruction: `Deploy with ${marker}`,
+                report: {
+                  fields: [
+                    { name: "ready", type: "boolean", required: true },
+                    { name: "target", type: "enum", required: false, values: ["pass", marker] },
+                  ],
+                },
+              }
+            : node,
+        ),
+      });
+      const created = yield* runtime
+        .invoke("save", { ...test.scope, definition: authored, expectedRevision: null })
+        .pipe(Effect.flatMap(decodeAuthoring));
+      expect(yield* fs.readFileString(filename)).toContain(marker);
+      expect(created.text).not.toContain(marker);
+      expect(created.protectedValues).toBe(2);
+      const read = yield* runtime
+        .invoke("read", { ...test.scope, source: created.source })
+        .pipe(Effect.flatMap(decodeAuthoring));
+      expect(JSON.stringify(read)).not.toContain(marker);
+      const agent = read.definition!.nodes.find((node) => node.kind === "agent")!;
+      if (agent.kind !== "agent") return yield* Effect.die("Expected agent");
+      expect(agent.instruction).toMatch(/^⟦protected:[a-f0-9]{12}:0⟧$/);
+      // The canonical export is the authoring view; importing it restores the same graph.
+      expect(decodeDefinition(Yaml.parse(read.text))).toEqual(read.definition);
+      const edited = {
+        ...decodeDefinition(Yaml.parse(read.text)),
+        revision: 2,
+        title: "Renamed",
+      };
+      const tampered = {
+        ...edited,
+        nodes: edited.nodes.map((node) =>
+          node.kind === "agent" ? { ...node, instruction: `${agent.instruction} extra` } : node,
+        ),
+      };
+      const partial = yield* runtime
+        .invoke("save", {
+          ...test.scope,
+          definition: tampered,
+          expectedRevision: 1,
+          fingerprint: read.fingerprint,
+        })
+        .pipe(Effect.result);
+      expect(partial).toMatchObject({ _tag: "Failure", failure: { code: "validation" } });
+      const saved = yield* runtime
+        .invoke("save", {
+          ...test.scope,
+          definition: edited,
+          expectedRevision: 1,
+          fingerprint: read.fingerprint,
+        })
+        .pipe(Effect.flatMap(decodeAuthoring));
+      expect(saved.definition?.title).toBe("Renamed");
+      const persisted = decodeDefinition(Yaml.parse(yield* fs.readFileString(filename)));
+      expect(persisted).toEqual({ ...authored, revision: 2, title: "Renamed" });
+      // A placeholder issued for an older file cannot be restored after an external edit.
+      yield* fs.writeFileString(filename, Yaml.stringify({ ...persisted, title: "External" }));
+      const stale = yield* runtime
+        .invoke("save", {
+          ...test.scope,
+          definition: { ...edited, revision: 3 },
+          expectedRevision: 2,
+          fingerprint: saved.fingerprint,
+        })
+        .pipe(Effect.result);
+      expect(stale).toMatchObject({ _tag: "Failure", failure: { code: "conflict" } });
+      expect(decodeDefinition(Yaml.parse(yield* fs.readFileString(filename))).title).toBe(
+        "External",
+      );
+      // Repair also restores placeholders from a schema-invalid source, retaining its exact
+      // filename rather than deriving a new file from the candidate's identity.
+      const repairSource = ".t3code/workflows/retained-name.yml";
+      const repairFile = `${test.config.baseDir}/${repairSource}`;
+      const repairDefinition = { ...authored, id: "repaired" };
+      yield* fs.writeFileString(repairFile, Yaml.stringify({ ...repairDefinition, entry: 3 }));
+      const broken = yield* runtime
+        .invoke("read", { ...test.scope, source: repairSource })
+        .pipe(Effect.flatMap(decodeAuthoring));
+      expect(broken.definition).toBeNull();
+      expect(broken.protectedValues).toBe(2);
+      expect(broken.text).not.toContain(marker);
+      const candidate = yield* decodeCandidate({
+        ...Yaml.parse(broken.text),
+        entry: authored.entry,
+      });
+      const repaired = yield* runtime
+        .invoke("replace", {
+          ...test.scope,
+          source: broken.source,
+          fingerprint: broken.fingerprint,
+          definition: candidate,
+        })
+        .pipe(Effect.flatMap(decodeAuthoring));
+      expect(repaired.source).toBe(repairSource);
+      expect(repaired.text).not.toContain(marker);
+      expect(decodeDefinition(Yaml.parse(yield* fs.readFileString(repairFile)))).toEqual(
+        repairDefinition,
+      );
+      expect(yield* fs.exists(`${test.config.baseDir}/.t3code/workflows/repaired.yaml`)).toBe(
+        false,
+      );
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
 );

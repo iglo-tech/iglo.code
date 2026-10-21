@@ -96,4 +96,4 @@ export default defineConfig({pack: {
   } finally {
     NodeFS.rmSync(scratch, { recursive: true, force: true });
   }
-}, 60_000);
+});

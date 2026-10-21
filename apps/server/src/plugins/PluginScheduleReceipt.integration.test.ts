@@ -94,5 +94,4 @@ it.live.each(["failed", "succeeded", "succeeded before a later failure"] as cons
         }
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60000 },
 );

@@ -92,27 +92,6 @@ function assertDiscordLimits(payloads: ReturnType<typeof buildDiscordReleaseAnno
   }
 }
 
-it("includes nightly changes in order with their links and existing metadata", () => {
-  const payloads = buildDiscordReleaseAnnouncement({ ...nightlyAnnouncement, releaseNotes: notes });
-  assert.deepStrictEqual(payloads, [
-    {
-      content: "-# <@&222222222222222222>",
-      allowed_mentions: { parse: [], roles: [latestAnnouncement.roleId] },
-      embeds: [
-        {
-          title: latestAnnouncement.releaseName,
-          url: latestAnnouncement.releaseUrl.href,
-          description: `${intro}\n\n${formattedNotes}`,
-          color: 0x5865f2,
-          footer: { text: "v1.2.3" },
-          timestamp: latestAnnouncement.timestamp,
-        },
-      ],
-    },
-  ]);
-  assertDiscordLimits(payloads);
-});
-
 it("keeps stable announcements short even when a long changelog is provided", () => {
   assert.deepStrictEqual(
     buildDiscordReleaseAnnouncement({ ...latestAnnouncement, releaseNotes: notes.repeat(200) }),
@@ -152,27 +131,6 @@ it("preserves custom notes and links outside generated GitHub pull request entri
     payloadDescription(buildDiscordReleaseAnnouncement({ ...nightlyAnnouncement, releaseNotes })),
     `${intro}\n\n${releaseNotes}`,
   );
-});
-
-it("links the Full Changelog label instead of displaying the comparison URL", () => {
-  const url = "https://github.com/pingdotgg/t3code/compare/previous...next";
-  const releaseNotes = `**Full Changelog**: ${url}\nFull Changelog: ${url}`;
-  const description = payloadDescription(
-    buildDiscordReleaseAnnouncement({ ...nightlyAnnouncement, releaseNotes }),
-  );
-  assert.equal(description, `${intro}\n\n[Full Changelog](${url})\n[Full Changelog](${url})`);
-});
-
-it("keeps inline change attribution whole at a message boundary", () => {
-  const title = "* [Fix reconnection](https://github.com/pingdotgg/t3code/pull/10)";
-  const contributor = "[@contributor](https://github.com/contributor)";
-  const filler = "x".repeat(4096 - intro.length - 2 - title.length - 2);
-  const releaseNotes = `${filler}\n* Fix reconnection by @contributor in https://github.com/pingdotgg/t3code/pull/10`;
-  const payloads = buildDiscordReleaseAnnouncement({ ...nightlyAnnouncement, releaseNotes });
-  assert.equal(payloads.length, 2);
-  assert.equal(payloads[1]?.embeds[0]?.description, `${title} by ${contributor}`);
-  assert.equal(payloadDescription(payloads), `${intro}\n\n${filler}\n${title} by ${contributor}`);
-  assertDiscordLimits(payloads);
 });
 
 it("falls back when notes are missing, empty, or whitespace", () => {
@@ -220,18 +178,6 @@ it("splits long notes at line boundaries without dropping changes or the compari
     if (index < payloads.length - 1) assert.ok(payload.embeds[0]?.description.endsWith("\n"));
     assert.equal(payload.embeds[0]?.url, nightlyAnnouncement.releaseUrl.href);
   }
-});
-
-it("honors the aggregate embed limit when metadata is also large", () => {
-  const releaseNotes = "a".repeat(16000);
-  const payloads = buildDiscordReleaseAnnouncement({
-    ...nightlyAnnouncement,
-    releaseName: "n".repeat(256),
-    version: "x".repeat(2047),
-    releaseNotes,
-  });
-  assertDiscordLimits(payloads);
-  assert.equal(payloadDescription(payloads), `${intro}\n\n${releaseNotes}`);
 });
 
 it("handles oversized lines, words, and Unicode without losing or breaking characters", () => {

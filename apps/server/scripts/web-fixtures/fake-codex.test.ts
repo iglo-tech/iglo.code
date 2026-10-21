@@ -90,6 +90,7 @@ test("the controlled provider streams until released and acknowledges cancellati
   });
   const until = (predicate: (message: Record<string, unknown>) => boolean) =>
     new Promise<Record<string, unknown>>((resolve, reject) => {
+      // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- guards a spawned subprocess that may never emit the milestone
       const timeout = setTimeout(
         () => reject(new Error(`Missing protocol milestone: ${JSON.stringify(messages)}`)),
         5000,

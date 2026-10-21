@@ -183,5 +183,4 @@ lines.on('line', line => {
         expect((yield* threads.getThreadRecords(threadId, ["runs"])).runs).toHaveLength(1);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60000 },
 );

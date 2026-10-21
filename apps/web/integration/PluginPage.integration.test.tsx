@@ -399,12 +399,10 @@ it.live(
             });
             vi.unstubAllGlobals();
             vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-            await new Promise<void>((resolve) => setImmediate(resolve));
           });
         const press = (label: string) =>
           act(async () => {
             button(label).props.onClick();
-            await new Promise<void>((resolve) => setImmediate(resolve));
           });
         yield* Effect.promise(leave);
         expect(renderer!.root.findAllByProps({ role: "alertdialog" }).length).toBeGreaterThan(0);
@@ -442,5 +440,4 @@ it.live(
         yield* Fiber.interrupt(second.fiber);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60_000 },
 );

@@ -664,7 +664,7 @@ const memoryStorage = () => {
     removeItem: (key: string) => void values.delete(key),
   };
 };
-const flush = () => act(() => new Promise<void>((resolve) => setImmediate(resolve)));
+const flush = () => act(async () => {});
 const displayedTime = (at: number) =>
   new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const textOf = (node: ReactTestInstance): string =>
@@ -2172,5 +2172,4 @@ it.live(
         expect(second.tracked.openSubscriptions()).toBe(0);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 120_000 },
 );

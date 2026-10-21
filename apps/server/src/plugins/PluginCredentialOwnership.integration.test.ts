@@ -367,5 +367,4 @@ it.live.each(["late predecessor", "cancelled predecessor"] as const)(
         expect(reports).toEqual([]);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 60000 },
 );

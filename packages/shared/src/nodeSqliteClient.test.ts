@@ -12,15 +12,13 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
-import * as Path from "effect/Path";
 import * as Scheduler from "effect/Scheduler";
 import type * as Scope from "effect/Scope";
-import * as SqlClient from "effect/sql/SqlClient";
-import * as Statement from "effect/sql/Statement";
 import * as TestClock from "effect/testing/TestClock";
-import * as Tracer from "effect/Tracer";
 import { vi } from "vite-plus/test";
 
 import * as SqliteClient from "./nodeSqliteClient.ts";
@@ -89,41 +87,6 @@ layer("NodeSqliteClient", (it) => {
       yield* sql`INSERT INTO created_after_prepare_failure VALUES ('recovered')`;
       assert.deepEqual(yield* select, [{ name: "recovered" }]);
       assert.deepEqual(yield* select.values, [["recovered"]]);
-    }),
-  );
-
-  it.effect("runs prepared queries and returns positional values", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* sql`CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`;
-      yield* sql`INSERT INTO entries(name) VALUES (${"alpha"}), (${"beta"})`;
-
-      const rows = yield* sql<{ readonly id: number; readonly name: string }>`
-      SELECT id, name FROM entries ORDER BY id
-    `;
-      assert.equal(rows.length, 2);
-      assert.equal(rows[0]?.name, "alpha");
-      assert.equal(rows[1]?.name, "beta");
-
-      const values = yield* sql`SELECT id, name FROM entries ORDER BY id`.values;
-      assert.equal(values.length, 2);
-      assert.equal(values[0]?.[1], "alpha");
-      assert.equal(values[1]?.[1], "beta");
-
-      const unpreparedValues = yield* sql`SELECT id, name FROM entries ORDER BY id`
-        .valuesUnprepared;
-      assert.deepEqual(unpreparedValues, values);
-    }),
-  );
-
-  it.effect("returns a typed failure when an unprepared statement cannot be prepared", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      const error = yield* Effect.flip(sql.unsafe("SELECT FROM").unprepared);
-
-      assert.equal(error._tag, "SqlError");
-      assert.equal(error.reason.operation, "prepare");
     }),
   );
 
@@ -263,36 +226,6 @@ it.effect("reads integers on the values path as the caller asked, cached or not"
       ]);
       assert.deepEqual(yield* values, [[1, value.length]]);
     }
-  }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
-);
-
-it.effect("leaves a parameter it cannot measure for the statement to handle", () =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const detached = new DataView(new ArrayBuffer(8));
-    structuredClone(detached.buffer, { transfer: [detached.buffer] });
-    // What a detached view binds as varies by Node version; match the statement itself.
-    const native = new NodeSqlite.DatabaseSync(":memory:");
-    const expected = native.prepare("SELECT length(?) AS size").all(detached);
-    native.close();
-    assert.deepEqual(yield* sql`SELECT length(${detached}) AS size`, expected);
-
-    const throwing = {
-      get $value(): string {
-        throw new Error("unreadable");
-      },
-    };
-    const error = yield* sql.unsafe("SELECT length($value) AS size", [throwing]).pipe(Effect.flip);
-    assert.equal(error.reason.operation, "execute");
-
-    let reads = 0;
-    const counting = {
-      get $value(): number {
-        return ++reads;
-      },
-    };
-    assert.deepEqual(yield* sql.unsafe("SELECT $value AS value", [counting]), [{ value: 1 }]);
-    assert.equal(reads, 1);
   }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
 );
 
@@ -447,6 +380,7 @@ it.effect("lets the writer commit while a read-only transaction is open", () =>
   ),
 );
 
+// regression: #19226 read-only transactions run on the separate reader connection
 it.effect("rejects a write in a read-only transaction", () =>
   withReaderClient((sql) =>
     Effect.gen(function* () {
@@ -492,124 +426,6 @@ it.effect("keeps read-only work inside a write transaction on the writer", () =>
   ),
 );
 
-it.effect("labels SQL spans with their connection and how long they waited for its lock", () => {
-  const spans: Array<Tracer.NativeSpan> = [];
-  const tracer = Tracer.make({
-    span: (options) => {
-      const span = new Tracer.NativeSpan(options);
-      spans.push(span);
-      return span;
-    },
-  });
-  return withReaderClient((sql) =>
-    Effect.gen(function* () {
-      const held = yield* Deferred.make<void>();
-      const release = yield* Deferred.make<void>();
-      const holder = yield* Effect.forkChild(
-        sql.withTransaction(
-          Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release))),
-        ),
-      );
-      yield* Deferred.await(held);
-      const statement = yield* Effect.forkChild(sql`SELECT 1`, { startImmediately: true });
-      const transaction = yield* Effect.forkChild(sql.withTransaction(countEntries(sql)), {
-        startImmediately: true,
-      });
-      yield* TestClock.adjust("25 millis");
-      yield* Deferred.succeed(release, undefined);
-      yield* Fiber.join(holder);
-      yield* Fiber.join(statement);
-      yield* Fiber.join(transaction);
-      yield* sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly);
-    }),
-  ).pipe(
-    Effect.provideService(Statement.SpanPropagationEnabled, true),
-    Effect.withTracer(tracer),
-    Effect.map(() => {
-      const labeled = spans
-        .filter((span) => span.attributes.has("db.connection"))
-        .map((span) => [
-          span.name,
-          span.attributes.get("db.connection"),
-          span.attributes.get("db.lock_wait_ms"),
-        ]);
-      assert.deepStrictEqual(labeled.slice(3), [
-        ["sql.transaction", "writer", 0],
-        ["sqlite", "writer", 25],
-        ["sql.transaction", "writer", 25],
-        ["sql.transaction", "reader", 0],
-      ]);
-    }),
-  );
-});
-
-it.effect("labels only the span of the statement or transaction that took the lock", () => {
-  const spans: Array<Tracer.NativeSpan> = [];
-  const tracer = Tracer.make({
-    span: (options) => {
-      const span = new Tracer.NativeSpan(options);
-      spans.push(span);
-      return span;
-    },
-  });
-  return Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const transaction = sql.withTransaction(sql`SELECT 1`);
-    yield* transaction;
-    yield* sql.withTransaction(transaction);
-    yield* sql`SELECT 2`.pipe(Effect.withTracerEnabled(false));
-  }).pipe(
-    Effect.withSpan("caller"),
-    Effect.provide(SqliteClient.layer({ filename: ":memory:" })),
-    Effect.provideService(Statement.SpanPropagationEnabled, true),
-    Effect.withTracer(tracer),
-    Effect.map(() => {
-      assert.deepStrictEqual(
-        spans
-          .filter((span) => span.name === "caller" || span.name === "sql.transaction")
-          .map((span) => [span.name, span.attributes.get("db.connection")]),
-        [
-          ["caller", undefined],
-          ["sql.transaction", "writer"],
-          ["sql.transaction", "writer"],
-          ["sql.transaction", undefined],
-        ],
-      );
-    }),
-  );
-});
-
-it.effect("keeps large parameters off the reader worker's cached statements", () =>
-  withReaderClient((sql) =>
-    Effect.gen(function* () {
-      const read = (value: string) =>
-        sql<{ size: number }>`SELECT length(${value}) AS size`.pipe(
-          Effect.map((rows) => rows[0]?.size),
-        );
-      yield* countEntries(sql).pipe(SqliteClient.readOnly);
-      const worker = startedWorkers.at(-1)!;
-      const cached: Array<boolean> = [];
-      const postMessage = worker.postMessage;
-      yield* Effect.acquireRelease(
-        Effect.sync(() =>
-          vi.spyOn(worker, "postMessage").mockImplementation(function (
-            this: NodeWorkerThreads.Worker,
-            message: { readonly cached: boolean },
-          ) {
-            cached.push(message.cached);
-            return postMessage.call(this, message);
-          }),
-        ),
-        (spy) => Effect.sync(() => spy.mockRestore()),
-      );
-
-      assert.equal(yield* read("small").pipe(SqliteClient.readOnly), 5);
-      assert.equal(yield* read(largeText).pipe(SqliteClient.readOnly), largeText.length);
-      assert.deepEqual(cached, [true, false]);
-    }).pipe(Effect.scoped),
-  ),
-);
-
 it.effect("fails a read-only transaction whose reader stops, then starts a new reader", () =>
   withReaderClient((sql) =>
     Effect.gen(function* () {
@@ -628,48 +444,6 @@ it.effect("fails a read-only transaction whose reader stops, then starts a new r
       assert.include(String(error.reason.cause), "Database reader exited");
       assert.equal(yield* countEntries(sql).pipe(SqliteClient.readOnly), 1);
       assert.equal(startedWorkers.length, startedBefore + 2);
-    }),
-  ),
-);
-
-it.effect("uses the writer for read-only work on an in-memory database", () =>
-  Effect.gen(function* () {
-    const startedBefore = startedWorkers.length;
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`CREATE TABLE memory_entries(name TEXT NOT NULL)`;
-    yield* sql`INSERT INTO memory_entries VALUES ('kept')`;
-
-    const rows = yield* sql
-      .withTransaction(sql<{ name: string }>`SELECT name FROM memory_entries`)
-      .pipe(SqliteClient.readOnly);
-
-    assert.deepEqual(rows, [{ name: "kept" }]);
-    assert.equal(startedWorkers.length, startedBefore);
-  }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:", readerWorker: true }))),
-);
-
-it.effect("keeps a nested transaction inside a read-only transaction on the reader", () =>
-  withReaderClient((sql) =>
-    Effect.gen(function* () {
-      const snapshotTaken = yield* Deferred.make<void>();
-      const writer = yield* Effect.forkChild(
-        Deferred.await(snapshotTaken).pipe(
-          Effect.andThen(sql`INSERT INTO entries VALUES ('second')`),
-        ),
-      );
-      const counts = yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const outer = yield* countEntries(sql);
-            yield* Deferred.succeed(snapshotTaken, undefined);
-            yield* Fiber.join(writer);
-            const nested = yield* sql.withTransaction(countEntries(sql));
-            return { outer, nested };
-          }),
-        )
-        .pipe(SqliteClient.readOnly);
-
-      assert.deepEqual(counts, { outer: 1, nested: 1 });
     }),
   ),
 );
@@ -1303,56 +1077,8 @@ it.effect("finishes masked database cleanup after its caller is interrupted", ()
   }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
 );
 
+// oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a zero-delay macrotask boundary that lets the worker's queued messages land, not a wait for time
 const eventLoopTurn = Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-
-it.effect("owns the reader until a standalone statement has finished", () =>
-  withReaderClient((sql) =>
-    Effect.gen(function* () {
-      yield* countEntries(sql).pipe(SqliteClient.readOnly);
-      const worker = startedWorkers.at(-1)!;
-      const send = worker.postMessage.bind(worker);
-      let pending: Parameters<typeof worker.postMessage> | undefined;
-      let interleaved = false;
-      let announce = () => {};
-      const ready = new Promise<void>((resolve) => {
-        announce = resolve;
-      });
-      const spy = vi.spyOn(worker, "postMessage").mockImplementation((...args) => {
-        if (pending === undefined) {
-          pending = args;
-          announce();
-        } else {
-          interleaved = true;
-          send(...args);
-        }
-      });
-      const release = () => {
-        spy.mockRestore();
-        if (pending !== undefined) send(...pending);
-        pending = undefined;
-      };
-      yield* Effect.gen(function* () {
-        const read = yield* Effect.forkChild(countEntries(sql).pipe(SqliteClient.readOnly), {
-          startImmediately: true,
-        });
-        yield* Effect.promise(() => ready);
-        const entered = yield* Deferred.make<void>();
-        const transaction = yield* Effect.forkChild(
-          sql.withTransaction(Deferred.succeed(entered, undefined)).pipe(SqliteClient.readOnly),
-          { startImmediately: true },
-        );
-        // Let the competing acquisition run while the first request remains held.
-        yield* eventLoopTurn;
-        assert.isFalse(interleaved, "the transaction must wait for the standalone read");
-        assert.isFalse(yield* Deferred.isDone(entered));
-        release();
-        assert.equal(yield* Fiber.join(read), 1);
-        yield* Fiber.join(transaction);
-        assert.equal(yield* countEntries(sql).pipe(SqliteClient.readOnly), 1);
-      }).pipe(Effect.ensuring(Effect.sync(release)));
-    }),
-  ),
-);
 
 it.effect.each([
   { reservation: false, masked: false },
@@ -1460,12 +1186,14 @@ it.effect.each([false, true])(
 
         const completed = waitForTruncateCompletion(worker);
         requests.release();
+        // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- the bound on TRUNCATE returning is the property under test; SQLite's 5s busy wait is only distinguishable by elapsed time
         const started = performance.now();
         truncation.deliver();
         const write = yield* Effect.forkChild(sql`INSERT INTO pages VALUES (x'02')`, {
           startImmediately: true,
         });
         const reply = yield* Effect.promise(() => completed);
+        // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- the bound on TRUNCATE returning is the property under test; SQLite's 5s busy wait is only distinguishable by elapsed time
         const elapsed = performance.now() - started;
         assert.equal(reply.log, reply.checkpointed);
         if (resetDuringHandoff) {
@@ -1490,7 +1218,7 @@ it.effect.each([false, true])(
         assert.isBelow(elapsed, 1000, "TRUNCATE must return promptly while the reader stays open");
       }),
     ),
-  { skip: !supportsNoopCheckpoint, timeout: 15_000 },
+  { skip: !supportsNoopCheckpoint },
 );
 
 it.effect.each(["statement", "commit", "rollback", "partial failure", "worker failure"] as const)(

@@ -444,7 +444,7 @@ const memoryStorage = () => {
     removeItem: (key: string) => void values.delete(key),
   };
 };
-const flush = () => act(() => new Promise<void>((resolve) => setImmediate(resolve)));
+const flush = () => act(async () => {});
 const textOf = (node: ReactTestInstance): string =>
   node.children.map((child) => (typeof child === "string" ? child : textOf(child))).join("");
 
@@ -1522,5 +1522,4 @@ it.live(
         // #28 reviewer deadlines end.
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  { timeout: 120_000 },
 );

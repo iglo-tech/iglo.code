@@ -1,3 +1,4 @@
+diff --git a/src/NodeHttpServer.ts b/src/NodeHttpServer.ts
 --- a/src/NodeHttpServer.ts
 +++ b/src/NodeHttpServer.ts
 @@ -253,7 +253,6 @@
@@ -42,6 +43,7 @@
          }
          return nodeResponse_
        }
+diff --git a/dist/NodeHttpServer.js b/dist/NodeHttpServer.js
 --- a/dist/NodeHttpServer.js
 +++ b/dist/NodeHttpServer.js
 @@ -155,23 +155,24 @@

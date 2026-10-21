@@ -66,7 +66,7 @@ jobs:
       - name: Run smoke tests
         run: >-
           vp test run
-          packages/contracts/src/environmentHttp.test.ts
+          packages/contracts/src/environment.test.ts
           packages/client-runtime/src/state/threadHistoryMerge.test.ts
           apps/server/src/orchestration-v2/CommandPolicy.test.ts
 

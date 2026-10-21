@@ -5,6 +5,22 @@ import * as NodeURL from "node:url";
 
 const DOM_TEST_ENVIRONMENT_ALLOWLIST: Array<string> = [];
 
+const TEST_EXCLUDE = [
+  "**/.repos/**",
+  "**/.t3/**",
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/.{idea,git,cache,output,temp}/**",
+];
+
+// Directories whose tests belong to a package's own test config.
+const TEST_CONFIG_PACKAGES = ["apps/server", "apps/web", "packages/client-runtime"];
+
+// `vp test run <file>` from the repo root hands each file to its package's
+// config. Packages that borrow this config (`--config ../../vite.config.ts`) run
+// from their own directory, as CI does, so they keep one plain project.
+const isRepoRootTestRun = process.cwd() === import.meta.dirname;
+
 const RESTRICTED_IMPORT_PATHS = [
   {
     name: "@t3tools/client-runtime",
@@ -114,20 +130,50 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    exclude: [
-      "**/.repos/**",
-      "**/.t3/**",
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/.{idea,git,cache,output,temp}/**",
-    ],
+    exclude: TEST_EXCLUDE,
     hookTimeout: 60_000,
     testTimeout: 60_000,
+    allowOnly: !process.env.CI,
+    // Flaky tests are fixed, not retried.
+    retry: 0,
+    fakeTimers: {
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "setImmediate",
+        "clearImmediate",
+        "Date",
+        "performance",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+        "requestIdleCallback",
+        "cancelIdleCallback",
+      ],
+    },
     setupFiles: [
       NodeURL.fileURLToPath(
         new URL("./packages/shared/src/testing/longTempDir.ts", import.meta.url),
       ),
+      NodeURL.fileURLToPath(
+        new URL("./packages/shared/src/testing/providerEnv.ts", import.meta.url),
+      ),
     ],
+    ...(isRepoRootTestRun
+      ? {
+          projects: [
+            ...TEST_CONFIG_PACKAGES,
+            {
+              extends: true,
+              test: {
+                name: "root",
+                exclude: [...TEST_EXCLUDE, ...TEST_CONFIG_PACKAGES.map((dir) => `${dir}/**`)],
+              },
+            },
+          ],
+        }
+      : {}),
   },
   staged: {
     "*": "vp fmt --no-error-on-unmatched-pattern",
@@ -209,10 +255,15 @@ export default defineConfig({
       "t3code/no-low-value-comments": "error",
       "t3code/no-manual-effect-runtime-in-tests": "error",
       "t3code/no-native-title-tooltip": "error",
+      // Test files only (the rule checks the filename). Becomes an error once existing polls are converted.
+      "t3code/no-polling-loop-in-tests": "warn",
       "t3code/no-raw-mcp-registration": "error",
+      "t3code/no-real-time-wait-in-tests": "error",
       "t3code/no-test-in-loop": "error",
+      "t3code/no-test-timeout-or-unreasoned-skip": "error",
       "t3code/no-rpc-permission-bypass": ["error", { allowRawClientAccess: true }],
       "t3code/no-unscoped-has": "error",
+      "t3code/no-wall-clock-in-tests": "error",
       "t3code/namespace-node-imports": "error",
       "t3code/prefer-catch-tags": "error",
       "t3code/prefer-effect-fn": "error",
@@ -268,6 +319,14 @@ export default defineConfig({
         rules: { "t3code/require-disposable-render": "error" },
       },
       {
+        files: ["apps/web/src/**/*.browser.test.{ts,tsx}"],
+        rules: { "t3code/no-frame-waits-in-browser-tests": "error" },
+      },
+      {
+        files: ["**/*.browser.test.*"],
+        rules: { "t3code/no-real-time-wait-in-tests": "off" },
+      },
+      {
         files: ["apps/**/src/**", "packages/**/src/**"],
         excludeFiles: DOM_TEST_ENVIRONMENT_ALLOWLIST,
         rules: { "t3code/no-dom-test-environment": "error" },
@@ -291,6 +350,7 @@ export default defineConfig({
       {
         // These clients are session metadata and device streams.
         files: [
+          "apps/web/src/components/settings/AuthorizedClientsSettings.tsx",
           "apps/web/src/components/settings/ConnectionsSettings.tsx",
           "apps/web/src/components/device/DevicePhoneViewport.tsx",
           "apps/web/src/components/device/DeviceDuoViewport.tsx",
@@ -428,7 +488,10 @@ export default defineConfig({
           "react/jsx-no-constructed-context-values": "off",
           "react/memo-dependencies": "error",
           "react/preserve-manual-memoization": "error",
-          "react/purity": "error",
+          // oxlint 1.88 treats `new Date()` as impure (oxc#26894) and also flags it inside event
+          // handlers (oxc#27309). The compiler we ship (oxc-transform-react) still compiles
+          // those files, and reactCompilerCoverage.test.ts fails on real bailouts.
+          "react/purity": "warn",
           "react/refs": "error",
           "react/set-state-in-effect": "error",
           "react/set-state-in-render": "error",
