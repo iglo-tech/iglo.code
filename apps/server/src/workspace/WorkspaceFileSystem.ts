@@ -25,6 +25,7 @@ import * as KnownWorkspaces from "./KnownWorkspaces.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
+import { realPath } from "./realPath.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
 
@@ -187,8 +188,8 @@ export const make = Effect.gen(function* () {
   });
 
   /** Both paths must already be real paths. */
-  const isInsideRealRoot = (realWorkspaceRoot: string, realPath: string) => {
-    const relative = path.relative(realWorkspaceRoot, realPath);
+  const isInsideRealRoot = (realWorkspaceRoot: string, resolvedPath: string) => {
+    const relative = path.relative(realWorkspaceRoot, resolvedPath);
     return !(
       relative.startsWith(`..${path.sep}`) ||
       relative === ".." ||
@@ -250,7 +251,7 @@ export const make = Effect.gen(function* () {
       // Others keep POSIX `link/..` semantics, which resolving first would change.
       const absolutePath = isNetworkPath(hostPath) ? path.resolve(hostPath) : hostPath;
       const realTargetPath = yield* Effect.tryPromise({
-        try: () => NodeFSP.realpath(absolutePath),
+        try: () => realPath(absolutePath),
         catch: (cause) =>
           new WorkspaceFileSystemOperationError({
             workspaceRoot: input.cwd,
@@ -276,7 +277,7 @@ export const make = Effect.gen(function* () {
     });
 
     const realWorkspaceRoot = yield* Effect.tryPromise({
-      try: () => NodeFSP.realpath(path.resolve(input.cwd)),
+      try: () => realPath(path.resolve(input.cwd)),
       catch: (cause) =>
         new WorkspaceFileSystemOperationError({
           workspaceRoot: input.cwd,
@@ -294,7 +295,7 @@ export const make = Effect.gen(function* () {
           try {
             return {
               realTargetPath: path.join(
-                await NodeFSP.realpath(candidate),
+                await realPath(candidate),
                 path.relative(candidate, target.absolutePath),
               ),
               exists: candidate === target.absolutePath,
@@ -466,7 +467,7 @@ export const make = Effect.gen(function* () {
     });
     const realWorkspaceRoot = yield* Effect.tryPromise({
       // Resolve `..` in cwd the way the relative path was resolved, before following links.
-      try: () => NodeFSP.realpath(path.resolve(input.cwd)),
+      try: () => realPath(path.resolve(input.cwd)),
       catch: (cause) =>
         new WorkspaceFileSystemOperationError({
           workspaceRoot: input.cwd,
@@ -485,7 +486,7 @@ export const make = Effect.gen(function* () {
         for (let depth = segments.length; depth > 0; depth--) {
           const candidate = path.join(realWorkspaceRoot, ...segments.slice(0, depth));
           try {
-            return path.join(await NodeFSP.realpath(candidate), ...segments.slice(depth));
+            return path.join(await realPath(candidate), ...segments.slice(depth));
           } catch (error) {
             // Only a missing entry is skipped; one that exists but cannot resolve is a dangling link.
             const exists = await NodeFSP.lstat(candidate).then(
