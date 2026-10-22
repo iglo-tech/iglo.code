@@ -38,6 +38,47 @@ The default should be `iglo-tech/iglo.code`. Otherwise GitHub CLI prefers upstre
 and the app's PR action can fail with `head invalid` for a branch pushed only to the
 fork. This setting is shared by linked worktrees; repeat it for a fresh clone.
 
+## GitCafe mirror (optional)
+
+GitHub is the source of truth. [git.cafe/pingdotgg/t3code](https://git.cafe/pingdotgg/t3code) is a
+two-way synced mirror with much higher API rate limits, which helps when many agents read PRs and
+issues at once. You never need it to contribute.
+
+Comments, reviews, labels, and issue edits made on GitCafe sync back to GitHub. The exception is
+code: push branches and open PRs on GitHub, where CI runs. GitCafe mirrors a new PR within about a
+minute, and from then on you can work with it through either forge.
+
+```sh
+git remote set-url origin https://git.cafe/pingdotgg/t3code.git
+git remote add github https://github.com/pingdotgg/t3code.git
+# The GitHub remote you push to: `github`, or your fork's remote.
+git config remote.pushDefault github
+gh repo set-default pingdotgg/t3code
+bun install -g @gitcafe/cli   # `cafe` needs Bun 1.2 or newer
+cafe auth login && cafe auth http setup
+cafe skills install --global  # optional: cafe-* skills for coding agents
+```
+
+With `origin` on git.cafe:
+
+- Use `cafe` for existing PRs, issues, comments, reviews, and labels, both reading and writing. Check status
+  comes from `cafe pr status <n> --json`.
+- Create PRs on GitHub: `git push` (to the `pushDefault` remote), then `gh pr create` or `gh stack`.
+  A PR opened with `cafe pr create` or `cafe stack submit` can get a different number on each forge,
+  a sync marker appended to its body, and rewritten references, and it cannot come from a fork.
+- Write or edit text with closing keywords using `gh`. Any text GitCafe writes to GitHub has its
+  `#<n>` references turned into GitCafe links, so a `Fixes #<n>` edited through `cafe` silently stops
+  closing the issue.
+- Merge with `gh pr merge <branch> --match-head-commit <sha>`. `cafe pr merge` only pins the head
+  GitCafe last saw, not the commit you reviewed.
+- Use `gh` where the mirror falls short: CI logs and reruns, a fork PR's head repository, and
+  anything `cafe` returns empty or 403/404 for.
+- PR and issue numbers can differ between the forges. Name PRs by branch
+  (`cafe pr list --head <branch>`, `gh pr view <branch>`), and write `Fixes #<GitHub number>`.
+- `cafe` flags differ from `gh`: `--repo` not `-R`, `cafe issue comments <n>` not `--comments`,
+  `cafe pr status` not `pr checks`. This repository's CI is GitHub Actions on GitHub, so `cafe ci`
+  has no runs for it; read logs with `gh run view`. `cafe api` paths omit `/api` (`cafe api /repos/...`).
+
 ## Choosing a dev process
 
 Use `vp run dev` for server and web.
@@ -49,7 +90,9 @@ Add `--browser` to open a browser automatically.
 ### State and ports
 
 Linked worktrees default to their own `.t3/userdata`, even when `T3CODE_HOME` is set.
-The main checkout defaults to `~/.t3/dev/userdata`. An explicit `--home-dir` wins in both cases.
+The main checkout defaults to `~/.t3/dev`. An explicit `--home-dir` wins in both cases.
+The first start in a worktree seeds its empty database from a read-only copy of
+`~/.t3/userdata`; `--no-seed` or `T3CODE_DEV_SEED=0` skips that.
 Never run a development server against the live `~/.t3/userdata`.
 See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
 
@@ -151,12 +194,9 @@ and runs in headless Chromium with the React Compiler on, like the app. Other `*
 run in Node. The fork's plugin and workflow tests in `apps/web/integration` still use jsdom and
 `react-test-renderer`.
 
-TypeScript workspaces typecheck with tsc-rs, which has Effect diagnostics built in.
-Keep `typescript`, `@effect/tsgo`, and the `effect-tsgo patch` prepare step: editors
-still use them for Effect quick fixes and refactors. Keep `@effect/tsgo` on the
-effect-tsgo version that tsc-rs ports (see the tsc-rs README), or the two disagree
-on rule names.
-Marketing keeps `astro check` for Astro files.
+TypeScript workspaces typecheck with `tsc`. The `typescript` catalog entry is
+`@tsc-rs/typescript`, the tsc-rs drop-in, with Effect diagnostics, quick fixes, and
+refactors built in. VS Code uses it through `js/ts.tsdk.path` in `.vscode/settings.json`.
 
 CI runs one Linux x64 job on pull requests, pushes to `main`, and manual dispatches.
 It checks formatting, lint, types, a small smoke-test set, and the web/server build.
