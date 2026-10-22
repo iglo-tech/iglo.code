@@ -12,7 +12,7 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
 } from "@t3tools/contracts";
-import { deriveThreadRuntime } from "@t3tools/client-runtime/state/thread-execution";
+import type { deriveThreadStructureRuntime } from "@t3tools/client-runtime/state/thread-execution";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type SetStateAction } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -30,7 +30,7 @@ interface ComposerSelectionInput {
   readonly composerDraftTarget: ComposerThreadTarget;
   readonly draftThread: DraftSessionState | null;
   readonly activeThread: EnvironmentThreadShell | undefined;
-  readonly activeRuntime: ReturnType<typeof deriveThreadRuntime>;
+  readonly activeRuntime: ReturnType<typeof deriveThreadStructureRuntime>;
   readonly activeProjectSettings: {
     readonly settings: { readonly newWorktreesStartFromOrigin: boolean };
   };
@@ -237,12 +237,15 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   };
   const onEnvModeChangeStable = useStableCallback(onEnvModeChange);
 
+  // Reads only the id: the shell changes on every streamed event, and a new handler
+  // re-renders the branch toolbar and thread details panel with it.
+  const activeThreadId = activeThread?.id;
   const onStartFromOriginChange = (nextStartFromOrigin: boolean) => {
-    if (canOverrideServerThreadEnvMode && activeThread) {
+    if (canOverrideServerThreadEnvMode && activeThreadId !== undefined) {
       setPendingServerThreadStartFromOriginByThreadId((current) =>
-        current[activeThread.id] === nextStartFromOrigin
+        current[activeThreadId] === nextStartFromOrigin
           ? current
-          : { ...current, [activeThread.id]: nextStartFromOrigin },
+          : { ...current, [activeThreadId]: nextStartFromOrigin },
       );
       return;
     }

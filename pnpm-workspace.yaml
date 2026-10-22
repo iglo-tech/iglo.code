@@ -18,7 +18,7 @@ allowBuilds:
   msgpackr-extract: true
   msw: false
   sharp: true
-  tsc-rs: true
+  "@tsc-rs/typescript": true
   utf-8-validate: false
   workerd: false
 
@@ -38,7 +38,6 @@ catalog:
   "@effect/platform-node-shared": 4.0.5
   "@effect/sql-pg": 4.0.5
   "@effect/sql-sqlite-do": 4.0.5
-  "@effect/tsgo": 0.51.1
   "@effect/vitest": 4.0.5
   "@legendapp/list": 3.3.5
   "@noble/curves": 1.9.1
@@ -57,7 +56,7 @@ catalog:
   react: 19.3.0
   react-dom: 19.3.0
   tailwindcss: 4.3.3
-  typescript: 7.0.2
+  typescript: npm:@tsc-rs/typescript@0.8.0
   undici: 8.11.2
   vite: npm:@voidzero-dev/vite-plus-core@1.3.0
   vite-plus: 1.3.0
@@ -78,7 +77,6 @@ catalog:
   unified: 11.0.5
 
 minimumReleaseAgeExclude:
-  - tsc-rs
   - "@tsc-rs/*"
   - "@clerk/backend@3.25.0"
   - "@clerk/clerk-js@6.40.0"
@@ -214,6 +212,7 @@ patchedDependencies:
 
 peerDependencyRules:
   allowAny:
+    - typescript
     - vite
   allowedVersions:
     vite: "*"
