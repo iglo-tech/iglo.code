@@ -26,7 +26,7 @@ NodeAssert.strict.equal(
   process.env.T3_NATIVE_SMOKE_COMPILED === "true",
 );
 for (const [name, pinned] of [
-  ["@ff-labs/fff-node", "0.9.4"],
+  ["@ff-labs/fff-node", "0.11.0"],
   ["@napi-rs/keyring", "1.3.0"],
 ]) {
   const manifest = JSON.parse(
