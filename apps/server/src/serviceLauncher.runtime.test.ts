@@ -361,7 +361,9 @@ effectIt.layer(
           const state = await readServiceState(statePath);
           expect(state.activeVersion).toBe("1.1.0");
           expect(state.update?.status).toBe("committed");
-          const db = new NodeSqlite.DatabaseSync(dbPath, { readOnly: true });
+          // The stopped child checkpointed and removed its WAL; a read-only open of a
+          // WAL database cannot recreate the -shm file it needs.
+          const db = new NodeSqlite.DatabaseSync(dbPath);
           try {
             expect(db.prepare("SELECT value FROM history").get()?.value).toBe("migrated history");
           } finally {

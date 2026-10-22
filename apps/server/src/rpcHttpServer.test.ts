@@ -53,7 +53,7 @@ async function echo(path: string, compression: boolean) {
       const reply = NodeEvents.EventEmitter.once(socket, "message");
       socket.send(payload);
       const [message, binary] = await reply;
-      expect(binary).toBe(path.startsWith("/browser"));
+      expect(binary).toBe(false);
       expect(message.toString()).toBe(payload);
     }
     const reply = NodeEvents.EventEmitter.once(socket, "message");
