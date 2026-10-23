@@ -203,6 +203,8 @@ it.live.each([
       if (scenario !== "lostack-active" && scenario !== "lostack-unstarted")
         expect(aggregate.settledAt).toBe(DateTime.toEpochMillis(finishedAt));
       runtime = yield* test.boot(host);
+      // Lost acknowledgements replay in the forked host recovery.
+      yield* runtime.registry.awaitRecovered;
       yield* runtime.invoke("reconcile", test.scope);
       yield* runtime.invoke("reconcile", test.scope);
       const run = yield* runtime
@@ -226,6 +228,7 @@ it.live.each([
         }
         yield* runtime.close;
         runtime = yield* test.boot(host);
+        yield* runtime.registry.awaitRecovered;
         yield* runtime.invoke("reconcile", test.scope);
         const retained = yield* runtime
           .invoke("get", { ...test.scope, runId: started.id })

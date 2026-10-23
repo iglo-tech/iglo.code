@@ -364,6 +364,8 @@ it.live(
         yield* runtime.close;
         blocked = false;
         runtime = yield* boot();
+        // Pending intents replay in the forked host recovery.
+        yield* runtime.registry.awaitRecovered;
         yield* runtime.invoke("reconcile", scope);
         const after = yield* query();
         const coreThread = yield* threads.getThreadShell(threadId);

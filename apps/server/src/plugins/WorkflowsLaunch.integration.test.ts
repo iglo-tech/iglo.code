@@ -221,6 +221,8 @@ it.live.each([
         loseAck = false;
         receiptUnavailable = false;
         runtime = yield* test.boot(host);
+        // Pending launches replay in the forked host recovery.
+        yield* runtime.registry.awaitRecovered;
       } else unavailable = false;
       yield* runtime.invoke("reconcile", test.scope);
       const actual = yield* get(started.id);
@@ -231,6 +233,7 @@ it.live.each([
       else expect(thread).toBeNull();
       yield* runtime.close;
       runtime = yield* test.boot(host);
+      yield* runtime.registry.awaitRecovered;
       yield* runtime.invoke("reconcile", test.scope);
       expect((yield* get(started.id)).attempts[0]!.phase).toBe(actual.attempts[0]!.phase);
       if (!runnable) expect(yield* test.threads.getThreadShell(pending.threadId!)).toBeNull();

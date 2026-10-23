@@ -1942,8 +1942,17 @@ const make = Effect.gen(function* () {
         )
           return;
         const id = commandId(attempt, kind, kind === "resume" ? attempt.resumeCount : undefined);
+        const retained = yield* host.receipt(id);
+        // Dispatch checked the deadline on a snapshot read outside this lock; the
+        // attempt may have expired since. Leave expiry to the admission sweep.
+        if (
+          !retained &&
+          (yield* Clock.currentTimeMillis) >=
+            Math.min(attempt.deadline ?? Infinity, attempt.lastActiveAt + attempt.remainingMs)
+        )
+          return;
         const receipt =
-          (yield* host.receipt(id)) ??
+          retained ??
           (yield* host.send({ ...target(run, attempt), commandId: id, mode: "auto", instruction }));
         // A committed Resume remains pending until its generation can be retained.
         // Receipt reconciliation retries inspection without sending another command.

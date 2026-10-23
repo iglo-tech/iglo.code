@@ -656,10 +656,14 @@ it.live(
         pauseAfterCommit = false;
         const second = yield* startEnvironment(config, [plugin]);
         const restartedTasks = Context.get(second.context, ScheduledTasks.ScheduledTaskService);
-        expect(
-          (yield* restartedTasks.runNow({ id: taskId, occurrenceId: "stable-occurrence" })).task
-            .lastRunStatus,
-        ).toBe("succeeded");
+        // Startup recovery redelivers the pending occurrence; wait for it to settle.
+        const [recovered] = yield* restartedTasks.subscribeList().pipe(
+          Stream.map((result) => result.tasks.find((task) => task.id === taskId)),
+          Stream.filter((task) => task !== undefined && task.lastRunStatus !== "running"),
+          Stream.take(1),
+          Stream.runCollect,
+        );
+        expect(recovered?.lastRunStatus).toBe("succeeded");
         expect((yield* restartedTasks.list()).tasks[0]?.runCount).toBe(1);
         // Reopen through the plugin's public storage ownership, not core SQL.
         const verification = yield* Deferred.make<Storage["Service"]>();

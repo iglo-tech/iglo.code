@@ -154,7 +154,11 @@ it.live.each([
       hold = false;
       unavailable = false;
       if (scenario === "expired-live") yield* runtime.invoke("reconcile", test.scope);
-      else runtime = yield* test.boot(host);
+      else {
+        runtime = yield* test.boot(host);
+        // Pending launches replay in the forked host recovery.
+        yield* runtime.registry.awaitRecovered;
+      }
       if (scenario === "pending-control") yield* runtime.invoke("reconcile", test.scope);
       const checkThread = Effect.gen(function* () {
         const thread = yield* test.threads.getThreadShell(threadId);

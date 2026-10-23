@@ -25,6 +25,7 @@ import type * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -96,6 +97,8 @@ export class PluginRegistry extends Context.Service<
   {
     readonly start: Effect.Effect<void>;
     readonly awaitStarted: Effect.Effect<void>;
+    /** Pending host intents replay after start without blocking readiness. */
+    readonly awaitRecovered: Effect.Effect<void>;
     readonly awaitToolsReady: Effect.Effect<void>;
     readonly markToolsReady: Effect.Effect<void>;
     readonly catalog: Effect.Effect<PluginCatalog>;
@@ -125,6 +128,7 @@ const make = Effect.gen(function* () {
   const ids = new Set<string>();
   const identityCounts = new Map<string, number>();
   const contributionCounts = new Map<string, number>();
+  const recoveries: Array<Fiber.Fiber<void>> = [];
   let started = false;
 
   const start = Effect.gen(function* () {
@@ -326,7 +330,7 @@ const make = Effect.gen(function* () {
           // Validate complete wire descriptors before publishing an optional plugin.
           for (const tool of instance.tools) McpTool.make(tool);
           // Workspace setup belongs to command replay, not server readiness.
-          yield* bound.recover.pipe(
+          const recovery = yield* bound.recover.pipe(
             Effect.catchCause((cause) =>
               Cause.hasInterruptsOnly(cause)
                 ? Effect.interrupt
@@ -337,6 +341,7 @@ const make = Effect.gen(function* () {
             ),
             Effect.forkScoped,
           );
+          recoveries.push(recovery);
           yield* schedules.start;
           const policy = yield* Effect.serviceOption(McpToolPolicy.McpToolPolicy);
           if (policy._tag === "Some")
@@ -403,6 +408,9 @@ const make = Effect.gen(function* () {
   return PluginRegistry.of({
     start,
     awaitStarted: Deferred.await(initialized),
+    awaitRecovered: Effect.suspend(() =>
+      Effect.forEach(recoveries, Fiber.await, { discard: true }),
+    ),
     awaitToolsReady: Deferred.await(toolsReady),
     markToolsReady: Deferred.succeed(toolsReady, undefined).pipe(Effect.asVoid),
     catalog: Effect.sync(() => ({

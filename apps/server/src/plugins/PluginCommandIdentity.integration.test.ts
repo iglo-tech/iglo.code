@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
+import * as Registry from "@t3tools/plugin-host-adapter/registry";
 import { startEnvironment } from "./PluginHost.testkit.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import { PluginLaunchInput } from "@t3tools/plugin-host-contract/schema";
@@ -184,6 +185,8 @@ it.live("recovers legacy pending command identities without another launch", () 
       expect((yield* hosts[0]!.receipt(input.commandId))?.threadId).toBe(accepted.threadId);
       yield* Fiber.interrupt(server.fiber);
       const restarted = yield* startEnvironment(config, [plugin]);
+      // The pending legacy intent replays in the forked host recovery.
+      yield* Context.get(restarted.context, Registry.PluginRegistry).awaitRecovered;
       const recovered = yield* hosts[1]!.receipt(input.commandId);
       const retried = yield* hosts[1]!.launch(input);
       expect(recovered?.threadId).toBe(accepted.threadId);
