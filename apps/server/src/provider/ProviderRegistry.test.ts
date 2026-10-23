@@ -2088,17 +2088,16 @@ it.layer(
             latestSkills,
           );
 
+          const rebuildPublished = yield* registry.streamChanges.pipe(
+            Stream.filter((providers) => providers[0]?.checkedAt === rebuiltProvider.checkedAt),
+            Stream.runHead,
+            Effect.forkChild,
+          );
+          yield* Effect.yieldNow;
           yield* Ref.set(instancesRef, [rebuiltInstance]);
           yield* PubSub.publish(registryChanges, undefined);
-          let rebuilt = yield* registry.getProviders;
-          for (
-            let attempt = 0;
-            attempt < 50 && rebuilt[0]?.checkedAt !== rebuiltProvider.checkedAt;
-            attempt += 1
-          ) {
-            yield* Effect.yieldNow;
-            rebuilt = yield* registry.getProviders;
-          }
+          yield* Fiber.join(rebuildPublished);
+          const rebuilt = yield* registry.getProviders;
           assert.strictEqual(rebuilt[0]?.checkedAt, rebuiltProvider.checkedAt);
           assert.strictEqual(rebuilt[0]?.workspaceSnapshots, undefined);
         }).pipe(Effect.provide(runtimeServices));
