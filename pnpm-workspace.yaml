@@ -217,6 +217,8 @@ patchedDependencies:
   # Exports the dependency-light subpaths mobile and the web diff parser import, and keeps
   # measured wrapped-row heights above an edit (fileEditorVirtualization.test.ts).
   "@pierre/diffs@1.5.2": patches/@pierre%2Fdiffs@1.5.2.patch
+  # Observe the owned host exit independently of descendants retaining its stdio.
+  "@muse-code/sdk@1.4.6": patches/@muse-code__sdk@1.4.6.patch
 
 peerDependencyRules:
   allowAny:
