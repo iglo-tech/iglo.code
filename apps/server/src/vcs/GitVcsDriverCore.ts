@@ -456,7 +456,31 @@ const GIT_FAILURE_REASON_PATTERNS: ReadonlyArray<readonly [RegExp, GitCommandFai
     /^fatal: (?:invalid reference: |not a valid object name|needed a single revision|bad revision |'.+' is not a commit and a branch '.+' cannot be created from it)/im,
     "ref_not_found",
   ],
+  // `[remote rejected]` is only printed for a push. The remote's explanation
+  // follows in parentheses; it is server text, so it is never quoted.
+  [/^[ \t]*![ \t]+\[remote rejected\]/im, "push_rejected_by_remote"],
+  // A fetch into a diverged local branch prints the same `[rejected]` line, but
+  // only a push goes on to report "failed to push some refs".
+  [
+    /^[ \t]*![ \t]+\[rejected\][^\n]*\((?:non-fast-forward|fetch first)\)[\s\S]*^error: failed to push some refs/im,
+    "push_rejected_non_fast_forward",
+  ],
 ];
+
+// Reasons the user can act on get a sentence in place of the generic detail.
+const GIT_FAILURE_REASON_DETAILS: Partial<Record<GitCommandFailureReason, string>> = {
+  push_rejected_by_remote:
+    "The remote rejected the push. Push this branch from a terminal to see the server's message.",
+  push_rejected_non_fast_forward:
+    "The remote has commits this branch doesn't have. Pull or rebase, then push again.",
+};
+
+function gitFailureDetail(reason: GitCommandFailureReason | null): string {
+  return (
+    (reason === null ? undefined : GIT_FAILURE_REASON_DETAILS[reason]) ??
+    "Git command exited with a non-zero status."
+  );
+}
 
 // Existing non-commit objects share the missing-ref fatal diagnostic; Git
 // distinguishes them with a separate error line.
@@ -876,8 +900,10 @@ const collectOutput = Effect.fnUntraced(function* (
 
     const decoded = decoder.decode(chunkToDecode, { stream: !truncated });
     text += decoded;
-    lineBuffer += lineDecoder ? lineDecoder.decode(chunk, { stream: true }) : decoded;
-    yield* emitCompleteLines(false);
+    if (onLine) {
+      lineBuffer += lineDecoder ? lineDecoder.decode(chunk, { stream: true }) : decoded;
+      yield* emitCompleteLines(false);
+    }
   });
 
   yield* Stream.runForEach(stream, processChunk).pipe(
@@ -893,9 +919,11 @@ const collectOutput = Effect.fnUntraced(function* (
 
   const remainder = truncated ? "" : decoder.decode();
   text += remainder;
-  lineBuffer += remainder;
-  if (lineDecoder) lineBuffer += lineDecoder.decode();
-  yield* emitCompleteLines(true);
+  if (onLine) {
+    lineBuffer += remainder;
+    if (lineDecoder) lineBuffer += lineDecoder.decode();
+    yield* emitCompleteLines(true);
+  }
   return {
     text,
     truncated,
@@ -1031,7 +1059,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           return yield* new GitCommandError({
             ...gitCommandContext(commandInput),
             ...(reason === null ? {} : { reason }),
-            detail: "Git command exited with a non-zero status.",
+            detail: gitFailureDetail(reason),
             exitCode,
             stdoutLength: stdout.text.length,
             stderrLength: stderr.text.length,
@@ -1123,7 +1151,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           new GitCommandError({
             ...gitCommandContext({ operation, cwd, args }),
             ...(reason === null ? {} : { reason }),
-            detail: options.fallbackErrorDetail ?? "Git command exited with a non-zero status.",
+            detail: options.fallbackErrorDetail ?? gitFailureDetail(reason),
             ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
             stdoutLength: result.stdout.length,
             stderrLength: result.stderr.length,

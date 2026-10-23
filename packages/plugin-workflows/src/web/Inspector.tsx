@@ -627,7 +627,7 @@ function AgentFields({
             providers.map((item) => ({
               value: item.instanceId,
               label: `${item.displayName ?? item.instanceId}${
-                item.reporting ? (item.available ? "" : " — not ready") : " — cannot report"
+                item.reporting ? (item.available ? "" : " (not ready)") : " (cannot report)"
               }`,
             })),
             agent.modelSelection.instanceId,
@@ -734,7 +734,7 @@ function AgentFields({
             value: mode,
             label: `${runtimeLabels[mode]}${
               provider !== undefined && !provider.runtimeModes.includes(mode)
-                ? " — not supported"
+                ? " (not supported)"
                 : ""
             }`,
           }))}

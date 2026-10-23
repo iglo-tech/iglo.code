@@ -13,7 +13,12 @@
     },
     "scripts": {
       // Knip loads its preprocessor through a CLI option; worktree setup (from t3.json) run directly.
-      "entry": ["knip-schemas.ts", "setup-worktree.ts"],
+      "entry": [
+        // These fixture scripts are injected into a browser page by path.
+        "fixtures/issue-16534/*.js",
+        "knip-schemas.ts",
+        "setup-worktree.ts",
+      ],
       // The npm launcher package's files: copied into the package, never imported.
       "ignore": ["npm-launcher/**"],
     },

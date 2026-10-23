@@ -4,9 +4,10 @@
 
 The application runs on Bun 1.4.4 or newer on macOS arm64, Linux x64, and Linux
 arm64. Development and packaging use the version pinned in `.bun-version`.
-The retained Vite+/pnpm contributor toolchain uses Node 24 independently of the
-application runtime. Install Bun and Vite+ (`vp`) before starting the server. Set up a coding agent
-using the [provider guide](../user/install.md#providers).
+The retained Vite+/pnpm contributor toolchain uses the Node version pinned in
+`package.json` (Node 26, provided by `vp`) independently of the application
+runtime. Install Bun and Vite+ (`vp`) before starting the server. Set up a coding
+agent using the [provider guide](../user/install.md#providers).
 
 Install `vp` on macOS or Linux:
 
@@ -49,7 +50,9 @@ Add `--browser` to open a browser automatically.
 ### State and ports
 
 Linked worktrees default to their own `.t3/userdata`, even when `T3CODE_HOME` is set.
-The main checkout defaults to `~/.t3/dev/userdata`. An explicit `--home-dir` wins in both cases.
+The main checkout defaults to `~/.t3/dev`. An explicit `--home-dir` wins in both cases.
+The first start in a worktree seeds its empty database from a read-only copy of
+`~/.t3/userdata`; `--no-seed` or `T3CODE_DEV_SEED=0` skips that.
 Never run a development server against the live `~/.t3/userdata`.
 See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
 
@@ -151,12 +154,9 @@ and runs in headless Chromium with the React Compiler on, like the app. Other `*
 run in Node. The fork's plugin and workflow tests in `apps/web/integration` still use jsdom and
 `react-test-renderer`.
 
-TypeScript workspaces typecheck with tsc-rs, which has Effect diagnostics built in.
-Keep `typescript`, `@effect/tsgo`, and the `effect-tsgo patch` prepare step: editors
-still use them for Effect quick fixes and refactors. Keep `@effect/tsgo` on the
-effect-tsgo version that tsc-rs ports (see the tsc-rs README), or the two disagree
-on rule names.
-Marketing keeps `astro check` for Astro files.
+TypeScript workspaces typecheck with `tsc`. The `typescript` catalog entry is
+`@tsc-rs/typescript`, the tsc-rs drop-in, with Effect diagnostics, quick fixes, and
+refactors built in. VS Code uses it through `js/ts.tsdk.path` in `.vscode/settings.json`.
 
 CI runs one Linux x64 job on pull requests, pushes to `main`, and manual dispatches.
 It checks formatting, lint, types, a small smoke-test set, and the web/server build.

@@ -1444,7 +1444,7 @@ function ScheduledTaskEditorForm({
       <DialogHeader>
         <DialogTitle>{draft.editingId ? "Edit task" : "New task"}</DialogTitle>
         <DialogDescription>
-          Run a prompt, or an action a plugin offers, automatically — on an interval, at a fixed
+          Run a prompt, or an action a plugin offers, automatically: on an interval, at a fixed
           time, or when a webhook is called.
         </DialogDescription>
       </DialogHeader>
