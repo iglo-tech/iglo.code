@@ -78,7 +78,7 @@ it.live("ordinary launch preserves upstream tracking without any plugins", () =>
           owned.worktree.path,
           "config",
           "--get",
-          "branch.independent/owned.gh-merge-base",
+          "branch.independent/owned.t3-merge-base",
         ),
       ).toBe("dev");
       expect(yield* git(owned.worktree.path, "rev-parse", "HEAD")).toBe(
