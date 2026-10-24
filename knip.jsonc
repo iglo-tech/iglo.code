@@ -15,7 +15,7 @@
       // Knip loads its preprocessor through a CLI option; worktree setup (from t3.json) run directly.
       "entry": [
         // These fixture scripts are injected into a browser page by path.
-        "fixtures/issue-16534/*.js",
+        "fixtures/*/*.js",
         "knip-schemas.ts",
         "setup-worktree.ts",
       ],
