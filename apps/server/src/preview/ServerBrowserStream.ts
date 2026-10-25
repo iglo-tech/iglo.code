@@ -221,7 +221,15 @@ const hostSetup = (cause: unknown): PreviewStreamHostSetup | undefined =>
       : undefined;
 const isSandboxError = Schema.is(PreviewBrowserHost.PreviewBrowserSandboxError);
 const isLibrariesError = Schema.is(PreviewBrowserHost.PreviewBrowserLibrariesError);
-const encodeHostSetup = Schema.encodeSync(Schema.fromJsonString(PreviewStreamHostSetup));
+const encodeHostSetupJson = Schema.encodeSync(Schema.fromJsonString(PreviewStreamHostSetup));
+// A close reason holds at most 123 bytes; a long install path falls back to the PATH command.
+const MAX_CLOSE_REASON_BYTES = 123;
+const encodeHostSetup = (setup: PreviewStreamHostSetup) => {
+  const reason = encodeHostSetupJson(setup);
+  return Buffer.byteLength(reason) <= MAX_CLOSE_REASON_BYTES
+    ? reason
+    : encodeHostSetupJson({ ...setup, command: `sudo t3 ${PreviewBrowserHost.SETUP_SUBCOMMAND}` });
+};
 
 // The request span already covers this download route.
 const serveDownload = Effect.fnUntraced(function* (

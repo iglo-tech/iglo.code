@@ -388,6 +388,13 @@ it.effect.each([
     }),
     need: "libraries",
   },
+  {
+    // A close reason holds at most 123 bytes, which a long install path exceeds.
+    error: new PreviewBrowserHost.PreviewBrowserSandboxError({
+      setupCommand: `sudo /private/var/folders/${"x".repeat(60)}/t3-0.1.2-darwin-arm64/t3 browser setup`,
+    }),
+    need: "sandbox",
+  },
 ])("tells viewers the command that sets up the host ($need)", ({ error, need }) =>
   Effect.gen(function* () {
     const browser = ServerBrowser.ServerBrowser.of({
