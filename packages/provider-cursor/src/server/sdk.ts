@@ -2,8 +2,7 @@
 import * as NodeModule from "node:module";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
-// Cursor's Webpack chunks and local helpers must stay beside the SDK entry.
-// Resolve the SDK beside the installed Bun executable, including its chunks.
+// Resolve the disk-backed SDK and its adjacent Webpack chunks beside the installed Bun executable.
 const requireCursorSdk = NodeModule.createRequire(
   HostProcess.resolveHostModuleUrl(import.meta.url),
 );

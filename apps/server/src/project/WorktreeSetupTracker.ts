@@ -59,16 +59,11 @@ export class WorktreeSetupTracker extends Context.Service<
       phase: "done" | "failed" | "cancelled",
       error?: string | null,
     ) => Effect.Effect<WorktreeSetupSnapshot | null>;
-    /**
-     * Called right before the turn is dispatched so a late cancel cannot roll
-     * back a thread whose agent has already started.
-     */
+    /** Call just before dispatch so late cancellation cannot roll back a started agent's thread. */
     readonly markUncancellable: (threadId: ThreadId) => Effect.Effect<void>;
     /**
-     * Interrupts the running bootstrap and waits for it to unwind, so the
-     * caller's dispatch has already failed and rolled back when this returns.
-     * Returns false when nothing is running, setup is past cancellation, or its
-     * durable owner could not record the cancellation.
+     * Interrupts the bootstrap and waits for it to unwind, so the caller's dispatch has rolled back.
+     * False when nothing runs, setup is past cancellation, or its durable owner could not record it.
      * A supplied preparation id leaves a newer attempt running.
      */
     readonly cancel: (threadId: ThreadId, preparationId?: string) => Effect.Effect<boolean>;
@@ -114,8 +109,7 @@ export const make = Effect.gen(function* () {
     readonly snapshot: WorktreeSetupSnapshot | null;
   }>();
   const retentionFibers = new Map<ThreadId, Fiber.Fiber<void, never>>();
-  // Sequences keep increasing across setups of the same thread so a stream
-  // opened during a previous setup still accepts the next one's first snapshot.
+  // Keep sequences increasing across setups so existing subscribers accept the next setup's first snapshot.
   const lastSequenceByThread = new Map<ThreadId, number>();
 
   const publish = (threadId: ThreadId, snapshot: WorktreeSetupSnapshot | null) =>
@@ -153,8 +147,7 @@ export const make = Effect.gen(function* () {
       return next;
     }).pipe(
       Effect.andThen(publish(threadId, null)),
-      // A subscriber that outlives retention sees `null` here and accepts any
-      // sequence after it, so the counter can start over for this thread.
+      // After retention, subscribers see null and accept any sequence; the counter can reset.
       Effect.tap(() => Effect.sync(() => lastSequenceByThread.delete(threadId))),
     );
 
@@ -319,19 +312,14 @@ export const make = Effect.gen(function* () {
   const get: WorktreeSetupTracker["Service"]["get"] = (threadId) =>
     Ref.get(setups).pipe(Effect.map((current) => current.get(threadId)?.snapshot ?? null));
 
-  /**
-   * Each subscriber gets a one-slot sliding mailbox: a slow WebSocket only ever
-   * holds the newest snapshot, so a chatty setup script cannot grow the server
-   * heap.
-   */
+  // One-slot sliding mailboxes bound slow WebSockets to the newest setup snapshot.
   const stream: WorktreeSetupTracker["Service"]["stream"] = (threadId) =>
     Stream.callback<WorktreeSetupSnapshot | null>(
       (mailbox) =>
         Effect.gen(function* () {
           const subscription = yield* PubSub.subscribe(changes);
           const initial = yield* get(threadId);
-          // Changes published between subscribing and reading `initial` are
-          // already folded into it. Drop them so the client never steps back.
+          // The initial snapshot already includes queued changes; drop them to avoid stale replay.
           let lastSequence = initial?.sequence ?? -1;
           Queue.offerUnsafe(mailbox, initial);
           yield* Stream.fromSubscription(subscription).pipe(

@@ -19,9 +19,7 @@ const repoEnv = loadRepoEnv();
 const cliBuildChannel = /^[^-+]+-(?:nightly|preview)\./.test(packageJson.version)
   ? "nightly"
   : "latest";
-// Sent with every analytics event. Release workflows set it for pingdotgg/t3code
-// builds only, so local builds and forks report "dev". A typo fails the build
-// instead of mislabeling events.
+// Official release workflows set the telemetry channel; local builds and forks use "dev".
 const TELEMETRY_CHANNELS = ["stable", "nightly", "preview", "dev"];
 const telemetryChannel = process.env.T3CODE_TELEMETRY_CHANNEL?.trim() || "dev";
 if (!TELEMETRY_CHANNELS.includes(telemetryChannel)) {
@@ -30,16 +28,17 @@ if (!TELEMETRY_CHANNELS.includes(telemetryChannel)) {
   );
 }
 
-// Emit one module graph before Bun compiles it. Keeping Effect in this bundle
-// preserves its shared HTTP/auth context across source and executable builds.
+// Emit one module graph before Bun compiles it; bundling Effect keeps one shared HTTP/auth context.
 const packExecutable = process.env.T3CODE_PACK_EXE === "1";
 
 // The root config's `projects` route repo-root runs to package configs,
 // including this one. Inheriting them would make this config a container.
 const { projects: _rootTestProjects, ...baseTestConfig } = baseConfig.test ?? {};
+// Workspace cache configuration is invalid on a package config.
+const { run: _rootRunConfig, ...basePackageConfig } = baseConfig;
 
 export default mergeConfig(
-  { ...baseConfig, test: baseTestConfig },
+  { ...basePackageConfig, test: baseTestConfig },
   defineConfig({
     run: {
       tasks: {
@@ -51,17 +50,13 @@ export default mergeConfig(
       },
     },
     pack: {
-      // The executable embeds one entry; the history worker becomes a hidden
-      // subcommand there instead of a sibling script.
+      // SEA embeds one entry; expose the history worker as a hidden subcommand.
       entry: packExecutable ? ["src/bin.ts"] : ["src/bin.ts", "src/claude-history-worker.ts"],
       outDir: packExecutable ? "dist-exe" : "dist",
       sourcemap: !packExecutable,
       clean: true,
       deps: {
-        // `neverBundle` forces the native packages out: returning false from
-        // `alwaysBundle` only means "no opinion", so a transitive dependency
-        // would still be bundled — which silently inlined native loaders such
-        // as node-gyp-build, losing native acceleration.
+        // alwaysBundle=false has no opinion; neverBundle must retain transitive native acceleration.
         alwaysBundle: shouldBundleCliDependency,
         neverBundle: (id: string) => isExternalCliDependency(id),
         onlyBundle: false,
@@ -91,11 +86,9 @@ export default mergeConfig(
       },
     },
     test: {
-      // The server suite exercises sqlite, git, temp worktrees, and orchestration
-      // runtimes heavily. Running files in parallel introduces load-sensitive flakes.
+      // Parallel sqlite/git/worktree/orchestration tests introduce load-sensitive flakes.
       fileParallelism: false,
       sequence: { sequencer: WeightedShardSequencer },
-      // Appended to the root setup, which mergeConfig concatenates.
       setupFiles: ["./src/testUtils/gitConfig.setup.ts"],
       hookTimeout: 120_000,
       testTimeout: 120_000,

@@ -66,12 +66,9 @@ const RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS = {
 };
 
 /**
- * `vp test` from the repo root runs this config, not apps/web/vite.config.ts or
- * apps/web/integration/vite.config.ts, so the web integration tests would render uncompiled
- * JSX. Under test only, components (.tsx) under apps/web/src and packages/plugin-workflows/src/web
- * compile as in the app (compiler bailouts and crashes included). `react({ compiler: true })` from
- * @vitejs/plugin-react is not used: it compiles only for client-consumer environments, which
- * would skip Vitest's node environment.
+ * Root `vp test` ignores the web configs, so under test only, web and workflow-editor components
+ * compile with the React Compiler as in the app. `react({ compiler: true })` compiles only for
+ * client-consumer environments and would skip Vitest's node environment.
  */
 const loadWebReactCompiler = async (): Promise<Plugin> => {
   const webRequire = NodeModule.createRequire(new URL("./apps/web/package.json", import.meta.url));
@@ -181,8 +178,7 @@ export default defineConfig({
   fmt: {
     ignorePatterns: [
       ".repos/**",
-      // Macroscope's glob-per-line ignore grammar, not Markdown: formatting
-      // it rewrites `*` as `_` and joins lines.
+      // Macroscope requires one glob per line; Markdown formatting corrupts it.
       ".macroscope/ignore.md",
       ".alchemy",
       "dist",
@@ -479,8 +475,7 @@ export default defineConfig({
         },
       },
       {
-        // React commits state set in a raw ResizeObserver callback after the paint, so derived
-        // layout lands a frame late. observeResize flushes every observed resize in one render.
+        // Raw ResizeObserver state commits miss the paint; observeResize flushes derived layout together.
         files: ["apps/web/src/**"],
         excludeFiles: [
           "apps/web/src/lib/observeResize.ts",
@@ -512,8 +507,7 @@ export default defineConfig({
         rules: { "shadcn/no-raw-colors": "error" },
       },
       {
-        // Third-party marks (brand logos, the macOS permission panes, Codex's Computer Use
-        // mark) must keep their exact colors, so the files that hold them are exempt.
+        // Third-party marks must retain their exact colors.
         files: ["apps/web/src/components/Icons.tsx", "apps/web/src/components/JetBrainsIcons.tsx"],
         rules: { "shadcn/no-raw-colors": "off" },
       },
@@ -551,9 +545,7 @@ export default defineConfig({
               allow: ["layout"],
               contracts: [
                 {
-                  // CollapsibleTrigger is a bare button with no styled counterpart
-                  // (a disclosure row is not a Button), so its className is the API.
-                  // Every other trigger has one: style them with render={<Button …/>}.
+                  // CollapsibleTrigger has no styled counterpart; other triggers use render={<Button …/>}.
                   pattern: "^CollapsibleTrigger$",
                   allow: ["layout", "color", "typography", "spacing", "shape", "effects", "motion"],
                 },
@@ -563,9 +555,7 @@ export default defineConfig({
         },
       },
       {
-        // Every web file must compile under the React Compiler. Its bailout rules are errors here,
-        // and manual memoization is redundant. No upstream rule bans useMemo/useCallback, hence
-        // t3code/no-manual-memo.
+        // React Compiler owns memoization; upstream rules do not ban redundant useMemo/useCallback.
         files: ["apps/web/src/**/*.{ts,tsx}"],
         rules: {
           "react/exhaustive-effect-dependencies": "error",
@@ -594,8 +584,7 @@ export default defineConfig({
         rules: { "shadcn/no-arbitrary-values": "off" },
       },
       {
-        // The compiler only compiles a use* function that calls a hook; one that calls none is
-        // silently left as a plain function, so whatever it returns loses its caching.
+        // React Compiler caches use* functions only if they call a hook.
         files: ["apps/web/src/**/*.{ts,tsx}"],
         excludeFiles: ["**/*.test.ts", "**/*.test.tsx"],
         rules: { "t3code/no-hookless-use-function": "error" },

@@ -86,7 +86,9 @@ current when an authorized change replaces a decision.
   smoke-test set. Keep its checks and use the repository Bun pin. Remove other
   imported workflows, including releases, deployments, previews, bots, Windows
   lanes, and runtime matrices. Retained packaging and runtime suites run manually;
-  importing upstream is not a request to restore removed CI checks.
+  importing upstream is not a request to restore removed CI checks. Upstream's
+  shared Vite task cache (`infra/task-cache`, `.task-cache.json`, and its root
+  `vite.config.ts` hooks) targets upstream's own Cloudflare worker; keep it removed.
 
 ## Import upstream changes
 

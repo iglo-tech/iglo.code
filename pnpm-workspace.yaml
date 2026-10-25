@@ -42,7 +42,7 @@ catalog:
   "@legendapp/list": 3.3.5
   "@noble/curves": 1.9.1
   "@noble/hashes": 1.8.0
-  "@pierre/diffs": 1.5.2
+  "@pierre/diffs": 1.6.1
   "@tailwindcss/node": 4.3.3
   "@tailwindcss/oxide": 4.3.3
   "@tailwindcss/vite": 4.3.3
@@ -122,6 +122,9 @@ minimumReleaseAgeExclude:
   - "@opencode/schema@2.0.28"
   - "@muse-code/sdk@1.4.6"
   - pele@1.8.0
+  - "@pierre/diffs@1.6.1"
+  - "@pierre/highlights@0.2.0"
+  - "@pierre/theming@1.0.2"
 
 overrides:
   # Pin every patched package, including transitive dependencies, so lockfile-free
@@ -131,7 +134,7 @@ overrides:
   alchemy: 2.0.0-beta.80
   "@ff-labs/fff-node": 0.11.0
   "@legendapp/list": 3.3.5
-  "@pierre/diffs": 1.5.2
+  "@pierre/diffs": 1.6.1
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.
   "@exodus/bytes>@noble/hashes": "1.8.0"
   # The SDK always receives the user's Claude executable, so its bundled binaries are unused.
@@ -216,7 +219,7 @@ patchedDependencies:
   "@legendapp/list@3.3.5": patches/@legendapp__list@3.3.5.patch
   # Exports the dependency-light subpaths mobile and the web diff parser import, and keeps
   # measured wrapped-row heights above an edit (fileEditorVirtualization.test.ts).
-  "@pierre/diffs@1.5.2": patches/@pierre%2Fdiffs@1.5.2.patch
+  "@pierre/diffs@1.6.1": patches/@pierre%2Fdiffs@1.6.1.patch
   # Observe the owned host exit independently of descendants retaining its stdio.
   "@muse-code/sdk@1.4.6": patches/@muse-code__sdk@1.4.6.patch
 

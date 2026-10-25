@@ -51,11 +51,8 @@ export interface SelfInvocation {
 }
 
 /**
- * How another process runs this T3 install's CLI, for hidden subcommands the
- * server hands to children such as `acp-mcp-bridge`. `process.execPath` plus
- * `argv[1]` only works for a source script; compiled Bun points to an embedded
- * entrypoint in its virtual filesystem, so callers must not
- * assemble the pair themselves.
+ * How children such as `acp-mcp-bridge` run this install's CLI. Compiled Bun points `argv[1]` at an
+ * embedded virtual entrypoint, so callers must not assemble `execPath` plus `argv[1]` themselves.
  */
 export const resolveSelfInvocation = Effect.fn("bunRuntime.resolveSelfInvocation")(function* () {
   const command = yield* HostProcess.ExecutablePath;

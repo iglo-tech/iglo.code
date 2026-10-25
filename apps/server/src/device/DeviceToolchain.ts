@@ -1,19 +1,5 @@
 import type { DeviceToolVersions } from "@t3tools/contracts";
-/**
- * Pinned installs of the two external tools device support is built on.
- *
- * `expo-device-hub` streams simulator and emulator screens and `agent-device`
- * drives them. Each is Bun-installed separately after its matching consent
- * step into `<baseDir>/tools/<name>/<version>` and executed from there with the
- * resolved Bun runtime: an ephemeral
- * package runner cache would make every first `device_open` after a reboot depend on the
- * registry, and the pinned versions are part of the contract the injected
- * agent instructions describe.
- *
- * Install follows the pinned-runtime recipe: stage into a temp sibling, write a
- * sentinel only after Bun exits 0, then rename into place. Bun extracts files
- * before it finishes, so an entry file alone does not prove a usable tree.
- */
+// Bun extracts entry files before it finishes; only the sentinel written after exit 0 proves a usable tree.
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";

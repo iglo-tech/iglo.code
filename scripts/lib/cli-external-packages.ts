@@ -1,28 +1,5 @@
-/**
- * The shared dependency boundary for CLI bundling and archive staging.
- *
- * The bundler and archive staging share these predicates:
- *
- * - apps/server/vite.config.ts decides what stays external to the bundle.
- * - scripts/build-cli-archive.ts selects file-backed runtime dependency roots for the archive.
- *
- * File-backed externals must be staged beside the executable. Bun's built-in
- * compatibility modules stay external without requiring a staged package.
- *
- * Entries are matched as prefixes (`id.startsWith(prefix)`), so they also cover
- * a package's platform-specific siblings — `node-gyp-build` covers
- * `node-gyp-build-optional-packages`, `@yuuang/` covers every `ffi-rs-*` binding.
- */
-/**
- * External because the runtime loads them from disk at runtime.
- *
- * Native addons (.node), the JS wrappers that dlopen them by real path, and —
- * critically — the ordinary JS packages those wrappers require. An external
- * package is loaded from the real filesystem, so its own `require` also
- * resolves from the real filesystem; a dependency that was bundled away exists
- * only inside the emitted bundle and is unreachable there. This closure is
- * enforced by a test, not by inspection.
- */
+/** Keep bundler externals and staged runtime dependency roots aligned; Bun built-ins need no staged package. */
+// Filesystem-loaded externals need their dependencies outside the bundle too (enforced by a test).
 export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   // Cursor ships computed Webpack imports and platform helper packages.
   "@cursor/sdk",
@@ -39,8 +16,7 @@ export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   "utf-8-validate",
 ] as const;
 
-// These are Cursor's disk-backed dependency closure. Match package boundaries
-// so "zod" does not also externalize unrelated packages such as zod-to-json-schema.
+// Match Cursor dependency boundaries so zod does not externalize zod-to-json-schema.
 const CURSOR_RUNTIME_DEPENDENCIES = [
   "@bufbuild/protobuf",
   "@connectrpc/connect",
@@ -60,14 +36,7 @@ export function isRuntimeExternalCliDependency(id: string): boolean {
   );
 }
 
-/**
- * This has to be wired to the bundler's `neverBundle`, not just to
- * `alwaysBundle`. `alwaysBundle` only forces packages IN — returning false from
- * it means "no opinion", and the default then applies: a declared dependency
- * stays external, but a transitive one gets bundled. That is how a native
- * loader such as node-gyp-build ended up inlined while a declared native
- * dependency stayed external.
- */
+/** Use neverBundle: false from alwaysBundle means no opinion and leaves transitive packages bundled. */
 export function isExternalCliDependency(id: string): boolean {
   // Bun's ws shim marks Node HTTP requests as upgraded. Inlining npm's ws
   // bypasses it and lets Bun append an HTTP response to the WebSocket frames.
@@ -88,10 +57,7 @@ export function selectCliRuntimeExternalDependencies(
   );
 }
 
-/**
- * `regionCount` is reported so the caller can tell "nothing was inlined" apart
- * from "the marker format changed and this scan no longer sees anything".
- */
+/** regionCount distinguishes a clean bundle from a changed marker format the scan cannot see. */
 export function findInlinedExternalPackages(source: string): {
   readonly regionCount: number;
   readonly inlined: ReadonlyArray<string>;

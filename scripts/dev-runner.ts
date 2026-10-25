@@ -29,10 +29,8 @@ const BASE_SERVER_PORT = 13773;
 const BASE_WEB_PORT = 5733;
 const MAX_HASH_OFFSET = 3000;
 const MAX_PORT = 65535;
-// HTTP(S) requests to these ports are blocked by the Fetch standard before a
-// browser reaches the network. Keep the complete list here so explicit or
-// future wider offsets cannot produce a URL that curl accepts but browsers
-// reject. https://fetch.spec.whatwg.org/#port-blocking
+// Browsers block these ports before networking even when curl accepts them.
+// https://fetch.spec.whatwg.org/#port-blocking
 const FETCH_BAD_PORTS = new Set([
   0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102,
   103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465,
@@ -40,17 +38,13 @@ const FETCH_BAD_PORTS = new Set([
   995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668,
   6669, 6679, 6697, 10080,
 ]);
-// Dev servers bind loopback, so loopback is the only interface whose
-// availability decides whether we can use a port.
+// Dev binds loopback; other interfaces cannot establish port availability.
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "::1"] as const;
 // A pruned migrate-dev-db copy is tens of MB; some worktrees hold a full copy
 // of the live database instead.
 const LARGE_DEV_DATABASE_BYTES = 500 * 1024 * 1024;
 
-/**
- * Loopback and the wildcards qualify; a specific interface (e.g. a LAN IP) does
- * not — the OS binds only that address and the proxy target goes dark.
- */
+/** Only loopback and wildcard binds keep the loopback proxy target reachable. */
 export function isProxiableBindHost(host: string): boolean {
   const normalized = host.trim();
   return (
@@ -93,10 +87,7 @@ const BUILT_DEV_ARGS = [
 ] as const;
 
 type DevMode = keyof typeof MODE_ARGS;
-/**
- * `role` matters because only the backend honours `--host`/`T3CODE_HOST`; the
- * web port is always loopback.
- */
+// Only backend ports honor --host/T3CODE_HOST; web ports stay loopback.
 type PortAvailabilityCheck<R = never> = (
   port: number,
   role?: "server" | "web",
@@ -331,31 +322,24 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
     delete output.T3CODE_HOME;
   }
 
-  // A dev-runner server is never launcher-managed. When the shell that runs
-  // this script was itself spawned by the machine's managed t3 service (an
-  // agent working inside T3 Code), these leak through and the child server
-  // fails startup with "The service launcher started a different t3 version"
-  // (serviceLauncherClient.ts resolveStartup).
+  // Managed T3 service shells leak launcher variables that make dev servers fail version checks.
+  // Dev-runner servers are never launcher-managed (serviceLauncherClient.ts resolveStartup).
   delete output.T3_SERVICE_LAUNCHER_CONTEXT;
   delete output.T3_BOOT_SERVICE_UNIT;
+
+  // Each worktree has its own state, so a dev server would count as a new
+  // install of the developer's real accounts. Set it explicitly to opt in.
+  output.T3CODE_TELEMETRY_ENABLED = baseEnv.T3CODE_TELEMETRY_ENABLED ?? "false";
 
   output.T3CODE_PORT = String(serverPort);
   delete output.HOST;
   if (mode === "dev" || mode === "dev:web") {
-    // Browser dev is single-origin: everything (including /ws) is proxied
-    // through Vite, so the client must resolve its backend from
-    // window.location.origin rather than a baked-in localhost URL. See
-    // resolveConfiguredPrimaryTarget in apps/web/src/environments/primary/target.ts
-    // — it only defers to the origin when both of these are absent. Baking
-    // localhost here is what breaks any non-localhost origin (tailnet, LAN,
-    // phone): the remote browser dials its own machine.
+    // Browser dev is single-origin through Vite, so the client resolves its backend from
+    // window.location.origin; a baked-in localhost URL breaks every remote browser.
     delete output.VITE_HTTP_URL;
     delete output.VITE_WS_URL;
-    // Deleting is not enough on its own: vite.config.ts calls loadRepoEnv,
-    // which merges `.env`/`.env.local` *under* this env, so a developer
-    // with either URL in their `.env` would get it back and silently lose
-    // single-origin mode. This states the intent positively so Vite can
-    // ignore those values rather than infer from their absence.
+    // loadRepoEnv merges `.env`/`.env.local` under this env, so state single-origin mode
+    // positively instead of relying on the deleted URLs staying absent.
     output.T3CODE_SINGLE_ORIGIN_DEV = "1";
   } else {
     output.VITE_HTTP_URL = `http://localhost:${serverPort}`;
@@ -420,19 +404,9 @@ export const checkPortAvailabilityOnHosts = Effect.fn("dev-runner.checkPortAvail
 );
 
 /**
- * Hosts to probe for a dev server bound to `configuredHost`.
- *
- * Loopback is always checked because the web server targets the backend there.
- * When `--host`/`T3CODE_HOST` moves the backend onto
- * another interface, that interface decides whether the bind actually
- * succeeds — probing only loopback would hand back a port that is free here
- * and taken there, and the server would fail to start.
- *
- * `configuredHost` applies to the *backend* only. Vite takes its bind address
- * from `HOST`, which the runner clears, so the web port stays on loopback and
- * must not be judged against the backend's interface —
- * a port free on loopback but busy on that interface would otherwise be
- * rejected for a server that was never going to bind there.
+ * Hosts to probe for a dev server: loopback always, plus the `--host`/`T3CODE_HOST` interface that
+ * decides whether the backend bind succeeds. Vite binds from `HOST`, which the runner clears, so
+ * the web port stays on loopback and is not judged against the backend's interface.
  */
 export function devPortProbeHosts(configuredHost: string | undefined): ReadonlyArray<string> {
   const host = configuredHost?.trim();
@@ -686,11 +660,8 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     ),
   );
 
-  // Single-origin browser dev proxies the backend at localhost. A wildcard
-  // bind still answers there; a specific non-loopback interface does not,
-  // which breaks every proxied request in a way that reads as "server is
-  // broken" rather than "flag combination is unsupported". Reject it up
-  // front instead. (dev:server does not proxy.)
+  // Single-origin dev proxies the backend at localhost, which a specific non-loopback bind does not
+  // answer; reject it up front rather than fail every proxied request. dev:server does not proxy.
   if (
     (input.mode === "dev" || input.mode === "dev:web") &&
     input.host !== undefined &&

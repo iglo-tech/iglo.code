@@ -150,8 +150,7 @@ const buildExeCmd = Command.make(
         }),
       );
 
-      // Disk-backed packages must resolve beside the executable rather than
-      // becoming another embedded graph with missing native or SDK assets.
+      // Disk-backed packages must resolve beside the executable, not as another embedded graph.
       const bundlePath = path.join(serverDir, "dist-exe/bin.mjs");
       const specifiers = findEsmImportsOfExternalPackages(yield* fs.readFileString(bundlePath));
       if (specifiers.length > 0) {
@@ -194,11 +193,7 @@ const buildExeCmd = Command.make(
   ),
 );
 
-/**
- * Publishes the `@iglo-tech/iglo-code.tgz` launcher scripts/build-npm-launcher.ts produced. The
- * launcher downloads its executable from the GitHub Release, so the release
- * workflow runs this only after that release is published.
- */
+/** Publishes the `@iglo-tech/iglo-code.tgz` launcher after the GitHub release exists; it downloads from it. */
 const publishCmd = Command.make(
   "publish",
   {

@@ -531,11 +531,9 @@ function FocusStep({
 }
 
 /**
- * The workflow as a top-to-bottom graph. Selecting a box selects its step (and names the box,
- * for reviewer lanes); `readOnly` drops mutations so the same canvas can present a run's
- * definition snapshot, with `run` painting its recorded state. Alt+Arrow changes the steps'
- * reading order; the inspector offers the same action without a shortcut. Run state never
- * relays out.
+ * The workflow as a top-to-bottom graph. `readOnly` drops mutations so the same canvas presents a
+ * run's definition snapshot, with `run` painting its recorded state; run state never relays out.
+ * Alt+Arrow changes the steps' reading order, as the inspector does without a shortcut.
  */
 export function Graph({
   definition,

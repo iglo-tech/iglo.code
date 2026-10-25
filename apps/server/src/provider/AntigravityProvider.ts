@@ -161,8 +161,8 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     draft: initialDraft,
     authRevision: 0,
   });
-  // Null marks an invalidated catalog. Keep its native commands for the next
-  // lookup, but do not republish it as completed discovery after Settings refresh.
+  // Null marks an invalidated catalog: keep its native commands for the next lookup, but do not
+  // republish it as completed discovery after a Settings refresh.
   const discoveredSkills = new Map<string, ServerProvider["skills"] | null>();
   const stampSnapshot = (draft: ServerProviderDraft) =>
     options.stampIdentity({
@@ -218,8 +218,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         draft: {
           ...draft,
           installed: !missingInstallation,
-          // Custom launchers have no static version; their lightweight probe
-          // must not erase the version learned from a real ACP handshake.
+          // Lightweight custom-launcher probes lack versions; preserve the real handshake's version.
           version: version === "unknown" ? draft.version : version || draft.version,
           status: errorMessage ? "error" : authenticated ? "ready" : "warning",
           checkedAt: updatedAt,

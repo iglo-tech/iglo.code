@@ -23,7 +23,7 @@ if [ -n "$JAVA_HOME" ]; then export PATH="$JAVA_HOME/bin:$PATH"; fi
 export const remoteDeviceBunCommand =
   'command -v bun >/dev/null 2>&1 || { echo "Bun is missing from the non-interactive SSH PATH. Install Bun and expose ~/.bun/bin or bun on PATH." >&2; exit 1; }; exec bun -';
 
-/** Bun runs this on the host. All paths it returns belong to that host. */
+/** Runs on the host and returns host-local paths. */
 export const remoteDeviceScript = (
   owner: string,
   mode: "probe" | "start" | "agent-start" | "stop-agent" | "stop",

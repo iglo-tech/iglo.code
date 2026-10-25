@@ -1,19 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Packages the server single-executable into a self-contained per-platform
- * archive: the `t3` binary, the web client, the resource monitor, and a
- * production install of the native packages the bundle keeps external. The
- * archive is the unit every runtime installer downloads, so nothing in it may
- * require Node, npm, or a compiler on the machine that unpacks it.
- *
- * Layout inside the archive (a single top-level directory named after the
- * archive stem):
- *
- *   t3                   the Bun-compiled CLI
- *   runtime/bun          the pinned interpreter for JavaScript helpers
- *   client/              web app served by the server
- *   resource-monitor/    per-platform Rust helper, same paths as the npm package
- *   node_modules/        runtime externals (native modules, provider SDK, browser assets)
+ * Packages the Bun-compiled CLI with `runtime/bun`, the web client, the resource monitor, and the
+ * runtime externals it keeps on disk. Archives must run without host Node, npm, or compilers.
  */
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -103,8 +91,7 @@ export function cliArchiveStem(version: string, platform: BuildPlatform, arch: B
 }
 
 export function cliArchiveFileName(version: string, platform: BuildPlatform, arch: BuildArch) {
-  // gzip rather than xz: GNU tar needs an external xz binary for -J, which
-  // minimal hosts lack, while every supported tar handles gzip alone.
+  // Minimal hosts may lack xz, but every supported tar handles gzip without it.
   return `${cliArchiveStem(version, platform, arch)}.tar.gz`;
 }
 
@@ -135,10 +122,7 @@ const requireInput = Effect.fn("requireInput")(function* (inputPath: string, hin
   }
 });
 
-/**
- * The tree is archived and unpacked on machines without pnpm, so the store
- * layout cannot be relied on to survive the trip.
- */
+/** Installed runtimes cannot rely on pnpm's store layout surviving archival. */
 const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (input: {
   readonly repoRoot: string;
   readonly stageDir: string;
@@ -225,10 +209,7 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
   ]) {
     yield* fs.remove(path.join(input.stageDir, entry), { recursive: true, force: true });
   }
-  // A hoisted install still leaves nested `node_modules/.bin` shim directories
-  // inside packages that declare bins (msgpackr-extract's). They are symlinks
-  // nothing runs, and the npm registry refuses a tarball that contains any
-  // symlink, so strip every `.bin` directory below node_modules.
+  // Nested .bin shims are unused symlinks, which the npm registry rejects in tarballs.
   yield* removeNestedBinDirectories(fs, path, path.join(input.stageDir, "node_modules"));
 });
 
@@ -272,13 +253,7 @@ const MacSigningConfig = Config.all({
   appleApiIssuer: Config.String("APPLE_API_ISSUER").pipe(Config.option),
 });
 
-/**
- * Apple Silicon refuses to run unsigned Mach-O binaries at all, so the
- * executable is always signed: ad hoc when no identity is configured, or with
- * the Developer ID plus notarization when it is. The hardened runtime that
- * notarization requires only loads signed libraries, so every native addon in
- * the archive is signed with the same identity.
- */
+/** Apple Silicon requires signed binaries; notarization's hardened runtime also requires every native addon signed. */
 const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (input: {
   readonly repoRoot: string;
   readonly contentDir: string;
@@ -333,8 +308,7 @@ const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (in
     );
     return;
   }
-  // notarytool only accepts archives, and a bare executable cannot be stapled,
-  // so notarize all signed archive contents and rely on the online ticket lookup.
+  // notarytool requires an archive; bare executables rely on online tickets because they cannot be stapled.
   const notarizeZip = path.join(path.dirname(input.contentDir), ".notarize-t3.zip");
   yield* runCommand(
     ChildProcess.make("ditto", ["-c", "-k", "--keepParent", input.contentDir, notarizeZip]),
@@ -433,11 +407,7 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
     cliArchiveFileName(input.version, input.platform, input.arch),
   );
   yield* fs.remove(archivePath, { force: true });
-  // On Linux, pnpm hard-links identical files out of its store and node-gyp
-  // hard-links build outputs, and GNU tar records those as link entries.
-  // The npm registry rejects a tarball containing any, and the npm platform
-  // packages are re-packed from this archive's contents, so store every
-  // file as a file. macOS's bsdtar has no such flag; pnpm clones there.
+  // npm rejects Linux hardlink entries; macOS pnpm clones and bsdtar lacks this flag.
   yield* runCommand(
     ChildProcess.make("tar", [
       ...(input.platform === "linux" ? ["--hard-dereference"] : []),

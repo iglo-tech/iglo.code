@@ -2,11 +2,7 @@
 import * as NodeModule from "node:module";
 import ts from "typescript-legacy";
 
-/**
- * Finds file-backed ESM imports left outside the emitted executable graph.
- * Native packages and disk-backed SDKs load through a require rooted beside
- * the installed executable. Runtime built-ins belong to Bun itself.
- */
+/** Finds file-backed ESM imports outside the executable graph; those load through a require beside the executable. */
 export function findEsmImportsOfExternalPackages(source: string): ReadonlyArray<string> {
   const specifiers = new Set<string>();
   const module = ts.createSourceFile(

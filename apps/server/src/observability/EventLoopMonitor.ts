@@ -20,9 +20,8 @@ import * as Semaphore from "effect/Semaphore";
 import * as ServerConfig from "../config.ts";
 import * as Metrics from "./Metrics.ts";
 
-// Bun's native histogram records timer lateness, already excluding the resolution.
-// It can undercount a stall by up to RESOLUTION_MS. Every stall over 3 s is caught
-// with these values, at one native wakeup per second that never enters JS.
+// Bun's native histogram records timer lateness, already excluding the resolution, so it can
+// undercount a stall by up to RESOLUTION_MS at one native wakeup per second.
 const RESOLUTION_MS = 1000;
 const STALL_THRESHOLD_MS = 2000;
 const SAMPLE_INTERVAL = "30 seconds";
@@ -123,9 +122,7 @@ const makeBunSampler = Effect.gen(function* () {
   });
 });
 
-/**
- * Returns the stall to report for one sample in ms, or undefined when there was none.
- */
+/** Returns the stall to report for one sample in ms, or undefined when there was none. */
 export const stallMs = ({ delayMaxNs, suspendedMs }: EventLoopReadings) => {
   const delayMs = Math.round(delayMaxNs / 1e6 - suspendedMs);
   if (delayMs <= STALL_THRESHOLD_MS) return undefined;
@@ -227,10 +224,7 @@ export const layerWith = (
         }
       }).pipe(sampling.withPermits(1));
       const wait = Effect.sleep(SAMPLE_INTERVAL);
-      // The layer builds before the rest of the server, so the first sample covers
-      // startup work such as migrations and projection bootstrap. That can block the
-      // loop for seconds on a large database, so skip it rather than warn at every
-      // launch.
+      // The first sample includes migrations and bootstrap; skip expected startup stalls.
       yield* wait.pipe(
         Effect.andThen(sampling.withPermits(1)(sample)),
         Effect.andThen(Ref.set(warmedUp, true)),
