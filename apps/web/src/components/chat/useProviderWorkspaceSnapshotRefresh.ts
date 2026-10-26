@@ -7,6 +7,8 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useStableCallback } from "../../hooks/useStableCallback";
 
 const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
+// A cwd that never scans, such as a deleted worktree, would otherwise retry forever.
+const WORKSPACE_SNAPSHOT_MAX_ATTEMPTS = 3;
 
 /**
  * Keeps the selected provider's workspace snapshot fresh for the composer's
@@ -36,6 +38,7 @@ export function useProviderWorkspaceSnapshotRefresh(input: {
   const workspaceRefreshKeyRef = useRef<string | null>(null);
   const workspacePreviousCheckedAtRef = useRef<string | undefined>(undefined);
   const workspaceBoundaryRef = useRef({ key: "", pickerOpen: false, generation: 0 });
+  const failedRefreshesRef = useRef<{ key: string; count: number } | null>(null);
   const [workspaceRefreshRetry, setWorkspaceRefreshRetry] = useState<{
     key: string;
     generation: number;
@@ -97,6 +100,7 @@ export function useProviderWorkspaceSnapshotRefresh(input: {
       workspacePreviousCheckedAtRef.current = selectedProviderStatus?.workspaceSnapshots?.find(
         (snapshot) => snapshot.cwd === gitCwd,
       )?.checkedAt;
+      failedRefreshesRef.current = null;
       boundary.generation += 1;
     }
     boundary.key = boundaryKey;
@@ -125,6 +129,11 @@ export function useProviderWorkspaceSnapshotRefresh(input: {
     const retryLater = () => {
       if (workspaceBoundaryRef.current.generation !== generation) return;
       if (workspaceRefreshKeyRef.current !== scopeKey) return;
+      const failed = failedRefreshesRef.current;
+      const count = failed?.key === scopeKey ? failed.count + 1 : 1;
+      failedRefreshesRef.current = { key: scopeKey, count };
+      // Keeping the request marker holds off rescans until the next boundary.
+      if (count >= WORKSPACE_SNAPSHOT_MAX_ATTEMPTS) return;
       workspaceRefreshKeyRef.current = null;
       setWorkspaceRefreshRetry({
         key: scopeKey,
@@ -146,6 +155,7 @@ export function useProviderWorkspaceSnapshotRefresh(input: {
           previousCheckedAt,
         );
       if (!refreshedSnapshot) retryLater();
+      else failedRefreshesRef.current = null;
     }, retryLater);
   };
   const refreshWorkspaceSnapshotOnChange = useEffectEvent(refreshWorkspaceSnapshotIfNeeded);

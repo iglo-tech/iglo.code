@@ -11,6 +11,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -171,6 +172,12 @@ const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean =>
       provider.status === "ready" &&
       provider.nativeSessions !== undefined
     );
+  }
+
+  if (provider.driver === ProviderDriverKind.make("grok")) {
+    // Grok reports ready only after it discovers a model list; the pending,
+    // ACP-failed, empty-inventory, and logged-out probes are warning/error.
+    return !(provider.installed && provider.status === "ready");
   }
 
   const isAntigravity = provider.driver === ProviderDriverKind.make("antigravity");
@@ -411,7 +418,7 @@ export const layer = Layer.effect(
       cachedProviders.map((provider) => classifyCompatibility(provider, initialManifest)),
     );
     const workspaceRefreshesRef = yield* SynchronizedRef.make<
-      ReadonlyMap<ProviderInstance, ReadonlyMap<string, object>>
+      ReadonlyMap<ProviderInstance, ReadonlyMap<string, Deferred.Deferred<void>>>
     >(new Map());
     const maintenanceActionStatesRef = yield* Ref.make<
       ReadonlyMap<ProviderInstanceId, { readonly update?: ServerProviderUpdateState | undefined }>
@@ -947,126 +954,146 @@ export const layer = Layer.effect(
       }
       const instance = yield* instanceRegistry.getInstance(input.instanceId);
       if (!instance?.snapshotForCwd) return providers;
-      const scan = {};
-      const { claimed, scannedFrom } = yield* SynchronizedRef.modifyEffect(
-        workspaceRefreshesRef,
-        (refreshes) =>
-          Ref.get(providersRef).pipe(
-            Effect.map((currentProviders) => {
-              const scannedFrom = workspaceSnapshotOf(
-                currentProviders.find((candidate) => candidate.instanceId === input.instanceId),
-              );
-              const current = refreshes.get(instance);
-              const claimed = !current?.has(input.cwd) || input.fresh === true;
-              const next = claimed
-                ? new Map(refreshes).set(instance, new Map(current).set(input.cwd, scan))
-                : refreshes;
-              return [{ claimed, scannedFrom }, next] as const;
-            }),
-          ),
-      );
-      // A fresh scan never joins a running one, which may predate the change.
-      if (!claimed && !input.fresh) return yield* Ref.get(providersRef);
+      const token = yield* Deferred.make<void>();
       const refreshMachineSnapshot = input.fresh
         ? (instance.invalidateCaches ?? Effect.void).pipe(
             Effect.andThen(refreshInstance(input.instanceId)),
           )
         : Effect.void;
-      return yield* refreshMachineSnapshot.pipe(
-        Effect.andThen(instance.snapshotForCwd(input.cwd)),
-        // Scans fail on error; returned inventory remains valid even when provider health reports an error.
-        Effect.flatMap((scopedSnapshot) =>
-          Effect.gen(function* () {
-            const now = yield* DateTime.now;
-            const checkedAt = DateTime.formatIso(
-              DateTime.makeUnsafe(
-                Math.max(
-                  DateTime.toEpochMillis(now),
-                  Date.parse(scannedFrom?.checkedAt ?? "1970-01-01T00:00:00.000Z") + 1,
+      const runScan = (scannedFrom: ReturnType<typeof workspaceSnapshotOf>) =>
+        refreshMachineSnapshot.pipe(
+          Effect.andThen(instance.snapshotForCwd(input.cwd)),
+          // Scans fail on error; returned inventory remains valid even when provider health reports an error.
+          Effect.flatMap((scopedSnapshot) =>
+            Effect.gen(function* () {
+              const now = yield* DateTime.now;
+              const checkedAt = DateTime.formatIso(
+                DateTime.makeUnsafe(
+                  Math.max(
+                    DateTime.toEpochMillis(now),
+                    Date.parse(scannedFrom?.checkedAt ?? "1970-01-01T00:00:00.000Z") + 1,
+                  ),
                 ),
+              );
+              // Keep ownership validation and publication atomic with scan
+              // supersession and Settings invalidation. Probes run outside it.
+              return yield* SynchronizedRef.modifyEffect(workspaceRefreshesRef, (refreshes) =>
+                Effect.gen(function* () {
+                  const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
+                  if (
+                    currentInstance !== instance ||
+                    refreshes.get(instance)?.get(input.cwd) !== token
+                  )
+                    return [yield* Ref.get(providersRef), refreshes] as const;
+                  // Native providers merge accepted skills with their current
+                  // commands. Other probes must not replace a newer catalog.
+                  const scannedSnapshot = {
+                    ...scopedSnapshot,
+                    checkedAt,
+                    // Unless the driver reports its own command discovery,
+                    // commands come from the health check. A failed check
+                    // leaves them unknown, so keep the last ones and retry.
+                    slashCommandsPending:
+                      scopedSnapshot.slashCommandsPending ?? scopedSnapshot.status === "error",
+                  };
+                  const acceptedSnapshot = instance.commitWorkspaceSnapshot
+                    ? yield* instance.commitWorkspaceSnapshot(input.cwd, scannedSnapshot)
+                    : scannedSnapshot;
+                  // The native commit can yield while Settings rebuilds an
+                  // instance. Recheck identity under the live-source sync lock,
+                  // so publication cannot land in its replacement's projection.
+                  const nextProviders = yield* syncSemaphore.withPermits(1)(
+                    Effect.gen(function* () {
+                      const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
+                      const liveInstances = yield* Ref.get(liveSubsRef);
+                      if (
+                        currentInstance !== instance ||
+                        liveInstances.get(input.instanceId) !== instance
+                      )
+                        return yield* Ref.get(providersRef);
+                      return yield* updateProviders((currentProviders) =>
+                        currentProviders.map((candidate) => {
+                          if (
+                            candidate.instanceId !== input.instanceId ||
+                            (!instance.commitWorkspaceSnapshot &&
+                              !Equal.equals(workspaceSnapshotOf(candidate), scannedFrom))
+                          )
+                            return candidate;
+                          return upsertProviderWorkspaceSnapshot(
+                            candidate,
+                            input.cwd,
+                            // Native streams own commands; discovery owns skills.
+                            // Read commands inside the atomic projection update.
+                            instance.commitWorkspaceSnapshot
+                              ? {
+                                  ...acceptedSnapshot,
+                                  slashCommands:
+                                    workspaceSnapshotOf(candidate)?.slashCommands ??
+                                    candidate.slashCommands,
+                                }
+                              : acceptedSnapshot,
+                          );
+                        }),
+                      );
+                    }),
+                  );
+                  return [nextProviders, refreshes] as const;
+                }).pipe(Effect.uninterruptible),
+              );
+            }),
+          ),
+          Effect.ensuring(
+            SynchronizedRef.update(workspaceRefreshesRef, (refreshes) => {
+              const current = refreshes.get(instance);
+              if (current?.get(input.cwd) !== token) return refreshes;
+              const next = new Map(refreshes);
+              const nextCwds = new Map(current);
+              nextCwds.delete(input.cwd);
+              if (nextCwds.size) next.set(instance, nextCwds);
+              else next.delete(instance);
+              return next;
+            }).pipe(Effect.andThen(Deferred.succeed(token, undefined))),
+          ),
+        );
+      // The claim and the fork happen together, so the token is always completed. The scan is
+      // detached so a disconnecting owner cannot cancel the result its waiters depend on.
+      const claim = yield* Effect.uninterruptible(
+        Effect.gen(function* () {
+          const { inFlight, scannedFrom } = yield* SynchronizedRef.modifyEffect(
+            workspaceRefreshesRef,
+            (refreshes) =>
+              Ref.get(providersRef).pipe(
+                Effect.map((currentProviders) => {
+                  const scannedFrom = workspaceSnapshotOf(
+                    currentProviders.find((candidate) => candidate.instanceId === input.instanceId),
+                  );
+                  const current = refreshes.get(instance);
+                  const running = current?.get(input.cwd);
+                  // A fresh scan never joins a running one, which may predate the change.
+                  if (!input.fresh && running)
+                    return [{ inFlight: running, scannedFrom }, refreshes] as const;
+                  const next = new Map(refreshes).set(
+                    instance,
+                    new Map(current).set(input.cwd, token),
+                  );
+                  return [{ inFlight: undefined, scannedFrom }, next] as const;
+                }),
               ),
-            );
-            // Keep ownership validation and publication atomic with scan
-            // supersession and Settings invalidation. Probes run outside it.
-            return yield* SynchronizedRef.modifyEffect(workspaceRefreshesRef, (refreshes) =>
-              Effect.gen(function* () {
-                const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
-                if (
-                  currentInstance !== instance ||
-                  refreshes.get(instance)?.get(input.cwd) !== scan
-                )
-                  return [yield* Ref.get(providersRef), refreshes] as const;
-                // Native providers merge accepted skills with their current
-                // commands. Other probes must not replace a newer catalog.
-                const scannedSnapshot = {
-                  ...scopedSnapshot,
-                  checkedAt,
-                  // Unless the driver reports its own command discovery,
-                  // commands come from the health check. A failed check
-                  // leaves them unknown, so keep the last ones and retry.
-                  slashCommandsPending:
-                    scopedSnapshot.slashCommandsPending ?? scopedSnapshot.status === "error",
-                };
-                const acceptedSnapshot = instance.commitWorkspaceSnapshot
-                  ? yield* instance.commitWorkspaceSnapshot(input.cwd, scannedSnapshot)
-                  : scannedSnapshot;
-                // The native commit can yield while Settings rebuilds an
-                // instance. Recheck identity under the live-source sync lock,
-                // so publication cannot land in its replacement's projection.
-                const nextProviders = yield* syncSemaphore.withPermits(1)(
-                  Effect.gen(function* () {
-                    const currentInstance = yield* instanceRegistry.getInstance(input.instanceId);
-                    const liveInstances = yield* Ref.get(liveSubsRef);
-                    if (
-                      currentInstance !== instance ||
-                      liveInstances.get(input.instanceId) !== instance
-                    )
-                      return yield* Ref.get(providersRef);
-                    return yield* updateProviders((currentProviders) =>
-                      currentProviders.map((candidate) => {
-                        if (
-                          candidate.instanceId !== input.instanceId ||
-                          (!instance.commitWorkspaceSnapshot &&
-                            !Equal.equals(workspaceSnapshotOf(candidate), scannedFrom))
-                        )
-                          return candidate;
-                        return upsertProviderWorkspaceSnapshot(
-                          candidate,
-                          input.cwd,
-                          // Native streams own commands; discovery owns skills.
-                          // Read commands inside the atomic projection update.
-                          instance.commitWorkspaceSnapshot
-                            ? {
-                                ...acceptedSnapshot,
-                                slashCommands:
-                                  workspaceSnapshotOf(candidate)?.slashCommands ??
-                                  candidate.slashCommands,
-                              }
-                            : acceptedSnapshot,
-                        );
-                      }),
-                    );
-                  }),
-                );
-                return [nextProviders, refreshes] as const;
-              }).pipe(Effect.uninterruptible),
-            );
-          }),
-        ),
-        Effect.ensuring(
-          claimed
-            ? SynchronizedRef.update(workspaceRefreshesRef, (refreshes) => {
-                const next = new Map(refreshes);
-                const current = new Map(next.get(instance));
-                if (current.get(input.cwd) !== scan) return refreshes;
-                current.delete(input.cwd);
-                if (current.size) next.set(instance, current);
-                else next.delete(instance);
-                return next;
-              })
-            : Effect.void,
-        ),
+          );
+          if (inFlight) return { inFlight } as const;
+          return {
+            // Starting now attaches the scan's `ensuring` before anything can close the scope.
+            scan: yield* Effect.forkIn(runScan(scannedFrom), serviceScope, {
+              startImmediately: true,
+            }),
+          } as const;
+        }),
       );
+      // Wait for the running scan: on-demand clients get its result only in this reply.
+      if ("inFlight" in claim) {
+        return yield* Deferred.await(claim.inFlight).pipe(Effect.andThen(Ref.get(providersRef)));
+      }
+      return yield* Fiber.join(claim.scan);
     });
 
     return {
