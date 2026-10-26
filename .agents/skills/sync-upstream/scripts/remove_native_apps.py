@@ -192,6 +192,13 @@ def prune(root):
         return text if data == json.loads(text) else json.dumps(data, indent=2) + "\n"
 
     edit("third-party-licenses.config.json", licenses)
+
+    def effect_budget(text):
+        data = json.loads(text)
+        kept = {path: count for path, count in data.items() if not path.startswith(("apps/mobile/", "apps/desktop/"))}
+        return text if kept == data else json.dumps(kept, indent=2) + "\n"
+
+    edit("scripts/effect-budget.json", effect_budget)
     edit(".gitignore", lambda text: re.sub(r"^apps/mobile/.*\n", "", text, flags=re.M))
     edit(".cursor/rules/cursor-cloud.mdc", lambda text: re.sub(
         r"^## Android native builds.*?(?=^## |\Z)", "", text, flags=re.M | re.S,

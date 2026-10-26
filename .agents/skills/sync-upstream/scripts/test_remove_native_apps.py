@@ -264,6 +264,17 @@ class NativeRemovalTest(unittest.TestCase):
                          "  copyPatches(targetRoot);\n}\n")
         self.assertEqual(prune(self.root), [])
 
+    def test_effect_budget_drops_native_app_entries(self):
+        self.write("scripts/effect-budget.json", json.dumps({
+            "apps/desktop/src/main.ts": 1,
+            "apps/mobile/src/App.tsx": 2,
+            "apps/web/src/main.tsx": 3,
+        }))
+        prune(self.root)
+        path = self.root / "scripts/effect-budget.json"
+        self.assertEqual(json.loads(path.read_text()), {"apps/web/src/main.tsx": 3})
+        self.assertEqual(prune(self.root), [])
+
     def test_license_cleanup_keeps_web_device_notices_and_is_format_independent(self):
         self.write("third-party-licenses.config.json", json.dumps({
             "customNotices": [
