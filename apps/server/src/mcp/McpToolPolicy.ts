@@ -20,7 +20,7 @@ export const layer = Layer.effect(
       readOnlyPluginTools: Effect.sync(() =>
         [...new Set([...registrations.values()].flat())].sort(),
       ),
-      register: (ids) => {
+      register: Effect.fn("McpToolPolicy.register")((ids) => {
         const key = Symbol();
         return Effect.acquireRelease(
           Effect.sync(() => {
@@ -31,7 +31,7 @@ export const layer = Layer.effect(
               registrations.delete(key);
             }),
         );
-      },
+      }),
     });
   }),
 );

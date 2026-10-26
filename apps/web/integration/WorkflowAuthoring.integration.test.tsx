@@ -713,14 +713,14 @@ it.live(
           ]),
         );
         function Harness() {
-          const href = useSyncExternalStore(
+          useSyncExternalStore(
             (notify) => {
               loaded.add(notify);
               return () => loaded.delete(notify);
             },
             () => router.state.location.href,
           );
-          const location = useMemo(() => router.state.location, [href]);
+          const location = router.state.location;
           const [, , environmentId = "", pluginId = "", pageId = ""] = location.pathname
             .split("/")
             .map(decodeURIComponent);

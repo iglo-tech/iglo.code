@@ -953,7 +953,8 @@ export const layer = Layer.effect(
         return providers;
       }
       const instance = yield* instanceRegistry.getInstance(input.instanceId);
-      if (!instance?.snapshotForCwd) return providers;
+      const snapshotForCwd = instance?.snapshotForCwd;
+      if (!instance || !snapshotForCwd) return providers;
       const token = yield* Deferred.make<void>();
       const refreshMachineSnapshot = input.fresh
         ? (instance.invalidateCaches ?? Effect.void).pipe(
@@ -962,7 +963,7 @@ export const layer = Layer.effect(
         : Effect.void;
       const runScan = (scannedFrom: ReturnType<typeof workspaceSnapshotOf>) =>
         refreshMachineSnapshot.pipe(
-          Effect.andThen(instance.snapshotForCwd(input.cwd)),
+          Effect.andThen(snapshotForCwd(input.cwd)),
           // Scans fail on error; returned inventory remains valid even when provider health reports an error.
           Effect.flatMap((scopedSnapshot) =>
             Effect.gen(function* () {
@@ -1068,15 +1069,12 @@ export const layer = Layer.effect(
                     currentProviders.find((candidate) => candidate.instanceId === input.instanceId),
                   );
                   const current = refreshes.get(instance);
-                  const running = current?.get(input.cwd);
                   // A fresh scan never joins a running one, which may predate the change.
-                  if (!input.fresh && running)
-                    return [{ inFlight: running, scannedFrom }, refreshes] as const;
-                  const next = new Map(refreshes).set(
-                    instance,
-                    new Map(current).set(input.cwd, token),
-                  );
-                  return [{ inFlight: undefined, scannedFrom }, next] as const;
+                  const inFlight = input.fresh ? undefined : current?.get(input.cwd);
+                  const next = inFlight
+                    ? refreshes
+                    : new Map(refreshes).set(instance, new Map(current).set(input.cwd, token));
+                  return [{ inFlight, scannedFrom }, next] as const;
                 }),
               ),
           );

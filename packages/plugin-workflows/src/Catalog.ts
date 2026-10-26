@@ -779,16 +779,18 @@ const make = Effect.gen(function* () {
   const displayEntry = (entry: CatalogEntry) =>
     Display.displayCatalog(host, [entry]).pipe(Effect.map((entries) => entries[0]!));
   return Catalog.of({
-    validate: (scope, definition, options) =>
+    validate: Effect.fn("Catalog.validate")((scope, definition, options) =>
       validate(scope, definition, undefined, options?.fresh ?? true).pipe(
         Effect.flatMap(displayEntry),
       ),
-    list: (input) =>
+    ),
+    list: Effect.fn("Catalog.list")((input) =>
       list(input, false).pipe(
         // Save and execution resolve identities from every source; only transport is bounded.
         Effect.map((entries) => entries.slice(0, 100 + examples.length)),
         Effect.flatMap((entries) => Display.displayCatalog(host, entries)),
       ),
+    ),
     library,
     read,
     save,
@@ -798,10 +800,11 @@ const make = Effect.gen(function* () {
     skills,
     projects,
     preview,
-    resolve: (input, definitionId) =>
+    resolve: Effect.fn("Catalog.resolve")((input, definitionId) =>
       list(input, true).pipe(
         Effect.map((entries) => entries.find((entry) => entry.definition?.id === definitionId)),
       ),
+    ),
   });
 });
 export const layer = Layer.effect(Catalog, make);

@@ -170,10 +170,11 @@ export function useProjects(props: PageProps) {
   useEffect(() => {
     if (connection === "disconnected") return;
     let active = true;
-    setError(null);
     client.projects().then(
       (value) => {
-        if (active) setProjects(value);
+        if (!active) return;
+        setError(null);
+        setProjects(value);
       },
       (cause: unknown) => {
         if (active) setError(errorMessage(cause));
@@ -182,8 +183,16 @@ export function useProjects(props: PageProps) {
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps attempt to refetch.
   }, [client, connection, attempt]);
-  return { projects, error, retry: () => setAttempt((value) => value + 1) };
+  return {
+    projects,
+    error,
+    retry: () => {
+      setError(null);
+      setAttempt((value) => value + 1);
+    },
+  };
 }
 
 /** What a local draft is based on; it is editing state, never execution state. */

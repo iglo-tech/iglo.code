@@ -78,9 +78,7 @@ const acquire = Effect.gen(function* () {
     });
   const find = (id: string) =>
     sql<Row>`SELECT * FROM reports WHERE id = ${id}`.pipe(
-      Effect.flatMap((rows) =>
-        rows[0] === undefined ? Effect.succeed(undefined) : fromRow(rows[0]),
-      ),
+      Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : fromRow(rows[0]))),
     );
   const list = Effect.fn("Fixture.list")(
     function* (input: ListInput) {

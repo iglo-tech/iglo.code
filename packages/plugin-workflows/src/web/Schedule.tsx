@@ -62,15 +62,15 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
   useEffect(() => {
     if (offline) return;
     let active = true;
-    setEntriesError(null);
     client
       .library({ projectId, limit: 50, ...(search.trim() === "" ? {} : { query: search.trim() }) })
       .then(
         (page) => {
-          if (active)
-            setEntries(
-              page.entries.filter((entry) => entry.definitionId !== null && !entry.duplicate),
-            );
+          if (!active) return;
+          setEntriesError(null);
+          setEntries(
+            page.entries.filter((entry) => entry.definitionId !== null && !entry.duplicate),
+          );
         },
         (cause: unknown) => {
           if (active) setEntriesError(errorMessage(cause));
@@ -79,14 +79,16 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps entriesAttempt to refetch.
   }, [client, projectId, search, offline, entriesAttempt]);
   useEffect(() => {
     if (definitionId === null || offline) return;
     let active = true;
-    setPreviewError(null);
     client.preview({ projectId, definitionId }).then(
       (value) => {
-        if (active) setPreview(value);
+        if (!active) return;
+        setPreviewError(null);
+        setPreview(value);
       },
       (cause: unknown) => {
         if (active) {
@@ -98,6 +100,7 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps previewAttempt to refetch.
   }, [client, projectId, definitionId, offline, previewAttempt]);
 
   // The host's callback may change identity every render; report only when the value changes.
@@ -170,7 +173,10 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => setEntriesAttempt((value) => value + 1)}
+            onClick={() => {
+              setEntriesError(null);
+              setEntriesAttempt((value) => value + 1);
+            }}
           >
             Retry
           </Button>
@@ -189,7 +195,10 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => setPreviewAttempt((value) => value + 1)}
+            onClick={() => {
+              setPreviewError(null);
+              setPreviewAttempt((value) => value + 1);
+            }}
           >
             Retry
           </Button>
@@ -218,8 +227,8 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
           </p>
           {preview.reasons.length === 0 ? null : (
             <ul aria-label="Why this workflow cannot run" className="text-sm text-destructive">
-              {preview.reasons.map((reason, index) => (
-                <li key={index}>{reason}</li>
+              {preview.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
               ))}
             </ul>
           )}
@@ -323,14 +332,15 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new schedule revision re-reads the project list.
   }, [client, offline, revision]);
   useEffect(() => {
     if (offline) return;
     let active = true;
-    setError(null);
     client.scheduleHistory({ projectId, scheduleId }).then(
       (value) => {
         if (!active) return;
+        setError(null);
         shown.current = value;
         setHistory(value);
       },
@@ -341,6 +351,7 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new schedule revision or a retry re-reads the history.
   }, [client, projectId, scheduleId, revision, offline, attempt]);
   // Workflow outcomes change without a dispatch: re-read while a listed run is still moving.
   useEffect(() => {
@@ -376,7 +387,14 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
       {error === null ? null : (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-destructive">
           <span>Could not load the history: {error}</span>
-          <Button size="sm" variant="outline" onClick={() => setAttempt((value) => value + 1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setError(null);
+              setAttempt((value) => value + 1);
+            }}
+          >
             Retry
           </Button>
         </div>
@@ -506,7 +524,10 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
               size="sm"
               variant="outline"
               disabled={offline}
-              onClick={() => setAttempt((value) => value + 1)}
+              onClick={() => {
+                setError(null);
+                setAttempt((value) => value + 1);
+              }}
             >
               Refresh
             </Button>

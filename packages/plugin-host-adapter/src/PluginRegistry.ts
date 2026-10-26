@@ -424,7 +424,7 @@ const make = Effect.gen(function* () {
         service.tools.map((tool) => ({ pluginId, tool })),
       ),
     ),
-    api: (id) =>
+    api: Effect.fn("PluginRegistry.api")((id) =>
       Effect.suspend(() => {
         const api = [...registered.values()]
           .flatMap((service) => service.api)
@@ -440,6 +440,7 @@ const make = Effect.gen(function* () {
             )
           : Effect.succeed(api);
       }),
+    ),
     attention: (environmentId) =>
       environmentId !== options.environmentId
         ? Stream.fail(

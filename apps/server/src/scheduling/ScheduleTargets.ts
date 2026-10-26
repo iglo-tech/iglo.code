@@ -35,7 +35,7 @@ export const layer = Layer.effect(
   Effect.sync(() => {
     const targets = new Map<string, Invoke>();
     return ScheduleTargets.of({
-      register: (id, invoke) =>
+      register: Effect.fn("ScheduleTargets.register")((id, invoke) =>
         Effect.acquireRelease(
           Effect.suspend(() => {
             if (targets.has(id))
@@ -50,6 +50,7 @@ export const layer = Layer.effect(
               if (targets.get(id) === invoke) targets.delete(id);
             }),
         ),
+      ),
       dispatch: Effect.fn("ScheduleTargets.dispatch")(function* (target, occurrenceId, projectId) {
         const invoke = targets.get(target.id);
         if (invoke === undefined)

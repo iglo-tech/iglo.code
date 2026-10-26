@@ -40,7 +40,6 @@ function Attention(props: PageProps) {
   const [shown, setShown] = useState<number | null>(null);
   useEffect(() => {
     if (offline) return;
-    setError(null);
     return client.subscribeAttention(
       { projectId, limit },
       (page) => {
@@ -50,6 +49,7 @@ function Attention(props: PageProps) {
       },
       setError,
     );
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps attempt to resubscribe.
   }, [client, projectId, limit, offline, attempt]);
   const runs = latest?.runs ?? [];
   const live = !offline && error === null;
@@ -109,7 +109,10 @@ function Attention(props: PageProps) {
                 <Button
                   size="xs"
                   variant="outline"
-                  onClick={() => setAttempt((value) => value + 1)}
+                  onClick={() => {
+                    setError(null);
+                    setAttempt((value) => value + 1);
+                  }}
                 >
                   Retry
                 </Button>

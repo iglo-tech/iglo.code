@@ -507,6 +507,7 @@ function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: s
         ),
       );
     void setViewport(viewport);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new fitKey (structure change) refits the viewport.
   }, [fitKey, ready, width, height, setViewport, store]);
   return null;
 }

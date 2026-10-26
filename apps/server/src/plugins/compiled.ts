@@ -150,17 +150,15 @@ const subscription = <A>(
 export const handlers = (registry: Registry.PluginRegistry["Service"]) => ({
   "plugins.catalog": (input: { readonly environmentId: string }) =>
     registry.catalog.pipe(
-      Effect.flatMap((catalog) =>
-        catalog.environmentId === input.environmentId
-          ? Effect.succeed(catalog)
-          : Effect.fail(
-              new PluginError({
-                pluginId: "host",
-                code: "unavailable",
-                operation: "catalog",
-                message: "The requested environment is not this server.",
-              }),
-            ),
+      Effect.filterOrFail(
+        (catalog) => catalog.environmentId === input.environmentId,
+        () =>
+          new PluginError({
+            pluginId: "host",
+            code: "unavailable",
+            operation: "catalog",
+            message: "The requested environment is not this server.",
+          }),
       ),
     ),
   "plugins.attention": (input: {

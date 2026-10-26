@@ -8,6 +8,9 @@ import * as SqliteClient from "../nodeSqliteClient.ts";
 
 const filename = process.argv[2]!;
 const value = 9007199254740993n;
+const decodeRawFlags = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ enabled: Schema.Number })),
+);
 
 const write = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -23,9 +26,7 @@ const write = Effect.gen(function* () {
     (yield* sql<{ disabled: number }>`SELECT ${false} AS disabled`.unprepared)[0]?.disabled,
     0,
   );
-  const rawFlags = yield* Schema.decodeUnknownEffect(
-    Schema.Array(Schema.Struct({ enabled: Schema.Number })),
-  )(yield* sql`SELECT ${true} AS enabled`.raw);
+  const rawFlags = yield* decodeRawFlags(yield* sql`SELECT ${true} AS enabled`.raw);
   NodeAssert.equal(rawFlags[0]?.enabled, 1);
   NodeAssert.deepEqual(yield* sql`SELECT ${true}, ${false}`.values, [[1, 0]]);
   NodeAssert.deepEqual(yield* sql`SELECT ${false}`.valuesUnprepared, [[0]]);

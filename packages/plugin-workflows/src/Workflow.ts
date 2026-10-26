@@ -2431,7 +2431,7 @@ const make = Effect.gen(function* () {
   );
   yield* host.lifecycle({ environmentId: host.environmentId }).pipe(
     Stream.runForEach(() => drain),
-    Effect.catch(() => Effect.void),
+    Effect.ignore,
     Effect.forkScoped,
   );
   const reconcile = (input: typeof ScopeInput.Type) => drain.pipe(Effect.andThen(list(input)));
@@ -2629,24 +2629,40 @@ const make = Effect.gen(function* () {
     attention,
     watchAttention,
     readAttention,
-    start: (input) => protect("start", start(input).pipe(Effect.flatMap((run) => display(run)))),
-    startSaved: (input) =>
+    start: Effect.fn("Workflow.start")((input) =>
+      protect("start", start(input).pipe(Effect.flatMap((run) => display(run)))),
+    ),
+    startSaved: Effect.fn("Workflow.startSaved")((input) =>
       protect("start", startSaved(input).pipe(Effect.flatMap((run) => display(run)))),
+    ),
     watch,
     thread,
-    get: (input) => protect("get", get(input).pipe(Effect.flatMap((run) => display(run, input)))),
+    get: Effect.fn("Workflow.get")((input) =>
+      protect("get", get(input).pipe(Effect.flatMap((run) => display(run, input)))),
+    ),
     list,
     subscribe,
     reconcile,
-    report: (input, caller) => protect("report", report(input, caller)),
-    cancel: (input) => protect("cancel", cancel(input).pipe(Effect.flatMap((run) => display(run)))),
-    retry: (input) => protect("retry", retry(input).pipe(Effect.flatMap((run) => display(run)))),
-    resume: (input) => protect("resume", resume(input).pipe(Effect.flatMap((run) => display(run)))),
-    gate: (input) => protect("gate", gate(input).pipe(Effect.flatMap((run) => display(run)))),
+    report: Effect.fn("Workflow.report")((input, caller) =>
+      protect("report", report(input, caller)),
+    ),
+    cancel: Effect.fn("Workflow.cancel")((input) =>
+      protect("cancel", cancel(input).pipe(Effect.flatMap((run) => display(run)))),
+    ),
+    retry: Effect.fn("Workflow.retry")((input) =>
+      protect("retry", retry(input).pipe(Effect.flatMap((run) => display(run)))),
+    ),
+    resume: Effect.fn("Workflow.resume")((input) =>
+      protect("resume", resume(input).pipe(Effect.flatMap((run) => display(run)))),
+    ),
+    gate: Effect.fn("Workflow.gate")((input) =>
+      protect("gate", gate(input).pipe(Effect.flatMap((run) => display(run)))),
+    ),
     schedule,
     scheduleHistory,
-    scheduledStart: (input) =>
+    scheduledStart: Effect.fn("Workflow.scheduledStart")((input) =>
       protect("scheduled-start", scheduledStart(input).pipe(Effect.flatMap((run) => display(run)))),
+    ),
   });
 });
 export const layer = Layer.effect(Workflow, make);

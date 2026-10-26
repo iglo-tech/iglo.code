@@ -23,12 +23,14 @@ import { routeLayer } from "../ServerBrowserStream.ts";
 await Effect.runPromise(
   Effect.gen(function* () {
     const browser = ServerBrowser.ServerBrowser.of({
-      clearProfile: () => Effect.void,
-      reportProfiles: () => Effect.void,
-      openDownload: () => Effect.succeedNone,
-      answerFileChooser: () => Effect.succeed(false),
+      clearProfile: Effect.fn("ServerBrowser.ServerBrowser.clearProfile")(() => Effect.void),
+      reportProfiles: Effect.fn("ServerBrowser.ServerBrowser.reportProfiles")(() => Effect.void),
+      openDownload: Effect.fn("ServerBrowser.ServerBrowser.openDownload")(() => Effect.succeedNone),
+      answerFileChooser: Effect.fn("ServerBrowser.ServerBrowser.answerFileChooser")(() =>
+        Effect.succeed(false),
+      ),
       // A captured child exit reproduces Chromium startup's process I/O boundary.
-      attachViewer: () =>
+      attachViewer: Effect.fn("ServerBrowser.ServerBrowser.attachViewer")(() =>
         Effect.promise(
           () =>
             new Promise<void>((resolve, reject) => {
@@ -49,6 +51,7 @@ await Effect.runPromise(
             ),
           ),
         ),
+      ),
     });
     const auth = Layer.mock(EnvironmentAuth.EnvironmentAuth, {
       authenticateWebSocketUpgrade: () =>

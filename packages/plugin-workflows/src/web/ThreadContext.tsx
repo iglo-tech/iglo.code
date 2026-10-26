@@ -25,7 +25,6 @@ function ThreadStrip(props: PageProps) {
   // Live: the owning run's commits update the attempt's phase and report status.
   useEffect(() => {
     if (projectId === null || threadId === null || offline) return;
-    setError(null);
     return client.watchThread(
       { projectId, threadId },
       (value) => {
@@ -34,6 +33,7 @@ function ThreadStrip(props: PageProps) {
       },
       setError,
     );
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps attempt to resubscribe.
   }, [client, projectId, threadId, offline, attempt]);
   if (projectId === null) return null;
   // Without a live subscription the last link stays visible, marked as possibly out of date.
@@ -44,7 +44,10 @@ function ThreadStrip(props: PageProps) {
       variant="ghost"
       ariaLabel="Retry"
       tooltip="Retry workflow link"
-      onClick={() => setAttempt((value) => value + 1)}
+      onClick={() => {
+        setError(null);
+        setAttempt((value) => value + 1);
+      }}
     >
       <RotateCcwIcon />
     </Button>

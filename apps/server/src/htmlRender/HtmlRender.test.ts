@@ -52,34 +52,6 @@ const layerTest = layerHtmlRender();
 
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-/**
- * A stand-in browser that reads T3's first command off its debugging pipe,
- * then runs `exit`. Reading it first keeps the pipe from resetting.
- */
-const exitingBrowser = (exit: string) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const directory = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-exiting-browser-" });
-    const executable = path.join(directory, "chrome-headless-shell");
-    yield* fileSystem.writeFileString(
-      executable,
-      [
-        `#!${process.execPath}`,
-        // A file stream reads the CDP pipe under both Node and Bun; Bun's fd-backed Socket never emits data.
-        `process.getBuiltinModule("node:fs").createReadStream("", { fd: 3 }).on("data", (chunk) => { if (chunk.includes(0)) { ${exit} } });`,
-      ].join("\n"),
-    );
-    yield* fileSystem.chmod(executable, 0o755);
-    return executable;
-  });
-
-const previewError = (executable: string) =>
-  Effect.gen(function* () {
-    const htmlRender = yield* HtmlRender.HtmlRender;
-    return yield* htmlRender.preview({ html: "<p>x</p>" }).pipe(Effect.flip);
-  }).pipe(Effect.provide(layerHtmlRender(executable)));
-
 describe("HtmlRender", () => {
   it.effect("inlines local images by absolute path and leaves URLs and relative paths alone", () =>
     Effect.gen(function* () {

@@ -5,7 +5,6 @@ import * as CodexManagedTokenBroker from "./CodexManagedTokenBroker.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert, expect } from "@effect/vitest";
-import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -45,9 +44,6 @@ import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from ".
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import { makeAntigravityProvider } from "./AntigravityProvider.ts";
 import { makeProviderInstanceRegistry } from "./ProviderInstanceRegistry.ts";
-import { ClaudeDriver } from "./Drivers/ClaudeDriver.ts";
-import { ClaudeAgentSdkQueryRunner } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
-import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as AntigravityInstallation from "./AntigravityInstallation.ts";
@@ -2197,10 +2193,20 @@ it.layer(
             undefined,
           );
           const callsWhileForced = yield* Ref.get(snapshotCalls);
-          yield* registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace2" });
+          // An ordinary request joins the forced scan instead of starting another.
+          const joinedScan = yield* registry
+            .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace2" })
+            .pipe(Effect.forkChild);
+          yield* Effect.yieldNow;
           assert.strictEqual(yield* Ref.get(snapshotCalls), callsWhileForced);
           yield* Deferred.succeed(releaseNewer, undefined);
           yield* Fiber.join(newerScan);
+          assert.deepStrictEqual(
+            (yield* Fiber.join(joinedScan))[0]?.workspaceSnapshots?.find(
+              (snapshot) => snapshot.cwd === "/workspace2",
+            )?.skills,
+            latestSkills,
+          );
           assert.deepStrictEqual(
             (yield* registry.getProviders)[0]?.workspaceSnapshots?.find(
               (snapshot) => snapshot.cwd === "/workspace2",
@@ -2589,7 +2595,6 @@ it.layer(
             const commitStarted = yield* Deferred.make<void>();
             const releaseCommit = yield* Deferred.make<void>();
             const oldClosed = yield* Deferred.make<void>();
-            let scanFiberId: number | undefined;
             let paused = false;
             const publishCommands = new Map<string, (name: string) => Effect.Effect<void>>();
             const initializeResult = {
@@ -2617,24 +2622,22 @@ it.layer(
                   const native = yield* makeAntigravityProvider(
                     decodeAntigravitySettings({ enabled: true }),
                     {
+                      // The first stamp carrying the scanned skills is the scan's commit.
                       stampIdentity: (draft) =>
-                        Effect.withFiber((fiber) =>
-                          Effect.gen(function* () {
-                            if (
-                              revision === "original" &&
-                              fiber.id === scanFiberId &&
-                              !paused &&
-                              draft.workspaceSnapshots?.some(
-                                (workspace) => workspace.skills[0]?.name === "original-config",
-                              )
-                            ) {
-                              paused = true;
-                              yield* Deferred.succeed(commitStarted, undefined);
-                              yield* Deferred.await(releaseCommit);
-                            }
-                            return { ...draft, instanceId, driver };
-                          }),
-                        ),
+                        Effect.gen(function* () {
+                          if (
+                            revision === "original" &&
+                            !paused &&
+                            draft.workspaceSnapshots?.some(
+                              (workspace) => workspace.skills[0]?.name === "original-config",
+                            )
+                          ) {
+                            paused = true;
+                            yield* Deferred.succeed(commitStarted, undefined);
+                            yield* Deferred.await(releaseCommit);
+                          }
+                          return { ...draft, instanceId, driver };
+                        }),
                       probe: Effect.succeed({
                         ...initializeResult,
                         agentInfo: { name: "fixture", version: revision },
@@ -2689,10 +2692,9 @@ it.layer(
             const registry = yield* Effect.service(ProviderRegistry.ProviderRegistry).pipe(
               Effect.provide(services),
             );
-            const scan = yield* Effect.withFiber((fiber) => {
-              scanFiberId = fiber.id;
-              return registry.refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" });
-            }).pipe(Effect.forkChild);
+            const scan = yield* registry
+              .refreshWorkspaceSnapshot({ instanceId, cwd: "/workspace" })
+              .pipe(Effect.forkChild);
             yield* Deferred.await(commitStarted);
             if (rebuild) {
               const replacement = yield* registry.streamChanges.pipe(

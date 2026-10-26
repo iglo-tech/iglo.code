@@ -3052,7 +3052,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "owned");
           const config = () =>
             git(cwd, ["config", "--get-regexp", "^branch\\.dev\\.(remote|merge|rebase)$"]).pipe(
-              Effect.catch(() => Effect.succeed("")),
+              Effect.orElseSucceed(() => ""),
             );
           for (const refName of ["origin/dev", initialBranch, head, "fixture-tag"]) {
             const input = { cwd, path: worktreePath, refName, newRefName: "dev" };

@@ -167,7 +167,6 @@ function History({
   >({ kind: "idle" });
   useEffect(() => {
     if (offline) return;
-    setError(null);
     return client.subscribeRuns(
       projectId,
       (runs) => {
@@ -192,6 +191,7 @@ function History({
       },
       setError,
     );
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps attempt to resubscribe.
   }, [client, projectId, offline, attempt]);
   const runs = [
     ...(latest ?? []),
@@ -216,7 +216,14 @@ function History({
           variant="error"
           title="Could not load runs"
           actions={
-            <Button size="xs" variant="outline" onClick={() => setAttempt((value) => value + 1)}>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                setError(null);
+                setAttempt((value) => value + 1);
+              }}
+            >
               Retry
             </Button>
           }

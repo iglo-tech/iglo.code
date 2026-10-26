@@ -24,7 +24,9 @@ import * as Crypto from "effect/Crypto";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Exit from "effect/Exit";
 import * as Queue from "effect/Queue";
+import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpBody, HttpClient } from "effect/http";
@@ -232,7 +234,8 @@ it.live(
           ),
           Effect.forkScoped,
         );
-        const abort = new AbortController();
+        const abortScope = yield* Scope.make();
+        const signal = yield* Effect.abortSignal.pipe(Scope.provide(abortScope));
         const asking = yield* Effect.tryPromise(() =>
           Promise.resolve(
             options.canUseTool!(
@@ -241,14 +244,14 @@ it.live(
               {
                 toolUseID: "approval-control",
                 requestId: "approval-control",
-                signal: abort.signal,
+                signal,
               },
             ),
           ),
         ).pipe(Effect.forkScoped);
         yield* Deferred.await(approval);
         expect(asking.pollUnsafe()).toBeUndefined();
-        abort.abort();
+        yield* Scope.close(abortScope, Exit.void);
         expect((yield* Fiber.join(asking))?.behavior).toBe("deny");
         const http = Context.get(server.context, HttpClient.HttpClient);
         const headers = {

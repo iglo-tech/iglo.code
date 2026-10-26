@@ -137,13 +137,14 @@ export const make = Effect.gen(function* () {
     service: Schedules.of({
       upsert,
       list,
-      delete: (value) =>
+      delete: Effect.fn("Schedules.delete")((value) =>
         commandLimits.pipe(
           Effect.andThen(service()),
           Effect.flatMap((service) => service.delete({ id: id(value) })),
           Effect.asVoid,
           Effect.mapError((cause) => (isPluginError(cause) ? cause : error("delete", cause))),
         ),
+      ),
       runNow: Effect.fn("PluginSchedules.runNow")(
         function* (value, occurrenceId) {
           const limits = yield* commandLimits;
@@ -156,12 +157,15 @@ export const make = Effect.gen(function* () {
         Effect.mapError((cause) => (isPluginError(cause) ? cause : error("runNow", cause))),
       ),
       // Receipts are read under this plugin's own schedule namespace only.
-      occurrences: (value, limit) =>
+      occurrences: Effect.fn("Schedules.occurrences")((value, limit) =>
         service().pipe(
           Effect.flatMap((core) => core.occurrences(id(value), Math.max(1, Math.min(limit, 100)))),
           Effect.mapError((cause) => (isPluginError(cause) ? cause : error("occurrences", cause))),
         ),
-      registerDueWork: (run) => scheduler.register(`plugin:${pluginId}`, run),
+      ),
+      registerDueWork: Effect.fn("Schedules.registerDueWork")((run) =>
+        scheduler.register(`plugin:${pluginId}`, run),
+      ),
     }),
     start: Effect.gen(function* () {
       if (targets().length === 0) return;

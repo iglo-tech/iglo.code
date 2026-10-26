@@ -2405,7 +2405,7 @@ export const layer = Layer.effect(
 
     return ScheduledTaskService.of({
       list,
-      lastOccurrence: (id) =>
+      lastOccurrence: Effect.fn("ScheduledTaskService.lastOccurrence")((id) =>
         sql<{
           id: string;
         }>`SELECT id FROM scheduled_task_occurrences WHERE task_id = ${id} ORDER BY rowid DESC LIMIT 1`.pipe(
@@ -2414,7 +2414,8 @@ export const layer = Layer.effect(
             taskError("Could not read the schedule occurrence receipt.", { taskId: id, cause }),
           ),
         ),
-      occurrences: (id, limit) =>
+      ),
+      occurrences: Effect.fn("ScheduledTaskService.occurrences")((id, limit) =>
         // Only the current schedule's receipts: a schedule recreated under a reused id starts
         // a fresh history. Each receipt keeps the project it was dispatched for.
         sql<{
@@ -2442,6 +2443,7 @@ export const layer = Layer.effect(
             taskError("Could not read the schedule occurrence receipts.", { taskId: id, cause }),
           ),
         ),
+      ),
       subscribeList,
       upsert,
       setEnabled,

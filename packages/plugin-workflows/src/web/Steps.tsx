@@ -448,6 +448,7 @@ export function DecisionInspector(input: StepProps<DecisionNode>) {
             const reads = `If ${readsAs(item.when, fields)}`;
             return (
               <li
+                // oxlint-disable-next-line react/no-array-index-key -- Rules are positional ("Rule N") and have no other identity.
                 key={index}
                 className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-2.5"
               >
@@ -636,6 +637,7 @@ function Term(
     const list = (
       <ul className="flex flex-col gap-2">
         {terms.map((term, index) => (
+          // oxlint-disable-next-line react/no-array-index-key -- Terms are edited in place and have no other identity.
           <li key={index}>
             <Term
               {...input}

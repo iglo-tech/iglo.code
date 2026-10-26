@@ -540,14 +540,14 @@ it.live(
         const storage = memoryStorage();
         let connection: "connected" | "disconnected" = "connected";
         function Harness() {
-          const href = useSyncExternalStore(
+          useSyncExternalStore(
             (notify) => {
               loaded.add(notify);
               return () => loaded.delete(notify);
             },
             () => router.state.location.href,
           );
-          const location = useMemo(() => router.state.location, [href]);
+          const location = router.state.location;
           const [, first = "", , , pageId = ""] = location.pathname
             .split("/")
             .map(decodeURIComponent);
@@ -566,6 +566,7 @@ it.live(
                 navigate: router.navigate,
                 storage,
               }),
+            // oxlint-disable-next-line react/memo-dependencies -- connection is a mutable test variable that rerender() flips.
             [search.pluginProjectId, stateKey, connection],
           );
           // The native thread route stands in for the existing thread view and its controls.

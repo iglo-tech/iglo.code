@@ -405,7 +405,7 @@ export const fixture = Effect.gen(function* () {
     },
   };
 });
-export const sequence = Schema.decodeUnknownSync(Definition)({
+export const sequence = Schema.decodeSync(Definition)({
   version: 1,
   id: "sequence",
   revision: 1,
@@ -442,7 +442,7 @@ export const completed: ReportInput = {
   evidence: [],
 };
 
-export const parallel = Schema.decodeUnknownSync(Definition)({
+export const parallel = Schema.decodeSync(Definition)({
   version: 1,
   id: "parallel",
   revision: 1,

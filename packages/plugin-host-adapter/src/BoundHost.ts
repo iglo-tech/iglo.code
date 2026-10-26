@@ -382,10 +382,15 @@ export const make = Effect.fn("BoundHost.make")(function* (pluginId: string) {
     );
   const service = Host.of({
     ...core,
-    launch: (input) => execute({ kind: "launch", input }).pipe(Effect.flatMap(required)),
-    retryPreparation: (input) =>
+    launch: Effect.fn("Host.launch")((input) =>
+      execute({ kind: "launch", input }).pipe(Effect.flatMap(required)),
+    ),
+    retryPreparation: Effect.fn("Host.retryPreparation")((input) =>
       execute({ kind: "retry-preparation", input }).pipe(Effect.flatMap(required)),
-    send: (input) => execute({ kind: "send", input }).pipe(Effect.flatMap(required)),
+    ),
+    send: Effect.fn("Host.send")((input) =>
+      execute({ kind: "send", input }).pipe(Effect.flatMap(required)),
+    ),
     inspect: Effect.fn("BoundHost.inspect")(
       function* (target) {
         const state = yield* core.inspect(target);
@@ -419,7 +424,7 @@ export const make = Effect.fn("BoundHost.make")(function* (pluginId: string) {
           : error("inspect", "Could not reconcile the owned execution identity.", cause),
       ),
     ),
-    interrupt: (input) => execute({ kind: "interrupt", input }),
+    interrupt: Effect.fn("Host.interrupt")((input) => execute({ kind: "interrupt", input })),
     cancelPending: Effect.fn("BoundHost.cancelPending")(
       function* (target) {
         if (target.environmentId !== core.environmentId)

@@ -571,7 +571,7 @@ const make = Effect.gen(function* () {
   return Host.of({
     environmentId,
     // Durable plugin intents belong to BoundHost, not the core adapter.
-    cancelPending: () => Effect.void,
+    cancelPending: Effect.fn("Host.cancelPending")(() => Effect.void),
     redact: Effect.fn("HostAdapter.redact")(
       function* (input) {
         const configuration = yield* settings.getSettings;
@@ -617,13 +617,14 @@ const make = Effect.gen(function* () {
     inspect,
     reconcile,
     lifecycle,
-    projects: () =>
+    projects: Effect.fn("Host.projects")(() =>
       projects.snapshot.pipe(
         Effect.map((snapshot) =>
           snapshot.projects.map(({ id, title, workspaceRoot }) => ({ id, title, workspaceRoot })),
         ),
         Effect.mapError((cause) => fail("projects", "Could not discover projects.", cause)),
       ),
+    ),
     providers: providerList,
     skills: Effect.fn("HostAdapter.skills")(function* (input) {
       const workspace = yield* project(input.projectId);
@@ -645,7 +646,7 @@ const make = Effect.gen(function* () {
           ?.skills ?? found.skills
       );
     }),
-    workspace: (projectId) =>
+    workspace: Effect.fn("Host.workspace")((projectId) =>
       project(projectId).pipe(
         Effect.flatMap((project) =>
           Effect.gen(function* () {
@@ -668,10 +669,12 @@ const make = Effect.gen(function* () {
         ),
         Effect.mapError((cause) => fail("workspace", "Could not read workspace metadata.", cause)),
       ),
-    resolveRef: (projectId, ref) =>
+    ),
+    resolveRef: Effect.fn("Host.resolveRef")((projectId, ref) =>
       project(projectId).pipe(
         Effect.flatMap((project) => resolveWorkspaceRef(project.workspaceRoot, ref)),
       ),
+    ),
     prepareWorkspace: Effect.fn("HostAdapter.prepareWorkspace")(
       function* (input) {
         const workspace = yield* project(input.projectId);
@@ -718,7 +721,7 @@ const make = Effect.gen(function* () {
       },
       Effect.mapError((cause) => fail("execute", "Could not execute the command.", cause)),
     ),
-    verifyPullRequestHead: (input) =>
+    verifyPullRequestHead: Effect.fn("Host.verifyPullRequestHead")((input) =>
       pullRequests
         .verifyHead(input)
         .pipe(
@@ -726,6 +729,7 @@ const make = Effect.gen(function* () {
             fail("pull-request-head", "Could not verify the current pull request head.", cause),
           ),
         ),
+    ),
     launch: Effect.fn("HostAdapter.launch")(function* (input) {
       yield* environment(input.environmentId);
       const limit = yield* DispatchModeLimit;

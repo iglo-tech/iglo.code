@@ -329,6 +329,7 @@ function PageHeader({ breadcrumb, children }: ComponentProps<PluginDesign["PageH
             // are); earlier context such as environment or project folds away.
             const leading = index < items.length - 2 ? "max-sm:hidden" : "";
             return (
+              // oxlint-disable-next-line react/no-array-index-key -- Crumbs are positional and labels may repeat.
               <Fragment key={index}>
                 <WorkspaceBreadcrumbItem
                   current={current}

@@ -137,10 +137,10 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     let active = true;
     const version = baselineVersion.current;
     const isCurrent = () => active && baselineVersion.current === version && !saving.current;
-    setReadError(null);
     client.read({ projectId, source }).then(
       (entry) => {
         if (!isCurrent()) return;
+        setReadError(null);
         setServer(entry);
         // A recovered local draft wins; otherwise edit the saved definition.
         setDraft((current) => current ?? entry.definition);
@@ -158,14 +158,16 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry and refresh bump readAttempt to re-read.
   }, [client, projectId, source, offline, readAttempt]);
   useEffect(() => {
     if (projectId === null || offline) return;
     let active = true;
-    setCapabilitiesError(null);
     client.capabilities(projectId).then(
       (value) => {
-        if (active) setCapabilities(value);
+        if (!active) return;
+        setCapabilitiesError(null);
+        setCapabilities(value);
       },
       (cause: unknown) => {
         if (active) setCapabilitiesError(errorMessage(cause));
@@ -174,6 +176,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps capabilitiesAttempt to refetch.
   }, [client, projectId, offline, capabilitiesAttempt]);
 
   const readOnly = server?.packaged === true;
@@ -266,6 +269,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       active = false;
       cancel();
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps validateAttempt to validate again.
   }, [client, projectId, offline, locallyValid, draft, draftJson, validateAttempt]);
   const validationUnavailable =
     validationFailure !== null && validationFailure.json === draftJson ? validationFailure : null;
@@ -276,11 +280,13 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   useEffect(() => {
     if (focus === null || typeof document === "undefined") return;
     document.getElementById(focus)?.focus();
+    // oxlint-disable-next-line react/set-state-in-effect -- Clears the one-shot focus request once the DOM element took focus.
     setFocus(null);
   }, [focus]);
   // Navigate only after the saved state renders clean so the guard does not hold it.
   useEffect(() => {
     if (savedSource === null || dirty || projectId === null) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- Consumes the one-shot post-save navigation request.
     setSavedSource(null);
     if (savedSource !== source)
       props.navigate(
@@ -635,8 +641,11 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
               aria-label="Problems to fix"
               className="flex flex-col gap-1 outline-none"
             >
-              {problems.map((problem, index) => (
-                <li key={index} className="flex items-start gap-2 text-xs">
+              {problems.map((problem) => (
+                <li
+                  key={`${problem.severity}:${problem.nodeId}:${problem.control}:${problem.message}`}
+                  className="flex items-start gap-2 text-xs"
+                >
                   <CircleAlertIcon
                     aria-hidden
                     className={`mt-0.5 size-3.5 shrink-0 ${problem.severity === "error" ? "text-destructive" : "text-warning"}`}
@@ -663,7 +672,10 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
           selected={selected}
           capabilities={capabilities}
           capabilitiesError={capabilitiesError}
-          onRetryCapabilities={() => setCapabilitiesAttempt((value) => value + 1)}
+          onRetryCapabilities={() => {
+            setCapabilitiesError(null);
+            setCapabilitiesAttempt((value) => value + 1);
+          }}
           problems={problems}
           readOnly={mutationsDisabled}
           identityEditable={base?.mode !== "edit"}
@@ -680,7 +692,10 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         props={props}
         capabilities={capabilities}
         capabilitiesError={capabilitiesError}
-        onRetryCapabilities={() => setCapabilitiesAttempt((value) => value + 1)}
+        onRetryCapabilities={() => {
+          setCapabilitiesError(null);
+          setCapabilitiesAttempt((value) => value + 1);
+        }}
         disabled={mutationsDisabled}
         onAdd={(kind: EditableKind) => {
           if (saving.current) return;
@@ -706,7 +721,14 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
         variant="error"
         title="Could not load this workflow"
         actions={
-          <Button size="xs" variant="outline" onClick={() => setReadAttempt((value) => value + 1)}>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => {
+              setReadError(null);
+              setReadAttempt((value) => value + 1);
+            }}
+          >
             Retry
           </Button>
         }
@@ -822,8 +844,8 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
       {server !== null && server.definition === null ? (
         <Alert variant="error" title="This file is not a valid workflow">
           <ul className="flex flex-col gap-0.5">
-            {server.reasons.map((reason, index) => (
-              <li key={index}>{reason}</li>
+            {server.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
             ))}
           </ul>
         </Alert>

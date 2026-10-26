@@ -29,7 +29,7 @@ import {
   type DraftEnvelope,
   type PageProps,
 } from "./common.tsx";
-import { authoringTimings, debounce } from "./timings.ts";
+import { authoringTimings, debounce, timestamp } from "./timings.ts";
 import { importYaml, newDefinition, slug } from "./editing.ts";
 import { StartDialogInPlace } from "./Start.tsx";
 
@@ -60,7 +60,7 @@ function Library(props: PageProps) {
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<LibraryPage | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [settledKey, setSettledKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [name, setName] = useState<string | null>(null);
@@ -83,11 +83,12 @@ function Library(props: PageProps) {
       setOffset(0);
     }, authoringTimings.searchDelayMs);
   }, [query, search]);
+  const requestKey =
+    projectId === null || offline ? null : JSON.stringify([projectId, search, offset, attempt]);
+  const loading = requestKey !== null && settledKey !== requestKey;
   useEffect(() => {
-    if (projectId === null || offline) return;
+    if (projectId === null || offline || requestKey === null) return;
     let active = true;
-    setLoading(true);
-    setLoadError(null);
     client
       .library({
         projectId,
@@ -97,28 +98,30 @@ function Library(props: PageProps) {
       })
       .then(
         (value) => {
-          if (active) setPage(value);
+          if (!active) return;
+          setLoadError(null);
+          setPage(value);
         },
         (cause: unknown) => {
           if (active) setLoadError(errorMessage(cause));
         },
       )
       .finally(() => {
-        if (active) setLoading(false);
+        if (active) setSettledKey(requestKey);
       });
     return () => {
       active = false;
     };
-  }, [client, projectId, search, offset, attempt, offline]);
+  }, [client, projectId, search, offset, offline, requestKey]);
 
   const openDraft = (definition: Definition) => {
     if (projectId === null) return;
-    const workflow = `new:${definition.id}:${Date.now().toString(36)}`;
+    const workflow = `new:${definition.id}:${timestamp().toString(36)}`;
     const envelope: DraftEnvelope = {
       version: 1,
       base: { mode: "new", source: null, fingerprint: null, revision: null },
       definition: { ...definition, revision: 1 },
-      updatedAt: Date.now(),
+      updatedAt: timestamp(),
     };
     if (!writeDraft(props.drafts, draftKey(projectId, workflow), envelope)) {
       setActionError("This browser could not keep a local draft. Free some site storage.");
@@ -410,7 +413,10 @@ function Library(props: PageProps) {
                 <Button
                   size="xs"
                   variant="outline"
-                  onClick={() => setAttempt((value) => value + 1)}
+                  onClick={() => {
+                    setLoadError(null);
+                    setAttempt((value) => value + 1);
+                  }}
                 >
                   Retry
                 </Button>
@@ -547,8 +553,8 @@ function Library(props: PageProps) {
                         aria-label={`Problems in ${label}`}
                         className="flex flex-col gap-0.5 pl-7 text-xs text-destructive"
                       >
-                        {entry.reasons.map((reason, index) => (
-                          <li key={index}>{reason}</li>
+                        {entry.reasons.map((reason) => (
+                          <li key={reason}>{reason}</li>
                         ))}
                       </ul>
                     )}

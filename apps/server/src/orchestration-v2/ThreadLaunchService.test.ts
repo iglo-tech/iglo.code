@@ -15,7 +15,6 @@ import {
   ComposerContextId,
   type ChatAttachment,
   CommandId,
-  EnvironmentId,
   EventId,
   DEFAULT_SERVER_SETTINGS,
   GitCommandError,
@@ -1256,9 +1255,7 @@ it.effect("retains the occurrence when its queued prompt is promoted to Steer", 
       .providerSessions[0]!;
     const sessionLookup = vi
       .spyOn(sessions, "get")
-      .mockReturnValue(
-        Effect.succeed(Option.some({ providerSession } as ProviderAdapterV2SessionRuntime)),
-      );
+      .mockReturnValue(Effect.succeedSome({ providerSession } as ProviderAdapterV2SessionRuntime));
     yield* Effect.addFinalizer(() => Effect.sync(() => sessionLookup.mockRestore()));
     yield* threads.dispatch({
       type: "queued-message.promote-to-steer",

@@ -861,14 +861,14 @@ it.live(
             design: { toast: (toast) => void toasts.push(toast.title) },
           });
         function Harness() {
-          const href = useSyncExternalStore(
+          useSyncExternalStore(
             (notify) => {
               loaded.add(notify);
               return () => loaded.delete(notify);
             },
             () => router.state.location.href,
           );
-          const location = useMemo(() => router.state.location, [href]);
+          const location = router.state.location;
           const [, first = "", second = "", , pageId = ""] = location.pathname
             .split("/")
             .map(decodeURIComponent);
@@ -886,6 +886,7 @@ it.live(
                 threadId: threadRoute ? ThreadId.make(second) : null,
                 state: JSON.parse(stateKey) as Record<string, string>,
               }),
+            // oxlint-disable-next-line react/memo-dependencies -- contextFor reads the mutable connections map, so a flip must rebuild the context.
             [target, search.pluginProjectId, stateKey, connection, threadRoute, second],
           );
           return threadRoute ? (

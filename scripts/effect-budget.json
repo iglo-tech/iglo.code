@@ -250,6 +250,9 @@
   "apps/web/src/hooks/useThreadVisitedMigration.ts": 1,
   "apps/web/src/hooks/useWorkspaceMutationRefresh.ts": 1,
   "apps/web/src/panelAnimations.ts": 2,
+  "apps/web/src/plugins/PluginSlots.tsx": 1,
+  "apps/web/src/plugins/design.tsx": 1,
+  "apps/web/src/plugins/routeProject.ts": 1,
   "apps/web/src/remoteOpen.ts": 1,
   "apps/web/src/routes/__root.tsx": 14,
   "apps/web/src/routes/_chat.index.tsx": 1,
@@ -258,5 +261,17 @@
   "apps/web/src/state/olderSettledShelf.ts": 2,
   "apps/web/src/state/pullRequests.ts": 2,
   "apps/web/src/state/queries.ts": 2,
-  "apps/web/src/state/threads.ts": 1
+  "apps/web/src/state/threads.ts": 1,
+  "packages/plugin-fixture/src/web.tsx": 2,
+  "packages/plugin-workflows/src/web/Attention.tsx": 1,
+  "packages/plugin-workflows/src/web/Editor.tsx": 10,
+  "packages/plugin-workflows/src/web/Graph.tsx": 3,
+  "packages/plugin-workflows/src/web/Inspector.tsx": 1,
+  "packages/plugin-workflows/src/web/Library.tsx": 3,
+  "packages/plugin-workflows/src/web/RunView.tsx": 2,
+  "packages/plugin-workflows/src/web/Runs.tsx": 1,
+  "packages/plugin-workflows/src/web/Schedule.tsx": 9,
+  "packages/plugin-workflows/src/web/Start.tsx": 4,
+  "packages/plugin-workflows/src/web/ThreadContext.tsx": 1,
+  "packages/plugin-workflows/src/web/common.tsx": 3
 }

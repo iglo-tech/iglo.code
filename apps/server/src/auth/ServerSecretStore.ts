@@ -343,10 +343,14 @@ export const make = Effect.gen(function* () {
   return ServerSecretStore.of({
     directory: serverConfig.secretsDir,
     get,
-    set: (name, value) => lock.withLock(name, write(name, value, set(name, value))),
-    create: (name, value) => lock.withLock(name, write(name, value, create(name, value))),
+    set: Effect.fn("ServerSecretStore.set")((name, value) =>
+      lock.withLock(name, write(name, value, set(name, value))),
+    ),
+    create: Effect.fn("ServerSecretStore.create")((name, value) =>
+      lock.withLock(name, write(name, value, create(name, value))),
+    ),
     // Only process-owned random secrets are cached; plain get observes CLI writes.
-    getOrCreateRandom: (name, bytes) => {
+    getOrCreateRandom: Effect.fn("ServerSecretStore.getOrCreateRandom")((name, bytes) => {
       const readCachedOrCreate = Effect.suspend(() => {
         const cached = cache.get(name);
         return cached === undefined
@@ -359,8 +363,8 @@ export const make = Effect.gen(function* () {
           ? lock.withLock(name, readCachedOrCreate)
           : Effect.succeed(Uint8Array.from(cached));
       });
-    },
-    remove: (name) => lock.withLock(name, remove(name)),
+    }),
+    remove: Effect.fn("ServerSecretStore.remove")((name) => lock.withLock(name, remove(name))),
   });
 });
 

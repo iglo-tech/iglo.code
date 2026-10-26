@@ -1,11 +1,12 @@
 import type { EnvironmentId, ServerConfig } from "@t3tools/contracts";
-import { PluginError } from "@t3tools/contracts";
+import { PluginError, type EnvironmentAuthorizationError } from "@t3tools/contracts";
 import {
   ListInput as ListInputSchema,
   type FixtureClient,
   type ListInput,
 } from "@t3tools/plugin-fixture/contracts";
 import {
+  type EnvironmentRpcUnavailableError,
   getInitialServerConfig,
   request,
   requestGuarded,
@@ -24,6 +25,8 @@ import * as Schema from "effect/Schema";
 import { createPluginAtoms } from "./atoms";
 import type { PluginSupport } from "./pageConnection";
 import { Atom } from "effect/reactivity";
+import type { RpcClientError } from "effect/rpc";
+import type { EnvironmentSupervisor } from "@t3tools/client-runtime/connection";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -69,7 +72,18 @@ export const attentionAtom = models.attention;
 const unavailable = (pluginId: string, message: string) =>
   new PluginError({ pluginId, operation: "client", code: "unavailable", message });
 /** Verify the selected environment still publishes this plugin API before calling it. */
-export const authorizePluginApi = Effect.fn("PluginRuntime.authorizePluginApi")(
+export const authorizePluginApi: (
+  plugin: { readonly id: string; readonly displayName: string },
+  environmentId: EnvironmentId,
+  method: string,
+) => Effect.Effect<
+  void,
+  | PluginError
+  | EnvironmentAuthorizationError
+  | EnvironmentRpcUnavailableError
+  | RpcClientError.RpcClientError,
+  EnvironmentSupervisor.EnvironmentSupervisor
+> = Effect.fn("PluginRuntime.authorizePluginApi")(
   function* (
     plugin: { readonly id: string; readonly displayName: string },
     environmentId: EnvironmentId,

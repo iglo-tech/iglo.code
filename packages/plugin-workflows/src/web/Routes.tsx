@@ -59,9 +59,9 @@ export function Problems({
   if (found.length === 0) return null;
   return (
     <ul id={`${controlId(nodeId, control)}-problems`} className="text-xs">
-      {found.map((problem, index) => (
+      {found.map((problem) => (
         <li
-          key={index}
+          key={`${problem.severity}:${problem.message}`}
           className={problem.severity === "error" ? "text-destructive" : "text-warning-foreground"}
         >
           {problemText(problem, null)}

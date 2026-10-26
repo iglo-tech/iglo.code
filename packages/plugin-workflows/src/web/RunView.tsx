@@ -191,6 +191,7 @@ export function RunView({
       typeof document === "undefined" ? null : document.getElementById(stepButtonId(routeFocus));
     if (box === null) return;
     box.focus();
+    // oxlint-disable-next-line react/set-state-in-effect -- Clears the one-shot focus request once the DOM element took focus.
     setRouteFocus(null);
   }, [run, routeFocus, view]);
   const overlay = useMemo<RunOverlay | null>(() => {
@@ -1304,6 +1305,7 @@ function RouteRow({
           {item.considered.map((choice, index) => {
             const text = readsAs(choice.predicate, fields);
             return (
+              // oxlint-disable-next-line react/no-array-index-key -- Rules are identified by their position ("Rule N") and may repeat a predicate.
               <li key={index} className="flex min-w-0 items-center gap-1.5">
                 {choice.matched ? (
                   <CheckIcon aria-hidden className="size-3 shrink-0 text-success" />

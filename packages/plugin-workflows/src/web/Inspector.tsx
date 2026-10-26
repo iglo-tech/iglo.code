@@ -243,9 +243,9 @@ function ReviewerInspector({
           )}
       {mine.length === 0 ? null : (
         <ul className="text-xs">
-          {mine.map((problem, index) => (
+          {mine.map((problem) => (
             <li
-              key={index}
+              key={`${problem.severity}:${problem.message}`}
               className={
                 problem.severity === "error" ? "text-destructive" : "text-warning-foreground"
               }
@@ -520,26 +520,31 @@ function AgentFields({
   const providers = capabilities?.providers ?? [];
   const provider = providers.find((item) => item.instanceId === agent.modelSelection.instanceId);
   const model = provider?.models.find((item) => item.slug === agent.modelSelection.model);
-  const [skills, setSkills] = useState<ReadonlyArray<Skill> | null>(null);
-  const [skillsError, setSkillsError] = useState<string | null>(null);
-  const [skillsAttempt, setSkillsAttempt] = useState(0);
   const instanceId = agent.modelSelection.instanceId;
+  const [skillsResult, setSkillsResult] = useState<{
+    readonly instanceId: string;
+    readonly skills: ReadonlyArray<Skill> | null;
+    readonly error: string | null;
+  } | null>(null);
+  const [skillsAttempt, setSkillsAttempt] = useState(0);
+  const current = skillsResult?.instanceId === instanceId ? skillsResult : null;
+  const skills = current?.skills ?? null;
+  const skillsError = current?.error ?? null;
   useEffect(() => {
     if (projectId === null || connection === "disconnected") return;
     let active = true;
-    setSkills(null);
-    setSkillsError(null);
     client.skills({ projectId, providerInstanceId: instanceId }).then(
       (value) => {
-        if (active) setSkills(value);
+        if (active) setSkillsResult({ instanceId, skills: value, error: null });
       },
       (cause: unknown) => {
-        if (active) setSkillsError(errorMessage(cause));
+        if (active) setSkillsResult({ instanceId, skills: null, error: errorMessage(cause) });
       },
     );
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps skillsAttempt to refetch.
   }, [client, projectId, connection, instanceId, skillsAttempt]);
   const upstream = upstreamFields(definition, nodeId);
   const field = (index: number, update: Partial<Field>) =>
@@ -801,7 +806,10 @@ function AgentFields({
             size="sm"
             variant="outline"
             ariaLabel="Retry skill discovery"
-            onClick={() => setSkillsAttempt((value) => value + 1)}
+            onClick={() => {
+              setSkillsResult(null);
+              setSkillsAttempt((value) => value + 1);
+            }}
           >
             Retry
           </Button>
@@ -879,6 +887,7 @@ function AgentFields({
           const id = cid(`bindings.${index}`);
           const value = `${binding.node}\u0000${binding.path}`;
           return (
+            // oxlint-disable-next-line react/no-array-index-key -- Editable rows are positional and have no other identity.
             <div key={index} className="flex flex-wrap items-end gap-2">
               <div className="min-w-40 flex-1">
                 <Labeled id={id} label={`Input ${index + 1}`}>
@@ -990,6 +999,7 @@ function AgentFields({
         {agent.report.fields.map((item, index) => {
           const id = cid(`report.fields.${index}`);
           return (
+            // oxlint-disable-next-line react/no-array-index-key -- Editable rows are positional and have no other identity.
             <div key={index} className="flex flex-col gap-2 rounded-lg border border-border p-2">
               <Labeled id={id} label={`Field ${index + 1} name`}>
                 <Input

@@ -94,15 +94,15 @@ export function StartDialog({
   useEffect(() => {
     if (offline) return;
     let active = true;
-    setEntriesError(null);
     client
       .library({ projectId, limit: 50, ...(search.trim() === "" ? {} : { query: search.trim() }) })
       .then(
         (page) => {
-          if (active)
-            setEntries(
-              page.entries.filter((entry) => entry.definitionId !== null && !entry.duplicate),
-            );
+          if (!active) return;
+          setEntriesError(null);
+          setEntries(
+            page.entries.filter((entry) => entry.definitionId !== null && !entry.duplicate),
+          );
         },
         (cause: unknown) => {
           if (active) setEntriesError(errorMessage(cause));
@@ -111,14 +111,16 @@ export function StartDialog({
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps entriesAttempt to refetch.
   }, [client, projectId, search, offline, entriesAttempt]);
   useEffect(() => {
     if (definitionId === null || offline) return;
     let active = true;
-    setPreviewError(null);
     client.preview({ projectId, definitionId }).then(
       (value) => {
-        if (active) setPreview(value);
+        if (!active) return;
+        setPreviewError(null);
+        setPreview(value);
       },
       (cause: unknown) => {
         if (active) {
@@ -130,6 +132,7 @@ export function StartDialog({
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps previewAttempt to refetch.
   }, [client, projectId, definitionId, offline, previewAttempt]);
 
   const forget = useCallback(() => {
@@ -154,6 +157,7 @@ export function StartDialog({
           if (rejected(cause, "start")) {
             forget();
             setStatus({ kind: "rejected", message: errorMessage(cause) });
+            setPreviewError(null);
             setPreviewAttempt((value) => value + 1);
           } else setStatus({ kind: "failed", message: errorMessage(cause) });
         },
@@ -294,7 +298,10 @@ export function StartDialog({
               <Button
                 size="xs"
                 variant="outline"
-                onClick={() => setEntriesAttempt((value) => value + 1)}
+                onClick={() => {
+                  setEntriesError(null);
+                  setEntriesAttempt((value) => value + 1);
+                }}
               >
                 Retry
               </Button>
@@ -313,7 +320,10 @@ export function StartDialog({
               <Button
                 size="xs"
                 variant="outline"
-                onClick={() => setPreviewAttempt((value) => value + 1)}
+                onClick={() => {
+                  setPreviewError(null);
+                  setPreviewAttempt((value) => value + 1);
+                }}
               >
                 Retry
               </Button>
@@ -347,8 +357,8 @@ export function StartDialog({
         {preview === null || preview.reasons.length === 0 ? null : (
           <Alert variant="error" title="This workflow cannot run">
             <ul aria-label="Why this workflow cannot run" className="flex flex-col gap-0.5">
-              {preview.reasons.map((reason, index) => (
-                <li key={index}>{reason}</li>
+              {preview.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
               ))}
             </ul>
           </Alert>

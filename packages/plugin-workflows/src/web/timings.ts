@@ -12,3 +12,5 @@ export function debounce(run: () => void, delayMs: number): () => void {
   const timer = setTimeout(run, delayMs);
   return () => clearTimeout(timer);
 }
+/** Wall-clock read for event handlers, kept out of render-purity analysis. */
+export const timestamp = () => Date.now();
