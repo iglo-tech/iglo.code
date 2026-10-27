@@ -47,14 +47,14 @@ t3 pair
 ```
 
 Scan the QR code on your phone or paste the pairing URL into **Add environment**
-in the receiving app. Connection settings are under **Settings → Connections**
+in the receiving app. Connection settings are under **Settings → Environments**
 in the web client. A loopback address
 such as `127.0.0.1` reaches only the device opening the link.
 
 Pairing authorizes that device for future connections. Use a fresh one-time link
 for each new device; you do not need the original token to reconnect. Links
 created in Settings can only be copied from the client that created them while
-its Connections page stays open. If you leave or reload that page, create
+its Sharing & access page stays open. If you leave or reload that page, create
 another link to share.
 
 ### Reach one machine several ways
@@ -85,7 +85,7 @@ later route, T3 Code checks the earlier ones when your network changes, when you
 return to the app, and every minute, and moves back as soon as one works.
 
 Select the route count under the machine's name in
-**Settings → Connections** to see its routes. Drag a route to change the order,
+**Settings → Environments** to see its routes. Drag a route to change the order,
 or remove it. Signing out of T3 Connect removes only that route; a machine
 you can still reach another way stays saved.
 
@@ -98,7 +98,7 @@ different permissions.
 ### Balance new threads across machines
 
 Auto balance is off by default. Enable it in
-**Settings → Connections → Load balancing** to automatically choose a machine for
+**Settings → Environments → Load balancing** to automatically choose a machine for
 new threads in projects grouped across connected environments. The section
 appears once two or more machines are switched on.
 Each machine starts at **Normal**. Choose **Prefer** to favor it when it has CPU and
@@ -202,7 +202,7 @@ threads on an environment through its MCP server. See
 
 ## Manage or revoke access
 
-On the host, **Settings → Connections** lets authorized administrators create
+On the host, **Settings → Sharing & access** lets authorized administrators create
 pairing links and revoke client sessions. Revoking an unused link prevents new
 pairings; revoke a device's session to remove its existing access. Command-line
 management is available through `t3 auth --help`.
@@ -257,7 +257,7 @@ page, or **Settings → T3 Connect** on mobile, and choose **Deregister**. This
 revokes its cloud access and frees its host space even when the environment is
 offline or has been wiped. When T3 Connect rejects a host's link, the host
 shows that it was removed from T3 Connect. To link it again, turn on
-**T3 Connect** in **Settings → Connections** on a host you manage in the browser, or run
+**T3 Connect** in **Settings → Environments** on a host you manage in the browser, or run
 `t3 connect link` on a command-line host and then restart T3 Code there. A
 command-line host that released its tunnel when it last stopped may link itself
 again on its next start; run `t3 connect unlink` on that host to keep it off.

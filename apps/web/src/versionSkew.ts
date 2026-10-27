@@ -117,10 +117,6 @@ export function manualServerUpdateCommand(
   return `curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION=${version}${destination} sh`;
 }
 
-export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {
-  return capability === "desktop-managed" ? "Update the desktop app" : "Update to stay in sync";
-}
-
 export function buildVersionMismatchDismissalKey(
   environmentId: EnvironmentId,
   mismatch: Pick<VersionMismatch, "clientVersion" | "serverVersion">,

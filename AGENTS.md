@@ -136,6 +136,10 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 
 - Upon request, user-visible frontend changes should get one integrated pass in a real client with `test-t3-app`. The primary agent does this once after integrating. Subagents do not launch their own dev servers. Ask permission before doing computer use or spinning up browsers.
 
+## Evals
+
+`evals/` checks how real models behave with T3 Code's model-facing text: agent instructions, MCP tool descriptions and schemas, and generated titles. Before you change that text, read [evals/README.md](evals/README.md) and run the evals it names. When you fix a model behavior bug, add a case that fails before the fix.
+
 ## Pull requests
 
 - Never make a PR unless the developer explicitly asks you to do so.
