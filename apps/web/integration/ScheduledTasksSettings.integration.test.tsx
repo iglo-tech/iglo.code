@@ -100,6 +100,9 @@ const binding = await vi.hoisted(async () => {
     vi.stubGlobal(key, dom.window[key].bind(dom.window));
   return {
     entry: null as ConnectionCatalogEntry | null,
+    entries: null as SubscriptionRef.SubscriptionRef<
+      ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>
+    > | null,
     context: null as Context.Context<Supervisor.EnvironmentSupervisor> | null,
     closeDOM: () => dom.window.close(),
   };
@@ -119,11 +122,15 @@ vi.mock("../src/connection/runtime", async () => {
     connectionAtomRuntime: Atom.runtime(
       Layer.unwrap(
         Effect.gen(function* () {
-          const entry = binding.entry;
-          if (entry === null) return yield* Effect.die("Expected isolated connection");
+          // App-start atoms can build this runtime before a case binds its server.
           const entries = yield* SubscriptionRef.make<
             ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>
-          >(new Map([[entry.target.environmentId, entry]]));
+          >(
+            binding.entry === null
+              ? new Map()
+              : new Map([[binding.entry.target.environmentId, binding.entry]]),
+          );
+          binding.entries = entries;
           const networkStatus = yield* SubscriptionRef.make<NetworkStatus>("online");
           return Layer.mock(EnvironmentRegistry.EnvironmentRegistry)({
             entries,
@@ -131,7 +138,7 @@ vi.mock("../src/connection/runtime", async () => {
             run: (environmentId, effect) =>
               Effect.suspend(() => {
                 const context = binding.context;
-                return context === null || environmentId !== entry.target.environmentId
+                return context === null || environmentId !== binding.entry?.target.environmentId
                   ? Effect.die("Unexpected client environment")
                   : Effect.provide(effect, context);
               }),
@@ -139,7 +146,7 @@ vi.mock("../src/connection/runtime", async () => {
               Stream.unwrap(
                 Effect.sync(() => {
                   const context = binding.context;
-                  if (context === null || environmentId !== entry.target.environmentId)
+                  if (context === null || environmentId !== binding.entry?.target.environmentId)
                     throw new Error("Unexpected client environment");
                   return Stream.concat(Stream.provideContext(stream, context), Stream.never);
                 }),
@@ -377,6 +384,8 @@ it.live(
         const next = (method: string) =>
           new Promise<void>((resolve) => waiting.set(method, resolve));
         binding.entry = { target, profile: Option.none(), enabled: true };
+        if (binding.entries !== null)
+          yield* SubscriptionRef.set(binding.entries, new Map([[environmentId, binding.entry]]));
         binding.context = context.pipe(
           Context.add(EnvironmentRpcRequestObserver, {
             observe: ({ method }) =>

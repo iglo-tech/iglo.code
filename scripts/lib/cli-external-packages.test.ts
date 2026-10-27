@@ -66,7 +66,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
   it("selects every external root declared by the server", () => {
     assert.deepStrictEqual(
       Object.keys(selectCliRuntimeExternalDependencies(serverPackageJson.dependencies)).sort(),
-      ["@cursor/sdk", "@ff-labs/fff-node", "@napi-rs/keyring", "playwright-core", "undici"],
+      ["@cursor/sdk", "@ff-labs/fff-node", "@napi-rs/keyring", "playwright-core", "undici", "zod"],
     );
   });
 });
