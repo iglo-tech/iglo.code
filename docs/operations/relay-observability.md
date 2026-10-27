@@ -10,6 +10,11 @@ The relay Alchemy stack owns a shared Axiom trace setup:
 - `t3-code-mobile-otel-ingest-prod`, the dataset-scoped mobile ingest token
 - `t3-code-relay-client-otel-ingest-prod`, the dataset-scoped first-party relay-client ingest token
 - `t3-code-relay-recent-spans-prod`, a view of recent request and endpoint spans
+- `t3-code-mobile-logs-prod` and `t3-code-mobile-metrics-prod`, upstream's native app crash, error,
+  and startup data, kept for relay compatibility
+- `t3-code-mobile-telemetry-ingest-prod`, the ingest token the Worker forwards that data with
+- `t3-code-mobile-sourcemaps-prod`, the R2 bucket of mobile JavaScript source maps, and
+  `t3-code-mobile-sourcemaps-upload-prod`, a Cloudflare token that can only write objects to it
 
 Alchemy stages append their sanitized stage name to isolate resources, for example
 `t3-code-relay-traces-dev-julius` for a personal stage.

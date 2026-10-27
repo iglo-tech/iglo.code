@@ -69,7 +69,8 @@
     "undici": "catalog:",
     "ws-rpc": "npm:ws@8.22.0",
     "yaml": "catalog:",
-    "yauzl": "^3.4.0"
+    "yauzl": "^3.4.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@effect/graphql-generator": "catalog:",
