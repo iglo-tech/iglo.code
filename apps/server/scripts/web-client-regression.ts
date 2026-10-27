@@ -503,7 +503,7 @@ export async function runWebClientRegression(
 
     await milestone("settings persist and controlled provider sign-in URL/error", async () => {
       await page.goto(
-        new URL(`/settings/general?machine=${seeded.descriptor.environmentId}`, primary.origin)
+        new URL(`/settings/maintenance?machine=${seeded.descriptor.environmentId}`, primary.origin)
           .href,
       );
       const updateChecks = page.getByRole("switch", {
