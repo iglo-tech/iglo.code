@@ -78,6 +78,8 @@ import Migration0072 from "./Migrations/072_PeerLinks.ts";
 import Migration0073 from "./Migrations/073_PeerLinkFence.ts";
 import Migration0074 from "./Migrations/074_WaitingLinkRequestIndex.ts";
 import Migration0075 from "./Migrations/075_ActiveTurnItemIndexes.ts";
+import Migration0076 from "./Migrations/076_ExcludeAttachmentPlaceholdersFromSearch.ts";
+import Migration0077 from "./Migrations/077_SubagentDeliveryState.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -156,6 +158,8 @@ export const migrationEntries = [
   [73, "PeerLinkFence", Migration0073],
   [74, "WaitingLinkRequestIndex", Migration0074],
   [75, "ActiveTurnItemIndexes", Migration0075],
+  [76, "ExcludeAttachmentPlaceholdersFromSearch", Migration0076],
+  [77, "SubagentDeliveryState", Migration0077],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

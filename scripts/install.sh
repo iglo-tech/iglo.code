@@ -210,11 +210,11 @@ else
   elif [ "$fetch_status" -ne 0 ]; then
     fail "could not download the release checksums"
   fi
+  expected="$(grep " \*\{0,1\}${archive}\$" "${staging}/SHA256SUMS" | cut -d' ' -f1)"
+  [ -n "$expected" ] || fail "t3 ${version} has no release archive for ${platform}-${arch}"
   download "${base_url}/v${version}/${archive}" "${staging}/${archive}"
 
   step "Verifying the download..."
-  expected="$(grep " \*\{0,1\}${archive}\$" "${staging}/SHA256SUMS" | cut -d' ' -f1)"
-  [ -n "$expected" ] || fail "${archive} is not listed in SHA256SUMS"
   actual="$(checksum "${staging}/${archive}")"
   [ "$actual" = "$expected" ] || fail "checksum mismatch for ${archive}"
 

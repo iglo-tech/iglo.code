@@ -24,7 +24,7 @@ await Effect.runPromise(
   Effect.gen(function* () {
     const browser = ServerBrowser.ServerBrowser.of({
       clearProfile: Effect.fn("ServerBrowser.ServerBrowser.clearProfile")(() => Effect.void),
-      reportProfiles: Effect.fn("ServerBrowser.ServerBrowser.reportProfiles")(() => Effect.void),
+      profileReporter: Effect.succeed(() => Effect.void),
       openDownload: Effect.fn("ServerBrowser.ServerBrowser.openDownload")(() => Effect.succeedNone),
       answerFileChooser: Effect.fn("ServerBrowser.ServerBrowser.answerFileChooser")(() =>
         Effect.succeed(false),

@@ -54,6 +54,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as DueHint from "../scheduling/DueHint.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ScheduleTargets from "../scheduling/ScheduleTargets.ts";
 import { isMissedFixedTimeRun, isSameSchedule, nextScheduledRunAt } from "./Schedule.ts";
@@ -430,35 +431,6 @@ export const listDueTasks = Effect.fn("ScheduledTaskService.listDueTasks")(funct
   return tasks;
 });
 
-// Backstop for a write path that forgets to invalidate; the tick still runs every few seconds.
-const DUE_HINT_MAX_AGE_MS = 10 * 60 * 1_000;
-
-/**
- * Remembers when a poller next has work so idle scheduler ticks skip SQL.
- * `invalidate` after every write that can move work earlier; a tick records
- * only if no write happened since it read `version`.
- */
-const makeDueHint = () => {
-  let version = 0;
-  let hint: { readonly dueAtMs: number; readonly checkedAtMs: number } | null = null;
-  return {
-    invalidate: Effect.sync(() => {
-      version++;
-      hint = null;
-    }),
-    version: Effect.sync(() => version),
-    isIdle: (nowMs: number) =>
-      Effect.sync(
-        () =>
-          hint !== null && hint.dueAtMs > nowMs && nowMs - hint.checkedAtMs < DUE_HINT_MAX_AGE_MS,
-      ),
-    record: (readVersion: number, dueAtMs: number, nowMs: number) =>
-      Effect.sync(() => {
-        if (readVersion === version) hint = { dueAtMs, checkedAtMs: nowMs };
-      }),
-  };
-};
-
 export const layer = Layer.effect(
   ScheduledTaskService,
   Effect.gen(function* () {
@@ -490,9 +462,9 @@ export const layer = Layer.effect(
     const activeRuns = yield* Ref.make<ReadonlySet<ScheduledTaskId>>(new Set());
     // Notifications re-emit the full list; slow subscribers need only the newest dirty signal.
     const changesPubSub = yield* PubSub.sliding<void>(1);
-    const dueTasks = makeDueHint();
-    const pendingWebhooks = makeDueHint();
-    const pendingOccurrences = makeDueHint();
+    const dueTasks = DueHint.make();
+    const pendingWebhooks = DueHint.make();
+    const pendingOccurrences = DueHint.make();
     // Every scheduled_tasks write that can change next_run_at, enabled or run state notifies.
     const notifyChanged = dueTasks.invalidate.pipe(
       Effect.andThen(PubSub.publish(changesPubSub, undefined)),
