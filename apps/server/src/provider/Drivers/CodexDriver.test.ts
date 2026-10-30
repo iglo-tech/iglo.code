@@ -40,6 +40,7 @@ import * as CodexAdapterV2 from "../../orchestration-v2/Adapters/CodexAdapterV2.
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderCredentialStore from "../ProviderCredentialStore.ts";
+import * as ProviderInstanceRegistryMutator from "../ProviderInstanceRegistryMutator.ts";
 import * as ProviderRegistry from "../ProviderRegistry.ts";
 import * as ProviderInstanceRegistry from "../ProviderInstanceRegistry.ts";
 import * as PubSub from "effect/PubSub";
@@ -217,6 +218,9 @@ it.layer(layerTest)("CodexDriver", (it) => {
         const changes = yield* PubSub.unbounded<void>();
         const services = yield* Layer.build(
           ProviderRegistry.layer.pipe(
+            Layer.provide(
+              Layer.mock(ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator)({}),
+            ),
             Layer.provide(
               Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
                 getInstance: (requestedId) =>

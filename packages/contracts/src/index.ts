@@ -69,4 +69,5 @@ export * from "./worktreeSetup.ts";
 export * from "./pluginHost.ts";
 export * from "./compiledPlugins.ts";
 export * from "./secretRequest.ts";
+export * from "./secretReference.ts";
 export * from "./clientRpcPermissions.ts";

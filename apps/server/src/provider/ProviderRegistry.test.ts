@@ -43,6 +43,7 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import { makeAntigravityProvider } from "./AntigravityProvider.ts";
+import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import { makeProviderInstanceRegistry } from "./ProviderInstanceRegistry.ts";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
@@ -71,6 +72,7 @@ import type {
   ProviderWorkspaceSnapshot,
 } from "@t3tools/provider-core/server/driver";
 import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
+import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMutator.ts";
 import * as ProviderRegistry from "./ProviderRegistry.ts";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { ProviderDriverError } from "./Errors.ts";
@@ -114,6 +116,10 @@ const withBundledCompatibility = (snapshot: ServerProvider) =>
     undefined,
     ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
   );
+
+const layerUnusedMutator = Layer.mock(
+  ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator,
+)({});
 
 const layerTestHttpClient = Layer.succeed(
   HttpClient.HttpClient,
@@ -959,7 +965,12 @@ it.layer(
                   retainedModels,
                 );
               }).pipe(
-                Effect.provide(ProviderRegistry.layer.pipe(Layer.provide(layerInstanceRegistry))),
+                Effect.provide(
+                  ProviderRegistry.layer.pipe(
+                    Layer.provide(layerInstanceRegistry),
+                    Layer.provide(layerUnusedMutator),
+                  ),
+                ),
                 Effect.scoped,
               );
             }
@@ -1090,7 +1101,12 @@ it.layer(
                 retainedModels,
               );
             }).pipe(
-              Effect.provide(ProviderRegistry.layer.pipe(Layer.provide(layerInstanceRegistry))),
+              Effect.provide(
+                ProviderRegistry.layer.pipe(
+                  Layer.provide(layerInstanceRegistry),
+                  Layer.provide(layerUnusedMutator),
+                ),
+              ),
               Effect.scoped,
             );
           }
@@ -1362,6 +1378,7 @@ it.layer(
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
           const runtimeServices = yield* Layer.build(
             ProviderRegistry.layer.pipe(
+              Layer.provide(layerUnusedMutator),
               Layer.provideMerge(layerInstanceRegistry),
               Layer.provideMerge(
                 ServerConfig.layerTest(process.cwd(), {
@@ -1457,6 +1474,7 @@ it.layer(
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const runtimeServices = yield* Layer.build(
           ProviderRegistry.layer.pipe(
+            Layer.provide(layerUnusedMutator),
             Layer.provideMerge(layerInstanceRegistry),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -1643,7 +1661,7 @@ it.layer(
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const runtimeServices = yield* Layer.build(
           ProviderMaintenanceRunner.layer.pipe(
-            Layer.provideMerge(ProviderRegistry.layer),
+            Layer.provideMerge(ProviderRegistry.layer.pipe(Layer.provide(layerUnusedMutator))),
             Layer.provideMerge(
               Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
                 getInstance: (instanceId) =>
@@ -1907,6 +1925,7 @@ it.layer(
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const runtimeServices = yield* Layer.build(
           ProviderRegistry.layer.pipe(
+            Layer.provide(layerUnusedMutator),
             Layer.provideMerge(instanceRegistryLayer),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -2319,6 +2338,7 @@ it.layer(
       };
       const services = yield* Layer.build(
         ProviderRegistry.layer.pipe(
+          Layer.provide(layerUnusedMutator),
           Layer.provide(
             Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
               getInstance: (instanceId) =>
@@ -2672,9 +2692,17 @@ it.layer(
             const instances = yield* makeProviderInstanceRegistry({
               drivers: [fixtureDriver],
               configMap: { [instanceId]: { driver, config: { revision: "original" } } },
-            }).pipe(Effect.provide(TestProviderHost.layer({ runBackgroundWork: false })));
+            }).pipe(
+              Effect.provide(
+                Layer.merge(
+                  TestProviderHost.layer({ runBackgroundWork: false }),
+                  Layer.mock(SecretResolver.SecretResolver)({}),
+                ),
+              ),
+            );
             const services = yield* Layer.build(
               ProviderRegistry.layer.pipe(
+                Layer.provide(layerUnusedMutator),
                 Layer.provide(
                   Layer.succeed(
                     ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -2813,6 +2841,7 @@ it.layer(
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const runtimeServices = yield* Layer.build(
           ProviderRegistry.layer.pipe(
+            Layer.provide(layerUnusedMutator),
             Layer.provideMerge(layerInstanceRegistry),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -3012,6 +3041,7 @@ it.layer(
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const runtimeServices = yield* Layer.build(
           ProviderRegistry.layer.pipe(
+            Layer.provide(layerUnusedMutator),
             Layer.provideMerge(layerInstanceRegistry),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -3122,6 +3152,7 @@ it.layer(
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const runtimeServices = yield* Layer.build(
           ProviderRegistry.layer.pipe(
+            Layer.provide(layerUnusedMutator),
             Layer.provideMerge(instanceRegistryLayer),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -3228,6 +3259,7 @@ it.layer(
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const runtimeServices = yield* Layer.build(
           ProviderRegistry.layer.pipe(
+            Layer.provide(layerUnusedMutator),
             Layer.provideMerge(layerInstanceRegistry),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -3356,6 +3388,7 @@ it.layer(
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
           const runtimeServices = yield* Layer.build(
             ProviderRegistry.layer.pipe(
+              Layer.provide(layerUnusedMutator),
               Layer.provideMerge(layerInstanceRegistry),
               Layer.provideMerge(
                 ServerConfig.layerTest(process.cwd(), {
@@ -3459,6 +3492,7 @@ it.layer(
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const runtimeServices = yield* Layer.build(
           ProviderRegistry.layer.pipe(
+            Layer.provide(layerUnusedMutator),
             Layer.provideMerge(layerInstanceRegistry),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -3519,6 +3553,7 @@ it.layer(
         const scope = yield* Scope.make();
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const layerProviderRegistry = ProviderRegistry.layer.pipe(
+          Layer.provide(layerUnusedMutator),
           Layer.provideMerge(
             ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(PortScanner.layerTest)),
           ),
@@ -3630,13 +3665,14 @@ it.layer(
                   enabled: false,
                   config: { arbitrary: "payload" },
                 },
-              } as unknown as ContractServerSettings["providerInstances"],
+              } as unknown as (typeof ServerSettings.Encoded)["providerInstances"],
             }),
           ),
         );
         const scope = yield* Scope.make();
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const layerProviderRegistry = ProviderRegistry.layer.pipe(
+          Layer.provide(layerUnusedMutator),
           Layer.provideMerge(
             ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(PortScanner.layerTest)),
           ),

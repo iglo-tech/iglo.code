@@ -31,6 +31,7 @@ import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 // oxlint-disable-next-line t3code/no-raw-mcp-registration -- the eval calls the device tools McpHttpServer registered and registers none.
 import { McpSchema, McpServer } from "effect/ai";
+import { ChildProcessSpawner } from "effect/process";
 
 import * as ServerConfig from "../../apps/server/src/config.ts";
 import * as AgentDeviceShim from "../../apps/server/src/device/AgentDeviceShim.ts";
@@ -580,7 +581,7 @@ const fakeHost = (
       ? { platform, available: true }
       : { platform, available: false, reason: `${label} has no ${PLATFORM_NAMES[platform]}.` };
   const ready: DeviceHost.DeviceHostReady = {
-    nodePath: NODE,
+    bunPath: NODE,
     hub: { origin: HUB },
     devices: {
       // Boot state changes as T3 boots and shuts devices down, and later lists show it.
@@ -696,6 +697,7 @@ export const makeDeviceTools = Effect.fn("evaluateMcpToolUse.makeDeviceTools")(f
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const crypto = yield* Crypto.Crypto;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const { stateDir } = yield* ServerConfig.ServerConfig;
       const agentEntry = path.join(home, ".t3", "tools", "agent-device", "bin", "agent-device.mjs");
       const hosts = new Map<DeviceHostId, DeviceHost.DeviceHost["Service"]>([
@@ -734,6 +736,7 @@ export const makeDeviceTools = Effect.fn("evaluateMcpToolUse.makeDeviceTools")(f
         effect.pipe(
           Effect.provideService(FileSystem.FileSystem, fs),
           Effect.provideService(Path.Path, path),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         );
       const { bindAgentDeviceLauncher: bind, pruneAgentDeviceLaunchers: prune } = launcherApi;
       const launchers: Launchers | undefined =

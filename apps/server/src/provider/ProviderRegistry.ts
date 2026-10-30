@@ -18,6 +18,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 import * as SynchronizedRef from "effect/SynchronizedRef";
@@ -27,6 +28,7 @@ import * as ModelManifest from "./ModelManifest.ts";
 import { applyProviderCompatibility } from "./providerCompatibility.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
+import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMutator.ts";
 import {
   hydrateCachedProvider,
   isCachedProviderCorrelated,
@@ -59,6 +61,11 @@ export class ProviderRegistry extends Context.Service<
     /** Unknown instance ids return the cached list without error. */
     readonly refreshInstance: (
       instanceId: ProviderInstanceId,
+    ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+    /** Re-reads secret-backed environments first, so a fixed secret applies without a restart. */
+    readonly reloadSecretsAndRefresh: (
+      instanceId?: ProviderInstanceId,
     ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
     /** Only refreshed instances can verify an update; the published list still includes every row. */
@@ -336,6 +343,8 @@ export const layer = Layer.effect(
   ProviderRegistry,
   Effect.gen(function* () {
     const instanceRegistry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    const instanceRegistryMutator =
+      yield* ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator;
     const manifestService = yield* ModelManifest.ModelManifest;
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const serviceScope = yield* Effect.scope;
@@ -620,7 +629,9 @@ export const layer = Layer.effect(
       );
       if (claimed.owner) {
         // Detach shared passes so the first caller's interruption cannot cancel other callers' work.
-        yield* getLiveSources.pipe(
+        // Syncing first keeps a refresh right after a rebuild from probing the replaced instance.
+        yield* syncLiveSourcesAndContinue.pipe(
+          Effect.andThen(getLiveSources),
           Effect.flatMap((sources) =>
             Effect.forEach(sources, (source) => refreshOneSource(source), {
               concurrency: "unbounded",
@@ -654,7 +665,7 @@ export const layer = Layer.effect(
       return yield* refreshOneSource(providerSource);
     });
 
-    const refreshInstance = Effect.fn("refreshInstance")(function* (
+    const refreshLiveInstance = Effect.fn("refreshLiveInstance")(function* (
       instanceId: ProviderInstanceId,
     ) {
       const sources = yield* getLiveSources;
@@ -663,6 +674,20 @@ export const layer = Layer.effect(
         return yield* Ref.get(providersRef);
       }
       return yield* refreshOneSource(providerSource);
+    });
+
+    const refreshInstance = Effect.fn("refreshInstance")(function* (
+      instanceId: ProviderInstanceId,
+    ) {
+      yield* syncLiveSourcesAndContinue;
+      return yield* refreshLiveInstance(instanceId);
+    });
+
+    const reloadSecretsAndRefresh = Effect.fn("reloadSecretsAndRefresh")(function* (
+      instanceId?: ProviderInstanceId,
+    ) {
+      yield* instanceRegistryMutator.reloadSecrets(instanceId);
+      return yield* instanceId === undefined ? refresh() : refreshInstance(instanceId);
     });
 
     const refreshAfterUpdate = Effect.fn("refreshAfterUpdate")(function* (
@@ -864,6 +889,7 @@ export const layer = Layer.effect(
           },
         );
       }),
+      Scope.provide(serviceScope),
     );
 
     yield* upsertProviders(fallbackProviders, { publish: false });
@@ -958,7 +984,8 @@ export const layer = Layer.effect(
       const token = yield* Deferred.make<void>();
       const refreshMachineSnapshot = input.fresh
         ? (instance.invalidateCaches ?? Effect.void).pipe(
-            Effect.andThen(refreshInstance(input.instanceId)),
+            // A sync would wait on another provider's persistence and delay this scan's commit.
+            Effect.andThen(refreshLiveInstance(input.instanceId)),
           )
         : Effect.void;
       const runScan = (scannedFrom: ReturnType<typeof workspaceSnapshotOf>) =>
@@ -1103,6 +1130,11 @@ export const layer = Layer.effect(
       refreshInstance: (instanceId: ProviderInstanceId) =>
         invalidateWorkspaceSnapshots(instanceId).pipe(
           Effect.andThen(refreshInstance(instanceId)),
+          Effect.catchCause(recoverRefreshFailure),
+        ),
+      reloadSecretsAndRefresh: (instanceId?: ProviderInstanceId) =>
+        invalidateWorkspaceSnapshots(instanceId).pipe(
+          Effect.andThen(reloadSecretsAndRefresh(instanceId)),
           Effect.catchCause(recoverRefreshFailure),
         ),
       refreshWorkspaceSnapshot: (input) =>
