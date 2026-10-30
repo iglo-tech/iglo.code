@@ -271,6 +271,11 @@ export class ScheduledTaskService extends Context.Service<
     ) => Effect.Effect<ScheduledTaskDeleteResult, ScheduledTaskError>;
     /** Deletes only tasks that still target this thread, including their webhook deliveries. */
     readonly deleteForThread: (threadId: ThreadId) => Effect.Effect<void, ScheduledTaskError>;
+    /** Points tasks bound to these threads at the project the threads moved to. */
+    readonly moveThreadTasks: (input: {
+      readonly threadIds: ReadonlyArray<ThreadId>;
+      readonly projectId: ProjectId;
+    }) => Effect.Effect<void, ScheduledTaskError>;
     /** The dispatched thread, or null if dispatch failed; leaves the task's binding unchanged. */
     readonly runNow: (
       input: ScheduledTaskRunNowInput,
@@ -425,6 +430,35 @@ export const listDueTasks = Effect.fn("ScheduledTaskService.listDueTasks")(funct
   return tasks;
 });
 
+// Backstop for a write path that forgets to invalidate; the tick still runs every few seconds.
+const DUE_HINT_MAX_AGE_MS = 10 * 60 * 1_000;
+
+/**
+ * Remembers when a poller next has work so idle scheduler ticks skip SQL.
+ * `invalidate` after every write that can move work earlier; a tick records
+ * only if no write happened since it read `version`.
+ */
+const makeDueHint = () => {
+  let version = 0;
+  let hint: { readonly dueAtMs: number; readonly checkedAtMs: number } | null = null;
+  return {
+    invalidate: Effect.sync(() => {
+      version++;
+      hint = null;
+    }),
+    version: Effect.sync(() => version),
+    isIdle: (nowMs: number) =>
+      Effect.sync(
+        () =>
+          hint !== null && hint.dueAtMs > nowMs && nowMs - hint.checkedAtMs < DUE_HINT_MAX_AGE_MS,
+      ),
+    record: (readVersion: number, dueAtMs: number, nowMs: number) =>
+      Effect.sync(() => {
+        if (readVersion === version) hint = { dueAtMs, checkedAtMs: nowMs };
+      }),
+  };
+};
+
 export const layer = Layer.effect(
   ScheduledTaskService,
   Effect.gen(function* () {
@@ -456,7 +490,14 @@ export const layer = Layer.effect(
     const activeRuns = yield* Ref.make<ReadonlySet<ScheduledTaskId>>(new Set());
     // Notifications re-emit the full list; slow subscribers need only the newest dirty signal.
     const changesPubSub = yield* PubSub.sliding<void>(1);
-    const notifyChanged = PubSub.publish(changesPubSub, undefined).pipe(Effect.asVoid);
+    const dueTasks = makeDueHint();
+    const pendingWebhooks = makeDueHint();
+    const pendingOccurrences = makeDueHint();
+    // Every scheduled_tasks write that can change next_run_at, enabled or run state notifies.
+    const notifyChanged = dueTasks.invalidate.pipe(
+      Effect.andThen(PubSub.publish(changesPubSub, undefined)),
+      Effect.asVoid,
+    );
 
     const selectAllRows = () =>
       sql<ScheduledTaskRow>`
@@ -944,6 +985,7 @@ export const layer = Layer.effect(
               ...(limits === undefined ? {} : { dispatchLimits: limits }),
             };
             yield* sql`INSERT OR IGNORE INTO scheduled_task_occurrences (id, task_id, project_id, target_json, started_at, status) VALUES (${fireKey}, ${active.id}, ${active.projectId}, ${encodeTarget(target)}, ${startedAtIso}, 'pending')`;
+            yield* pendingOccurrences.invalidate;
             const [receipt] = yield* sql<{
               task_id: string;
               status: string;
@@ -1002,6 +1044,43 @@ export const layer = Layer.effect(
           // after the poll read are honoured.
           const prompt = webhook?.prompt ?? active.prompt;
 
+          // A bound thread can move to another project (No project to a project) while
+          // this fires. Follow it; one move needs at most two retries. Same ids replay safely.
+          const sendBound = (
+            threadId: ThreadId,
+            projectId: ProjectId,
+            retries: number,
+          ): ReturnType<typeof threadManagement.sendToThread> =>
+            threadManagement
+              .sendToThread({
+                projectId,
+                commandId,
+                threadId,
+                messageId,
+                scheduledTaskId: active.id,
+                text: prompt,
+                attachments: [],
+                // Scheduled prompts must not interrupt tools in the bound thread.
+                mode: "queue",
+                createdBy: active.createdBy,
+                creationSource: active.creationSource,
+              })
+              .pipe(
+                Effect.catchTags({
+                  ThreadManagementThreadNotFoundError: (error) =>
+                    retries === 0
+                      ? Effect.fail(error)
+                      : threadManagement.getThreadShell(threadId).pipe(
+                          Effect.orElseSucceed(() => null),
+                          Effect.flatMap((shell) =>
+                            shell === null || shell.projectId === projectId
+                              ? Effect.fail(error)
+                              : sendBound(threadId, shell.projectId, retries - 1),
+                          ),
+                        ),
+                }),
+              );
+
           // Effect.exit (not Effect.result) so defects and interruptions in the
           // dispatch are also captured and recorded as a failed run instead of
           // aborting before markCompleted.
@@ -1049,19 +1128,7 @@ export const layer = Layer.effect(
             } else {
               // The stored selection only seeds fresh threads. A bound run
               // follows the thread's current provider, so it passes none.
-              const sent = yield* threadManagement.sendToThread({
-                projectId: active.projectId,
-                commandId,
-                threadId: ThreadId.make(active.threadId),
-                messageId,
-                scheduledTaskId: active.id,
-                text: prompt,
-                attachments: [],
-                // Scheduled prompts must not interrupt tools in the bound thread.
-                mode: "queue",
-                createdBy: active.createdBy,
-                creationSource: active.creationSource,
-              });
+              const sent = yield* sendBound(ThreadId.make(active.threadId), active.projectId, 2);
               return { threadId: ThreadId.make(active.threadId), delivery: sent.delivery };
             }
           });
@@ -1190,19 +1257,46 @@ export const layer = Layer.effect(
 
     const runDueTasks = Effect.fn("ScheduledTaskService.runDueTasks")(function* () {
       const now = yield* localNow;
-      const pending = yield* sql<{
-        id: string;
-        task_id: string;
-      }>`SELECT id, task_id FROM scheduled_task_occurrences WHERE status = 'pending' ORDER BY rowid`;
-      for (const row of pending) {
-        const task = yield* findTask(ScheduledTaskId.make(row.task_id));
-        if (task === null || task.dispatchTarget === undefined) yield* resolveOrphan(row.id);
-        else
-          yield* runTask(task, "recovery", row.id).pipe(
-            Effect.catch((cause) =>
-              Effect.logWarning("Scheduled target recovery failed", { taskId: task.id, cause }),
-            ),
-          );
+      const nowMs = DateTime.toEpochMillis(now);
+      if (!(yield* pendingOccurrences.isIdle(nowMs))) {
+        const readOccurrences = yield* pendingOccurrences.version;
+        const pending = yield* sql<{
+          id: string;
+          task_id: string;
+        }>`SELECT id, task_id FROM scheduled_task_occurrences WHERE status = 'pending' ORDER BY rowid`;
+        for (const row of pending) {
+          const task = yield* findTask(ScheduledTaskId.make(row.task_id));
+          if (task === null || task.dispatchTarget === undefined) yield* resolveOrphan(row.id);
+          else
+            yield* runTask(task, "recovery", row.id).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Scheduled target recovery failed", { taskId: task.id, cause }),
+              ),
+            );
+        }
+        if (pending.length === 0)
+          yield* pendingOccurrences.record(readOccurrences, Infinity, nowMs);
+      }
+      if (yield* dueTasks.isIdle(nowMs)) return;
+      const readVersion = yield* dueTasks.version;
+      const [next] = yield* sql<{ next_run_at: string | null }>`
+        SELECT MIN(next_run_at) AS next_run_at FROM scheduled_tasks
+        WHERE enabled = 1 AND next_run_at IS NOT NULL AND last_run_status <> 'running'
+      `.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.mapError((cause) => taskError("Could not list schedule tasks.", { cause })),
+      );
+      // Compare as text like listDueTasks: expanded years (`+011533-…`) sort first but parse far ahead.
+      const nextRunAt = next?.next_run_at ?? null;
+      if (nextRunAt === null || nextRunAt > iso(now)) {
+        const nextDueAt =
+          nextRunAt === null
+            ? Option.some(Infinity)
+            : DateTime.make(nextRunAt).pipe(Option.map(DateTime.toEpochMillis));
+        if (Option.isSome(nextDueAt) && nextDueAt.value > nowMs) {
+          yield* dueTasks.record(readVersion, nextDueAt.value, nowMs);
+        }
+        return;
       }
       const tasks = yield* listDueTasks(now).pipe(
         Effect.mapError((cause) => taskError("Could not list schedule tasks.", { cause })),
@@ -1530,6 +1624,22 @@ export const layer = Layer.effect(
         discard: true,
       });
       if (removed.length > 0) yield* notifyChanged;
+    });
+
+    const moveThreadTasks: ScheduledTaskService["Service"]["moveThreadTasks"] = Effect.fn(
+      "ScheduledTaskService.moveThreadTasks",
+    )(function* (input) {
+      if (input.threadIds.length === 0) return;
+      const moved = yield* sql<{ task_id: ScheduledTaskId }>`
+        UPDATE scheduled_tasks SET project_id = ${input.projectId}
+        WHERE project_id != ${input.projectId} AND thread_id IN ${sql.in(input.threadIds)}
+        RETURNING task_id
+      `.pipe(
+        Effect.mapError((cause) =>
+          taskError("Could not move the thread's schedule tasks.", { cause }),
+        ),
+      );
+      if (moved.length > 0) yield* notifyChanged;
     });
 
     const runNow: ScheduledTaskService["Service"]["runNow"] = Effect.fn(
@@ -1920,6 +2030,8 @@ export const layer = Layer.effect(
 
     const triggerWebhook: ScheduledTaskService["Service"]["triggerWebhook"] = (request) =>
       triggerWebhookUnobserved(request).pipe(
+        // Accepted deliveries may have queued a coalescing window.
+        Effect.ensuring(pendingWebhooks.invalidate),
         Effect.tapError(() => observeDelivery(request, "error", undefined, undefined)),
         Metrics.withMetrics({ timer: Metrics.webhookDeliveryDuration }),
         Effect.withSpan("ScheduledTaskService.triggerWebhook", {
@@ -2315,10 +2427,19 @@ export const layer = Layer.effect(
 
     const dispatchPending = Effect.fn("ScheduledTaskService.dispatchPendingWebhooks")(function* () {
       const now = DateTime.toEpochMillis(yield* localNow);
+      if (yield* pendingWebhooks.isIdle(now)) return;
+      const readVersion = yield* pendingWebhooks.version;
       yield* sql`UPDATE scheduled_task_webhook_pending SET state = 'dispatching' WHERE state = 'pending' AND due_at <= ${now}`;
       const tasks = yield* sql<{ task_id: ScheduledTaskId }>`
         SELECT DISTINCT task_id FROM scheduled_task_webhook_pending WHERE state IN ('dispatching', 'running', 'completed', 'failed')
       `.pipe(NodeSqliteClient.readOnly);
+      // Workers can leave rows behind to retry, so keep polling while any are claimed.
+      if (tasks.length === 0) {
+        const [next] = yield* sql<{ due_at: number | null }>`
+          SELECT MIN(due_at) AS due_at FROM scheduled_task_webhook_pending WHERE state = 'pending'
+        `.pipe(NodeSqliteClient.readOnly);
+        yield* pendingWebhooks.record(readVersion, next?.due_at ?? Infinity, now);
+      }
       yield* Effect.forEach(
         tasks,
         ({ task_id: taskId }) =>
@@ -2449,6 +2570,7 @@ export const layer = Layer.effect(
       setEnabled,
       delete: deleteTask,
       deleteForThread,
+      moveThreadTasks,
       runNow,
       rotateWebhookToken,
       listWebhookDeliveries,

@@ -55,6 +55,7 @@ export function useRouteProject(): RouteProject | null {
     environment === undefined || project === undefined
       ? null
       : { environmentId: environment, projectId: project };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Records the route's project in the module-level last-used registry.
   useEffect(() => {
     if (environment !== undefined && project !== undefined) lastProjects.set(environment, project);
   }, [environment, project]);

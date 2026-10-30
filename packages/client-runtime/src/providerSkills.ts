@@ -147,7 +147,7 @@ interface ProviderWorkspaceSnapshotRefreshState {
   readonly requestedAt: number | null;
   /** A failed scan is not retried before this time. */
   readonly retryNotBefore: number | null;
-  /** Scans in a row that ended without a complete snapshot. */
+  /** Failed scans within the current request TTL. */
   readonly failedAttempts: number;
   readonly hadSnapshot: boolean;
   /** A revalidating target needs a snapshot checked after this one. */
@@ -195,8 +195,13 @@ function planProviderWorkspaceSnapshotRefresh(
     ...previous,
     requestedAt,
     retryNotBefore,
-    // A complete snapshot ends the run of failures.
-    failedAttempts: revalidated ? 0 : previous.failedAttempts,
+    // A snapshot newer than the revalidation baseline ends the run of failures, as does a new TTL.
+    failedAttempts:
+      (previous.baselineCheckedAt !== undefined && revalidated) ||
+      lost ||
+      (requestedAt !== null && now - requestedAt >= PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS)
+        ? 0
+        : previous.failedAttempts,
     hadSnapshot: hasSnapshot,
   };
   const refresh =
@@ -330,13 +335,22 @@ export function createProviderWorkspaceSnapshotRefreshAtomFamily(input: {
           { environmentId, input: { instanceId, cwd } },
           { reportFailure: false },
         ).then((result) => {
+          const refreshedProvider =
+            result._tag === "Success" ? findProvider(result.value.providers) : undefined;
+          const snapshot =
+            refreshedProvider && resolveProviderWorkspaceSnapshot(refreshedProvider, cwd);
+          // A new server timestamp proves progress even when the client clock is ahead.
+          // @effect-diagnostics-next-line globalDate:off
+          const completedAt = Date.now();
           const refreshed =
-            result._tag === "Success" &&
             hasCompleteProviderWorkspaceSnapshot(
-              findProvider(result.value.providers),
+              refreshedProvider,
               cwd,
               plan.state.baselineCheckedAt,
-            );
+            ) &&
+            (hasCurrentProviderWorkspaceSnapshot(refreshedProvider, cwd, completedAt) ||
+              snapshot?.checkedAt !==
+                (provider && resolveProviderWorkspaceSnapshot(provider, cwd))?.checkedAt);
           if (!refreshed) retryLater();
         }, retryLater);
         return plan.state;

@@ -23,6 +23,7 @@ function ThreadStrip(props: PageProps) {
   const [attempt, setAttempt] = useState(0);
   const offline = connection === "disconnected";
   // Live: the owning run's commits update the attempt's phase and report status.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the owning run's live thread link through the plugin client.
   useEffect(() => {
     if (projectId === null || threadId === null || offline) return;
     return client.watchThread(

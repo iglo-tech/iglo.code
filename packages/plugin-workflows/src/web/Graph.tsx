@@ -488,12 +488,14 @@ function Refit({ bounds, fitKey }: { readonly bounds: Bounds; readonly fitKey: s
   // Edits that only move or resize boxes must not undo the user's pan and zoom, so the effect
   // reads the latest bounds without depending on them.
   const latest = useRef(bounds);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Mirrors the latest bounds into a ref read by the viewport effect.
   useEffect(() => {
     latest.current = bounds;
   });
   const ready = useStore((state) => state.panZoom !== null);
   const width = useStore((state) => state.width);
   const height = useStore((state) => state.height);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Fits the React Flow viewport through its imperative store API.
   useEffect(() => {
     if (!ready || width <= 0 || height <= 0) return;
     const viewport = autoFitViewport(latest.current, width, height);
@@ -521,6 +523,7 @@ function FocusStep({
   readonly onFocused: () => void;
 }) {
   const initialized = useNodesInitialized();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Moves DOM focus to the step button once React Flow has initialized.
   useEffect(() => {
     if (!initialized || typeof document === "undefined") return;
     const box = document.getElementById(stepButtonId(stepId));

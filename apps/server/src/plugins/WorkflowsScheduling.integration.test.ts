@@ -22,6 +22,7 @@ import type { Run, ScheduleHistory } from "@t3tools/plugin-workflows/contracts";
 import * as Registry from "@t3tools/plugin-host-adapter/registry";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
@@ -348,9 +349,17 @@ it.live(
                 projectId,
               }).pipe(Effect.flip),
             ).toMatchObject({ code: "unavailable" });
-            expect((yield* b.reader["scheduledTasks.list"]({})).tasks).toEqual([]);
             expect(
-              (yield* a.reader["scheduledTasks.list"]({})).tasks.map((task) => task.id),
+              (yield* b.reader["scheduledTasks.subscribe"]({}).pipe(
+                Stream.runHead,
+                Effect.map(Option.getOrThrow),
+              )).tasks,
+            ).toEqual([]);
+            expect(
+              (yield* a.reader["scheduledTasks.subscribe"]({}).pipe(
+                Stream.runHead,
+                Effect.map(Option.getOrThrow),
+              )).tasks.map((task) => task.id),
             ).toEqual([prompt.task.id]);
 
             // Create, then edit the same schedule: one row in the host's controls.
@@ -361,7 +370,10 @@ it.live(
               title: "Nightly notes",
               enabled: false,
             });
-            const listed = (yield* a.reader["scheduledTasks.list"]({})).tasks;
+            const listed = (yield* a.reader["scheduledTasks.subscribe"]({}).pipe(
+              Stream.runHead,
+              Effect.map(Option.getOrThrow),
+            )).tasks;
             expect(listed.map((task) => task.id).sort()).toEqual(
               [prompt.task.id, scheduleId].sort(),
             );
@@ -592,9 +604,10 @@ it.live(
               Effect.flip,
             );
             expect(failed.message).toContain("Schedule target workflows.start is unavailable");
-            const retained = (yield* writer["scheduledTasks.list"]({})).tasks.find(
-              (task) => task.id === scheduleId,
-            )!;
+            const retained = (yield* writer["scheduledTasks.subscribe"]({}).pipe(
+              Stream.runHead,
+              Effect.map(Option.getOrThrow),
+            )).tasks.find((task) => task.id === scheduleId)!;
             expect(retained.dispatchTarget?.payload).toMatchObject({ definitionId: "sequence" });
             expect(retained.lastRunError).toContain("Its state has been retained.");
             // The host's own controls still pause it.

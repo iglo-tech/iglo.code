@@ -514,7 +514,12 @@ it.live(
         expect(denied.map((error) => error._tag)).toEqual(
           Array(4).fill("EnvironmentAuthorizationError"),
         );
-        expect((yield* reader["scheduledTasks.list"]({})).tasks).toHaveLength(3);
+        expect(
+          (yield* reader["scheduledTasks.subscribe"]({}).pipe(
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          )).tasks,
+        ).toHaveLength(3);
         yield* Effect.promise(() => act(async () => button("Done").click()));
 
         // Genuine HTTP and WS grants both change when the principal re-pairs.
@@ -542,8 +547,10 @@ it.live(
           ),
         );
         expect(
-          (yield* operator["scheduledTasks.list"]({})).tasks.find((task) => task.id === workflowId)
-            ?.enabled,
+          (yield* operator["scheduledTasks.subscribe"]({}).pipe(
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          )).tasks.find((task) => task.id === workflowId)?.enabled,
         ).toBe(true);
         expect(button("New task").disabled).toBe(false);
         yield* Effect.promise(() => act(async () => openActions("Actions for Prompt schedule")));
@@ -597,7 +604,10 @@ it.live(
           yield* reader["plugins.workflows.schedule-history"]({ ...scope, scheduleId: "history" }),
         ).toEqual(after);
         expect(
-          (yield* reader["scheduledTasks.list"]({})).tasks
+          (yield* reader["scheduledTasks.subscribe"]({}).pipe(
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          )).tasks
             .filter((task) => task.id === "prompt" || task.id === "webhook")
             .every((task) => !task.enabled && task.dispatchTarget === undefined),
         ).toBe(true);

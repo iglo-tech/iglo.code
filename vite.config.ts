@@ -3,8 +3,6 @@ import { defineConfig, type Plugin } from "vite-plus";
 import * as NodeModule from "node:module";
 import * as NodeURL from "node:url";
 
-const DOM_TEST_ENVIRONMENT_ALLOWLIST: Array<string> = [];
-
 const TEST_EXCLUDE = [
   "**/.repos/**",
   "**/.t3/**",
@@ -173,7 +171,13 @@ export default defineConfig({
       : {}),
   },
   staged: {
-    "*": "vp fmt --no-error-on-unmatched-pattern",
+    // In order, so lint reads the formatted file. CI lint failures cost a full round trip.
+    "*": ["vp fmt --no-error-on-unmatched-pattern", "vp lint --no-error-on-unmatched-pattern"],
+    // knip checks the whole repo, so it takes no file list. Any code or manifest change can leave
+    // a file, export, or dependency unused.
+    // The fork skips the exports pass: shared code keeps exports only the removed native apps used.
+    "{*.{js,jsx,ts,tsx,mjs,cjs,mts,cts},package.json,knip.jsonc}": () =>
+      "knip --include files,dependencies --no-config-hints",
   },
   fmt: {
     ignorePatterns: [
@@ -353,7 +357,6 @@ export default defineConfig({
       },
       {
         files: ["apps/**/src/**", "packages/**/src/**"],
-        excludeFiles: DOM_TEST_ENVIRONMENT_ALLOWLIST,
         rules: { "t3code/no-dom-test-environment": "error" },
       },
       {
@@ -597,7 +600,7 @@ export default defineConfig({
       },
       {
         files: ["apps/web/src/**", "packages/*/src/**"],
-        rules: { "t3code/react-effect-budget": "error" },
+        rules: { "t3code/no-unreasoned-state-sync": "error" },
       },
       {
         // React Compiler caches use* functions only if they call a hook.

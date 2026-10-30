@@ -530,6 +530,7 @@ function AgentFields({
   const current = skillsResult?.instanceId === instanceId ? skillsResult : null;
   const skills = current?.skills ?? null;
   const skillsError = current?.error ?? null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads provider skills from the server through the plugin client.
   useEffect(() => {
     if (projectId === null || connection === "disconnected") return;
     let active = true;

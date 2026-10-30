@@ -38,6 +38,7 @@ function Attention(props: PageProps) {
   const [limit, setLimit] = useState<number>(PAGE);
   // The limit of the snapshot on screen; it stays visible until the wider one arrives.
   const [shown, setShown] = useState<number | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the attention feed through the plugin client.
   useEffect(() => {
     if (offline) return;
     return client.subscribeAttention(

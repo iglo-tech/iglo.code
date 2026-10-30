@@ -102,6 +102,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   // supersede them. Save settlement also invalidates reads begun while saving.
   const baselineVersion = useRef(0);
   const mounted = useRef(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Tracks mounted state for async callbacks that outlive the component.
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -131,7 +132,9 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const [savedSource, setSavedSource] = useState<string | null>(null);
   const offline = connection === "disconnected";
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the plugin client's permission stream.
   useEffect(() => client.subscribePermissions(setPermissions), [client]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reads the workflow source from the server through the plugin client.
   useEffect(() => {
     if (projectId === null || source === null || offline) return;
     let active = true;
@@ -160,6 +163,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry and refresh bump readAttempt to re-read.
   }, [client, projectId, source, offline, readAttempt]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads project capabilities from the server through the plugin client.
   useEffect(() => {
     if (projectId === null || offline) return;
     let active = true;
@@ -196,6 +200,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     [view, importing, draft],
   );
   const pendingWrite = useRef<(() => void) | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Persists the draft to external draft storage on a debounce.
   useEffect(() => {
     pendingWrite.current = null;
     if (storageKey === null || draft === null || base === null) return;
@@ -217,6 +222,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     pendingWrite.current = write;
     return debounce(write, authoringTimings.draftDelayMs);
   }, [props.drafts, storageKey, draft, base, dirty]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Flushes pending draft writes on page hide via global listeners.
   useEffect(() => {
     // A reload or tab close never unmounts; flush a pending write when the page is hidden.
     const flush = () => pendingWrite.current?.();
@@ -246,6 +252,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     readonly message: string;
   } | null>(null);
   const [validateAttempt, setValidateAttempt] = useState(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Validates the draft against the server through a debounced plugin client call.
   useEffect(() => {
     if (draft === null || projectId === null || offline || !locallyValid) return;
     let active = true;
@@ -277,6 +284,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   const problems: ReadonlyArray<Problem> = locallyValid && authoritative ? checked.problems : local;
   const blocking = problems.some((problem) => problem.severity === "error");
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Moves DOM focus to the requested element.
   useEffect(() => {
     if (focus === null || typeof document === "undefined") return;
     document.getElementById(focus)?.focus();
@@ -284,6 +292,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
     setFocus(null);
   }, [focus]);
   // Navigate only after the saved state renders clean so the guard does not hold it.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Navigates through the host router once the saved draft renders clean.
   useEffect(() => {
     if (savedSource === null || dirty || projectId === null) return;
     // oxlint-disable-next-line react/set-state-in-effect -- Consumes the one-shot post-save navigation request.
@@ -306,6 +315,7 @@ function Editor(props: PageProps & { readonly workflow: string | null }) {
   };
   // Stable so the graph's memoized handlers survive edits.
   const latestDraft = useRef(draft);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Mirrors the latest draft into a ref read by stable callbacks.
   useEffect(() => {
     latestDraft.current = draft;
   });

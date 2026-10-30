@@ -148,6 +148,7 @@ export function RunView({
   );
   const [freshLifetime, setFreshLifetime] = useState<typeof lifetime | null>(null);
   // Retained state is read-only until this exact subscription delivers a fresh snapshot.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the run's live snapshots through the plugin client.
   useEffect(() => {
     if (lifetime.offline) return;
     let current = true;
@@ -185,6 +186,7 @@ export function RunView({
     pageState.focus === "route" ? (pageState.node ?? null) : null,
   );
   const routeFocused = useCallback(() => setRouteFocus(null), []);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Moves DOM focus to the requested step button.
   useEffect(() => {
     if (run === null || routeFocus === null || view === "graph") return;
     const box =

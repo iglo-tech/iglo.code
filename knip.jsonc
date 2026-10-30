@@ -18,6 +18,14 @@
         "fixtures/*/*.js",
         "knip-schemas.ts",
         "setup-worktree.ts",
+        // Manual packaging, release and smoke tools; the fork has no workflows that run them.
+        "apply-web-brand-assets.ts",
+        "build-cli-archive.ts",
+        "export-brand-icons.ts",
+        "release-smoke.ts",
+        "resolve-nightly-release.ts",
+        "smoke-cli-archive.ts",
+        "sync-third-party-license-notices.ts",
       ],
       // The npm launcher package's files: copied into the package, never imported.
       // knip-schemas.test.ts writes a throwaway project to .knip-test-*, which a
@@ -34,6 +42,16 @@
         "scripts/probe-claude-fork-local-rollback-replay.ts",
         "scripts/update-test-shard-weights.ts",
         "scripts/verify-background-live.ts",
+        // Manual runtime smoke and web regression tools.
+        "scripts/smoke-device-tools.ts",
+        "scripts/smoke-native-runtime.ts",
+        "scripts/web-client-regression.ts",
+        // Loaded by path from those tools.
+        "scripts/native-fixtures/runtime.ts",
+        "scripts/web-fixtures/device-hub.mjs",
+        // Spawned by path from the service runtime tests.
+        "src/testUtils/serviceRuntime.child.ts",
+        "src/testUtils/serviceRuntime.launcher.ts",
         "src/provider/testFixtures/*.mjs",
         // graphqlgen reads its config.
         "graphql.config.ts",
@@ -51,7 +69,12 @@
       "ignoreDependencies": ["jsdom"],
       // Worktree setup (scripts/setup-worktree.ts) runs this directly, and evidence
       // fixtures run under node.
-      "entry": ["scripts/warm-dep-cache.ts", "test/fixtures/**/*.mjs"],
+      "entry": [
+        "scripts/warm-dep-cache.ts",
+        "scripts/verify-built-boot.ts",
+        "integration/vite.config.ts",
+        "test/fixtures/**/*.mjs",
+      ],
       // UI component modules are copied and adapted as cohesive sets. Keep their
       // named subcomponents even before they have callers; the file audit still
       // reports an entire component module when nothing imports it.
@@ -62,7 +85,8 @@
       "ignoreDependencies": ["@astrojs/check"],
     },
     "infra/relay": {
-      "entry": ["alchemy.run.ts!", "src/persistence/schema.ts!"],
+      // Alchemy loads src/worker.ts as the Worker entry and reads its default export.
+      "entry": ["alchemy.run.ts!", "src/persistence/schema.ts!", "src/worker.ts!"],
     },
     "packages/*": {
       // These workspace packages are private to this monorepo.

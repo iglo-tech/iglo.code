@@ -516,7 +516,9 @@ it.live("workflow schedule draft survives a transient unavailable connection", (
       expect(invoked.slice(blocked)).not.toContain("plugins.workflows.schedule");
       expect(invoked.slice(blocked)).not.toContain("scheduledTasks.upsert");
       const persistedTask = () =>
-        reader["scheduledTasks.list"]({}).pipe(
+        reader["scheduledTasks.subscribe"]({}).pipe(
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
           Effect.map((result) => result.tasks.find((task) => task.id === workflowId)!),
         );
       expect((yield* actEffect(persistedTask())).dispatchTarget?.payload).toMatchObject({
@@ -782,7 +784,12 @@ it.live("workflow schedule draft survives a transient unavailable connection", (
       );
       expect(stale).toContain("unavailable in this environment");
       expect(invoked.slice(newBlocked)).not.toContain("plugins.workflows.schedule");
-      const finalTasks = (yield* actEffect(removedClient["scheduledTasks.list"]({}))).tasks;
+      const finalTasks = (yield* actEffect(
+        removedClient["scheduledTasks.subscribe"]({}).pipe(
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+        ),
+      )).tasks;
       expect(finalTasks).toHaveLength(3);
       expect(
         finalTasks.find((task) => task.id === workflowId)?.dispatchTarget?.payload,

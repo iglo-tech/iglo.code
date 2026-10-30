@@ -34,7 +34,9 @@ function ReportsView({
     resolve: false,
     schedule: false,
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the plugin client's permission stream.
   useEffect(() => client.subscribePermissions(setPermissions), [client]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the plugin client's report stream for the current scope.
   useEffect(() => {
     return client.subscribe(
       { ...(projectId === null ? {} : { projectId }), ...(threadId === null ? {} : { threadId }) },

@@ -315,6 +315,7 @@ export function PluginSidebarAttention() {
 
 /** Tells the user a project action dialog failed, then closes it. */
 function ProjectActionFailed({ title, setOpen }: { title: string; setOpen: (open: null) => void }) {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Fires a toast and closes the action once for a failed project action.
   useEffect(() => {
     toastManager.add({ type: "error", title: `Couldn't open ${title}` });
     setOpen(null);

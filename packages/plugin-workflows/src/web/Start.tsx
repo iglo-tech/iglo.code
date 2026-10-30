@@ -87,10 +87,12 @@ export function StartDialog({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const inFlight = useRef(false);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Debounces the search query with a timer.
   useEffect(() => {
     if (query === search) return;
     return debounce(() => setSearch(query), authoringTimings.searchDelayMs);
   }, [query, search]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads the workflow library from the server through the plugin client.
   useEffect(() => {
     if (offline) return;
     let active = true;
@@ -113,6 +115,7 @@ export function StartDialog({
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps entriesAttempt to refetch.
   }, [client, projectId, search, offline, entriesAttempt]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads the workflow preview from the server through the plugin client.
   useEffect(() => {
     if (definitionId === null || offline) return;
     let active = true;
@@ -171,6 +174,7 @@ export function StartDialog({
   const reconciled = useRef(false);
   const requested = workflow;
   const other = intent !== null && requested !== undefined && requested !== intent.definitionId;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Submits a pending start intent to the server once per reconnection.
   useEffect(() => {
     // Each reconnection reconciles a still-pending intent once.
     if (offline) reconciled.current = false;

@@ -18,6 +18,7 @@ import * as Registry from "@t3tools/plugin-host-adapter/registry";
 import * as Context from "effect/Context";
 import { startEnvironment, makeClient, origin as testOrigin } from "./PluginHost.testkit.ts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { HttpBody, HttpClient, HttpServer } from "effect/http";
@@ -246,7 +247,10 @@ it.live("reports through authenticated MCP into the real environment's private p
             id: "report-1",
             everyMs: 60_000,
           });
-          const scheduled = (yield* reader["scheduledTasks.list"]({})).tasks[0]!;
+          const scheduled = (yield* reader["scheduledTasks.subscribe"]({}).pipe(
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          )).tasks[0]!;
           expect(scheduled.dispatchTarget).toEqual({
             id: "fixture.reminder",
             payload: { id: "report-1" },
@@ -265,7 +269,12 @@ it.live("reports through authenticated MCP into the real environment's private p
             (yield* reader["plugins.fixture.list"]({ environmentId: host.environmentId }))[0]
               ?.resolved,
           ).toBe(true);
-          expect((yield* reader["scheduledTasks.list"]({})).tasks[0]?.runCount).toBe(1);
+          expect(
+            (yield* reader["scheduledTasks.subscribe"]({}).pipe(
+              Stream.runHead,
+              Effect.map(Option.getOrThrow),
+            )).tasks[0]?.runCount,
+          ).toBe(1);
         }),
       );
       yield* Fiber.interrupt(environment);

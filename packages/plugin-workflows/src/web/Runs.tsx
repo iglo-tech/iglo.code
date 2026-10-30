@@ -165,6 +165,7 @@ function History({
     | { readonly kind: "idle" | "loading" | "end" }
     | { readonly kind: "failed"; readonly message: string }
   >({ kind: "idle" });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the project's run feed through the plugin client.
   useEffect(() => {
     if (offline) return;
     return client.subscribeRuns(

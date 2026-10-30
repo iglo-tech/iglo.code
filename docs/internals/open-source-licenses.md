@@ -12,11 +12,10 @@ web, server, and desktop package manifests. During the web bundle, the generator
 npm import missing from a package manifest.
 
 The build fails when a collected package has no distributable license identifier or contains no
-license or notice text. Generated notices use license templates from the pinned SPDX License List.
-Strict web builds download a missing template into the gitignored `.generated/` cache;
-`pnpm licenses:sync` can warm that cache explicitly. Local web development does not make a
-network request and omit generated rows until the cache exists. This keeps dev startup optional
-while preventing incomplete release artifacts.
+license or notice text. Generated notices use license templates from the pinned SPDX License List,
+committed under `third-party-licenses/spdx/`. Builds never fetch them, so a network blip cannot
+fail a build. A build fails when a configured template is missing; run `vp run licenses:sync` to
+download it, then commit the new file.
 
 ## Custom notices and package overrides
 
@@ -89,6 +88,3 @@ repository fallbacks.
 The `@react-grab/cli` override uses the root React Grab repository's MIT license because the CLI's
 npm archive omits both its license field and license file. Keep the override until the published
 CLI package carries that metadata itself.
-
-Fetched SPDX templates live under the repository's ignored `.generated/` directory. Do not commit or edit them;
-updating dependencies or configuration is enough for the next strict build to refresh the output.

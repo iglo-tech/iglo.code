@@ -62,8 +62,6 @@ export const WorktreeSetupSnapshot = Schema.Struct({
 });
 export type WorktreeSetupSnapshot = typeof WorktreeSetupSnapshot.Type;
 
-export const WORKTREE_SETUP_ACTIVITY_KIND = "worktree-setup";
-
 export const WorktreeSetupSubscribeInput = Schema.Struct({
   threadId: ThreadId,
 });

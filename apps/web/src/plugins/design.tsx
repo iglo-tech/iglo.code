@@ -311,6 +311,7 @@ export function PluginPageStatusStrip({ chrome }: { chrome: PluginPageChrome }) 
 function PageHeader({ breadcrumb, children }: ComponentProps<PluginDesign["PageHeader"]>) {
   const chrome = usePluginPageChrome();
   const claim = chrome?.claimHeader;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Claims the host header slot while mounted.
   useLayoutEffect(() => claim?.(), [claim]);
   const items =
     chrome?.showEnvironment === true

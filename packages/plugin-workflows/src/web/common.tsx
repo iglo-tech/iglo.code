@@ -68,6 +68,7 @@ const narrowQuery = () =>
     : window.matchMedia("(max-width: 1279px)");
 export function useNarrow(): boolean {
   const [narrow, setNarrow] = useState(() => narrowQuery()?.matches ?? false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Listens to the media query change event.
   useEffect(() => {
     const query = narrowQuery();
     if (query === null) return;
@@ -158,6 +159,7 @@ export function ProjectsAlert({
 /** Mirrors the host's permission grants for this environment. */
 export function usePermissions(client: WorkflowClient): WorkflowPermissions {
   const [permissions, setPermissions] = useState<WorkflowPermissions>(noPermissions);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the plugin client's permission stream.
   useEffect(() => client.subscribePermissions(setPermissions), [client]);
   return permissions;
 }
@@ -167,6 +169,7 @@ export function useProjects(props: PageProps) {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const { client, connection } = props;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads the project list from the server through the plugin client.
   useEffect(() => {
     if (connection === "disconnected") return;
     let active = true;

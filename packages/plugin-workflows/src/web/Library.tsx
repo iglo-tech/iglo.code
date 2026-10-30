@@ -68,6 +68,7 @@ function Library(props: PageProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<LibraryEntry | null>(null);
   const [permissions, setPermissions] = useState<WorkflowPermissions>(noPermissions);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the plugin client's permission stream.
   useEffect(() => client.subscribePermissions(setPermissions), [client]);
   // The workflow whose Run dialog is open over the library.
   const [running, setRunning] = useState<string | null>(null);
@@ -76,6 +77,7 @@ function Library(props: PageProps) {
     projectId === null ? [] : projectDrafts(props.drafts, projectId),
   );
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Debounces the search query with a timer.
   useEffect(() => {
     if (query === search) return;
     return debounce(() => {
@@ -86,6 +88,7 @@ function Library(props: PageProps) {
   const requestKey =
     projectId === null || offline ? null : JSON.stringify([projectId, search, offset, attempt]);
   const loading = requestKey !== null && settledKey !== requestKey;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads the workflow library page from the server through the plugin client.
   useEffect(() => {
     if (projectId === null || offline || requestKey === null) return;
     let active = true;

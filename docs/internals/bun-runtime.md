@@ -127,6 +127,10 @@ demonstrated incompatibility or improves an observed cost.
   already accounts for Bun histogram lateness and macOS sleep. Bun 1.4.2's
   utilization counters are stubs, so they cannot gate stall warnings.
   V8-shaped memory counters likewise should not be interpreted as V8 heap layout.
+- [HeapAttribution](../../apps/server/src/observability/HeapAttribution.ts) reads
+  the heap on every span start and end. Under Bun, `node:v8.getHeapStatistics()`
+  walks the whole JavaScriptCore heap (about 14 ms a call) and starves the server,
+  so it reads `process.memoryUsage().heapUsed` there instead.
 
 Host/process resource telemetry observes provider and terminal children as well as
 the server. Bun's own heap statistics cannot replace that cross-process view.

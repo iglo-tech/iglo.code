@@ -21,6 +21,7 @@ const savedPayload = (value: unknown): Saved =>
 
 function usePermissions(props: PageProps): WorkflowPermissions {
   const [permissions, setPermissions] = useState(noPermissions);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the plugin client's permission stream.
   useEffect(() => props.client.subscribePermissions(setPermissions), [props.client]);
   return permissions;
 }
@@ -55,10 +56,12 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewAttempt, setPreviewAttempt] = useState(0);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Debounces the search query with a timer.
   useEffect(() => {
     if (query === search) return;
     return debounce(() => setSearch(query), authoringTimings.searchDelayMs);
   }, [query, search]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads the workflow library from the server through the plugin client.
   useEffect(() => {
     if (offline) return;
     let active = true;
@@ -81,6 +84,7 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps entriesAttempt to refetch.
   }, [client, projectId, search, offline, entriesAttempt]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads the workflow preview from the server through the plugin client.
   useEffect(() => {
     if (definitionId === null || offline) return;
     let active = true;
@@ -105,6 +109,7 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
 
   // The host's callback may change identity every render; report only when the value changes.
   const onChange = useRef(props.onChange);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Mirrors the latest onChange prop into a ref read by the payload effect.
   useEffect(() => {
     onChange.current = props.onChange;
   });
@@ -115,6 +120,7 @@ function ScheduleEditor(props: PageProps & PluginScheduleTargetEditorProps) {
     preview.definitionId === definitionId &&
     preview.runnable;
   const payloadKey = ready ? JSON.stringify({ definitionId, task, workspace }) : null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reports the schedule payload to the host's schedule editor.
   useEffect(() => {
     onChange.current(payloadKey === null ? null : (JSON.parse(payloadKey) as SchedulePayload));
   }, [payloadKey]);
@@ -318,6 +324,7 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
   // Runs open in their own project; one that was removed cannot be opened.
   // "unknown" when the list could not be read: the run page then explains its own state.
   const [projects, setProjects] = useState<ReadonlySet<string> | "unknown" | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads the project list from the server through the plugin client.
   useEffect(() => {
     if (offline) return;
     let active = true;
@@ -334,6 +341,7 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new schedule revision re-reads the project list.
   }, [client, offline, revision]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads schedule history from the server through the plugin client.
   useEffect(() => {
     if (offline) return;
     let active = true;
@@ -354,6 +362,7 @@ function ScheduleHistoryList(props: PageProps & PluginScheduleTargetHistoryProps
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new schedule revision or a retry re-reads the history.
   }, [client, projectId, scheduleId, revision, offline, attempt]);
   // Workflow outcomes change without a dispatch: re-read while a listed run is still moving.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to run updates through the plugin client to refresh history.
   useEffect(() => {
     if (offline) return;
     return client.subscribeRuns(

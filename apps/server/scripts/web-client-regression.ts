@@ -445,17 +445,11 @@ export async function runWebClientRegression(
         await terminalMilestone(client, seeded.threadId, (_event, output) =>
           /\nresize-watcher-ready\n/.test(output),
         );
+        // Attached viewers own the PTY grid, so resize through the browser, not a bare RPC.
         const resized = terminalMilestone(client, seeded.threadId, (_event, output) =>
-          /27\s+91/.test(output),
+          /\nresize-watcher-ready\n[\s\S]*?\b\d+ \d+\n/.test(output),
         );
-        await requestRpc(
-          client[WS_METHODS.terminalResize]({
-            threadId: seeded.threadId,
-            terminalId: "term-1",
-            cols: 91,
-            rows: 27,
-          }),
-        );
+        await page.setViewportSize({ width: 960, height: 640 });
         await resized;
         await inputField.fill("printf 'terminal-error-fixture\\n' >&2; exit 7");
         await terminalMilestone(client, seeded.threadId, (_event, output) =>

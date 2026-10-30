@@ -526,9 +526,10 @@ it.live(
           }),
         );
         const taskId = ScheduledTaskId.make("plugin:workflows:nightly");
-        const saved = (yield* first.rpc["scheduledTasks.list"]({})).tasks.find(
-          (task) => task.id === taskId,
-        );
+        const saved = (yield* first.rpc["scheduledTasks.subscribe"]({}).pipe(
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+        )).tasks.find((task) => task.id === taskId);
         expect(saved?.dispatchTarget).toMatchObject({ id: "workflows.start", payload });
 
         // Editing reopens the saved selection and task in a fresh editor.
@@ -615,7 +616,12 @@ it.live(
         yield* promise(() => show(history("0", "connected", second)));
         yield* promise(() => second.tracked.settle("history"));
         expect(page()).toContain("Workflows does not own this schedule in this project");
-        expect((yield* second.rpc["scheduledTasks.list"]({})).tasks).toEqual([]);
+        expect(
+          (yield* second.rpc["scheduledTasks.subscribe"]({}).pipe(
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          )).tasks,
+        ).toEqual([]);
 
         // A disconnected editor offers nothing to save.
         yield* promise(() => show(editor(first, payload, "disconnected")));

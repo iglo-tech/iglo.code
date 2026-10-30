@@ -11,13 +11,10 @@
     "@t3tools/contracts": "workspace:*",
     "@t3tools/shared": "workspace:*",
     "@t3tools/tailscale": "workspace:*",
-    "effect": "catalog:",
-    "pngjs": "7.0.0",
-    "sharp": "0.35.4"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/pngjs": "6.0.5",
     "typescript": "catalog:",
     "typescript-legacy": "npm:typescript@~6.0.3",
     "vite-plus": "catalog:"
