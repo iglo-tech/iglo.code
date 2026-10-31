@@ -8,6 +8,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeCrypto from "node:crypto";
 import * as NodeNet from "node:net";
+import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
   AuthSessionState,
@@ -494,7 +495,7 @@ export async function checkEnvironment(fixture: EnvironmentFixture) {
   );
   const socketUrl = new URL("/ws", fixture.origin);
   socketUrl.protocol = "ws:";
-  socketUrl.searchParams.set("wsTicket", ticket.ticket);
+  socketUrl.searchParams.set("wsTicket", Redacted.value(ticket.ticket));
   socketUrl.searchParams.set("orchestrationProtocol", "2");
   const socket = new WebSocket(socketUrl);
   await new Promise<void>((resolve, reject) => {

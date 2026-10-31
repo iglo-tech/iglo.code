@@ -1,6 +1,7 @@
 import { AuthWebSocketTicketResult, WsRpcGroup } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as Schedule from "effect/Schedule";
 import * as RpcClient from "effect/rpc/RpcClient";
@@ -22,7 +23,7 @@ export async function withRegressionRpc<A>(
   );
   const url = new URL("/ws", fixture.origin);
   url.protocol = "ws:";
-  url.searchParams.set("wsTicket", ticket.ticket);
+  url.searchParams.set("wsTicket", Redacted.value(ticket.ticket));
   url.searchParams.set("orchestrationProtocol", "2");
   const socket = Socket.layerWebSocket(url.href).pipe(
     Layer.provide(Layer.succeed(Socket.WebSocketConstructor, (url) => new WebSocket(url))),

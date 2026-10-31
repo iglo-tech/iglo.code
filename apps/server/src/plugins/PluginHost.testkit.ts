@@ -28,6 +28,7 @@ import * as RpcClient from "effect/rpc/RpcClient";
 import * as RpcSerialization from "effect/rpc/RpcSerialization";
 import { HttpBody, HttpClient, HttpServer } from "effect/http";
 import * as FileSystem from "effect/FileSystem";
+import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { expect } from "@effect/vitest";
 import { Host } from "@t3tools/plugin-host-contract/server";
@@ -140,7 +141,7 @@ export const makeClient = (
     const session = yield* auth.issueSession({ scopes });
     const ticket = yield* auth.issueWebSocketTicket(session);
     const url = new URL(`${origin(context).replace("http", "ws")}/ws`);
-    url.searchParams.set("wsTicket", ticket.ticket);
+    url.searchParams.set("wsTicket", Redacted.value(ticket.ticket));
     url.searchParams.set(
       ORCHESTRATION_PROTOCOL_QUERY_PARAM,
       String(ORCHESTRATION_PROTOCOL_VERSION),
