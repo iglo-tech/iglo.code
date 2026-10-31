@@ -1918,9 +1918,10 @@ it.layer(
             events.filter((event) => event === "update"),
             ["update"],
           );
-          assert.strictEqual(events[0], "update");
+          // The already-current precheck refreshes before running the update.
+          const afterUpdate = events.slice(events.indexOf("update") + 1);
           assert.deepStrictEqual(
-            events.filter((event) => event.startsWith("probe:")).toSorted(),
+            afterUpdate.filter((event) => event.startsWith("probe:")).toSorted(),
             [
               "probe:personal",
               "probe:work",
@@ -1928,8 +1929,11 @@ it.layer(
             ].toSorted(),
           );
           for (const id of ["personal", "work"]) {
-            assert.isBelow(events.indexOf(`invalidate:${id}`), events.indexOf(`probe:${id}`));
-            assert.include(events, `invalidate:${id}`);
+            assert.isBelow(
+              afterUpdate.indexOf(`invalidate:${id}`),
+              afterUpdate.indexOf(`probe:${id}`),
+            );
+            assert.include(afterUpdate, `invalidate:${id}`);
             const provider = result.providers.find((p) => p.instanceId === id);
             assert.deepStrictEqual(
               provider?.models.map((model) => model.slug),

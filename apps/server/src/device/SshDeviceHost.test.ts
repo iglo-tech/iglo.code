@@ -223,7 +223,7 @@ it.effect("lists Android devices without probing the host again once it reports 
             mode === ""
               ? "Pixel_8\n"
               : JSON.stringify({
-                  nodePath: "/node",
+                  bunPath: "/bun",
                   platforms: [
                     { platform: "ios", available: true },
                     { platform: "android", available: androidInstalled },

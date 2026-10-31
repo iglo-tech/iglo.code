@@ -7,6 +7,8 @@ import * as Path from "effect/Path";
 import { applyWebBrandAssets } from "./apply-web-brand-assets.ts";
 
 const WEB_ICON_FILENAMES = [
+  "app-icon-192.png",
+  "app-icon-512.png",
   "apple-touch-icon.png",
   "favicon-16x16.png",
   "favicon-32x32.png",

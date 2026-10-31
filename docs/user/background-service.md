@@ -47,8 +47,8 @@ under T3 home. Pass `--yes` from a script.
 A new service answers only on this machine. Other devices reach it through
 T3 Connect, or directly once you choose the local network in `t3 up` (or run
 `t3 up --lan`, which sets `T3CODE_LAN=true` in `service.env`). It then listens on
-your local network and Tailscale addresses, so the desktop and mobile apps on
-the same network connect directly instead of through T3 Connect. It still does
+your local network and Tailscale addresses, so browsers on the same network
+connect directly instead of through T3 Connect. It still does
 not answer on public addresses. Anyone on the same network can reach the port,
 so a pairing code is all that keeps them out. The hosted web app at app.t3.codes
 stays on T3 Connect, because browsers block plain HTTP from an HTTPS page.
@@ -91,12 +91,6 @@ macOS starts the service when you log in and stops it when you log out. Keep the
 Mac logged in and awake for unattended remote access. Installing over SSH while
 nobody is logged in at the Mac's screen can fail at the final start step; the
 service is still installed and will start at the next login.
-
-Windows background services are not supported. To keep a Windows host available
-through T3 Connect, leave the desktop app running with its local environment
-enabled, or keep `t3 serve` running in a terminal. Minimize the desktop app rather
-than closing its last window, which stops its local server. Linking T3 Connect
-does not configure automatic startup at Windows sign-in.
 
 `t3 up` installs the service when you set up T3 Connect, but the two are managed
 separately. Signing out of T3 Connect does not stop or uninstall the service.

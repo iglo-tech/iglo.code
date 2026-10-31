@@ -6,6 +6,11 @@ export default mergeConfig(
   defineConfig({
     resolve: { alias: { "~": NodeURL.fileURLToPath(new URL("../src", import.meta.url)) } },
     // Real-server workflow runs boot a full environment per test.
-    test: { environment: "node", fileParallelism: false, testTimeout: 120_000 },
+    test: {
+      environment: "node",
+      fileParallelism: false,
+      setupFiles: ["integration/setup.ts"],
+      testTimeout: 120_000,
+    },
   }),
 );

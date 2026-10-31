@@ -72,6 +72,7 @@
       "entry": [
         "scripts/warm-dep-cache.ts",
         "scripts/verify-built-boot.ts",
+        "integration/setup.ts",
         "integration/vite.config.ts",
         "test/fixtures/**/*.mjs",
       ],
