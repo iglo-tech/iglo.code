@@ -38,6 +38,7 @@ layer("055_OrchestrationV2", (it) => {
         [75, "ActiveTurnItemIndexes"],
         [76, "ExcludeAttachmentPlaceholdersFromSearch"],
         [77, "SubagentDeliveryState"],
+        [78, "ProjectionProjectsPinArchive"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
@@ -102,6 +103,7 @@ layer("055_OrchestrationV2", (it) => {
           [75, "ActiveTurnItemIndexes"],
           [76, "ExcludeAttachmentPlaceholdersFromSearch"],
           [77, "SubagentDeliveryState"],
+          [78, "ProjectionProjectsPinArchive"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -129,6 +131,7 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 75, name: "ActiveTurnItemIndexes" },
             { migration_id: 76, name: "ExcludeAttachmentPlaceholdersFromSearch" },
             { migration_id: 77, name: "SubagentDeliveryState" },
+            { migration_id: 78, name: "ProjectionProjectsPinArchive" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -165,6 +168,7 @@ layer("055_OrchestrationV2", (it) => {
         [75, "ActiveTurnItemIndexes"],
         [76, "ExcludeAttachmentPlaceholdersFromSearch"],
         [77, "SubagentDeliveryState"],
+        [78, "ProjectionProjectsPinArchive"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -198,6 +202,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 75, name: "ActiveTurnItemIndexes" },
         { migration_id: 76, name: "ExcludeAttachmentPlaceholdersFromSearch" },
         { migration_id: 77, name: "SubagentDeliveryState" },
+        { migration_id: 78, name: "ProjectionProjectsPinArchive" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -206,7 +211,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 77 }, (_, index) => index + 1),
+        Array.from({ length: 78 }, (_, index) => index + 1),
       );
     }),
   );
@@ -242,6 +247,7 @@ layer("055_OrchestrationV2", (it) => {
         [75, "ActiveTurnItemIndexes"],
         [76, "ExcludeAttachmentPlaceholdersFromSearch"],
         [77, "SubagentDeliveryState"],
+        [78, "ProjectionProjectsPinArchive"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -285,6 +291,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 75, name: "ActiveTurnItemIndexes" },
         { migration_id: 76, name: "ExcludeAttachmentPlaceholdersFromSearch" },
         { migration_id: 77, name: "SubagentDeliveryState" },
+        { migration_id: 78, name: "ProjectionProjectsPinArchive" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
