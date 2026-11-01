@@ -44,6 +44,8 @@ current when an authorized change replaces a decision.
 - **Bun compatibility boundaries.** Retain working Node-compatible APIs and
   Effect services. Keep Bun PTY selection, SQLite boolean normalization, and
   supported stall diagnostics rather than restoring Node-only assumptions.
+  Keep upstream's Node-only `cliCompileCache` removed: Bun has no `node:sea`, so
+  importing it stops the CLI at startup, and Bun's `enableCompileCache` is a stub.
   Executable bundling preserves one shared Effect context, leaves `ws` to Bun's
   compatibility module, and stages file-backed dependencies using the same
   [external-package boundary](../../../scripts/lib/cli-external-packages.ts).
