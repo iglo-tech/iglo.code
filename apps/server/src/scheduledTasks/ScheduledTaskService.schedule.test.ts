@@ -229,3 +229,45 @@ it.effect(
       }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
     }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
+
+it.effect("delivers a one-time task on a thread already queuing a run of that task", () =>
+  Effect.gen(function* () {
+    yield* TestClock.setTime(Date.parse("2026-07-01T09:00:00.000Z"));
+    const sent = yield* Deferred.make<string>();
+    const layerDependencies = Layer.mergeAll(
+      NodeCrypto.layer,
+      Scheduler.layer,
+      Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/projects",
+        isScratchProject: () => Effect.succeed(false),
+      }),
+      Layer.mock(ThreadManagementService.ThreadManagementService)({
+        getProjectThreadRecords: () => Effect.succeed({ runs: [{ status: "queued" }] } as never),
+        sendToThread: (input) =>
+          Deferred.succeed(sent, input.text).pipe(Effect.as({ delivery: "queued" } as never)),
+      }),
+      Layer.mock(SecretRequests.SecretRequests)({}),
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      yield* service.upsert(
+        yield* decodeUpsertInput({
+          title: "Once on a busy thread",
+          prompt: "Ship the release.",
+          enabled: true,
+          schedule: { type: "once", runAt: "2026-07-01T09:01:00.000Z" },
+          projectId: "project-once-busy",
+          threadId: "thread-once-busy",
+          workspaceStrategy: { type: "root" },
+          modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        }),
+      );
+      yield* TestClock.adjust("6 seconds");
+      yield* TestClock.adjust("60 seconds");
+      expect(yield* Deferred.await(sent)).toBe("Ship the release.");
+    }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
