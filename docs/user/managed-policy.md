@@ -2,8 +2,7 @@
 
 A managed policy lets an administrator configure T3 Code for every user on a machine. It sets
 defaults and locks for settings, and limits such as the broadest permission mode or which
-providers may run. The T3 Code server on the machine enforces it for every app that connects:
-the desktop app, a browser, or the mobile app.
+providers may run. The T3 Code server on the machine enforces it for every browser that connects.
 
 ## Roll out a policy
 
@@ -14,8 +13,6 @@ the desktop app, a browser, or the mobile app.
 4. Restart T3 Code on the machine. The server reads the policy only when it starts.
 5. Run `t3 policy show` on the machine to
    [check what the server loaded](#check-what-the-server-loaded).
-
-The desktop app includes the `t3` command; see [The `t3` command](./install.md#the-t3-command).
 
 ## Write a policy
 
@@ -30,7 +27,7 @@ The desktop app includes the `t3` command; see [The `t3` command](./install.md#t
   },
   "limits": {
     "maxRuntimeMode": "auto-accept-edits",
-    "clients": ["desktop", "local-browser"],
+    "clients": ["local-browser"],
     "telemetry": false
   }
 }
@@ -87,9 +84,8 @@ and each locked control shows **Managed by**.
 
 ## Change or remove a policy
 
-After you deploy, change, or remove a policy, restart the T3 Code server on the machine: quit and
-reopen the desktop app, or run `t3 service restart` for the
-[background service](./background-service.md). Reconnecting a phone or browser does not reload the
+After you deploy, change, or remove a policy, restart the T3 Code server on the machine: run `t3 service restart` for the
+[background service](./background-service.md), or restart `t3` where you started it. Reconnecting a phone or browser does not reload the
 policy.
 
 To remove a policy, delete the file, remove the profile, or delete the registry value, then restart
@@ -146,7 +142,7 @@ A few settings need care:
   "organization": "Example Corp",
   "limits": {
     "maxRuntimeMode": "auto-accept-edits",
-    "clients": ["desktop"],
+    "clients": ["local-browser"],
     "connect": false,
     "webhookTasks": false,
     "browserCookieImport": false,
@@ -160,7 +156,7 @@ A few settings need care:
         }
       }
     },
-    "updates": { "mode": "auto", "feedUrl": "https://updates.example.com/t3code/" }
+    "updates": { "mode": "auto", "allowNightly": false }
   }
 }
 ```
@@ -192,19 +188,16 @@ The limit decides which modes T3 Code asks the provider for. It is not a sandbox
 
 `clients` lists how the server may run:
 
-- `desktop`: as the desktop app's own server.
-- `local-browser`: as a server only browsers on this machine reach, such as `npx t3`.
+- `local-browser`: as a server only browsers on this machine reach.
 - `remote`: reachable from phones, other computers, and app.t3.codes over the network.
 
 `remote` is the line that matters. A server reachable from the network also accepts browsers on
-this machine, and the two local kinds differ only in how T3 Code was started. On machines with the
-desktop app, keep `desktop` in the list, or the app cannot start.
+this machine.
 
 Without `remote`, the server listens only on a loopback address, creates no pairing links, and
 signs out devices that paired earlier. It does not start with a host other than a loopback
 address or `localhost`. The [background service](./background-service.md) listens on private
-networks by default, so set `T3CODE_HOST=127.0.0.1` in its `service.env`. The desktop app starts
-with network access and Tailscale Serve off, whatever the user chose. That also turns off
+networks by default, so set `T3CODE_HOST=127.0.0.1` in its `service.env`. That also turns off
 T3 Connect. To keep other remote access but turn off T3 Connect alone, set `"connect": false`.
 
 When it starts, the server also turns off each Tailscale Serve route, HTTPS or TCP, that forwards
@@ -224,7 +217,7 @@ so restart T3 Code after that.
   but do not run, and cannot be turned back on. Users can still edit or delete them.
 - `browserCookieImport: false`: users cannot import cookies from another browser into T3 Code's
   browser.
-- `telemetry: false`: the server and desktop app send no [product usage data](./telemetry.md) or
+- `telemetry: false`: the server sends no [product usage data](./telemetry.md) or
   relay connection traces. A policy cannot turn them on. A browser that opens the server, such as
   app.t3.codes, still sends its own relay traces.
 
@@ -249,9 +242,6 @@ starts the binary you set.
 
 - `mode`: `auto` keeps the normal update flow. `off` stops T3 Code from checking for updates, for
   machines that get T3 Code through device management.
-- `feedUrl`: the desktop app updates from your own mirror of the release feed instead of GitHub.
-  Publish only the versions you have approved. The `t3` command-line server updates through npm,
-  so pin it with your package tooling.
 - `allowNightly: false`: the nightly channel is unavailable.
 
 ## What a policy does not cover
@@ -259,10 +249,6 @@ starts the binary you set.
 The policy controls what T3 Code does. Agents run through each provider's own CLI, which reads its
 own configuration, such as `~/.claude`, and which a user can also run outside T3 Code. To restrict
 those CLIs, use their own managed configuration, such as Claude Code's managed settings.
-
-On a managed Windows machine, the desktop app does not run a WSL environment. A T3 Code server a
-user starts inside WSL reads `/etc/t3code/policy.json` in that distro, not the Windows policy.
-Deploy the policy file there too if your users run T3 Code in WSL.
 
 Without `remote`, T3 Code does not expose the server, but a user can still forward its local port
 with other tools.

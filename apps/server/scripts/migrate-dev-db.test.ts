@@ -313,7 +313,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       assert.equal(error._tag, "MigrateDevDbPhaseError");
       if (error._tag === "MigrateDevDbPhaseError") {
         assert.equal(error.phase, "migrate");
-        assert.include(String(error.cause), "60_ThreadSnapshotWindowIndexes");
+        assert.include(String(error.cause), "60_ScheduleDispatchTargets");
       }
       assert.deepStrictEqual(yield* fs.readFile(source), sourceBefore);
       assert.deepStrictEqual(yield* fs.readFile(destination), destinationBefore);
