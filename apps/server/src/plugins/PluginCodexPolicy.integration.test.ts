@@ -112,6 +112,7 @@ it.live("denies mutation before a native Codex turn applies the requested permis
           open: (input) =>
             Effect.gen(function* () {
               sentParams = Codex.codexThreadRuntimeParams({
+                threadId,
                 mcpSession: yield* mcpSessions.read(threadId),
                 modelSelection: selection,
                 runtimePolicy: requestedPolicy,
