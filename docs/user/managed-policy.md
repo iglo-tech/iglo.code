@@ -267,9 +267,11 @@ starts the binary you set.
 - `mode`: `auto` keeps the normal update flow. `off` stops T3 Code from checking for updates, for
   machines that get T3 Code through device management.
 - `feedUrl`: T3 Code updates from your own mirror instead of GitHub: `t3 update` and updates
-  started from another device. Publish only the versions you have approved, laid out as on a
-  GitHub release: the release's `t3-*` archives and `SHA256SUMS` go under `v<version>/`. A `t3`
-  run through `npx` comes from npm, so pin it with your package tooling.
+  started from another device. Publish only the versions you have approved. The update files
+  that name the version for each platform (`latest-mac.yml`, `latest-linux.yml`,
+  `latest-linux-arm64.yml`, and their `nightly` versions if you allow nightly) go at the URL's
+  root, and the release's `t3-*` archives and `SHA256SUMS` go under `v<version>/`. A `t3` run
+  through `npx` comes from npm, so pin it with your package tooling.
 - `allowNightly: false`: the nightly channel is unavailable.
 
 ## What a policy does not cover
