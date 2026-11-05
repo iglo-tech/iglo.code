@@ -42,9 +42,10 @@ including [Browser streams](../../apps/server/src/preview/ServerBrowserStream.ts
 retain their platform: JPEG frames stay uncompressed, with bounded pending bytes
 and immediate slow-viewer cleanup.
 
-The platform-node upgrade patch skips HTTP response writes after upgrade: under
-Bun, even an unassigned `ServerResponse.end()` can inject HTTP bytes into the RPC
-WebSocket stream. Keep the raw close-handshake regression when updating Effect.
+Under Bun, even an unassigned `ServerResponse.end()` can inject HTTP bytes into the
+RPC WebSocket stream. Effect 4.1.2's platform-node upgrade handler no longer builds
+an HTTP response after an upgrade, so the fork's patch for it was dropped. Keep the
+raw close-handshake regression when updating Effect.
 
 The #20 compressor anomaly came from Bun's native handshake reducing dedicated
 compressors to the 3 KiB setting through an overlapping enum bitmask. Its
