@@ -51,8 +51,10 @@ const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 /**
  * Pipe-backed stand-in for Bun's PTY. The shell leads its own process group so
  * signals reach the scripts it runs, as a terminal session's hangup does;
- * signalling only the shell would orphan a script blocked on a gate.
+ * signalling only the shell would orphan a script blocked on a gate. It echoes input and
+ * prints a line-editor prompt like a terminal, or the setup runner waits on real timers.
  */
+const PROMPT = "printf '\\033[?2004h$ '\n";
 const scriptRuntime: typeof BunPtyRuntime.Service = {
   spawn: (command, options) => {
     const child = NodeChildProcess.spawn(command[0]!, command.slice(1), {
@@ -76,12 +78,15 @@ const scriptRuntime: typeof BunPtyRuntime.Service = {
     child.once("exit", () => signalGroup("SIGHUP"));
     const terminal = {
       write: (data: string) => {
-        child.stdin.write(data.replaceAll("\r", "\n"));
+        const input = data.replaceAll("\r", "\n");
+        options.terminal.data(terminal, Buffer.from(input));
+        child.stdin.write(input.endsWith("\n") ? input + PROMPT : input);
         return Buffer.byteLength(data);
       },
       resize: () => {},
       close: () => child.stdin.end(),
     };
+    child.stdin.write(PROMPT);
     child.stdout.on("data", (data: Buffer) => options.terminal.data(terminal, data));
     child.stderr.on("data", (data: Buffer) => options.terminal.data(terminal, data));
     const exited = new Promise<number>((resolve, reject) => {
