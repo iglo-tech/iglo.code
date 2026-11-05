@@ -87,7 +87,6 @@ export function makeReplayServerConfig(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    // Removed with the caller's scope, after the server built on it shuts down.
     const baseDir = yield* fs.makeTempDirectoryScoped({
       prefix: `t3-orchestration-v2-replay-${safeScenario}-`,
     });
