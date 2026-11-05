@@ -16,18 +16,16 @@ allowBuilds:
   bufferutil: false
   core-js: false
   esbuild: true
-  msgpackr-extract: true
-  msw: false
   sharp: true
-  "@tsc-rs/typescript": true
   utf-8-validate: false
   workerd: false
 
 catalog:
-  "@alchemy.run/axiom": 2.0.0-beta.84
-  "@alchemy.run/cloudflare": 2.0.0-beta.84
-  "@alchemy.run/drizzle": 2.0.0-beta.84
-  "@alchemy.run/planetscale": 2.0.0-beta.84
+  "@alchemy.run/axiom": 2.0.0-beta.85
+  "@alchemy.run/cloudflare": 2.0.0-beta.85
+  "@alchemy.run/drizzle": 2.0.0-beta.85
+  "@alchemy.run/planetscale": 2.0.0-beta.85
+  "@alchemy.run/test": 2.0.0-beta.85
   "@clerk/backend": 3.25.0
   "@clerk/clerk-js": 6.40.0
   "@clerk/electron": 0.1.3
@@ -35,19 +33,21 @@ catalog:
   "@clerk/shared": 4.41.0
   # Must match the version alchemy depends on: the relay overrides its
   # Cloudflare retry policy through this package's Retry service.
-  "@distilled.cloud/cloudflare": 1.0.0-rc.17
-  "@effect/atom-react": 4.0.5
-  "@effect/graphql-generator": 4.0.5
-  "@effect/openapi-generator": 4.0.5
-  "@effect/platform-node": 4.0.5
-  "@effect/platform-node-shared": 4.0.5
-  "@effect/sql-pg": 4.0.5
-  "@effect/sql-sqlite-do": 4.0.5
-  "@effect/vitest": 4.0.5
+  "@distilled.cloud/cloudflare": 1.0.0-rc.18
+  "@effect/atom-react": 4.1.2
+  "@effect/graphql-generator": 4.1.2
+  "@effect/openapi-generator": 4.1.2
+  "@effect/platform-bun": 4.1.2
+  "@effect/platform-node": 4.1.2
+  "@effect/platform-node-shared": 4.1.2
+  "@effect/sql-pg": 4.1.2
+  "@effect/sql-sqlite-do": 4.1.2
+  "@effect/vitest": 4.1.2
   "@legendapp/list": 3.3.5
   "@noble/curves": 1.9.1
   "@noble/hashes": 1.8.0
   "@pierre/diffs": 1.6.1
+  "@pierre/highlights": 0.2.0
   "@tailwindcss/node": 4.3.3
   "@tailwindcss/oxide": 4.3.3
   "@tailwindcss/vite": 4.3.3
@@ -55,14 +55,13 @@ catalog:
   "@types/react": ~19.3.0
   "@types/react-dom": ~19.3.0
   "@types/ws": 8.18.2
-  alchemy: 2.0.0-beta.84
-  effect: 4.0.5
+  alchemy: 2.0.0-beta.85
+  effect: 4.1.2
   jose: 6.2.2
   lightningcss: 1.33.0
   react: 19.3.0
   react-dom: 19.3.0
   tailwindcss: 4.3.3
-  typescript: npm:@tsc-rs/typescript@0.8.0
   undici: 8.11.2
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
   vite-plus: 1.4.0
@@ -81,60 +80,6 @@ catalog:
   remark-parse: 11.0.0
   remark-rehype: 11.1.2
   unified: 11.0.5
-
-minimumReleaseAgeExclude:
-  - alchemy@2.0.0-beta.84
-  - "@alchemy.run/acme@2.0.0-beta.84"
-  - "@alchemy.run/axiom@2.0.0-beta.84"
-  - "@alchemy.run/cloudflare@2.0.0-beta.84"
-  - "@alchemy.run/cloudflare-runtime@2.0.0-beta.84"
-  - "@alchemy.run/docker@2.0.0-beta.84"
-  - "@alchemy.run/drizzle@2.0.0-beta.84"
-  - "@alchemy.run/node-utils@2.0.0-beta.84"
-  - "@alchemy.run/planetscale@2.0.0-beta.84"
-  - "@alchemy.run/sql@2.0.0-beta.84"
-  - "@distilled.cloud/acme@1.0.0-rc.17"
-  - "@distilled.cloud/aws4signer@1.0.0-rc.17"
-  - "@distilled.cloud/axiom@1.0.0-rc.17"
-  - "@distilled.cloud/cloudflare@1.0.0-rc.17"
-  - "@distilled.cloud/core@1.0.0-rc.17"
-  - "@distilled.cloud/iceberg@1.0.0-rc.17"
-  - "@distilled.cloud/planetscale@1.0.0-rc.17"
-  - "@tsc-rs/*"
-  - "@clerk/backend@3.25.0"
-  - "@clerk/clerk-js@6.40.0"
-  - "@clerk/electron@0.1.3"
-  - "@clerk/react@6.18.0"
-  - "@clerk/shared@4.41.0"
-  - "@effect/atom-react@4.0.5"
-  - "@effect/graphql-generator@4.0.5"
-  - "@effect/openapi-generator@4.0.5"
-  - "@effect/platform-node-shared@4.0.5"
-  - "@effect/platform-node@4.0.5"
-  - "@effect/sql-pg@4.0.5"
-  - "@effect/sql-sqlite-do@4.0.5"
-  - "@effect/vitest@4.0.5"
-  - effect@4.0.5
-  - "@legendapp/list@3.3.5"
-  - "@anthropic-ai/claude-agent-sdk@0.3.276"
-  - "@shadcn/lint@0.1.5"
-  - "react@19.3.0"
-  - "react-dom@19.3.0"
-  - "@opencode/client@2.0.28"
-  - "@opencode/protocol@2.0.28"
-  - "@opencode/schema@2.0.28"
-  - "@muse-code/sdk@1.4.6"
-  - pele@1.8.0
-  - "@pierre/diffs@1.6.1"
-  - "@pierre/highlights@0.2.0"
-  - "@pierre/theming@1.0.2"
-  - agent-device@0.21.32
-  - "@cursor/sdk-darwin-arm64@1.2.0"
-  - "@cursor/sdk-darwin-x64@1.2.0"
-  - "@cursor/sdk-linux-arm64@1.2.0"
-  - "@cursor/sdk-linux-x64@1.2.0"
-  - "@cursor/sdk-win32-x64@1.2.0"
-  - "@cursor/sdk@1.2.0"
 
 overrides:
   # Pin every patched package, including transitive dependencies, so lockfile-free
@@ -158,30 +103,23 @@ overrides:
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64-musl": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-arm64": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-x64": "-"
-  # Alchemy's Ink fork declares React as a hard dependency, but the relay only
-  # reaches its terminal-capability helpers; the TUI is never imported, so the
-  # extra React copy is pure install weight.
-  "@alchemy.run/sigil>react": "-"
-  "@alchemy.run/sigil>react-reconciler": "-"
-  "@alchemy.run/sigil>scheduler": "-"
   "@clerk/backend": "catalog:"
   "@clerk/clerk-js": "catalog:"
   "@clerk/clerk-js>@base-org/account": "-"
   "@clerk/clerk-js>@coinbase/wallet-sdk": "-"
-  "@clerk/clerk-js>@solana/wallet-adapter-base": "-"
-  "@clerk/clerk-js>@solana/wallet-adapter-react": "-"
-  "@clerk/clerk-js>@solana/wallet-standard": "-"
   "@clerk/clerk-js>@wallet-standard/core": "-"
   "@clerk/electron": "catalog:"
   "@clerk/react": "catalog:"
   "@clerk/shared": "catalog:"
   "@effect/atom-react": "catalog:"
+  "@effect/platform-bun": "catalog:"
   "@effect/platform-node": "catalog:"
   "@effect/platform-node-shared": "catalog:"
   "@effect/sql-pg": "catalog:"
   "@effect/vitest": "catalog:"
   "@effect/vitest>vitest": "-"
-  "@pierre/diffs>@shikijs/transformers": ^4.2.0
+  # @pierre/trees pins @pierre/theming 1.0.0, whose peer range predates @pierre/theme 2.
+  "@pierre/trees>@pierre/theming": 1.0.2
   # Resolve below remark-math so Vite, Metro and Node use the same tokenizer.
   "remark-math>micromark-extension-math": npm:micromark-extension-llm-math@3.1.0
   micromark-extension-gfm-table: 2.1.1
@@ -217,14 +155,13 @@ packageExtensions:
       vite-plus: "catalog:"
 
 patchedDependencies:
-  "@effect/platform-node@4.0.5": patches/@effect__platform-node@4.0.5.patch
   mdast-util-math@3.0.0: patches/mdast-util-math@3.0.0.patch
   micromark-extension-llm-math@3.1.0: patches/micromark-extension-llm-math@3.1.0.patch
   micromark-extension-gfm-table@2.1.1: patches/micromark-extension-gfm-table@2.1.1.patch
   micromark@4.0.2: patches/micromark@4.0.2.patch
   mdast-util-to-hast@13.2.1: patches/mdast-util-to-hast@13.2.1.patch
-  alchemy@2.0.0-beta.84: patches/alchemy@2.0.0-beta.84.patch
-  "@effect/vitest@4.0.5": patches/@effect__vitest@4.0.5.patch
+  "@alchemy.run/test@2.0.0-beta.85": patches/@alchemy.run__test@2.0.0-beta.85.patch
+  "@effect/vitest@4.1.2": patches/@effect__vitest@4.1.2.patch
   "@ff-labs/fff-node@0.11.0": patches/@ff-labs__fff-node@0.11.0.patch
   "@legendapp/list@3.3.5": patches/@legendapp__list@3.3.5.patch
   # Exports the dependency-light subpaths mobile and the web diff parser import, and keeps
@@ -232,6 +169,12 @@ patchedDependencies:
   "@pierre/diffs@1.6.1": patches/@pierre%2Fdiffs@1.6.1.patch
   # Observe the owned host exit independently of descendants retaining its stdio.
   "@muse-code/sdk@1.4.6": patches/@muse-code__sdk@1.4.6.patch
+  # A failed Artifacts.cached effect hangs every later caller: https://github.com/alchemy-run/alchemy/issues/2981
+  alchemy@2.0.0-beta.85: patches/alchemy@2.0.0-beta.85.patch
+
+# Unmet peers fail resolution, so a pin outside a dependency's peer range is
+# caught when the lockfile changes instead of scrolling past as a warning.
+strictPeerDependencies: true
 
 peerDependencyRules:
   allowAny:
@@ -239,6 +182,8 @@ peerDependencyRules:
     - vite
   allowedVersions:
     vite: "*"
+    # ws 7 (React Native tooling that @legendapp/list peers pull in) only calls isValidUTF8, unchanged in v6.
+    "ws@7>utf-8-validate": "6"
 
 # pnpm 12 links agent skills that dependencies ship into .claude/skills once
 # approved. We curate our own skills, so deny these to keep installs quiet.
@@ -252,3 +197,13 @@ permissions:
 # pnpm keeps optional deps inside the virtual store, so hoist it to the root.
 publicHoistPattern:
   - "@cursor/sdk-*"
+
+minimumReleaseAgeExclude:
+  - "@effect/tsgo-darwin-arm64@0.67.1"
+  - "@effect/tsgo-darwin-x64@0.67.1"
+  - "@effect/tsgo-linux-arm64@0.67.1"
+  - "@effect/tsgo-linux-arm@0.67.1"
+  - "@effect/tsgo-linux-x64@0.67.1"
+  - "@effect/tsgo-win32-arm64@0.67.1"
+  - "@effect/tsgo-win32-x64@0.67.1"
+  - "@effect/tsgo@0.67.1"

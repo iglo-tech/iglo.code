@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as FileSystem from "effect/FileSystem";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
@@ -90,7 +92,7 @@ it.live.each(["default-gate", "current-gate", "default-agent"] as const)(
         expect(native.workspacePath).toBe(retained.workspacePath);
         if (mode !== "current-gate") expect(native.workspacePath).not.toBe(test.config.baseDir);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live.each([
@@ -238,5 +240,5 @@ it.live.each([
       expect((yield* get(started.id)).attempts[0]!.phase).toBe(actual.attempts[0]!.phase);
       if (!runnable) expect(yield* test.threads.getThreadShell(pending.threadId!)).toBeNull();
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

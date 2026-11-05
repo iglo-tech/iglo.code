@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
@@ -73,7 +75,7 @@ it.effect.each(["target-edit", "identity-collision"] as const)(
         );
         expect(yield* fs.exists(`${test.directory}/.t3code/workflows/sequence.yaml`)).toBe(false);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("pages and searches the entire catalog beyond the display cap", () =>
@@ -146,7 +148,7 @@ it.effect("pages and searches the entire catalog beyond the display cap", () =>
         .pipe(Effect.flatMap(decodePage));
       expect(packaged.entries.every((entry) => entry.packaged)).toBe(true);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("repairs an invalid file only through its observed fingerprint", () =>
@@ -230,7 +232,7 @@ it.effect("repairs an invalid file only through its observed fingerprint", () =>
         .pipe(Effect.result);
       expect(packaged).toMatchObject({ _tag: "Failure", failure: { code: "unavailable" } });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("locates blocking errors and warnings while preserving their reasons", () =>
@@ -321,7 +323,7 @@ it.effect("locates blocking errors and warnings while preserving their reasons",
         { name: "code-review", displayName: null, description: null, enabled: true },
       ]);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("names an existing identity when a new workflow would take it over", () =>
@@ -362,7 +364,7 @@ it.effect("names an existing identity when a new workflow would take it over", (
         },
       });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("leaves only workflow files in the catalog directory after saving", () =>
@@ -391,7 +393,7 @@ it.effect("leaves only workflow files in the catalog directory after saving", ()
       });
       expect(yield* fs.readDirectory(directory)).toEqual(["sequence.yaml"]);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("deletes an authored workflow only through its observed fingerprint", () =>
@@ -439,5 +441,5 @@ it.effect("deletes an authored workflow only through its observed fingerprint", 
         expect(result).toMatchObject({ _tag: "Failure", failure: { code: "unavailable" } });
       }
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

@@ -11,7 +11,7 @@ orchestrator independent of the platform implementation. An adapter change must
 preserve those behaviors rather than spread direct Bun calls through features.
 Vite+/pnpm and their Node contributor toolchain are a separate concern.
 
-Effect's read-only reference under `.repos/effect-smol` contains `BunHttpServer` and a
+Effect's read-only reference under `.repos/effect` contains `BunHttpServer` and a
 `sql-sqlite-bun` adapter; inspect them before inventing equivalents. Check their
 implementation and compatibility against the dependency version being adopted.
 In the Effect 4.0.1 reference, `packages/platform/bun/src/BunFileSystem.ts` uses

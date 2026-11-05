@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Deferred from "effect/Deferred";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
@@ -117,5 +119,5 @@ it.live.each(["cancel-inflight", "no-cancel", "cancel-committed"] as const)(
           scenario === "no-cancel" ? ["preparing"] : ["interrupted"],
         );
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

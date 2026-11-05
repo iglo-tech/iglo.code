@@ -11,7 +11,9 @@ def desktop_dependency(name):
         r"^(?:electron(?:[-@>]|$)|@electron/asar(?:@|$)|@electron/osx-sign(?:@|$)"
         r"|@clerk/electron-passkeys(?:@|$)|@crowecawcaw/xa11y(?:@|$)"
         r"|@electron-webauthn/|objc-js(?:@|$)|(?:@types/)?plist(?:@|$)|tldts(?:@|$)"
-        r"|dbus-next(?:[@>]|$)|node-abi(?:[@:]|$)|app-builder-lib(?:@|$))", name
+        r"|dbus-next(?:[@>]|$)|node-abi(?:[@:]|$)|app-builder-lib(?:@|$)"
+        # The Bun runtime uses its own PTY; node-pty only served the Node adapter.
+        r"|node-pty(?:[@:]|$))", name
     ))
 
 
@@ -173,6 +175,7 @@ def prune_desktop(root):
     for pattern in (".github/workflows/desktop-*", "scripts/build-desktop-artifact.*",
                     "scripts/merge-update-manifests.*", "scripts/mock-update-server.*", "scripts/sign-macos.*",
                     "scripts/verify-windows-desktop-artifact.*", "scripts/lib/windows-jsign.*",
+                    "scripts/linux-after-pack.*",
                     "scripts/lib/windows-tar.*", ".github/scripts/vercel-deployment-output.*"):
         for target in sorted(root.glob(pattern)):
             remove(target.relative_to(root))

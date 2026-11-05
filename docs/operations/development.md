@@ -182,9 +182,11 @@ and runs in headless Chromium with the React Compiler on, like the app. Other `*
 run in Node. The fork's plugin and workflow tests in `apps/web/integration` still use jsdom and
 `react-test-renderer`.
 
-TypeScript workspaces typecheck with `tsc`. The `typescript` catalog entry is
-`@tsc-rs/typescript`, the tsc-rs drop-in, with Effect diagnostics, quick fixes, and
-refactors built in. VS Code uses it through `js/ts.tsdk.path` in `.vscode/settings.json`.
+TypeScript workspaces typecheck with `effect-tsgo tsrs --noEmit` from `@effect/tsgo`: the
+[tsrs](https://github.com/oxc-project/tsrs) checker with Effect diagnostics, quick fixes, and
+refactors built in. Only `apps/marketing` installs `typescript`, for Astro. VS Code's TypeScript 7
+extension starts the same checker through `.vscode/tsdk/tsgo` (`js/ts.tsdk.path`), a POSIX
+script, so on Windows open the workspace through WSL.
 
 CI runs one Linux x64 job on pull requests, pushes to `main`, and manual dispatches.
 It checks formatting, lint, types, a small smoke-test set, and the web/server build.

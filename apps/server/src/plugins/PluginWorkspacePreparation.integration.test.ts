@@ -1,10 +1,12 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
@@ -168,5 +170,5 @@ it.live.each([false, true])(
         expect(shell!.worktreePath).not.toBeNull();
         yield* Fiber.interrupt(second.fiber);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

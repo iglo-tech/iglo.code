@@ -1,7 +1,9 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Host } from "@t3tools/plugin-host-contract/server";
@@ -181,5 +183,5 @@ it.live.each(["unchanged", "redirected-same-head", "redirected-new-head"] as con
         expect(retained.state).toBe(scenario === "unchanged" ? "completed" : "unresolved");
         expect(retained.reviews[0]!.result).toBe(actual.reviews[0]!.result);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

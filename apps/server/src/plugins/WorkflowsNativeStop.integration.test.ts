@@ -1,7 +1,9 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import {
@@ -347,5 +349,5 @@ it.live.each([
         expect(retained.state).toBe(expected);
         if (mode.startsWith("manual-stop")) expect(current.allowedActions).not.toContain("approve");
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

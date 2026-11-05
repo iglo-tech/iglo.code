@@ -1,7 +1,9 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -116,7 +118,7 @@ it.live("distinct public command ids cannot alias a launch internal message rece
       expect(after.messages.some((m) => m.text === "Control instruction")).toBe(true);
       expect(records.messages.some((m) => m.text === "Distinct instruction")).toBe(true);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 it.live("recovers legacy pending command identities without another launch", () =>
   Effect.scoped(
@@ -207,5 +209,5 @@ it.live("recovers legacy pending command identities without another launch", () 
       ).getThreadRecords(accepted.threadId, ["messages"]);
       expect(records.messages.map((m) => m.text)).toEqual(["Legacy instruction"]);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

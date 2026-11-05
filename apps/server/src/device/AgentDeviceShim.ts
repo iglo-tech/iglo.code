@@ -1,4 +1,4 @@
-// @effect-diagnostics preferSchemaOverJson:off - JSON string literals embed paths safely into generated JavaScript.
+// @effect-diagnostics globalJsonInEffect:off - JSON string literals embed paths safely into generated JavaScript.
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveBunExecutable } from "@t3tools/shared/bunRuntime";
 import * as Effect from "effect/Effect";

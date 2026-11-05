@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import { sequence } from "./Workflows.testkit.ts";
@@ -42,5 +44,5 @@ it.live("authoring reads cached skill snapshots while save rescans through the r
         .pipe(Effect.ignore);
       expect(requests).toContain(true);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

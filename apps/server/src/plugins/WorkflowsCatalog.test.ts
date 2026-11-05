@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import { CatalogEntry } from "@t3tools/plugin-workflows/contracts";
@@ -52,7 +54,7 @@ it.effect.each(["sequence.yaml", "sequence.yml", "authored.yaml"])(
             .pipe(Effect.result),
         ).toMatchObject({ _tag: "Failure", failure: { code: "conflict" } });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect.each(["duplicate", "other-identity", "invalid"])(
@@ -85,5 +87,5 @@ it.effect.each(["duplicate", "other-identity", "invalid"])(
         expect(result._tag).toBe("Failure");
         expect(yield* fs.readFileString(`${directory}/sequence.yaml`)).toBe(contents);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

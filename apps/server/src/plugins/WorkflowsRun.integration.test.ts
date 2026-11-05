@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Queue from "effect/Queue";
@@ -140,7 +142,7 @@ it.effect("starts one saved revision across a lost response and a later catalog 
       );
       expect(replay.revision).toBe(canceled.revision);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -245,7 +247,7 @@ it.effect(
         expect(restored).toEqual(after);
         expect((yield* thread(threadId))?.attemptId).toBe(reported.attempts[0]!.id);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("exposes Resume and Retry only with their server-owned recovery targets", () =>
@@ -298,7 +300,7 @@ it.effect("exposes Resume and Retry only with their server-owned recovery target
       expect(missing.allowedActions).toEqual(["cancel", "retry"]);
       expect(missing.recovery).toEqual({ retryNodeId: "implement", resumeAttemptId: null });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("keeps an old run selectable and live outside the latest-run page", () =>
@@ -338,7 +340,7 @@ it.effect("keeps an old run selectable and live outside the latest-run page", ()
       expect(next).toMatchObject({ id: oldest.id, state: "canceled" });
       yield* Fiber.interrupt(fiber);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("opens a long run on its newest visits with overview totals from the full snapshot", () =>
@@ -384,7 +386,7 @@ it.effect("opens a long run on its newest visits with overview totals from the f
       // The overview does not depend on the loaded page.
       expect(oldest.overview).toEqual(newest.overview);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 const direct = {
@@ -443,7 +445,7 @@ it.effect.each(["completion-first", "cancel-first"] as const)(
           order === "completion-first" ? ["done"] : [],
         );
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 const loopAgent = (id: string, title: string, next: string) => ({
@@ -558,7 +560,7 @@ it.effect("keeps every visit's routing reachable when route history outgrows vis
       const latest = yield* read({ attemptId: newest.attempts.at(-1)!.id });
       expect(latest.history).toMatchObject({ tail: true });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("updates a thread's link as its run commits, ignoring other runs' commits", () =>
@@ -569,7 +571,7 @@ it.effect("updates a thread's link as its run commits, ignoring other runs' comm
       yield* test.reconcile;
       const threadId = (yield* test.wait(started.id, (run) => run.attempts[0]?.phase === "running"))
         .attempts[0]!.threadId!;
-      const links = yield* Queue.unbounded<typeof ThreadLink.Type | null>();
+      const links = yield* Queue.unbounded<ThreadLink | null>();
       yield* test.stream("thread", { ...scope, threadId }).pipe(
         Stream.mapEffect((value) => decodeLink(value)),
         Stream.runForEach((link) => Queue.offer(links, link)),
@@ -596,5 +598,5 @@ it.effect("updates a thread's link as its run commits, ignoring other runs' comm
       yield* test.reconcile;
       expect(yield* Queue.size(unowned)).toBe(0);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

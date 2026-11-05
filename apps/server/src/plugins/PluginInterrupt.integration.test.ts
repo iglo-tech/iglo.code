@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { CommandId, MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
@@ -133,5 +134,5 @@ it.live.each(["retry", "restart"] as const)(
         expect((yield* services.host.inspect(input)).runs).toEqual(before);
         yield* Fiber.interrupt(server.fiber);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

@@ -1,10 +1,12 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { CommandId, ProjectId } from "@t3tools/contracts";
 import { Host, Schedules, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
@@ -59,7 +61,7 @@ it.live("returns path and null Git metadata for a non-Git project, with a Git co
       if (plain._tag === "Success")
         expect(plain.success).toEqual({ path: config.baseDir, branch: null, head: null });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live("isolates manual schedule occurrence identities between plugins", () =>
@@ -141,5 +143,5 @@ it.live("isolates manual schedule occurrence identities between plugins", () =>
       yield* Fiber.interrupt(server.fiber);
       expect(second._tag).toBe("Success");
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

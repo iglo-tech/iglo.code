@@ -1,7 +1,9 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeSqlite from "node:sqlite";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as Fiber from "effect/Fiber";
 import * as Deferred from "effect/Deferred";
@@ -182,7 +184,7 @@ it.live.each([
       }
       yield* checkThread;
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live.each(["healthy-stop", "outage-stop", "human-gate", "stopped-control"] as const)(
@@ -338,5 +340,5 @@ it.live.each(["healthy-stop", "outage-stop", "human-gate", "stopped-control"] as
         }
         expect((yield* test.core.inspect(target)).runs.at(-1)!.status).toBe("interrupted");
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

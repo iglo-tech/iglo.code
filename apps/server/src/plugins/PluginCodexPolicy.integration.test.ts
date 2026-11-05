@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
@@ -14,7 +15,7 @@ import { Host } from "@t3tools/plugin-host-contract/server";
 import { plugin as fixture } from "@t3tools/plugin-fixture/server";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as FileSystem from "effect/FileSystem";
@@ -101,7 +102,7 @@ it.live("denies mutation before a native Codex turn applies the requested permis
       };
       let sentParams: ReturnType<typeof Codex.codexThreadRuntimeParams> | undefined;
       const adapter = yield* Codex.makeCodexAdapterV2({
-        crypto: yield* Crypto.Crypto,
+        digest: yield* Digest.Digest,
         instanceId,
         settings,
         environment: {},
@@ -292,5 +293,5 @@ it.live("denies mutation before a native Codex turn applies the requested permis
       });
       expect(reports).toHaveLength(0);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

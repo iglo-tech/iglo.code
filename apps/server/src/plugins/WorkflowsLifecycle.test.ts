@@ -1,7 +1,9 @@
 import * as NodeSqlite from "node:sqlite";
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import { Definition, Run } from "@t3tools/plugin-workflows/contracts";
@@ -68,7 +70,7 @@ it.effect.each([
       yield* test.reconcile;
       expect(test.threads.get(threadId)!.runs.map((run) => run.status)).not.toContain("running");
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("rejects join admission outside its matching fork", () =>
@@ -96,7 +98,7 @@ it.effect("rejects join admission outside its matching fork", () =>
       }
       expect(test.launches).toHaveLength(0);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect.each([false, true])(
@@ -171,5 +173,5 @@ it.effect.each([false, true])(
         expect(retried.reviews.at(-1)?.consumed).toBe(false);
         expect(retried.reviews.at(-1)?.generation).toBe(consumed ? 2 : 1);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

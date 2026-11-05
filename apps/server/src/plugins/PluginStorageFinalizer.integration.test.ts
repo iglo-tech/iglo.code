@@ -1,6 +1,8 @@
 import { it, expect } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Context from "effect/Context";
@@ -77,5 +79,5 @@ it.live("plugin Storage remains usable for scoped cleanup", () =>
       const result = yield* Deferred.await(cleaned);
       expect(result).toMatchObject({ _tag: "Success" });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

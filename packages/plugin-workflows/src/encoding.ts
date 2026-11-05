@@ -1,4 +1,4 @@
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
@@ -38,8 +38,8 @@ export function canonical(value: unknown): string {
   return encodeJson(value);
 }
 export const digest = Effect.fnUntraced(function* (value: unknown) {
-  const crypto = yield* Crypto.Crypto;
-  return yield* crypto.digest("SHA-256", new TextEncoder().encode(canonical(value))).pipe(
+  const service = yield* Digest.Digest;
+  return yield* service.digest(Digest.sha256, new TextEncoder().encode(canonical(value))).pipe(
     Effect.map(Hex.encode),
     Effect.mapError((cause) =>
       error("digest", "Could not compute workflow identity.", "service", cause),

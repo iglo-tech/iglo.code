@@ -6,7 +6,7 @@ import {
   type ProviderInstanceId,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -107,8 +107,8 @@ const make = Effect.gen(function* () {
   const host = yield* Host;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
-  const hash = (value: unknown) => digest(value).pipe(Effect.provideService(Crypto.Crypto, crypto));
+  const digestService = yield* Digest.Digest;
+  const hash = (value: unknown) => digest(value).pipe(Effect.provideService(Digest.Digest, digestService));
   const lock = yield* Semaphore.make(1);
   const environment = (environmentId: EnvironmentId, operation: string) =>
     environmentId === host.environmentId

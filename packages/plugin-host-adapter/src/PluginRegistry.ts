@@ -21,7 +21,7 @@ import {
 import * as NodeSqlite from "@t3tools/shared/nodeSqliteClient";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import type * as Crypto from "effect/Crypto";
+import type * as Digest from "effect/crypto/Digest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -117,7 +117,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const servicesContext = yield* Effect.context<
-    Host | Scheduler.Scheduler | FileSystem.FileSystem | Path.Path | Crypto.Crypto
+    Host | Scheduler.Scheduler | FileSystem.FileSystem | Path.Path | Digest.Digest
   >();
   const lifetime = yield* Effect.scope;
   const startLock = yield* Semaphore.make(1);

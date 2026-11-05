@@ -1,7 +1,9 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeSqlite from "node:sqlite";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Deferred from "effect/Deferred";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -102,7 +104,7 @@ it.live.each([false, true])("retains failed interruption across cancel=%s and re
         .pipe(Effect.flatMap(decodeRun));
       expect(retained.state).toBe(cancel ? "canceled" : "unresolved");
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live.each([false, true])("recovers native ownership after restart, deleted=%s", (deleted) =>
@@ -176,7 +178,7 @@ it.live.each([false, true])("recovers native ownership after restart, deleted=%s
       expect(retried.attempts.at(-1)!.threadId).not.toBe(threadId);
       expect(yield* test.threads.getThreadShell(retried.attempts.at(-1)!.threadId!)).not.toBeNull();
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live.each([false, true])("retains check settlement or ambiguity after SQL failure=%s", (fail) =>
@@ -302,7 +304,7 @@ it.live.each([false, true])("retains check settlement or ambiguity after SQL fai
       expect(retained.state).toBe(actual.state);
       expect(executions).toBe(1);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live(
@@ -382,5 +384,5 @@ it.live(
         );
         expect(yield* threads.getThreadShell(threadId)).toBeNull();
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

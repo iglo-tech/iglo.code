@@ -1,11 +1,13 @@
 import { expect, it } from "@effect/vitest";
 import * as Git from "../vcs/GitVcsDriver.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { CommandId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
@@ -177,7 +179,7 @@ it.live("clears the workspace after every cancellation of the same launch", () =
       yield* Fiber.interrupt(s.server.fiber);
     }),
   ).pipe(
-    Effect.provide(NodeServices.layer),
+    Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     Effect.exit,
     Effect.map((exit) => expect(exit._tag).toBe("Success")),
   ),
@@ -228,7 +230,7 @@ it.live("does not acknowledge cancelled preparation before its metadata clears",
       yield* Fiber.interrupt(s.server.fiber);
     }),
   ).pipe(
-    Effect.provide(NodeServices.layer),
+    Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     Effect.exit,
     Effect.map((exit) => expect(exit._tag).toBe("Success")),
   ),
@@ -296,7 +298,7 @@ it.live.each(["another thread", "external checkout", "external branch"] as const
         yield* Fiber.interrupt(s.server.fiber);
       }),
     ).pipe(
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       Effect.exit,
       Effect.map((exit) => expect(exit._tag).toBe("Success")),
     ),

@@ -1,7 +1,9 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Deferred from "effect/Deferred";
 import * as Schema from "effect/Schema";
 import { Host, Schedules } from "@t3tools/plugin-host-contract/server";
@@ -170,5 +172,5 @@ it.live.each(["short", "long-schedule", "long-scoped-manual", "legacy-receipt"] 
           expect((yield* schedules.list())[0]!.lastOccurrenceId).toBe(occurrence);
         }
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

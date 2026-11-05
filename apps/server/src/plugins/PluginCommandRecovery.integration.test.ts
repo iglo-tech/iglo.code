@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
@@ -12,6 +13,7 @@ import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
@@ -174,7 +176,7 @@ for (const recovery of ["retry", "restart"] as const)
           expect((yield* execute(recovered.host).pipe(Effect.result))._tag).toBe("Success");
           yield* Fiber.interrupt(restarted.fiber);
         }),
-      ).pipe(Effect.provide(NodeServices.layer)),
+      ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 it.live("rejects an old plugin occurrence retry after replacement with a prompt", () =>
   Effect.scoped(
@@ -225,5 +227,5 @@ it.live("rejects an old plugin occurrence retry after replacement with a prompt"
       expect(retry._tag).toBe("Failure");
       yield* Fiber.interrupt(s.server.fiber);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

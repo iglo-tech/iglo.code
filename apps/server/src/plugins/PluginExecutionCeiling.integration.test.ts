@@ -1,5 +1,6 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ClaudeSettings,
@@ -18,7 +19,7 @@ import { plugin as fixture } from "@t3tools/plugin-fixture/server";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -192,7 +193,7 @@ it.live("plugin native actions and replay stay within the calling thread's modes
       const nativeFrames = yield* Queue.unbounded<SDKMessage>();
       const opened: Claude.ClaudeAgentSdkQueryOpenInput[] = [];
       const adapter = yield* Claude.makeClaudeAdapterV2({
-        crypto: yield* Crypto.Crypto,
+        random: yield* SecureRandom.SecureRandom,
         instanceId,
         settings,
         environment: {},
@@ -214,6 +215,10 @@ it.live("plugin native actions and replay stay within the calling thread's modes
                 setPermissionMode: () => Effect.void,
                 stopTask: () => Effect.void,
                 backgroundTasks: () => Effect.succeed(false),
+                mcpServerStatus: Effect.succeed([]),
+                readMcpResource: () => Effect.die("unexpected MCP resource read"),
+                callMcpTool: () => Effect.die("unexpected MCP tool call"),
+                listPermissionRules: Effect.succeed([]),
                 interrupt: Effect.void,
                 close: Effect.sync(() => {}).pipe(Effect.andThen(Queue.shutdown(nativeFrames))),
               };
@@ -469,5 +474,5 @@ it.live("plugin native actions and replay stay within the calling thread's modes
         ),
       ).toBe(false);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

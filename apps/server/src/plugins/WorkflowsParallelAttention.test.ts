@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Clock from "effect/Clock";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -149,7 +151,7 @@ it.effect(
           }),
         ]);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("explains failed, missing-report and timed-out reviewers in the aggregate", () =>
@@ -192,7 +194,7 @@ it.effect("explains failed, missing-report and timed-out reviewers in the aggreg
         expect.objectContaining({ kind: "failed", nodeId: "unresolved" }),
       ]);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("cancels every reviewer of the active generation from the backend", () =>
@@ -217,7 +219,7 @@ it.effect("cancels every reviewer of the active generation from the backend", ()
       ]);
       expect((yield* attention()).total).toBe(0);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -304,7 +306,7 @@ it.effect(
         expect(refused.reviews).toHaveLength(2);
         expect(refused.stop).toEqual({ kind: "review-unverifiable", attemptId: null });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -387,7 +389,7 @@ it.effect(
         expect(yield* attention()).toMatchObject({ total: 0, runs: [] });
         expect((yield* test.query(run.id)).state).toBe("running");
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("counts every distinct run needing attention beyond the capped newest pages", () =>
@@ -430,7 +432,7 @@ it.effect("counts every distinct run needing attention beyond the capped newest 
       yield* test.restart;
       expect((yield* attention()).total).toBe(130);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("locates unsupported reviewer reporting and removed-reviewer rules on the server", () =>
@@ -479,7 +481,7 @@ it.effect("locates unsupported reviewer reporting and removed-reviewer rules on 
         ]),
       );
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -652,7 +654,7 @@ it.effect(
         yield* test.restart;
         expect((yield* test.query(started.id)).trace).toEqual(routed.trace);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 const stoppedDefinition = decodeDefinition({
@@ -695,7 +697,7 @@ it.effect("re-reads attention only after commits that can change it", () =>
       expect(test.redactions() - before).toBe(2);
       expect(yield* Queue.size(pages)).toBe(0);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("counts every pending request beyond the retained queue", () =>
@@ -740,7 +742,7 @@ it.effect("counts every pending request beyond the retained queue", () =>
       });
       expect(shifted.items.at(-1)?.request?.id).toBe("request-32");
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -811,5 +813,5 @@ it.effect(
         expect(reviewExpired.attempts[0]?.reason).toBe("The review branch deadline expired.");
         expect(reviewExpired.attempts[0]?.deadline).toBe(reviewStart + 135_000);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

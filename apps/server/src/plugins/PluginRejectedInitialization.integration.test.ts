@@ -1,8 +1,10 @@
 import { it, expect } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
@@ -130,7 +132,7 @@ it.live("unreleased fixture fails before lost-ack trigger; released control reac
       expect((yield* bound.host.receipt(input.commandId))?.status).toBe("accepted");
       yield* Fiber.interrupt(server.fiber);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live.each(["healthy", "acquire-error", "contribution-mismatch"] as const)(
@@ -245,5 +247,5 @@ it.live.each(["healthy", "acquire-error", "contribution-mismatch"] as const)(
         expect(yield* pluginStorage!.sql`SELECT id FROM host_cancelled_launches`).toHaveLength(1);
         yield* Fiber.interrupt(second.fiber);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationReadScope,
@@ -352,7 +353,7 @@ it.live("reports through authenticated MCP into the real environment's private p
       );
       yield* Fiber.interrupt(restarted.fiber);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live(
@@ -540,7 +541,7 @@ it.live(
         yield* Scope.close(recovered.scope, Exit.void);
         yield* Fiber.interrupt(environment.fiber);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live(
@@ -706,7 +707,7 @@ it.live(
         );
         yield* Fiber.interrupt(second.fiber);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live("boots ordinary thread and scheduling services with zero compiled plugins", () =>
@@ -773,5 +774,5 @@ it.live("boots ordinary thread and scheduling services with zero compiled plugin
       expect((yield* tasks.runNow({ id: scheduled.task.id })).task.lastRunStatus).toBe("succeeded");
       yield* Fiber.interrupt(server.fiber);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

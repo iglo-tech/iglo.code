@@ -1,9 +1,11 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { tool, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import * as Registry from "@t3tools/plugin-host-adapter/registry";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { startEnvironment } from "./PluginHost.testkit.ts";
@@ -71,5 +73,5 @@ it.live(
         ]);
         expect((yield* registry.tools).map((entry) => entry.tool.id)).toEqual([object.id]);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

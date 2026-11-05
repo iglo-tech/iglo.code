@@ -394,8 +394,7 @@ class NativeRemovalTest(unittest.TestCase):
         self.assertIn("'!apps/desktop'", workspace)
         self.assertIn('"@clerk/electron": 0.0.44', workspace)
         self.assertIn('"@napi-rs/keyring": 1.3.0', workspace)
-        self.assertIn("node-pty: true", workspace)
-        for obsolete in ('electron: true', 'electron-passkeys', 'dbus-next', 'node-abi',
+        for obsolete in ('node-pty', 'electron: true', 'electron-passkeys', 'dbus-next', 'node-abi',
                          'electron-webauthn', 'objc-js', 'plist', 'tldts'):
             self.assertNotIn(obsolete, workspace)
         lock = (self.root / "pnpm-lock.yaml").read_text()

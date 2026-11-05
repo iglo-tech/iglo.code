@@ -12,7 +12,7 @@ import {
   type PluginAttentionItem,
 } from "@t3tools/plugin-host-contract/schema";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Clock from "effect/Clock";
@@ -211,8 +211,8 @@ const executionElapsed = (requests: PluginThreadState["requests"], from: number,
 
 const make = Effect.gen(function* () {
   const host = yield* Host;
-  const crypto = yield* Crypto.Crypto;
-  const hash = (value: unknown) => digest(value).pipe(Effect.provideService(Crypto.Crypto, crypto));
+  const digestService = yield* Digest.Digest;
+  const hash = (value: unknown) => digest(value).pipe(Effect.provideService(Digest.Digest, digestService));
   const { sql } = yield* Storage;
   const schedules = yield* Schedules;
   const catalog = yield* Catalog.Catalog;

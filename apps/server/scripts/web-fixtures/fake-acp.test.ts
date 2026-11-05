@@ -1,9 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off -- The acceptance dependency is an actual Bun subprocess.
 import * as NodeURL from "node:url";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Path from "effect/Path";
@@ -51,7 +53,7 @@ it.effect("the local ACP dependency requires sign-in and relays a cancellable br
       "https://auth.fixture.invalid/authorize?fixture=web-regression",
     );
     yield* Fiber.interrupt(signIn);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("the local ACP dependency reports a controlled sign-in failure", () =>
@@ -67,5 +69,5 @@ it.effect("the local ACP dependency reports a controlled sign-in failure", () =>
     expect(signIn._tag).toBe("Failure");
     if (signIn._tag === "Failure")
       expect(signIn.failure).toMatchObject({ errorMessage: "Controlled sign-in failure" });
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

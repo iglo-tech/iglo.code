@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Verifies pairing through actual Bun SQLite bindings.
 import * as NodeAssert from "node:assert/strict";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -9,7 +10,7 @@ import * as SessionStore from "../SessionStore.ts";
 
 const services = EnvironmentAuth.layerRuntime.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), process.argv[2]!)),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 const metadata = {
   deviceType: "desktop" as const,

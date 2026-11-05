@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationReadScope,
@@ -11,6 +12,7 @@ import { Host } from "@t3tools/plugin-host-contract/server";
 import { plugin as fixture } from "@t3tools/plugin-fixture/server";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import { HttpBody, HttpClient } from "effect/http";
@@ -197,5 +199,5 @@ it.live.each(cases)("enforces the effective MCP policy: %j", (policyCase) =>
       if (policyCase.allowed)
         expect(reports[0]).toMatchObject({ id: "policy-report", projectId, threadId });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

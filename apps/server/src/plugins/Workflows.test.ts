@@ -1,7 +1,9 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Fiber from "effect/Fiber";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { fixture, sequence, completed, parallel } from "./Workflows.testkit.ts";
 import * as Schema from "effect/Schema";
 import { Definition, Run, RunSummary, CatalogEntry } from "@t3tools/plugin-workflows/contracts";
@@ -53,7 +55,7 @@ it.effect.each([false, true])("resume verifies current skill registration, chang
       expect(test.threads.get(threadId)!.runs).toHaveLength(changed ? 1 : 2);
       if (changed) expect(actual.reason).toContain("skill changed");
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("rejects whitespace titles before they can terminate shared attention", () =>
@@ -89,7 +91,7 @@ it.effect("rejects whitespace titles before they can terminate shared attention"
         .pipe(Stream.take(1), Stream.runCollect);
       expect(attention[0]?.items[0]?.summary).toBe("x".repeat(239));
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("validates the combined run input and binding names before admitting work", () =>
@@ -142,7 +144,7 @@ it.effect("validates the combined run input and binding names before admitting w
       expect(Object.keys(followup.attempts.at(-1)!.input)).toHaveLength(32);
       expect(followup.attempts.at(-1)!.input.bound).toBe(true);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("joins three isolated frozen reviewers only after every reported execution settles", () =>
@@ -205,7 +207,7 @@ it.effect("joins three isolated frozen reviewers only after every reported execu
         reason: "The pull request head changed after review.",
       });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -238,7 +240,7 @@ it.effect(
         expect(stale.reviews[0]?.result).toBe("stale");
         expect(stale.trace.at(-1)?.chosen).toBe("unresolved");
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("sends one missing-report reminder and then retains unresolved attention", () =>
@@ -262,7 +264,7 @@ it.effect("sends one missing-report reminder and then retains unresolved attenti
       });
       expect(test.threads.get(threadId)?.runs).toHaveLength(2);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -326,7 +328,7 @@ it.effect(
         expect(reviewed.attempts).toHaveLength(1);
         expect(reviewed.attempts[0]?.resumeCount).toBe(1);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("reconciles a lost host launch acknowledgement without creating a second thread", () =>
@@ -349,7 +351,7 @@ it.effect("reconciles a lost host launch acknowledgement without creating a seco
       yield* test.restart;
       expect(yield* test.report(current.attempts[0]!.threadId!, completed)).toEqual(receipt);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -388,7 +390,7 @@ it.effect(
         expect(runs).toHaveLength(2);
         expect(runs.map((run) => run.definition.revision).sort()).toEqual([1, 2]);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -435,7 +437,7 @@ it.effect(
           trace: [],
         });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("records one permitted rework and uses At limit on the next request after restart", () =>
@@ -521,7 +523,7 @@ it.effect("records one permitted rework and uses At limit on the next request af
           .pipe(Effect.flip, Effect.orDie),
       ).toMatchObject({ code: "conflict" });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("selects the first typed rule while missing optional comparisons remain false", () =>
@@ -592,7 +594,7 @@ it.effect("selects the first typed rule while missing optional comparisons remai
         reason: "First matching rule.",
       });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("routes an immutable accepted report only after all native work has settled", () =>
@@ -621,7 +623,7 @@ it.effect("routes an immutable accepted report only after all native work has se
         allowedActions: ["cancel", "approve", "request-changes"],
       });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("rejects invalid graph contracts before saving or starting any work", () =>
@@ -692,7 +694,7 @@ it.effect("rejects invalid graph contracts before saving or starting any work", 
         }),
       ).toEqual([]);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -723,7 +725,7 @@ it.effect(
         yield* test.restart;
         expect(yield* test.query(run.id)).toMatchObject({ state: "unresolved", trace: [] });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("waits for required checkpoints and records a failed checkpoint instead of success", () =>
@@ -752,7 +754,7 @@ it.effect("waits for required checkpoints and records a failed checkpoint instea
         trace: [],
       });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("expires an agent execution and review human waits at their persisted deadlines", () =>
@@ -794,7 +796,7 @@ it.effect("expires an agent execution and review human waits at their persisted 
       expect(expired.reviews[0]?.result).toBe("unresolved");
       expect(expired.attempts.every((attempt) => attempt.phase === "unresolved")).toBe(true);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -846,7 +848,7 @@ it.effect(
         expect(repeated.visits).toBe(2);
         expect(test.commands).toHaveLength(2);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -935,7 +937,7 @@ it.effect(
           ).toBe(8);
         }
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("keeps unavailable providers visible and refuses execution before admitting a run", () =>
@@ -953,7 +955,7 @@ it.effect("keeps unavailable providers visible and refuses execution before admi
       expect(yield* test.invoke("list", scope)).toEqual([]);
       expect(test.launches).toHaveLength(0);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("reconciles later runs fairly while an older batch remains in native input waits", () =>
@@ -999,7 +1001,7 @@ it.effect("reconciles later runs fairly while an older batch remains in native i
       expect(page).toHaveLength(20);
       expect(page.some((run) => latest.some((item) => item.id === run.id))).toBe(false);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -1035,7 +1037,7 @@ it.effect(
           yield* test.report(threadId, completed).pipe(Effect.flip, Effect.orDie),
         ).toMatchObject({ code: "conflict" });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -1089,7 +1091,7 @@ it.effect(
           ),
         ).toBe(true);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -1131,5 +1133,5 @@ it.effect(
           trace: [],
         });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

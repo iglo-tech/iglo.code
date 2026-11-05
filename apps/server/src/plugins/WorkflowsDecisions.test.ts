@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeSqlite from "@t3tools/shared/nodeSqliteClient";
 import * as Context from "effect/Context";
@@ -169,7 +170,7 @@ it.effect(
           reason: "Human decision: request-changes.",
         });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("takes the first matching nested rule on a passing check and approves to its end", () =>
@@ -207,7 +208,7 @@ it.effect("takes the first matching nested rule on a passing check and approves 
       expect(approved).toMatchObject({ state: "completed", currentNode: "done" });
       expect(approved.trace.at(-1)).toMatchObject({ route: "approve", chosen: "done" });
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("sends the run to At limit when the whole-run visit bound is exhausted", () =>
@@ -232,7 +233,7 @@ it.effect("sends the run to At limit when the whole-run visit bound is exhausted
       });
       expect(limited.trace.some((item) => item.nodeId === "decide")).toBe(false);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -298,7 +299,7 @@ it.effect(
         ).toMatchObject({ code: "validation" });
         expect(test.launches).toHaveLength(0);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("does not spend a repeat that the whole-run visit limit diverts", () =>
@@ -325,7 +326,7 @@ it.effect("does not spend a repeat that the whole-run visit limit diverts", () =
       });
       expect(limited.attempts.filter((attempt) => attempt.nodeId === "implement")).toHaveLength(1);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -377,7 +378,7 @@ it.effect(
           .pipe(Effect.flatMap(decodeRun));
         expect(approved).toMatchObject({ state: "completed", withheld: [] });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -436,7 +437,7 @@ it.effect(
             "decide: later never runs before this decision, so there is no result to decide on. Choose an earlier step.",
         });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("recomputes legacy cached gate actions without changing persisted history on reads", () =>
@@ -557,5 +558,5 @@ it.effect("recomputes legacy cached gate actions without changing persisted hist
       expect(test.commands).toEqual([]);
       expect(test.launches).toEqual([]);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

@@ -522,6 +522,7 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
     }),
   );
 
+  const bunExecutable = process.env.T3_BUN_EXECUTABLE ?? "bun";
   it.effect("runs the browser helper with the Bun interpreter in standalone builds", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -529,7 +530,7 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
       const directory = yield* fs.makeTempDirectoryScoped();
       const profile = yield* prepareAntigravityProfile({
         profileDirectory: path.join(directory, "profile"),
-        baseEnv: { PATH: "", T3_BUN_EXECUTABLE: process.env.T3_BUN_EXECUTABLE ?? "bun" },
+        baseEnv: { PATH: "", T3_BUN_EXECUTABLE: bunExecutable },
       });
       expect(profile.browserCommand).not.toContain("/packaged/t3");
       expect(yield* fs.exists(profile.acpDirectory)).toBe(true);

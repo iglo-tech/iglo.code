@@ -2,6 +2,7 @@ import * as Bound from "../../../../packages/plugin-host-adapter/src/BoundHost.t
 import * as Tracker from "../project/WorktreeSetupTracker.ts";
 
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import { CommandId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
@@ -10,6 +11,7 @@ import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -195,5 +197,5 @@ it.live.each([
         expect(yield* fs.exists(marker)).toBe(true);
       }
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

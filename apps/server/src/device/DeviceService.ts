@@ -51,7 +51,7 @@ import {
 } from "./AgentDeviceTarget.ts";
 import * as Context from "effect/Context";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -69,24 +69,29 @@ import { isLocalSshDeviceHost, remoteSshDeviceHosts } from "./localSshDeviceHost
 
 import { readDeviceDetail, runDeviceAction } from "./DeviceActions.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
+import * as SecretResolverLayer from "../secrets/SecretResolver.ts";
 import * as DeviceHost from "./DeviceHost.ts";
 import * as SshDeviceHost from "./SshDeviceHost.ts";
 import * as EasDeviceHost from "./EasDeviceHost.ts";
 import * as SimlockDeviceHost from "./SimlockDeviceHost.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { makeExpoApi, resolveExpoCredential } from "./ExpoApi.ts";
+import { makeExpoApi } from "./ExpoApi.ts";
 import * as Exit from "effect/Exit";
 import * as LocalDeviceHost from "./LocalDeviceHost.ts";
 
 export const DEVICE_HUB_ROUTE_PREFIX = "/api/device-hub";
 
+const isSshCommandError = Schema.is(SshCommandError);
+
 const sshProbeFailureMessage = (error: DeviceHost.DeviceHostError): string => {
-  const cause = error.cause;
+  const windows = SshDeviceHost.isSshWindowsHostError(error.cause) ? error.cause : null;
+  const cause = windows ? windows.cause : error.cause;
   if (
-    !(cause instanceof SshCommandError) ||
+    !isSshCommandError(cause) ||
     cause.exitCode === null ||
     cause.exitCode < 1 ||
-    cause.exitCode > 254
+    (cause.exitCode > 254 && cause.exitCode !== 9009)
   )
     return "Could not connect to this host over SSH.";
 
@@ -98,6 +103,7 @@ const sshProbeFailureMessage = (error: DeviceHost.DeviceHostError): string => {
       .some((line) => line.trim().startsWith("Bun is missing from the non-interactive SSH PATH."))
   )
     return "Connected over SSH, but Bun is not on this host's PATH for non-interactive SSH commands.";
+  if (windows) return windows.message;
 
   return `Connected over SSH, but the device host check failed (exit code ${cause.exitCode}).`;
 };
@@ -272,7 +278,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
   launchers?: AgentDeviceLaunchers,
 ) {
   const settings = yield* ServerSettings.ServerSettingsService;
-  const crypto = yield* Crypto.Crypto;
+  const digest = yield* Digest.Digest;
   const lifecycleLock = yield* Semaphore.make(1);
   const readDeviceSettings = settings.getSettings.pipe(
     Effect.map((value) => ({
@@ -324,7 +330,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
       const live = new Set(
         yield* Effect.forEach(state.sessions, (session) =>
           agentDeviceSession(session.threadId, session.hostId, session.deviceId),
-        ).pipe(Effect.provideService(Crypto.Crypto, crypto)),
+        ).pipe(Effect.provideService(Digest.Digest, digest)),
       );
       const retired = [...boundLaunchers].filter(([session]) => !live.has(session));
       for (const [session] of retired) boundLaunchers.delete(session);
@@ -349,7 +355,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
               session.threadId,
               session.hostId,
               session.deviceId,
-            ).pipe(Effect.provideService(Crypto.Crypto, crypto));
+            ).pipe(Effect.provideService(Digest.Digest, digest));
             const launcher = boundLaunchers.get(name);
             if (!launcher || hostSessionLaunchers.has(name) || !launchers?.release) return;
             yield* launchers.release(launcher);
@@ -896,7 +902,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
                 session.threadId,
                 session.hostId,
                 session.deviceId,
-              ).pipe(Effect.provideService(Crypto.Crypto, crypto));
+              ).pipe(Effect.provideService(Digest.Digest, digest));
               yield* ready.releaseAgentSession(name, session.deviceId);
             }
           }
@@ -1132,7 +1138,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
           input.threadId,
           input.hostId,
           input.deviceId,
-        ).pipe(Effect.provideService(Crypto.Crypto, crypto));
+        ).pipe(Effect.provideService(Digest.Digest, digest));
         if (boundSession) hostSessionLaunchers.add(ownSession);
         const session = boundSession ?? ownSession;
         return {
@@ -1155,7 +1161,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
           target.threadId,
           target.hostId,
           target.deviceId,
-        ).pipe(Effect.provideService(Crypto.Crypto, crypto));
+        ).pipe(Effect.provideService(Digest.Digest, digest));
         return yield* launcherLock.withPermit(
           Effect.gen(function* () {
             const { state } = yield* SynchronizedRef.get(stateRef);
@@ -1222,14 +1228,15 @@ export const make = Effect.gen(function* () {
   const runner = yield* ProcessRunner.ProcessRunner;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const settings = yield* ServerSettings.ServerSettingsService;
+  const secrets = yield* SecretResolver.SecretResolver;
   const scope = yield* Scope.Scope;
   const hosts = new Map<DeviceHostId, DeviceHost.DeviceHost["Service"]>([
     [localHost.id, localHost],
   ]);
-  const crypto = yield* Crypto.Crypto;
+  const digest = yield* Digest.Digest;
   const configPath = (hostId: DeviceHostId, deviceId?: DeviceId) =>
     agentDeviceConfigPath(config.stateDir, hostId, path, deviceId).pipe(
-      Effect.provideService(Crypto.Crypto, crypto),
+      Effect.provideService(Digest.Digest, digest),
     );
   const configureAgent = Effect.fn("DeviceService.configureAgent")(
     function* (
@@ -1356,13 +1363,19 @@ export const make = Effect.gen(function* () {
         }
         return yield* SshDeviceHost.probe(host).pipe(Effect.provide(probeContext));
       }).pipe(
-        Effect.mapError(
-          (error) =>
-            new DeviceOperationError({
-              operation: "probe host",
-              reason: "request_failed",
-              cause: error,
-            }),
+        Effect.mapError((error) =>
+          error._tag === "DeviceHostError" && SshDeviceHost.isSshWindowsHostError(error.cause)
+            ? new DeviceHostUnavailableError({
+                hostId: host.id,
+                hostLabel: host.label,
+                reason: sshProbeFailureMessage(error),
+                cause: error,
+              })
+            : new DeviceOperationError({
+                operation: "probe host",
+                reason: "request_failed",
+                cause: error,
+              }),
         ),
       ),
     configureAgent,
@@ -1544,7 +1557,10 @@ export const make = Effect.gen(function* () {
           ? ""
           : ((yield* settings.getSettings).easDeviceHosts.find((host) => host.id === input.hostId)
               ?.accessToken ?? "");
-      const credential = yield* resolveExpoCredential(input.accessToken ?? saved);
+      const credential = yield* EasDeviceHost.resolveSavedExpoCredential(
+        secrets,
+        input.accessToken ?? saved,
+      );
       const viewer = yield* makeExpoApi(yield* HttpClient.HttpClient, credential).viewer;
       return { signedInAs: viewer.name, credentialSource: credential.source, apps: viewer.apps };
     },
@@ -1625,7 +1641,10 @@ export const make = Effect.gen(function* () {
   };
 });
 
-export const layer = Layer.effect(DeviceService, make).pipe(Layer.provide(LocalDeviceHost.layer));
+export const layer = Layer.effect(DeviceService, make).pipe(
+  Layer.provide(LocalDeviceHost.layer),
+  Layer.provide(SecretResolverLayer.layer),
+);
 
 export const stateStream = (service: DeviceService["Service"]): Stream.Stream<DeviceServiceState> =>
   Stream.unwrap(

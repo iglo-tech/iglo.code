@@ -35,8 +35,13 @@ model, such as Haiku for Claude or Luna for Codex.
 
 ## Use the Browser panel
 
-Call `preview_status`, then `preview_open` if the Browser panel is
-closed. Navigate to the complete startup pairing URL once with
+Call `preview_status`. If no tab can be automated, call `preview_open`, including
+when status reports `available: false` or `tabId: null`. Status can report
+unavailable simply because no tab exists yet; opening a tab needs no user action.
+Stop verification and explain the blocker only if the tools are absent or
+`preview_open` reports unavailable or fails.
+
+Navigate to the complete startup pairing URL once with
 `preview_navigate`, then use `preview_snapshot` and T3's interaction tools.
 If the token was consumed or expired, run `node apps/server/src/bin.ts pair`
 for a fresh one. Keep using the same tab.

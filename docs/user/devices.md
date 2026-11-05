@@ -108,6 +108,8 @@ not supported.
 anything, with a result for each selected environment. Targets that resolve to
 the environment’s own machine are skipped, since its devices are already local.
 The first device listing installs pinned device tools on the host.
+SSH device hosts currently need macOS or Linux. To use devices on a Windows
+machine, run T3 Code on that machine and connect to its environment.
 Bun 1.4.4 or newer must be available to non-interactive SSH commands.
 Local installed environments use their packaged Bun interpreter; device tools
 install automatically with Bun.

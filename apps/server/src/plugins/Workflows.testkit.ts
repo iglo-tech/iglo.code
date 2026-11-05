@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Host } from "@t3tools/plugin-host-contract/server";
 import {
@@ -249,7 +250,7 @@ export const fixture = Effect.gen(function* () {
       }).pipe(
         Layer.provideMerge(
           Layer.mergeAll(
-            NodeServices.layer,
+            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
             Scheduler.layer,
             ScheduleTargets.layer,
             Layer.succeed(Host, host),

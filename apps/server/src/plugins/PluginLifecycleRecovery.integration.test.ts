@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
@@ -314,7 +315,7 @@ it.live.each([
       expect(controlHead.trim()).toBe(ref);
       yield* Fiber.interrupt(restarted.fiber);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live.each(["automatic", "explicit"] as const)(
@@ -492,5 +493,5 @@ it.live.each(["automatic", "explicit"] as const)(
         expect(yield* bound.host.inspect(target)).toEqual(before);
         yield* Fiber.interrupt(s.server.fiber);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

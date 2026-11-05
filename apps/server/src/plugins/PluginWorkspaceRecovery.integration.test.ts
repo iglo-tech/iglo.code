@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
@@ -13,6 +14,7 @@ import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Stream from "effect/Stream";
@@ -209,7 +211,7 @@ it.live("resumes unfinished synchronous setup after recorded workspace metadata"
       yield* Fiber.interrupt(restarted.server.fiber);
     }),
   ).pipe(
-    Effect.provide(NodeServices.layer),
+    Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     Effect.exit,
     Effect.map((exit) => expect(exit._tag).toBe("Success")),
   ),
@@ -294,7 +296,7 @@ it.live("interrupts another thread while a plugin launch awaits synchronous setu
       yield* Fiber.interrupt(s.server.fiber);
     }),
   ).pipe(
-    Effect.provide(NodeServices.layer),
+    Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     Effect.exit,
     Effect.map((exit) => expect(exit._tag).toBe("Success")),
   ),
@@ -397,7 +399,7 @@ it.live.each(["untracked", "tracked", "clean"] as const)(
         yield* Fiber.interrupt(restarted.server.fiber);
       }),
     ).pipe(
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       Effect.exit,
       Effect.map((exit) => expect(exit._tag).toBe("Success")),
     ),
@@ -452,7 +454,7 @@ it.live.each([false, true])(
         yield* Fiber.interrupt(s.server.fiber);
       }),
     ).pipe(
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       Effect.exit,
       Effect.map((exit) => expect(exit._tag).toBe("Success")),
     ),
@@ -554,7 +556,7 @@ it.live(
         yield* Fiber.interrupt(restarted.server.fiber);
       }),
     ).pipe(
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       Effect.exit,
       Effect.map((exit) => expect(exit._tag).toBe("Success")),
     ),
@@ -633,5 +635,5 @@ it.live("pending setup-only launch blocks cold-restart sends before recovery beg
       ).toHaveLength(1);
       yield* Fiber.interrupt(restarted.server.fiber);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

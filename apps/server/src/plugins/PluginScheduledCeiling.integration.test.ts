@@ -1,5 +1,6 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ClaudeSettings,
@@ -23,7 +24,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Exit from "effect/Exit";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -176,7 +177,7 @@ it.live.each([
       const nativeFrames = yield* Queue.unbounded<SDKMessage>();
       const opened: Claude.ClaudeAgentSdkQueryOpenInput[] = [];
       const adapter = yield* Claude.makeClaudeAdapterV2({
-        crypto: yield* Crypto.Crypto,
+        random: yield* SecureRandom.SecureRandom,
         instanceId,
         settings,
         environment: {},
@@ -198,6 +199,10 @@ it.live.each([
                 setPermissionMode: () => Effect.void,
                 stopTask: () => Effect.void,
                 backgroundTasks: () => Effect.succeed(false),
+                mcpServerStatus: Effect.succeed([]),
+                readMcpResource: () => Effect.die("unexpected MCP resource read"),
+                callMcpTool: () => Effect.die("unexpected MCP tool call"),
+                listPermissionRules: Effect.succeed([]),
                 interrupt: Effect.void,
                 close: Effect.sync(() => {}).pipe(Effect.andThen(Queue.shutdown(nativeFrames))),
               };
@@ -375,5 +380,5 @@ it.live.each([
         (yield* threads.getShellSnapshot()).threads.filter((t) => t.title === "scheduled-child"),
       ).toHaveLength(targetMode === "full-access" ? 0 : 1);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

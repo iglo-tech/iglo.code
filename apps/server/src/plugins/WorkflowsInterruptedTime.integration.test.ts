@@ -1,8 +1,10 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeSqlite from "node:sqlite";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import { Host } from "@t3tools/plugin-host-contract/server";
@@ -203,5 +205,5 @@ it.live.each(["interrupted-offline", "interrupted-online", "interrupted-late"] a
           expect(run.attempts[0]!.remainingMs).toBeGreaterThan(58000);
         }
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

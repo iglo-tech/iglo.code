@@ -13,7 +13,7 @@ from remove_desktop import prune_desktop
 def mobile_dependency(name):
     return bool(re.match(
         r"^(?:@(?:expo|expo-google-fonts|react-native[^/]*|react-navigation)/"
-        r"|@clerk/expo(?:@|$)|expo(?:[-@>]|$)|babel-preset-expo(?:@|$)"
+        r"|@clerk/expo(?:[-@]|$)|expo(?:[-@>]|$)|babel-preset-expo(?:@|$)"
         r"|react-native(?:[-@>]|$)|uniwind(?:@|$))", name
     ))
 
@@ -48,7 +48,9 @@ def prune(root):
     for pattern in (
         "scripts/mobile-*", "scripts/export-android-icons.*",
         "scripts/legend-list-initial-reveal.*", ".github/workflows/mobile-*",
-        "docs/internals/mobile-*", "docs/operations/mobile-*",
+        "docs/internals/mobile-*", "docs/internals/images/mobile-*", "docs/operations/mobile-*",
+        "apps/web/public/.well-known/apple-app-site-association.json",
+        "apps/web/public/.well-known/assetlinks.json",
         "docs/operations/android-notifications.md", "docs/user/mobile-notifications.md",
         "oxlint-plugin-t3code/rules/no-mobile-*",
         "oxlint-plugin-t3code/rules/no-hermes-unsupported-apis.*",

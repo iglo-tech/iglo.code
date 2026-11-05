@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Context from "effect/Context";
 import * as FileSystem from "effect/FileSystem";
 import * as Startup from "../serverRuntimeStartup.ts";
@@ -45,5 +47,5 @@ it.live.each([false, true])("validates contribution kinds: swapped=%s", (swapped
       expect(api._tag).toBe(swapped ? "Failure" : "Success");
       expect(yield* registry.tools).toHaveLength(swapped ? 0 : plugin.manifest.server.tools.length);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

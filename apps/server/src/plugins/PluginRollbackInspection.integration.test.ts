@@ -14,6 +14,7 @@ import * as Manager from "../orchestration-v2/ProviderSessionManager.ts";
 import * as Rollback from "../orchestration-v2/CheckpointRollbackService.ts";
 import * as RuntimePolicy from "../orchestration-v2/RuntimePolicy.ts";
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CheckpointId,
@@ -45,7 +46,7 @@ import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -490,7 +491,7 @@ it.live("inspection excludes abandoned background work after native rollback", (
       };
       let opened = 0;
       const adapter = yield* Codex.makeCodexAdapterV2({
-        crypto: yield* Crypto.Crypto,
+        digest: yield* Digest.Digest,
         instanceId: selection.instanceId,
         settings: yield* decodeCodexSettings({}),
         environment: {},
@@ -534,5 +535,5 @@ it.live("inspection excludes abandoned background work after native rollback", (
 
       yield* Fiber.interrupt(s.server.fiber);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
