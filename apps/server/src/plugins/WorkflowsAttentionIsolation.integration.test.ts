@@ -118,8 +118,7 @@ it.live(
           ["needs-input", threadId, "question", 2],
         ]);
 
-        // Reading the thread is presentation; nothing workflow-owned moves. Native
-        // attention keeps its priority: a thread with a pending request cannot be snoozed.
+        // Reading or snoozing the thread is presentation; nothing workflow-owned moves.
         const visit = (id: string) =>
           test.threads.dispatch({
             type: "thread.visit",
@@ -135,7 +134,7 @@ it.live(
             snoozedUntil: DateTime.formatIso(DateTime.add(DateTime.nowUnsafe(), { hours: 4 })),
           });
         yield* visit("visit");
-        expect((yield* Effect.result(snooze("snooze-refused")))._tag).toBe("Failure");
+        yield* snooze("snooze-pending");
         yield* runtime.invoke("reconcile", test.scope);
         expect(yield* attention).toEqual(waiting);
         const unchanged = yield* runtime
@@ -184,7 +183,7 @@ it.live(
             request: null,
           }),
         ]);
-        // Without a pending request the thread can be snoozed; the workflow decision stays.
+        // A later snooze leaves the workflow decision in place.
         yield* snooze("snooze");
         yield* visit("visit-again");
         yield* runtime.invoke("reconcile", test.scope);
