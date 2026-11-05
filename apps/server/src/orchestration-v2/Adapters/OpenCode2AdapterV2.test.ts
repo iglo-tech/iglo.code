@@ -3241,7 +3241,10 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
             "resumed",
           );
         }),
-      ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)), TestClock.withLive),
+      ).pipe(
+        Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        TestClock.withLive,
+      ),
   );
 
   it.effect("re-registers T3 MCP each turn and drops its instructions when adding fails", () =>
@@ -3491,7 +3494,12 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
           });
         }
       }
-    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(IdAllocator.layer, Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)))),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      ),
+    ),
   );
 
   it.effect.each([

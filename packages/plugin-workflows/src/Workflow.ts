@@ -94,10 +94,10 @@ export class Workflow extends Context.Service<
     /** Start the catalog's saved snapshot; the receipt is consulted before the catalog. */
     readonly startSaved: (input: StartSavedInput) => Effect.Effect<Run, PluginError>;
     /** One run's display snapshot, re-emitted whenever its revision changes. */
-    readonly watch: (input: typeof RunInput.Type) => Stream.Stream<Run, PluginError>;
+    readonly watch: (input: RunInput) => Stream.Stream<Run, PluginError>;
     /** The run and attempt a native thread was launched for, if any. */
     readonly thread: (input: ThreadInput) => Stream.Stream<ThreadLink | null, PluginError>;
-    readonly get: (input: typeof RunInput.Type) => Effect.Effect<Run, PluginError>;
+    readonly get: (input: RunInput) => Effect.Effect<Run, PluginError>;
     readonly list: (
       input: typeof RunListInput.Type,
     ) => Effect.Effect<ReadonlyArray<RunSummary>, PluginError>;
@@ -111,11 +111,11 @@ export class Workflow extends Context.Service<
       input: ReportInput,
       caller: PluginToolCaller,
     ) => Effect.Effect<ReportReceipt, PluginError>;
-    readonly cancel: (input: typeof CommandInput.Type) => Effect.Effect<Run, PluginError>;
-    readonly retry: (input: typeof CommandInput.Type) => Effect.Effect<Run, PluginError>;
-    readonly resume: (input: typeof CommandInput.Type) => Effect.Effect<Run, PluginError>;
-    readonly gate: (input: typeof GateInput.Type) => Effect.Effect<Run, PluginError>;
-    readonly schedule: (input: typeof ScheduleInput.Type) => Effect.Effect<void, PluginError>;
+    readonly cancel: (input: CommandInput) => Effect.Effect<Run, PluginError>;
+    readonly retry: (input: CommandInput) => Effect.Effect<Run, PluginError>;
+    readonly resume: (input: CommandInput) => Effect.Effect<Run, PluginError>;
+    readonly gate: (input: GateInput) => Effect.Effect<Run, PluginError>;
+    readonly schedule: (input: ScheduleInput) => Effect.Effect<void, PluginError>;
     /** Newest occurrences of one workflow schedule with the exact run each started. */
     readonly scheduleHistory: (
       input: ScheduleHistoryInput,
@@ -212,7 +212,8 @@ const executionElapsed = (requests: PluginThreadState["requests"], from: number,
 const make = Effect.gen(function* () {
   const host = yield* Host;
   const digestService = yield* Digest.Digest;
-  const hash = (value: unknown) => digest(value).pipe(Effect.provideService(Digest.Digest, digestService));
+  const hash = (value: unknown) =>
+    digest(value).pipe(Effect.provideService(Digest.Digest, digestService));
   const { sql } = yield* Storage;
   const schedules = yield* Schedules;
   const catalog = yield* Catalog.Catalog;
@@ -312,7 +313,7 @@ const make = Effect.gen(function* () {
         return result;
       }).pipe(lock.withPermits(1)),
     );
-  const get = (input: typeof RunInput.Type) =>
+  const get = (input: RunInput) =>
     protect(
       "get",
       Effect.gen(function* () {
@@ -534,7 +535,7 @@ const make = Effect.gen(function* () {
         );
       }),
     );
-  const watch = (input: typeof RunInput.Type) =>
+  const watch = (input: RunInput) =>
     Stream.unwrap(
       Effect.gen(function* () {
         yield* environment(input.environmentId);
@@ -1151,7 +1152,7 @@ const make = Effect.gen(function* () {
   });
   const mutate = Effect.fnUntraced(function* (
     operation: string,
-    input: typeof CommandInput.Type,
+    input: CommandInput,
     action: (run: State, now: number) => Effect.Effect<void, PluginError | SqlError>,
   ) {
     yield* environment(input.environmentId);
@@ -1190,7 +1191,7 @@ const make = Effect.gen(function* () {
       }),
     );
   });
-  const cancel = (input: typeof CommandInput.Type) =>
+  const cancel = (input: CommandInput) =>
     mutate("cancel", input, (run) =>
       Effect.gen(function* () {
         if (!run.allowedActions.includes("cancel"))
@@ -1210,7 +1211,7 @@ const make = Effect.gen(function* () {
           if (attempt.threadId) yield* host.cancelPending(target(run, attempt));
       }),
     );
-  const retry = (input: typeof CommandInput.Type) =>
+  const retry = (input: CommandInput) =>
     mutate("retry", input, (run, now) =>
       Effect.gen(function* () {
         if (!run.allowedActions.includes("retry"))
@@ -1228,7 +1229,7 @@ const make = Effect.gen(function* () {
         admit(run, retryNode, now);
       }),
     );
-  const resume = (input: typeof CommandInput.Type) =>
+  const resume = (input: CommandInput) =>
     mutate("resume", input, (run, now) =>
       Effect.gen(function* () {
         const attempt = latestAttempt(run, run.currentNode);
@@ -1249,7 +1250,7 @@ const make = Effect.gen(function* () {
         yield* enqueue(run, `${attempt.id}:resume:${attempt.resumeCount}`, "resume", attempt.id);
       }),
     );
-  const gate = Effect.fn("Workflows.gate")(function* (input: typeof GateInput.Type) {
+  const gate = Effect.fn("Workflows.gate")(function* (input: GateInput) {
     const observed = yield* get(input);
     const review = observed.reviews.find((review) => review.id === observed.gate?.reviewId);
     const freshness = review
@@ -2435,7 +2436,7 @@ const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
   const reconcile = (input: typeof ScopeInput.Type) => drain.pipe(Effect.andThen(list(input)));
-  const schedule = (input: typeof ScheduleInput.Type) =>
+  const schedule = (input: ScheduleInput) =>
     protect(
       "schedule",
       Effect.gen(function* () {

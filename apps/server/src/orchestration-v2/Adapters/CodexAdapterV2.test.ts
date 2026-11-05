@@ -1476,7 +1476,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             "resumed",
           );
         }),
-      ).pipe(Effect.provide(Layer.merge(IdAllocator.layer, Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)))),
+      ).pipe(
+        Effect.provide(
+          Layer.merge(IdAllocator.layer, Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
   );
 
   it.effect.each(["before", "after"] as const)(

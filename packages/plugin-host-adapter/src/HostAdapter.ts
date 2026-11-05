@@ -585,7 +585,10 @@ const make = Effect.gen(function* () {
             for (const [name, item] of Object.entries(value)) collect(item, fields.get(name));
           }
         };
-        collect(configuration, Settings.redactServerSettingsForClient(configuration, { secretReferences: true }));
+        collect(
+          configuration,
+          Settings.redactServerSettingsForClient(configuration, { secretReferences: true }),
+        );
         for (const threadId of input.threadIds) {
           const session = yield* mcpSessions.read(threadId);
           if (session) {

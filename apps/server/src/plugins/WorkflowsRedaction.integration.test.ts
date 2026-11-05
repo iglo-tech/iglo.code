@@ -49,9 +49,8 @@ it.live.each(["sensitive-environment", "github-token", "bitbucket-control"] as c
           expect(
             JSON.stringify(
               Settings.redactServerSettingsForClient(yield* settings.getSettings, {
-            secretReferences: true,
-          })
-                .sourceControlHosts,
+                secretReferences: true,
+              }).sourceControlHosts,
             ),
           ).not.toContain(marker);
         } else

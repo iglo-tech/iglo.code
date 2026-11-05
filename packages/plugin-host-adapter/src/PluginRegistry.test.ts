@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -52,7 +53,7 @@ const program = (plugins: ReadonlyArray<ServerPlugin>) =>
   ).pipe(
     Effect.provide(
       Layer.mergeAll(
-        NodeServices.layer,
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         Scheduler.layer,
         Layer.mock(Host)({ environmentId: EnvironmentId.make("test") }),
       ),
@@ -88,7 +89,7 @@ it.effect("opens the catalog in WAL mode even without compiled plugins", () =>
   ).pipe(
     Effect.provide(
       Layer.mergeAll(
-        NodeServices.layer,
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         Scheduler.layer,
         Layer.mock(Host)({ environmentId: EnvironmentId.make("test") }),
       ),
@@ -208,7 +209,7 @@ it.effect("retains a missing plugin's descriptor and private database across res
   ).pipe(
     Effect.provide(
       Layer.mergeAll(
-        NodeServices.layer,
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         Scheduler.layer,
         Layer.mock(Host)({ environmentId: EnvironmentId.make("test") }),
       ),
@@ -273,7 +274,7 @@ it.live.each([false, true])("owns acquired resources with rejected=%s", (rejecte
   ).pipe(
     Effect.provide(
       Layer.mergeAll(
-        NodeServices.layer,
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         Scheduler.layer,
         Layer.mock(Host)({ environmentId: EnvironmentId.make("test") }),
       ),

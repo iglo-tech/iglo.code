@@ -108,7 +108,8 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const digestService = yield* Digest.Digest;
-  const hash = (value: unknown) => digest(value).pipe(Effect.provideService(Digest.Digest, digestService));
+  const hash = (value: unknown) =>
+    digest(value).pipe(Effect.provideService(Digest.Digest, digestService));
   const lock = yield* Semaphore.make(1);
   const environment = (environmentId: EnvironmentId, operation: string) =>
     environmentId === host.environmentId
