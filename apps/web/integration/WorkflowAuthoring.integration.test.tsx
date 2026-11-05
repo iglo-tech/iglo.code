@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationOperateScope,
@@ -463,7 +464,7 @@ it.live.each([
         )).definition,
       ).toEqual(definition);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live("clones past a later-page invalid filename and scoped local drafts", () =>
@@ -526,7 +527,7 @@ it.live("clones past a later-page invalid filename and scoped local drafts", () 
       for (const [filename, text] of existing)
         expect(yield* fs.readFileString(`${test.directory}/${filename}`)).toBe(text);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.live(
@@ -1436,5 +1437,5 @@ it.live(
         expect(page()).not.toContain("Release notes");
         expect((yield* fs.readDirectory(second.directory)).sort()).toEqual(["second-only.yaml"]);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

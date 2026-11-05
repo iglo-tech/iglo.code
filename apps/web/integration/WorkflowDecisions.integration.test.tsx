@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationOperateScope,
@@ -1523,5 +1524,5 @@ it.live(
         expect(Number(inputShownAfterReload) * 60_000).toBe(savedFork.branches[0]?.humanTimeoutMs);
         // #28 reviewer deadlines end.
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

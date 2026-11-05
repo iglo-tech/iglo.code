@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationOperateScope,
@@ -323,5 +324,5 @@ it.live("guards Reports mutations and refreshes their availability after re-pair
       expect(invoked.slice(callsBefore)).not.toContain("plugins.workflows.schedule");
       appAtomRegistry.dispose();
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

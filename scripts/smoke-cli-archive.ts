@@ -16,7 +16,7 @@ const command = Command.make(
     source: Flag.Boolean("source").pipe(Flag.withDefault(false)),
   },
   (input) =>
-    Effect.tryPromise(async () => {
+    Effect.promise(async () => {
       const fixture = await createEnvironmentFixture(
         input.source
           ? {

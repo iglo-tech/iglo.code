@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationOperateScope,
@@ -242,5 +243,5 @@ it.live("does not issue an absent subscription while refreshed catalog is pendin
       expect(invoked).not.toContain("plugins.fixture.subscribe");
       yield* Deferred.succeed(allowRefresh, undefined);
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

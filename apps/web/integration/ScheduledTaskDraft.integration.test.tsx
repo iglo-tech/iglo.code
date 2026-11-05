@@ -3,6 +3,7 @@ import { ShellSnapshotLoader } from "@t3tools/client-runtime/state/shell";
 import { FetchHttpClient } from "effect/http";
 import { environmentProjects } from "../src/state/projects";
 import { expect, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthOrchestrationReadScope,
@@ -799,5 +800,5 @@ it.live("workflow schedule draft survives a transient unavailable connection", (
       ).toEqual(["Ordinary prompt stays paused", "Ordinary prompt stays paused"]);
       yield* Effect.promise(() => act(async () => button("Cancel").click()));
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
