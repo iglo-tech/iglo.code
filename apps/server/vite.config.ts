@@ -86,12 +86,13 @@ export default mergeConfig(
       },
     },
     test: {
-      // Parallel sqlite/git/worktree/orchestration tests introduce load-sensitive flakes.
-      fileParallelism: false,
+      // Real git, sqlite and server fixtures; leave headroom so load does not stretch their waits.
+      maxWorkers: "75%",
       sequence: { sequencer: WeightedShardSequencer },
       setupFiles: [
         "./src/testUtils/gitConfig.setup.ts",
         "./src/testUtils/managedServiceEnv.setup.ts",
+        "./src/testUtils/telemetry.setup.ts",
       ],
       hookTimeout: 120_000,
       testTimeout: 120_000,

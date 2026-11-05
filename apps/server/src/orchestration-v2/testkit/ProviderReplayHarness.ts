@@ -140,6 +140,8 @@ export function makeReplayServerConfig(
       tailscaleServeEnabled: false,
       tailscaleServePort: 443,
       desktopBootstrapToken: undefined,
+      // The test process already has its PATH; a login-shell probe blocks each boot for ~1s.
+      shellEnvironmentPrepared: true,
       autoBootstrapProjectFromCwd: false,
       logWebSocketEvents: false,
       stateDir,

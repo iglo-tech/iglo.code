@@ -136,6 +136,8 @@ it.live.each([
         yield* fs.writeFileString(path, "# Skill\nOriginal work");
       }
       if (scenario === "disabled") enabled = false;
+      // Drains are serialized: settle any that validated the old skill while launches still fail.
+      if (scenario === "changed-source-direct") yield* runtime.invoke("reconcile", test.scope);
       unavailable = false;
       if (scenario !== "changed-source-direct") {
         runtime = yield* test.boot(host);

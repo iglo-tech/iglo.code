@@ -133,6 +133,8 @@ it.live.each([
       supported = !scenario.startsWith("unsupported");
       available = !scenario.startsWith("unavailable");
       modeAllowed = scenario !== "runtime-mode-startup";
+      // Drains are serialized: settle any that validated the old providers while launches still fail.
+      if (scenario.endsWith("direct")) yield* runtime.invoke("reconcile", test.scope);
       outage = false;
       if (!scenario.endsWith("direct")) {
         runtime = yield* test.boot(host, selected);
