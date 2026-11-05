@@ -88,7 +88,8 @@ export default mergeConfig(
     test: {
       // Real git, sqlite and server fixtures; leave headroom so load does not stretch their waits.
       maxWorkers: "75%",
-      sequence: { sequencer: WeightedShardSequencer },
+      // Vitest requires its own group for a project with a different maxWorkers.
+      sequence: { sequencer: WeightedShardSequencer, groupOrder: 1 },
       setupFiles: [
         "./src/testUtils/gitConfig.setup.ts",
         "./src/testUtils/managedServiceEnv.setup.ts",
