@@ -134,7 +134,9 @@ def prune(root):
     def vite(text):
         text = re.sub(
             r"^      \{\n.*?^      \},\n",
-            lambda match: "" if re.search(r"no-mobile-uniwind|no-hermes-unsupported", match[0]) else match[0],
+            lambda match: "" if re.search(
+                r'no-mobile-uniwind|no-hermes-unsupported|files: \["apps/mobile/[^"]*"\]', match[0]
+            ) else match[0],
             text, flags=re.M | re.S,
         )
         text = re.sub(r'^[ \t]+"apps/mobile/[^\n]+\n', "", text, flags=re.M)

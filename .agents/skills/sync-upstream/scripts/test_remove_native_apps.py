@@ -185,6 +185,10 @@ class NativeRemovalTest(unittest.TestCase):
                     rules: { "t3code/no-mobile-uniwind-theme-escape-hatches": "error" },
                   },
                   {
+                    files: ["apps/mobile/src/features/**"],
+                    rules: { "eslint/no-restricted-imports": "error" },
+                  },
+                  {
                     files: ["apps/web/src/**"],
                     rules: { "web-rule": "error" },
                   },
