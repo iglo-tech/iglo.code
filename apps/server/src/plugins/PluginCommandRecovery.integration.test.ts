@@ -9,6 +9,7 @@ import {
   ScheduledTaskId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Registry from "@t3tools/plugin-host-adapter/registry";
 import { Host, Storage, type ServerPlugin } from "@t3tools/plugin-host-contract/server";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -168,6 +169,8 @@ for (const recovery of ["retry", "restart"] as const)
           ready = yield* Deferred.make<{ host: Host["Service"]; storage: Storage["Service"] }>();
           const restarted = yield* startEnvironment(s.config, [plugin]);
           const recovered = yield* Deferred.await(ready);
+          // The pending launch replays in the forked host recovery.
+          yield* Context.get(restarted.context, Registry.PluginRegistry).awaitRecovered;
           const recoveredReceipt = yield* recovered.host.receipt(input.commandId);
           const restartedPending = yield* recovered.storage
             .sql`SELECT id FROM host_commands WHERE result IS NULL`;

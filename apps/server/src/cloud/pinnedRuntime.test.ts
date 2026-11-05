@@ -154,7 +154,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       assert.instanceOf(error.cause, HttpClientError.HttpClientError);
       assert.equal(
         error.cause.request.url,
-        "https://release-user:release-password@releases.example:8443/private/path?signature=private-query#private-fragment/v1.2.3/SHA256SUMS",
+        "https://release-user:release-password@releases.example:8443/private/path/v1.2.3/SHA256SUMS?signature=private-query#private-fragment",
       );
     }),
   );

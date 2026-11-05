@@ -1903,6 +1903,21 @@ it.layer(
             skills: [],
           } as const satisfies ServerProvider;
           let cached = true;
+          const current = (): ServerProvider =>
+            cached
+              ? provider
+              : {
+                  ...provider,
+                  version: "2.0.0",
+                  models: [
+                    {
+                      slug: config.model,
+                      name: config.model,
+                      isCustom: false,
+                      capabilities: createModelCapabilities({ optionDescriptors: [] }),
+                    },
+                  ],
+                };
           return {
             instanceId,
             driverKind,
@@ -1925,7 +1940,7 @@ it.layer(
                     latestVersion: scenario === "selected defect" ? null : "2.0.0",
                   });
                 }),
-              getSnapshot: Effect.succeed(provider),
+              getSnapshot: Effect.sync(() => current()),
               refresh: Effect.sync(() => {
                 events.push(`probe:${id}`);
                 if (
@@ -1934,20 +1949,7 @@ it.layer(
                 ) {
                   throw new Error("Provider discovery failed");
                 }
-                return cached
-                  ? provider
-                  : {
-                      ...provider,
-                      version: "2.0.0",
-                      models: [
-                        {
-                          slug: config.model,
-                          name: config.model,
-                          isCustom: false,
-                          capabilities: createModelCapabilities({ optionDescriptors: [] }),
-                        },
-                      ],
-                    };
+                return current();
               }),
               streamChanges: Stream.empty,
               applyUsageLimits: () => Effect.void,
@@ -2831,6 +2833,8 @@ it.layer(
             const h = yield* makeNativeWorkspaceHarness();
             const before = yield* Ref.get(h.calls);
             yield* Ref.set(h.skillsRef, h.latestSkills);
+            // As the Settings refresh RPC: refreshModels clears model caches, then refreshes.
+            yield* h.registry.invalidateModelCaches(all ? {} : { instanceId: h.instanceId });
             const result = yield* all
               ? h.registry.refresh()
               : h.registry.refreshInstance(h.instanceId);
@@ -3301,6 +3305,7 @@ it.layer(
           ],
         } as const satisfies ServerProvider;
         const catalogSnapshot = yield* Ref.make<ServerProvider>(recoveredOpenCodeProvider);
+        const publishedOpenCode = yield* Ref.make<ServerProvider>(failedOpenCodeProvider);
         const instances = [
           {
             instanceId: codexInstanceId,
@@ -3346,9 +3351,10 @@ it.layer(
                     packageName: null,
                   }),
                 ),
-              getSnapshot: Effect.succeed(failedOpenCodeProvider),
+              getSnapshot: Ref.get(publishedOpenCode),
               refresh: Ref.update(openCodeRefreshCalls, (count) => count + 1).pipe(
                 Effect.andThen(Ref.get(catalogSnapshot)),
+                Effect.tap((snapshot) => Ref.set(publishedOpenCode, snapshot)),
               ),
               streamChanges: Stream.empty,
               applyUsageLimits: () => Effect.void,

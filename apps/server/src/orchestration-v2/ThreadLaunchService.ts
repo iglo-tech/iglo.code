@@ -537,8 +537,6 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
         worktreePath = worktree.worktree.path;
         branch = worktree.worktree.refName;
-        createdWorktreePath = worktreePath;
-        createdBranch = branch;
         yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
         yield* setupTracker.stageStatus(threadId, "checkout", "done");
       }

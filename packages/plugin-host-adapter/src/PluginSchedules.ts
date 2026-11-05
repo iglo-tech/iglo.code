@@ -176,7 +176,7 @@ export const make = Effect.gen(function* () {
             Effect.mapError(
               (cause) =>
                 new ScheduledTaskError({
-                  message: `Plugin schedule target ${target.id} failed during ${cause.operation} (${cause.code}).`,
+                  message: `Plugin schedule target ${target.id} failed during ${cause.operation} (${cause.code}): ${cause.message}`,
                   cause,
                 }),
             ),

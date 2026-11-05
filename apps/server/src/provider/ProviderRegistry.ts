@@ -950,16 +950,9 @@ export const layer = Layer.effect(
     const invalidateWorkspaceSnapshots = Effect.fn("invalidateWorkspaceSnapshots")(function* (
       instanceId?: ProviderInstanceId,
     ) {
+      // Model caches clear only through invalidateModelCaches, which Settings refresh requests.
       yield* SynchronizedRef.updateEffect(workspaceRefreshesRef, (refreshes) =>
         Effect.gen(function* () {
-          const instances = yield* instanceRegistry.listInstances;
-          yield* Effect.forEach(
-            instances.filter(
-              (instance) => instanceId === undefined || instance.instanceId === instanceId,
-            ),
-            (instance) => instance.invalidateCaches ?? Effect.void,
-            { discard: true },
-          );
           yield* updateProviders((providers) =>
             providers.map((provider) =>
               (instanceId === undefined || provider.instanceId === instanceId) &&

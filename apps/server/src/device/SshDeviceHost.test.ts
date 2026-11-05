@@ -326,7 +326,7 @@ it.effect(
           // A fresh forward reaches a working hub again.
           if (forwarding && ++forwardSpawns > 1) hubAnswers = true;
           const output = JSON.stringify({
-            nodePath: "/node",
+            bunPath: "/bun",
             platforms: [{ platform: "ios", available: true }],
             hubPort: 1234,
             helpers: { serveSimAxSettings: null, serveSimCli: null },
