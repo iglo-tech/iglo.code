@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - native inference and IPC cleanup need killable Promise boundaries outside the Effect runtime.
 import * as NodeChildProcess from "node:child_process";
-import * as NodeSea from "node:sea";
+import { resolveHostModuleUrl } from "@t3tools/shared/HostProcess";
 import type { SpeechStreamText } from "@t3tools/contracts";
 import { createSpeechAudio } from "./audio.ts";
 
@@ -198,11 +198,20 @@ type Reply = {
   readonly preview?: SpeechStreamText | null;
 };
 
-// transcribe-cpp has an import-only export. Load its disk entry with require so
-// Node SEA can reach it, including its native dependencies.
+// transcribe-cpp has an import-only export. Load its disk entry with require so a
+// compiled CLI reaches the staged package. Bun lacks module.findPackageJSON.
 const loaderEntry = `
-  const { createRequire, findPackageJSON } = await import("node:module");
+  const { createRequire } = await import("node:module");
+  const { existsSync } = await import("node:fs");
   const { dirname, join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const findPackageJSON = (name, base) => {
+    for (let dir = dirname(fileURLToPath(base)); ; dir = dirname(dir)) {
+      const candidate = join(dir, "node_modules", name, "package.json");
+      if (existsSync(candidate)) return candidate;
+      if (dirname(dir) === dir) return undefined;
+    }
+  };
   const loadSpeechModule = async (moduleUrl) => {
     let speech;
     if (moduleUrl) speech = await import(moduleUrl);
@@ -239,12 +248,14 @@ export async function runNativeSpeechWorker(mode: "discover" | "model", moduleUr
     "moduleUrl",
     `return (async () => {${loaderEntry}${mode === "discover" ? discoveryEntry : entry}})();`,
   ) as (baseUrl: string, moduleUrl?: string) => Promise<void>;
-  await run(import.meta.url, moduleUrl);
+  await run(resolveHostModuleUrl(import.meta.url), moduleUrl);
 }
 
 function speechWorkerArgs(mode: "discover" | "model", moduleUrl?: string) {
-  if (NodeSea.isSea()) return ["__speech-worker", mode, ...(moduleUrl ? [moduleUrl] : [])];
-  // Normal Node and Electron hosts can evaluate the same entry without a sibling artifact.
+  if (process.argv[1]?.startsWith("/$bunfs/")) {
+    return ["__speech-worker", mode, ...(moduleUrl ? [moduleUrl] : [])];
+  }
+  // Source runs evaluate the same entry without a sibling artifact.
   const loader = `const baseUrl = ${JSON.stringify(import.meta.url)};
     const moduleUrl = process.argv[1];${loaderEntry}`;
   return [

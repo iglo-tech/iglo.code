@@ -3,19 +3,25 @@ import { expect, it } from "vite-plus/test";
 
 import { loadNativeSpeechModel } from "./native.ts";
 
+// Bun picks a loader from text after a dot in plain data URLs, so base64 keeps fixtures as modules.
+const moduleUrl = (source: string) =>
+  `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+
 const fixture = (transcribe: string, maxAudioMs = 0, supportsVocabulary = false) =>
-  `data:text/javascript,${encodeURIComponent(`export const TranscribeModel = { load: async () => ({ capabilities: { supportsStreaming: false, maxAudioMs: ${maxAudioMs} }, supports: (feature) => feature === "vocabulary" && ${supportsVocabulary}, transcribe: ${transcribe} }) };`)}`;
+  moduleUrl(
+    `export const TranscribeModel = { load: async () => ({ capabilities: { supportsStreaming: false, maxAudioMs: ${maxAudioMs} }, supports: (feature) => feature === "vocabulary" && ${supportsVocabulary}, transcribe: ${transcribe} }) };`,
+  );
 
 const fixtureWithUnrelatedIpcMessage = () =>
-  `data:text/javascript,${encodeURIComponent(`
+  moduleUrl(`
     process.send?.({ type: "unrelated-control-message" });
     export const TranscribeModel = {
       load: async () => ({ capabilities: { supportsStreaming: false }, supports: () => false, transcribe: async () => ({ text: "hello" }) }),
     };
-  `)}`;
+  `);
 
 const streamingFixture = (feed: string, supportsVocabulary = false) =>
-  `data:text/javascript,${encodeURIComponent(`
+  moduleUrl(`
   export const TranscribeModel = { load: async () => ({
     capabilities: { supportsStreaming: true },
     supports: (feature) => feature === "vocabulary" && ${supportsVocabulary},
@@ -29,7 +35,7 @@ const streamingFixture = (feed: string, supportsVocabulary = false) =>
       }),
     }),
   }) };
-`)}`;
+`);
 
 it("returns transcription from an isolated process and disposes it", async () => {
   const model = await loadNativeSpeechModel(
@@ -161,7 +167,7 @@ const vadFixture = ({
   failAsr = false,
   maxAudioMs = 4000,
 } = {}) =>
-  `data:text/javascript,${encodeURIComponent(`
+  moduleUrl(`
     const summarize = pcm => String(pcm.length) + ":" + pcm[0].toFixed(2) + ":" + pcm[pcm.length - 1].toFixed(2);
     export const TranscribeModel = { load: async (path, options) => {
       if (path === "vad.gguf") {
@@ -203,7 +209,7 @@ const vadFixture = ({
         },
       };
     }};
-  `)}`;
+  `);
 
 it("filters silence and preserves partial speech through the production worker and resets between recordings", async () => {
   for (const streaming of [false, true]) {
