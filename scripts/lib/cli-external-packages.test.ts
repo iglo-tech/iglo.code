@@ -75,6 +75,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
         "@napi-rs/keyring",
         "ffi-rs",
         "playwright-core",
+        "transcribe-cpp",
         "undici",
         "zod",
       ],
