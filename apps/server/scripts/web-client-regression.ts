@@ -562,7 +562,11 @@ export async function runWebClientRegression(
       await NodeFSP.writeFile(NodePath.join(dependencies.control, "auth-error"), "fail");
       await signIn.click();
       await visible(
-        page.getByText("The ACP agent could not complete sign-in.", { exact: true }).first(),
+        page
+          .getByText("The ACP agent could not complete sign-in. Controlled sign-in failure", {
+            exact: true,
+          })
+          .first(),
       );
       await NodeFSP.rm(NodePath.join(dependencies.control, "auth-error"));
     });
