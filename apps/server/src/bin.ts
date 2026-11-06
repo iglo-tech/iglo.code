@@ -19,6 +19,17 @@ if (
     process.exit(1);
   }
   const command = process.argv[2];
+  // The launcher owns shutdown until its child exits, so it bypasses the Effect CLI runtime.
+  // The service unit passes no arguments; flags and help go through the full CLI.
+  if (command === "__service-launcher" && process.argv.length === 3) {
+    const { runServiceLauncherCli } = await import("./cli/serviceLauncher.ts");
+    await runServiceLauncherCli();
+  } else {
+    await runCliCommand(command);
+  }
+}
+
+async function runCliCommand(command: string | undefined) {
   // Guard sockets before either dispatch path can load outbound-capable modules.
   const { ignoreMacosTypeOfServiceEinval } = await import("./outboundHttp.ts");
   ignoreMacosTypeOfServiceEinval();
