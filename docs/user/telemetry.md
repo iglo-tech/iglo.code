@@ -9,18 +9,27 @@ permission mode, turn and request results, duration, release channel, and token 
 available. Child-agent token counts are reported separately from the main agent's. Model names
 are sent only when they appear in a provider's public model list.
 
-Events do not include prompts, responses, file contents, authentication tokens, conversation IDs,
+Product events do not include prompts, responses, file contents, authentication tokens, conversation IDs,
 raw provider events, or child-agent output.
 
-T3 Code also sends relay connection traces to Axiom to diagnose T3 Connect connectivity.
+## Relay connection diagnostics
 
-To disable product events and relay tracing, set `T3CODE_TELEMETRY_ENABLED=false` in the server's
-environment before starting it. Relay tracing also stops when `T3CODE_OTEL_SDK_DISABLED` or
-`OTEL_SDK_DISABLED` turns OpenTelemetry export off. The web app in a browser, including one the
-`t3` CLI opens, does not read these variables.
+T3 Code sends relay connection traces to Axiom to diagnose T3 Connect connectivity. These are
+separate from product events. Depending on the client version, traces can include connection
+timings, environment identifiers and the connected machine's name. Failed spans can include error
+messages and stack traces; error text can quote a value the app was handling.
 
-An administrator can turn product events and relay tracing off for every user on a machine with
-a [managed policy](./managed-policy.md#other-capabilities).
+To disable product events and relay tracing from the server, set
+`T3CODE_TELEMETRY_ENABLED=false` in its environment before starting it. Relay tracing also stops
+when `T3CODE_OTEL_SDK_DISABLED` or `OTEL_SDK_DISABLED` turns OpenTelemetry export off.
+
+An administrator can turn product events and relay tracing off in the server with
+a [managed policy](./managed-policy.md#other-capabilities). This does not control traces sent by
+separate browser clients.
+
+The web app in a browser, including one the `t3` CLI opens, does not read these environment
+variables. When its build has relay tracing configured, it sends its own connection traces even
+if the server has opted out. The browser app has no relay tracing toggle.
 
 ## Export diagnostics to your own receiver
 
