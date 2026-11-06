@@ -2,7 +2,7 @@
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
-This fork runs lightweight CI only. Tags and schedules do not publish releases, npm packages,
+This fork has no CI; checks run locally. Tags and schedules do not publish releases, npm packages,
 web previews, or production deployments. Build and publish explicitly when needed.
 
 ## Build web and server

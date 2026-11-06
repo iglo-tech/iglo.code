@@ -1,4 +1,4 @@
-"""Prune the known upstream desktop integrations while preserving CLI releases."""
+"""Prune the known upstream desktop integrations and GitHub workflows."""
 
 import json
 import re
@@ -15,102 +15,6 @@ def desktop_dependency(name):
         # The Bun runtime uses its own PTY; node-pty only served the Node adapter.
         r"|node-pty(?:[@:]|$))", name
     ))
-
-
-def workflow_steps(text, transform):
-    return re.sub(
-        r"^      - .*?(?=^      - |^  [\w-]+:|\Z)",
-        lambda match: transform(match[0]), text, flags=re.M | re.S,
-    )
-
-
-def remove_steps(text, names):
-    return workflow_steps(text, lambda step: "" if any(
-        re.search(r"^      - name: " + re.escape(name) + r"\s*$", step, re.M)
-        for name in names
-    ) else step)
-
-
-def strip_native_comments(text):
-    # Drop whole comment paragraphs rather than leaving fragments of removed guidance.
-    return re.sub(
-        r"^(?:[ \t]*#[^\n]*\n)+",
-        lambda match: "" if re.search(
-            r"desktop|Desktop|Electron|electron|browser secret|browser-secret|capture helpers|WSL",
-            match[0],
-        ) else match[0], text, flags=re.M,
-    )
-
-
-def cli_workflow(text):
-    text = remove_steps(text, {
-        "Cache Linux capture helpers", "Install Linux desktop build libraries",
-        "Wait for Linux CLI archive", "Download Linux CLI archive for WSL",
-        "Build desktop artifact", "Collect release assets", "Upload build artifacts",
-    })
-    text = strip_native_comments(text)
-    text = text.replace("name: Release desktop build", "name: Release CLI build")
-    text = text.replace("Install desktop dependencies", "Install CLI dependencies")
-    text = text.replace("--filter=@t3tools/desktop... ", "")
-    for key in ("MACOS_PROVISIONING_PROFILE", "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
-                "target", "cli_archive", "release_channel"):
-        text = re.sub(r"^      " + key + r":\n(?:        [^\n]*\n)+", "", text, flags=re.M)
-    text = re.sub(r"^          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME:.*\n", "", text, flags=re.M)
-    text = re.sub(r"^            \$env:AZURE_TRUSTED_SIGNING_PUBLISHER_NAME\n", "", text, flags=re.M)
-    text = text.replace("$env:AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME,",
-                        "$env:AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME")
-    text = re.sub(r"^    timeout-minutes:.*\n", "    timeout-minutes: 30\n", text, flags=re.M)
-    text = re.sub(r"^        if: inputs.cli_archive\s*\n", "", text, flags=re.M)
-    text = text.replace("inputs.cli_archive && ", "")
-    text = re.sub(r"^        if: steps.resource_monitor_cache.outputs.cache-hit.*\n",
-                  "        if: steps.resource_monitor_cache.outputs.cache-hit != 'true'\n", text, flags=re.M)
-    text = text.replace("          path: apps\n", "          path: apps/server/dist\n")
-    build_monitor = """      - name: Build resource monitor
-        if: steps.resource_monitor_cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ inputs.rust_target }}"
-
-"""
-    text = text.replace("      - name: Stage resource monitor for the CLI archive\n",
-                        build_monitor + "      - name: Stage resource monitor for the CLI archive\n")
-    return text
-
-
-def release_workflow(text):
-    text = re.sub(r"^  desktop_mac_x64:.*?(?=^  [\w-]+:|\Z)", "", text, flags=re.M | re.S)
-    text = re.sub(r"^  publish_aur:.*?(?=^  [\w-]+:|\Z)", "", text, flags=re.M | re.S)
-    text = remove_steps(text, {
-        "Ensure Electron runtime is installed",
-        "Download all desktop artifacts", "Refuse updater metadata on preview releases",
-        "Merge macOS updater manifests", "Merge Windows updater manifests",
-    })
-    text = workflow_steps(text, lambda step: (
-        step.replace("Install browser secret helper build libraries", "Install C toolchain for process-tree fixtures")
-        .replace("libsecret-1-dev pkg-config ", "") if "build-essential" in step else ""
-    ) if "name: Install browser secret helper build libraries" in step else step)
-    text = strip_native_comments(text)
-    text = re.sub(r"^        desktop_mac_x64,\n", "", text, flags=re.M)
-    text = text.replace(" && needs.desktop_mac_x64.result == 'success'", "")
-    text = text.replace("desktop_", "cli_").replace("name: Desktop ", "name: CLI ")
-    text = text.replace("release-desktop.yml", "release-cli.yml")
-    text = re.sub(r"^  cli_[\w-]+:.*?(?=^  [\w-]+:|\Z)", lambda match: re.sub(
-        r"^      (?:target|cli_archive|release_channel):.*\n", "", match[0], flags=re.M,
-    ), text, flags=re.M | re.S)
-    text = text.replace(" --filter=@t3tools/desktop...", "")
-    text = text.replace("vp run build:desktop", "vp run --filter t3 build")
-    text = re.sub(r"^            apps/desktop/dist-electron\n", "", text, flags=re.M)
-    text = text.replace(" apps/desktop/package.json", "")
-    text = text.replace(
-        "      # Two paths under apps/ so the artifact root is apps/; consumers download\n"
-        "      # into `apps` to restore both at their original locations.\n",
-        "      # The artifact contains the dist directory's contents; consumers restore it there.\n",
-    )
-    text = workflow_steps(text, lambda step: re.sub(
-        r"^[ \t]+echo 'release-assets/\*\.(?:dmg|AppImage|deb|exe|blockmap|yml)'\n", "", step, flags=re.M,
-    ).replace(
-        '            if [[ "${{ needs.preflight.outputs.release_channel }}" != "preview" ]]; then\n            fi\n', "",
-    ) if "name: Resolve release asset list" in step else step)
-    return text
 
 
 def dev_runner(text):
@@ -156,23 +60,19 @@ def prune_desktop(root):
                 target.write_text(after)
                 changed.append(str(path))
 
-    desktop_release = root / ".github/workflows/release-desktop.yml"
-    if desktop_release.is_file():
-        cli_release = root / ".github/workflows/release-cli.yml"
-        cli_release.write_text(cli_workflow(desktop_release.read_text()))
-        changed.append(str(cli_release.relative_to(root)))
+    # The fork runs its checks locally and keeps no GitHub workflows.
+    remove(".github/workflows")
     remove("apps/desktop")
     for path in (
         ".devcontainer", "docs/internals/devcontainer.md",
         "native/browser-secret", "native/hyprland-snap-shot", "native/kde-snap-shot",
-        ".github/workflows/release-desktop.yml", ".github/workflows/publish-aur.yml",
         ".github/scripts/stage-preview-bundle.py", ".github/scripts/stage-preview-bundle.test.py",
         "scripts/lib/desktop-external-packages.ts", "scripts/lib/update-manifest.ts",
         "docs/internals/linux-snap-shot.md", "docs/user/snap-shot.md", "docs/user/browser-import.md",
         "docs/user/default-browser.md",
     ):
         remove(path)
-    for pattern in (".github/workflows/desktop-*", "scripts/build-desktop-artifact.*",
+    for pattern in ("scripts/build-desktop-artifact.*",
                     "scripts/merge-update-manifests.*", "scripts/mock-update-server.*", "scripts/sign-macos.*",
                     "scripts/verify-windows-desktop-artifact.*", "scripts/lib/windows-jsign.*",
                     "scripts/linux-after-pack.*",
@@ -226,16 +126,6 @@ def prune_desktop(root):
     edit("pnpm-lock.yaml", lambda text: re.sub(
         r"^  apps/desktop(?:/[^:\n]+)?:\n.*?(?=^  \S|^\S|\Z)", "", text, flags=re.M | re.S,
     ))
-    for path in (".github/workflows/ci.yml", ".github/workflows/windows-tests.yml"):
-        edit(path, lambda text: strip_native_comments(remove_steps(text, {
-            "Ensure Electron runtime is installed", "Start installing browser secret helper build libraries",
-            "Finish installing browser secret helper build libraries", "Verify preload bundle output",
-            "Test preview artifact validation",
-        })).replace("Build desktop pipeline", "Build web and server")
-             .replace("vp run build:desktop", "vp run --filter t3 build")
-             .replace("resource-monitor kde-snap-shot hyprland-snap-shot", "resource-monitor"))
-    edit(".github/workflows/release.yml", release_workflow)
-
     def scripts_package(text):
         data = json.loads(text)
         for field in ("dependencies", "devDependencies"):

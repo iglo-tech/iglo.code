@@ -1,6 +1,6 @@
 ---
 name: sync-upstream
-description: Import T3 Code upstream changes into iglo.code while preserving its web-only scope, Bun runtime, fork distribution, workflows, and lightweight CI. Use for upstream merges, snapshot imports, or removing restored desktop/mobile apps and devcontainer setup.
+description: Import T3 Code upstream changes into iglo.code while preserving its web-only scope, Bun runtime, fork distribution, plugin workflows, and local-only checks. Use for upstream merges, snapshot imports, or removing restored desktop/mobile apps and devcontainer setup.
 ---
 
 # Sync upstream into iglo.code
@@ -83,12 +83,13 @@ current when an authorized change replaces a decision.
   usage limits or paused queues, while explicit Run now requests remain distinct.
   Retain original queued prompts and truthful queued/dispatched delivery status;
   see [recurring automations](../../../docs/user/project-settings.md#recurring-automations).
-- **Lightweight CI.** `.github/workflows/ci.yml` is the only workflow, with one
-  standard Ubuntu x64 job, branch-based cancellation, and the existing small
-  smoke-test set. Keep its checks and use the repository Bun pin. Remove other
-  imported workflows, including releases, deployments, previews, bots, Windows
-  lanes, and runtime matrices. Retained packaging and runtime suites run manually;
-  importing upstream is not a request to restore removed CI checks. Upstream's
+- **No CI.** The fork keeps no GitHub workflows; the pruning helper deletes
+  `.github/workflows` on every import. Checks run locally before pushing:
+  `vp fmt --check`, `vp run lint`,
+  `vp run --parallel --filter 't3...' --concurrency-limit 2 typecheck`, the smoke tests in
+  [development checks](../../../docs/operations/development.md#checks), and
+  `vp run --filter t3 build`. Importing upstream is not a request to restore CI.
+  `.github/scripts/ci-changes.cjs` stays because `vp run check:changed` uses it. Upstream's
   shared Vite task cache (`infra/task-cache`, `.task-cache.json`, and its root
   `vite.config.ts` hooks) targets upstream's own Cloudflare worker; keep it removed.
 
@@ -178,8 +179,7 @@ python3 -B .agents/skills/sync-upstream/scripts/test_remove_native_apps.py
 ```
 
 Review the final diff against the intentional fork differences, including files
-that merged automatically. Confirm only the existing CI workflow/job/check scope
-remains. For each affected difference, compare its behavior with the pre-import
+that merged automatically. Confirm no `.github/workflows` remain. For each affected difference, compare its behavior with the pre-import
 notes and run the smallest relevant proof. Changes to runtime launch, helper
 execution, or packaging need source and actual standalone archive smoke checks;
 a source-only pass cannot prove packaged helper execution or bundled dependency

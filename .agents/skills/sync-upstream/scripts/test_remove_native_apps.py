@@ -152,30 +152,9 @@ class NativeRemovalTest(unittest.TestCase):
         self.assertIn("integrity: original", lock)
         self.assertEqual(prune(self.root), [])
 
-    def test_removes_ci_jobs_and_native_rules_without_removing_web_rules(self):
-        self.write(".github/workflows/ci.yml", """
-            jobs:
-              test_web:
-                name: Test Web
-              # The static analysis below needs a macOS runner, which bills more.
-              # Keep this comment separate from jobs introduced in future updates.
-              mobile_native_changes:
-                name: Mobile
-              mobile_native_static_analysis:
-                needs: mobile_native_changes
-              future_shared_job:
-                name: Future Shared Job
-              release_smoke:
-                name: Release Smoke
-              check:
-                needs:
-                  [
-                    test_web,
-                    mobile_native_changes,
-                    mobile_native_static_analysis,
-                    release_smoke,
-                  ]
-        """)
+    def test_removes_all_workflows_and_native_rules_without_removing_web_rules(self):
+        self.write(".github/workflows/ci.yml", "jobs: {}\n")
+        self.write(".github/scripts/ci-changes.cjs", "module.exports = {};\n")
         self.write("vite.config.ts", """
             export default {
               lint: {
@@ -197,11 +176,8 @@ class NativeRemovalTest(unittest.TestCase):
             };
         """)
         prune(self.root)
-        ci = (self.root / ".github/workflows/ci.yml").read_text()
-        self.assertNotIn("mobile_native", ci)
-        self.assertIn("release_smoke:", ci)
-        self.assertIn("test_web:", ci)
-        self.assertIn("future_shared_job:", ci)
+        self.assertFalse((self.root / ".github/workflows").exists())
+        self.assertTrue((self.root / ".github/scripts/ci-changes.cjs").is_file())
         vite = (self.root / "vite.config.ts").read_text()
         self.assertNotIn("apps/mobile", vite)
         self.assertIn('"web-rule": "error"', vite)
@@ -409,89 +385,6 @@ class NativeRemovalTest(unittest.TestCase):
             "dependencies": {"sharp": "0.35.4"},
             "devDependencies": {"@types/pngjs": "6.0.5"},
         })
-        self.assertEqual(prune(self.root), [])
-
-    def test_converts_release_jobs_to_cli_and_keeps_their_publish_dependencies(self):
-        self.write(".github/workflows/release.yml", """
-            jobs:
-              preflight:
-                outputs:
-                  release_channel: ${{ steps.release_meta.outputs.release_channel }}
-              desktop_mac_arm64:
-                name: Desktop macOS arm64
-                uses: ./.github/workflows/release-desktop.yml
-                with:
-                  platform: mac
-                  target: dmg
-                  cli_archive: true
-              desktop_mac_x64:
-                name: Desktop macOS x64
-              publish_cli:
-                needs:
-                  [
-                    desktop_mac_arm64,
-                  ]
-                if: ${{ needs.desktop_mac_arm64.result == 'success' }}
-              release:
-                needs:
-                  [
-                    desktop_mac_arm64,
-                    desktop_mac_x64,
-                    publish_cli,
-                  ]
-                steps:
-                  - name: Download all desktop artifacts
-                    with:
-                      pattern: desktop-*
-                  - name: Download all CLI archives
-                    with:
-                      pattern: cli-*
-              publish_aur:
-                uses: ./.github/workflows/publish-aur.yml
-              deploy_web:
-                needs: release
-        """)
-        self.write(".github/workflows/release-desktop.yml", """
-            name: Release desktop build
-            on:
-              workflow_call:
-                inputs:
-                  platform:
-                    type: string
-                  target:
-                    type: string
-                  cli_archive:
-                    type: boolean
-            jobs:
-              build:
-                steps:
-                  - name: Download JS bundle
-                    with:
-                      path: apps
-                  - name: Build desktop artifact
-                    run: vp run dist:desktop:artifact
-                  - name: Stage resource monitor for the CLI archive
-                    if: inputs.cli_archive
-                    run: cp monitor staging
-                  - name: Build CLI archive
-                    if: inputs.cli_archive
-                    run: node scripts/build-cli-archive.ts
-        """)
-        prune(self.root)
-        release = (self.root / ".github/workflows/release.yml").read_text()
-        self.assertNotIn("desktop", release)
-        self.assertNotIn("publish_aur", release)
-        self.assertIn("cli_mac_arm64,", release)
-        self.assertIn("needs.cli_mac_arm64.result", release)
-        self.assertIn("release_channel: ${{ steps.release_meta.outputs.release_channel }}", release)
-        self.assertIn("publish_cli,", release)
-        self.assertIn("needs: release", release)
-        cli = (self.root / ".github/workflows/release-cli.yml").read_text()
-        self.assertNotIn("desktop", cli)
-        self.assertNotIn("cli_archive", cli)
-        self.assertIn("path: apps/server/dist", cli)
-        self.assertIn("name: Build resource monitor", cli)
-        self.assertIn("node scripts/build-cli-archive.ts", cli)
         self.assertEqual(prune(self.root), [])
 
     def test_desktop_symlink_is_removed_without_following_it(self):

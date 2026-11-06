@@ -47,7 +47,7 @@ def prune(root):
     remove(".agents/skills/test-t3-mobile")
     for pattern in (
         "scripts/mobile-*", "scripts/export-android-icons.*",
-        "scripts/legend-list-initial-reveal.*", ".github/workflows/mobile-*",
+        "scripts/legend-list-initial-reveal.*",
         "docs/internals/mobile-*", "docs/internals/images/mobile-*", "docs/operations/mobile-*",
         "apps/web/public/.well-known/apple-app-site-association.json",
         "apps/web/public/.well-known/assetlinks.json",
@@ -116,20 +116,6 @@ def prune(root):
         )
 
     edit("pnpm-lock.yaml", lockfile)
-
-    def ci(text):
-        # Job keys are two-space mappings. Preserve the surrounding job content.
-        text = re.sub(r"^  mobile[\w-]*:.*?(?=^  [\w-]+:|\Z)", "", text, flags=re.M | re.S)
-        text = re.sub(r"^        mobile[\w-]*,\n", "", text, flags=re.M)
-        text = re.sub(r"^          # Only the macOS lint skips.*\n", "", text, flags=re.M)
-        text = re.sub(r'\n            or \(\.key == "mobile_native_static_analysis" and \.value.result == "skipped"\)', "", text)
-        text = re.sub(
-            r"^  # The static analysis below needs a macOS runner[^\n]*\n(?:  #[^\n]*\n)*",
-            "", text, flags=re.M,
-        )
-        return text
-
-    edit(".github/workflows/ci.yml", ci)
 
     def vite(text):
         text = re.sub(

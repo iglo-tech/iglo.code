@@ -155,15 +155,15 @@ for the security model.
 
 ## Checks
 
-`vp run check:changed` runs CI's fast checks for your branch's changes: format and lint of the
+`vp run check:changed` runs fast checks for your branch's changes: format and lint of the
 changed files, `knip:check` when code or a manifest changes, the generated GraphQL checks, typecheck
 of the affected packages and their dependents, and the test files beside the changed files. It also
 runs the checks that read other files: the agent context budget when the server is affected, and
 React Compiler coverage for only the changed web and mobile files. It maps
-files to packages with [ci-changes.cjs](../../.github/scripts/ci-changes.cjs), as CI does. It
+files to packages with [ci-changes.cjs](../../.github/scripts/ci-changes.cjs). It
 compares against the closest merge base with any remote's `main`, so a fork whose `main` lags
-upstream still compares against upstream, or with a ref you pass. CI still runs the full
-test suites and the jobs the summary lists, so a local pass does not promise a green CI run.
+upstream still compares against upstream, or with a ref you pass. It skips the full test
+suites and the build, so also run the pre-push checks below.
 
 The steps run side by side, as many at once as the machine allows: one per two cores and per 6 GiB
 of available memory. On a large machine a run takes about as long as its slowest step, usually
@@ -193,11 +193,19 @@ refactors built in. Only `apps/marketing` installs `typescript`, for Astro. VS C
 extension starts the same checker through `.vscode/tsdk/tsgo` (`js/ts.tsdk.path`), a POSIX
 script, so on Windows open the workspace through WSL.
 
-CI runs one Linux x64 job on pull requests, pushes to `main`, and manual dispatches.
-It checks formatting, lint, types, a small smoke-test set, and the web/server build.
-New runs cancel older queued and running checks for the same source repository and branch.
-Run focused tests for changed behavior locally; CI does not run the full suite.
-See [ci.yml](../../.github/workflows/ci.yml) for the current checks.
+This fork has no CI. Before pushing to `main`, run the checks locally:
+
+```sh
+vp fmt --check
+vp run lint
+vp run --parallel --filter 't3...' --concurrency-limit 2 typecheck
+vp test run packages/contracts/src/orchestrationV2.test.ts \
+  packages/client-runtime/src/state/threadHistoryMerge.test.ts \
+  apps/server/src/orchestration-v2/CommandPolicy.test.ts
+vp run --filter t3 build
+```
+
+Also run focused tests for the changed behavior.
 
 Run `bun scripts/smoke-cli-archive.ts --source` locally for the source transport/persistence
 check, or pass `--archive <path> --expect-version <version>` for an archive.
@@ -218,7 +226,7 @@ Named exports in web UI component modules are kept as complete component sets. K
 unused exports in `apps/web/src/components/ui/*.tsx`, while still reporting an entire unused file.
 Use `vp run knip --workspace apps/web` to audit one workspace, including exports,
 or `vp run knip:production --workspace apps/web` to find code kept alive only by tests.
-The full export audit still has findings and is not a repo-wide CI gate. Extend the
+The full export audit still has findings and is not a repo-wide gate. Extend the
 export check's workspace selectors as more workspaces become clean. Review callers before
 deleting code; production mode can also report development scripts and test fixtures.
 Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](../../knip.jsonc).
