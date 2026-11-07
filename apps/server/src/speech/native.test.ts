@@ -9,7 +9,7 @@ const moduleUrl = (source: string) =>
 
 const fixture = (transcribe: string, maxAudioMs = 0, supportsVocabulary = false) =>
   moduleUrl(
-    `export const TranscribeModel = { load: async () => ({ capabilities: { supportsStreaming: false, maxAudioMs: ${maxAudioMs} }, supports: (feature) => feature === "vocabulary" && ${supportsVocabulary}, transcribe: ${transcribe} }) };`,
+    `export const TranscribeModel = { load: async () => ({ capabilities: { supportsStreaming: false, maxAudioMs: ${maxAudioMs}, languages: ["en-US", "de-DE"] }, supports: (feature) => feature === "vocabulary" && ${supportsVocabulary}, transcribe: ${transcribe} }) };`,
   );
 
 const fixtureWithUnrelatedIpcMessage = () =>
@@ -44,6 +44,7 @@ it("returns transcription from an isolated process and disposes it", async () =>
     fixture("async (pcm) => ({ text: String(pcm[0]) })"),
   );
   try {
+    expect(model.languages).toEqual(["en-US", "de-DE"]);
     expect(
       await model.transcribe(
         new Float32Array([0.25]),
