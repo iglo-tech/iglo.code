@@ -47,6 +47,7 @@ it.live.each(["cancel", "shutdown"] as const)(
           "-m",
           "base",
         );
+        const ref = (yield* git("rev-parse", "HEAD")).trim();
         const gate = config.baseDir + "/setup-gate";
         const held = config.baseDir + "/setup-held";
         yield* spawn.exitCode(ChildProcess.make("mkfifo", [gate, held]));
@@ -101,7 +102,7 @@ it.live.each(["cancel", "shutdown"] as const)(
             title: "Gated setup",
             modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "fixture" },
             runtimeMode: "approval-required",
-            workspace: { type: "current" },
+            workspace: { type: "exact-ref" as const, ref, branch: "setup/cleanup" },
           })
           .pipe(Effect.result, Effect.forkScoped);
         const created = yield* host
