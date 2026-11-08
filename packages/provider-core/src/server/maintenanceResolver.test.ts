@@ -219,7 +219,7 @@ function miseFixture(
     binaryPath = NodePath.join(installPath, "bin", "package-tool");
     writeExecutable(binaryPath);
     if (symlinksSupported) {
-      NodeFS.rmSync(latestDir, { force: true });
+      NodeFS.rmSync(latestDir, { force: true, recursive: true });
       NodeFS.symlinkSync(installPath, latestDir);
     }
     return binaryPath;
