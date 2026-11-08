@@ -250,6 +250,12 @@ it.effect("delivers a one-time task on a thread already queuing a run of that ta
       }),
       Layer.mock(ThreadManagementService.ThreadManagementService)({
         getProjectThreadRecords: () => Effect.succeed({ runs: [{ status: "queued" }] } as never),
+        getThreadShell: () =>
+          Effect.succeed({
+            projectId: "project-once-busy",
+            archivedAt: null,
+            deletedAt: null,
+          } as never),
         sendToThread: (input) =>
           Deferred.succeed(sent, input.text).pipe(Effect.as({ delivery: "queued" } as never)),
       }),
