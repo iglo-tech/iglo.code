@@ -42,12 +42,11 @@ The page names the agent and where its access goes:
   Anyone who runs that service gets the access.
 
 Only approve a sign-in you just started. To approve, enter a pairing code from
-**Settings → Sharing & access** or from `iglo.code auth pairing create` on the host. A
-browser already signed in to the environment with permission to manage access
-can approve without a code.
-
-Then choose what the agent may do. **Auto** is selected by default, or the
-closest lower mode allowed by your organization’s policy:
+**Settings → Sharing & access** or from `iglo.code auth pairing create` on the host.
+Then choose what the agent may do: **Auto** is selected by default, or the
+closest lower mode allowed by your organization’s policy. A browser already
+signed in to the environment with permission to manage access can approve
+without a code; that starts at **Read only**:
 
 - **Read only** lets the agent read projects and threads and see
   the available providers and models. It cannot change anything.
@@ -59,12 +58,12 @@ closest lower mode allowed by your organization’s policy:
 
 ```sh
 claude mcp add --transport http iglo-code https://<environment-address>/mcp
-claude mcp login t3
+claude mcp login iglo-code
 ```
 
 `claude mcp login` opens the sign-in page in your browser. On a machine
 without a browser, add `--no-browser`, open the printed URL elsewhere, and
-paste the final URL back when asked. `claude mcp list` shows `t3` as connected
+paste the final URL back when asked. `claude mcp list` shows `iglo-code` as connected
 once you approve.
 
 ## Codex
