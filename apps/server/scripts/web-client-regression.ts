@@ -314,7 +314,7 @@ export async function runWebClientRegression(
             ? `${NodePath.join(input.repoRoot, "node_modules/.bin")}${NodePath.delimiter}${process.env.PATH ?? ""}`
             : "",
         );
-        return { ...secondaryDependencies.env, T3CODE_DEV_ALLOWED_ORIGINS: primary.origin };
+        return { ...secondaryDependencies.env, IGLO_CODE_DEV_ALLOWED_ORIGINS: primary.origin };
       },
     });
     fixtures.push(secondary);

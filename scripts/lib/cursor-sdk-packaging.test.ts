@@ -118,7 +118,7 @@ it("loads packaged Cursor catalog chunks without credentials or checkout depende
     const probe = NodePath.join(output, "probe.mjs");
     assert.deepEqual(findEsmImportsOfExternalPackages(await NodeFSP.readFile(probe, "utf8")), []);
     const executable = NodePath.join(output, "cursor-probe");
-    const bun = process.env.T3_BUN_EXECUTABLE ?? "bun";
+    const bun = process.env.IGLO_CODE_BUN_EXECUTABLE ?? "bun";
     NodeChildProcess.execFileSync(
       bun,
       ["build", "--compile", "--compile-autoload-package-json", probe, "--outfile", executable],

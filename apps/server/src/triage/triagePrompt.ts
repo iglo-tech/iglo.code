@@ -27,9 +27,9 @@ the server process is currently running, and the exact paths for state, logs, an
 the database.
 
 Its triage CLI version (called "Installed version" in older context files) is only
-the version of the \`t3\` that ran \`t3 triage\`. It is often not the build the bug
-happened on: \`npx t3 triage\` runs whatever \`t3\` npm resolves, while the user may
-run the desktop app, the background service, or a nightly. The server process line
+the version of the \`iglo.code\` that ran \`iglo.code triage\`. It is often not the build the bug
+happened on: \`iglo.code triage\` runs whichever \`iglo.code\` is first on PATH, while the user may
+run the background service, another install, or a nightly. The server process line
 gives the local server's version when the server recorded one.
 
 ## 3. Check for a newer playbook
@@ -69,7 +69,7 @@ Diagnosis grounded in source beats guessing.
 First establish the shape of the install, because the same symptom points at
 different code depending on it:
 
-- How is T3 Code running on this machine: \`t3 serve\` in a terminal, the
+- How is T3 Code running on this machine: \`iglo.code serve\` in a terminal, the
   background service, or the desktop app?
 - Which surface is the user connecting from: the website (app.t3.codes), the
   desktop app against a local server, the desktop app against a remote server,
@@ -155,7 +155,7 @@ user's environment and evidence instead of filing a new issue. A confirmed
 duplicate with fresh evidence is more useful than a second thread.
 `;
 
-/** Where the session started: the `t3 triage` CLI, or "Triage an issue" in a client. */
+/** Where the session started: the `iglo.code triage` CLI, or "Triage an issue" in a client. */
 export type TriageEntry =
   | { readonly kind: "cli"; readonly cliVersion: string; readonly launchedAs: string }
   | { readonly kind: "app"; readonly client: string };
@@ -176,7 +176,7 @@ export const buildTriageSeedPrompt = (input: {
   readonly contextFilePath: string;
   readonly entry: TriageEntry;
 }) => `A T3 Code user is having a problem with their install and started this \
-session ${input.entry.kind === "cli" ? "with `t3 triage`" : "from the T3 Code app"}.
+session ${input.entry.kind === "cli" ? "with `iglo.code triage`" : "from the T3 Code app"}.
 
 Machine facts (versions, OS, paths, server liveness) are in the triage context file:
 
@@ -230,8 +230,8 @@ export interface TriageContextInput {
 const entryLines = (entry: TriageEntry) =>
   entry.kind === "cli"
     ? {
-        generatedBy: "`t3 triage`",
-        before: `- Triage CLI version: ${entry.cliVersion} (the \`t3\` that ran this command; the bug may have happened on another build)`,
+        generatedBy: "`iglo.code triage`",
+        before: `- Triage CLI version: ${entry.cliVersion} (the \`iglo.code\` that ran this command; the bug may have happened on another build)`,
         after: `- CLI launched as: ${entry.launchedAs}`,
       }
     : {

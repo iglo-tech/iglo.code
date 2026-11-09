@@ -125,7 +125,7 @@ it.live.each([false, true])(
           "config",
           "--local",
           "--get",
-          "branch.t3/abcdef12.t3codeOwner",
+          "branch.t3/abcdef12.igloCodeOwner",
         );
         // Execute the real first half of ThreadLaunchService's rename sequence, then
         // model process loss before its thread.metadata.update commit. The prefix
@@ -138,7 +138,13 @@ it.live.each([false, true])(
         });
         expect(yield* git(checkout, "rev-parse", "HEAD")).toBe(pinned);
         expect(
-          yield* git(checkout, "config", "--local", "--get", "branch.generated-branch.t3codeOwner"),
+          yield* git(
+            checkout,
+            "config",
+            "--local",
+            "--get",
+            "branch.generated-branch.igloCodeOwner",
+          ),
         ).toBe(beforeOwner);
         if (metadataCommitted)
           yield* threads.dispatch({

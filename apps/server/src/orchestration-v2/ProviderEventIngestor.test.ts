@@ -709,7 +709,7 @@ layer("ProviderEventIngestorV2", (it) => {
                     parentCheckpointId: null,
                     ordinalWithinScope: input.ordinal,
                     appRunOrdinal: input.ordinal,
-                    ref: CheckpointRef.make(`refs/t3/checkpoints/rewound/${input.ordinal}`),
+                    ref: CheckpointRef.make(`refs/iglo.code/checkpoints/rewound/${input.ordinal}`),
                     status: "ready" as const,
                     files: [],
                     capturedAt: now,
@@ -1595,7 +1595,7 @@ layer("ProviderEventIngestorV2", (it) => {
         type: "image",
         file: { base64: readBase64, type: "image/png", originalSize: 30_000 },
       });
-      const screenshot = toolItem("turn-item:screenshot", 2, "mcp__t3-code__device_screenshot", {
+      const screenshot = toolItem("turn-item:screenshot", 2, "mcp__iglo-code__device_screenshot", {
         content: [
           {
             type: "image",

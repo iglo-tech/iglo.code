@@ -1399,8 +1399,8 @@ export const CODEX_THREAD_CONFIG = {
 // T3 waits can block for an hour; keep Codex's MCP timeout above that.
 const CODEX_T3_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
 // Holds T3 tools Codex must call directly, never from Code Mode. Calls arrive as
-// `t3-code-direct.<tool>`; t3McpToolPresentation.ts must keep resolving that form.
-const CODEX_T3_DIRECT_MCP_SERVER = "t3-code-direct";
+// `iglo-code-direct.<tool>`; t3McpToolPresentation.ts must keep resolving that form.
+const CODEX_T3_DIRECT_MCP_SERVER = "iglo-code-direct";
 const CODEX_DIRECT_ONLY_T3_TOOL = "t3_thread_wait";
 
 export function codexThreadRuntimeParams(input: {
@@ -1435,7 +1435,7 @@ export function codexThreadRuntimeParams(input: {
         ? {}
         : {
             // Override only T3's servers so launch-argument MCP servers survive.
-            "mcp_servers.t3-code": {
+            "mcp_servers.iglo-code": {
               ...t3Server,
               disabled_tools: [CODEX_DIRECT_ONLY_T3_TOOL],
               ...((mcpSession?.readOnlyPluginTools?.length ?? 0) === 0
@@ -1630,7 +1630,7 @@ export const layerAppServerClientFactory: Layer.Layer<
               }),
           ),
         );
-        // Its shells carry each thread's T3CODE_THREAD_ID, so port discovery reads listeners' threads.
+        // Its shells carry each thread's IGLO_CODE_THREAD_ID, so port discovery reads listeners' threads.
         yield* Effect.acquireRelease(Effect.sync(portDiscovery.trackAgent), (release) =>
           Effect.sync(release),
         );

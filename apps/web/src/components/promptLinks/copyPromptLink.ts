@@ -14,11 +14,11 @@ import {
 
 import { type ComposerThreadTarget, useComposerDraftStore } from "~/composerDraftStore";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
-import { configuredHostedAppUrl } from "~/hostedPairing";
+import { appLinkOrigin } from "~/hostedPairing";
 
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
-/** A shareable link to a prompt on the hosted app, or null when the prompt cannot fit in one. */
+/** A shareable link to a prompt in this web app, or null when the prompt cannot fit in one. */
 export function promptLinkFor(
   prompt: string,
   context?: {
@@ -29,7 +29,7 @@ export function promptLinkFor(
 ): string | null {
   const trimmed = isAttachmentOnlyBootstrapPrompt(prompt) ? "" : prompt.trim();
   if (trimmed.length === 0 || trimmed.length > PROMPT_LINK_MAX_PROMPT_LENGTH) return null;
-  return buildNewThreadLink({ prompt: trimmed, ...context, origin: configuredHostedAppUrl() });
+  return buildNewThreadLink({ prompt: trimmed, ...context, origin: appLinkOrigin() });
 }
 
 export function promptLinkRepositoryOf(

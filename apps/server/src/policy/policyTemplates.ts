@@ -76,7 +76,7 @@ const policies = (): ReadonlyArray<Policy> => [
   {
     id: "Clients",
     title: "Allowed clients",
-    help: "What may connect to T3 Code on this machine.\n\nWithout Remote, T3 Code only listens on this machine, does not create pairing links, signs out devices that paired earlier, and turns T3 Connect off. Check at least one client.\n\nDisabled or Not Configured: no restriction.",
+    help: "What may connect to T3 Code on this machine.\n\nWithout Remote, T3 Code only listens on this machine, does not create pairing links, and signs out devices that paired earlier. Check at least one client.\n\nDisabled or Not Configured: no restriction.",
     elements: [
       {
         kind: "checkbox",
@@ -100,12 +100,6 @@ const policies = (): ReadonlyArray<Policy> => [
         defaultChecked: false,
       },
     ],
-  },
-  {
-    id: "Connect",
-    title: "Allow T3 Connect",
-    help: "Disabled turns T3 Connect off and unlinks this machine. Other remote access still follows Allowed clients.\n\nEnabled or Not Configured leaves T3 Connect available.",
-    toggle: "Connect",
   },
   {
     id: "WebhookTasks",
@@ -164,7 +158,7 @@ const policies = (): ReadonlyArray<Policy> => [
   {
     id: "Settings",
     title: "Managed settings (JSON)",
-    help: 'Defaults and locks for server settings, as the "settings" object of a T3 Code policy. Each key is a setting path; each value is {"value": ..., "locked": true|false}.\n\nExample: {"enableAgentBrowserAccess": {"value": false, "locked": true}}\n\nRun "t3 policy check" on a policy file with the same object to validate it first.',
+    help: 'Defaults and locks for server settings, as the "settings" object of a T3 Code policy. Each key is a setting path; each value is {"value": ..., "locked": true|false}.\n\nExample: {"enableAgentBrowserAccess": {"value": false, "locked": true}}\n\nRun "iglo.code policy check" on a policy file with the same object to validate it first.',
     elements: [{ kind: "text", name: "Settings", label: "Settings JSON", json: true }],
   },
   {
@@ -237,7 +231,7 @@ export function windowsAdmx(): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
   <policyNamespaces>
-    <target prefix="t3code" namespace="T3Tools.Policies.T3Code" />
+    <target prefix="iglocode" namespace="Iglo.Policies.IgloCode" />
   </policyNamespaces>
   <resources minRequiredRevision="1.0" />
   <supportedOn>
@@ -337,7 +331,7 @@ const nullPath = (
   return undefined;
 };
 
-/** A device configuration profile that installs `document` for `com.t3tools.t3code`. */
+/** A device configuration profile that installs `document` for `code.iglo`. */
 export function macosProfile(
   document: ManagedPolicyDocument,
   uuids: { readonly profile: string; readonly payload: string },
@@ -358,8 +352,8 @@ export function macosProfile(
     PayloadContent: [
       {
         PayloadDisplayName: "T3 Code policy",
-        PayloadIdentifier: `com.t3tools.t3code.policy.${uuids.payload}`,
-        PayloadType: "com.t3tools.t3code",
+        PayloadIdentifier: `code.iglo.policy.${uuids.payload}`,
+        PayloadType: "code.iglo",
         PayloadUUID: uuids.payload,
         PayloadVersion: 1,
         ...document,
@@ -367,7 +361,7 @@ export function macosProfile(
     ],
     PayloadDescription: "Configures T3 Code for every user on this Mac.",
     PayloadDisplayName: `T3 Code policy for ${document.organization}`,
-    PayloadIdentifier: `com.t3tools.t3code.policy`,
+    PayloadIdentifier: `code.iglo.policy`,
     PayloadOrganization: document.organization,
     PayloadScope: "System",
     PayloadType: "Configuration",

@@ -289,7 +289,7 @@ it.live(
         const first = yield* make("workflow-scheduling");
         // A second environment with a similarly named project; nothing may reach it.
         const other = yield* make("workflow-scheduling-other");
-        const directory = `${first.config.baseDir}/.t3code/workflows`;
+        const directory = `${first.config.baseDir}/.iglo-code/workflows`;
         yield* fs.makeDirectory(directory, { recursive: true });
         yield* fs.writeFileString(
           `${directory}/sequence.yaml`,
@@ -425,7 +425,7 @@ it.live(
             firstRunId = started.id;
             expect(started.source).toEqual({
               trigger: "schedule",
-              catalogSource: ".t3code/workflows/sequence.yaml",
+              catalogSource: ".iglo-code/workflows/sequence.yaml",
             });
             expect(started.input).toEqual({ task: "Ship the release notes" });
             expect(started.workspace).toEqual({ type: "current" });
@@ -659,9 +659,9 @@ it.live(
             // runs they started in the project recorded with each occurrence.
             const moved = ProjectId.make("moved-project");
             const movedRoot = `${first.config.baseDir}/moved`;
-            yield* fs.makeDirectory(`${movedRoot}/.t3code/workflows`, { recursive: true });
+            yield* fs.makeDirectory(`${movedRoot}/.iglo-code/workflows`, { recursive: true });
             yield* fs.writeFileString(
-              `${movedRoot}/.t3code/workflows/sequence.yaml`,
+              `${movedRoot}/.iglo-code/workflows/sequence.yaml`,
               Yaml.stringify(sequence(1, "Moved sequence")),
             );
             yield* Context.get(reinstalled.context, Projects.ProjectService).create({

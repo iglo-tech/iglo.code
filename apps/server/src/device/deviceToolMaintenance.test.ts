@@ -12,7 +12,7 @@ import * as NodeUtil from "node:util";
 import { pruneLocalDeviceTools, deviceToolMaintenanceScript } from "./deviceToolMaintenance.ts";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
-const bunPath = process.env.T3_BUN_EXECUTABLE ?? "bun";
+const bunPath = process.env.IGLO_CODE_BUN_EXECUTABLE ?? "bun";
 
 describe.each([false, true])("device tool cleanup, flat=%s", (flat) => {
   it("keeps current, previous, active and incomplete installs, pruning unused completed versions", async () => {

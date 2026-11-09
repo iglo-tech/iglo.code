@@ -1,14 +1,13 @@
 # Open source license notices
 
 The web build emits `third-party-licenses.json` beside `index.html`. The Settings page loads that
-static file, so the same artifact works in hosted web, the client bundled with `t3`, and
-desktop. It does not depend on the connected environment or an RPC.
+static file, so it works in the client bundled with `iglo.code` and in dev builds. It does not depend on the connected environment or an RPC.
 
 ## What the build collects
 
 The generator follows installed production and optional dependencies, including dependencies of
 workspace packages, and omits first-party `@t3tools/*` packages. The web manifest starts from the
-web, server, and desktop package manifests. During the web bundle, the generator also checks emitted module ids to catch a bundled
+web and server package manifests. During the web bundle, the generator also checks emitted module ids to catch a bundled
 npm import missing from a package manifest.
 
 The build fails when a collected package has no distributable license identifier or contains no

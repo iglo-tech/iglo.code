@@ -35,7 +35,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
         const descriptor = yield* policy.getDescriptor();
 
-        expect(descriptor.sessionCookieName).toBe("t3_session_3774");
+        expect(descriptor.sessionCookieName).toBe("iglo_code_session_3774");
       }).pipe(
         Effect.provide(
           layerEnvironmentAuthPolicy({
@@ -71,7 +71,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         expect(descriptor.policy).toBe("loopback-browser");
         expect(descriptor.bootstrapMethods).toEqual(["one-time-token"]);
         expect(descriptor.serverUpdateScope).toBe("environment:maintain");
-        expect(descriptor.sessionCookieName).toMatch(/^t3_session_3773_[a-f0-9]{12}$/);
+        expect(descriptor.sessionCookieName).toMatch(/^iglo_code_session_3773_[a-f0-9]{12}$/);
       }).pipe(
         Effect.provide(
           layerEnvironmentAuthPolicy({

@@ -13,10 +13,10 @@ vi.mock("node:child_process", () => ({
   spawnSync: (
     _command: string,
     _args: string[],
-    options: { env: { T3CODE_RENDER_REPORT_DIR: string } },
+    options: { env: { IGLO_CODE_RENDER_REPORT_DIR: string } },
   ) => {
     NodeFS.writeFileSync(
-      NodePath.join(options.env.T3CODE_RENDER_REPORT_DIR, "mount.json"),
+      NodePath.join(options.env.IGLO_CODE_RENDER_REPORT_DIR, "mount.json"),
       JSON.stringify(mountReport),
     );
     return { status: 0 };

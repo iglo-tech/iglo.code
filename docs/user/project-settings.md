@@ -1,6 +1,6 @@
 # Settings and project overrides
 
-On web and desktop, the "Applying settings for …" sentence at the top of Settings pages picks
+The "Applying settings for …" sentence at the top of Settings pages picks
 the project and environment a change applies to. Pages that only hold device preferences, such as
 Appearance, don't show it. They start at **All projects** and **All environments**
 and stay selected as you move between categories or search for a setting.
@@ -35,21 +35,10 @@ follow-ups from delegated tasks. A turn already running when the switch flips fi
 task's result still lands in its parent thread, which sees it on its next turn. Reset returns the project to the
 machine's setting. Every other provider setting stays per machine.
 
-On mobile, open **Settings** and use the filter in its header to choose connected environments
-and a project. The filter stays available in server-setting pages. With **All projects** selected,
-the server-setting pages, such as Threads, Source control and Worktrees, edit the selected
-environments' defaults. Choosing a project edits its overrides on the selected
-environments. Use **Use defaults** in a page to remove that page's project overrides.
-Open **Settings → Projects** to rename the project across its selected
-connected checkouts and see where those checkouts live.
-Settings that are environment-wide stay read-only while a project is selected. When selected
-targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
-and other phone-only settings ignore the filter.
-
 ## Pin and archive projects
 
 Pinned projects come first in the project pickers: the project picker on a new thread, the
-new-thread list, the command palette, the sidebar project filter, and mobile. In the boring sidebar, pinned projects get the top
+new-thread list, the command palette, and the sidebar project filter. In the boring sidebar, pinned projects get the top
 folders, even with no active threads. Pin or unpin a project from its row in any of those lists,
 or press the thread pin shortcut (`mod+shift+p` by default) on the highlighted row. **Pin
 project** in the command palette and **Settings → Projects** work too. A list keeps its order
@@ -58,7 +47,7 @@ while it is open, so a new pin moves up the next time you open it.
 Archive a project you are done with in **Settings → Projects**. It leaves the project pickers.
 Its threads, settings, and files stay as they are, and archived projects still show in the
 Settings project list, marked **Archived**. Choose one there and select **Unarchive** to bring it
-back. On mobile, both are in **Settings → Projects → Organize**.
+back.
 
 A project on several machines must have every machine connected to pin or archive it.
 
@@ -89,13 +78,13 @@ keep prompts queued until the thread can run under your recovery settings.
 Existing queued copies remain available to review or remove; pausing or deleting
 an automation stops future occurrences without removing those messages.
 
-## Scheduled tasks on mobile
+## Scheduled tasks
 
 Open **Settings → Scheduled tasks** to create scheduled tasks or manage existing
 ones across your connected environments. Use the settings filter to narrow the
 list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Fixed-time schedules use that
-environment's time zone, which may differ from your phone's. Choose **Once**
+environment's time zone, which may differ from your device's. Choose **Once**
 to run a task a single time at a date and time in your own time zone. If the
 environment is offline then, the task runs when it is back.
 
@@ -122,9 +111,10 @@ Leaving an edited form asks before discarding unsaved changes.
 
 In **Settings → Scheduled tasks**, choose **On webhook**
 as a task's schedule to run it whenever another service calls its URL, such as
-GitHub on a new pull request or a CI job that failed. A public URL needs a
-[T3 Connect](remote-access.md) managed tunnel; after you save the task, copy
-its URL from the editor. Without one, the editor shows only the URL's path.
+GitHub on a new pull request or a CI job that failed. After you save the task,
+the editor shows the URL's path. iglo.code does not publish the environment to
+the internet, so a sender outside your network needs a public address you set
+up yourself, with that path appended.
 **Rotate** replaces the URL and the old one stops working.
 
 The prompt decides what the agent sees. Placeholders pull values out of the
@@ -147,9 +137,7 @@ GitHub user.
 For GitHub, turn on **Require signature**, keep the header
 `x-hub-signature-256`, hex encoding and the `sha256=` prefix, and enter the
 same secret in the repository's webhook settings with content type
-`application/json`. Requests without a valid signature are rejected. Set this
-up on desktop or web; mobile keeps an existing signature check but can't turn
-one on.
+`application/json`. Requests without a valid signature are rejected.
 
 To run only for some requests, add **Filters**. Each one tests a value named
 like a placeholder, without the braces, such as `headers.x-github-event` equals
@@ -174,16 +162,12 @@ Additional deliveries are accepted without a log entry, and coalesced deliveries
 always replace the persisted payload. Coalesced updates count toward a separate
 60-per-minute validation limit; exceeding it receives HTTP 429.
 
-On desktop and web, pick **Deliveries** from a task's menu to see recent
+Pick **Deliveries** from a task's menu to see recent
 requests and the prompt each one produced.
 
 If the environment is offline, the sender gets an error and nothing runs;
 redeliver from the sender, such as GitHub's **Recent Deliveries**, once it is
-back. To have T3 Connect keep requests instead, turn on **Hold webhooks while
-offline** in **Settings → Sharing & access**. T3 Connect then stores requests to a
-T3 Connect URL for up to 24 hours and delivers them when the environment
-returns. Leave it off if you don't want request bodies stored outside your
-machine. To skip requests that waited too long, set **Skip requests older
+back. To skip requests that waited too long, set **Skip requests older
 than** on the task.
 
 ## Defaults and inheritance
@@ -196,10 +180,10 @@ project crumb.
 The Projects category, under Code, holds the project's name, icon, actions,
 checkouts and removal. Actions belong to a project: editing them creates the project's own list
 on each selected environment, and reset returns to the environment's shared list. A project's
-`t3.json` actions can be imported there.
+`iglo.code.json` actions can be imported there.
 
-Settings a repository can also declare in `t3.json`, such as the workspace for new threads,
-resolve in one order: a project override, then the environment setting, then `t3.json`, then the
+Settings a repository can also declare in `iglo.code.json`, such as the workspace for new threads,
+resolve in one order: a project override, then the environment setting, then `iglo.code.json`, then the
 built-in default. Leave a setting on **Inherit** to let the next tier decide.
 Browser access changes apply when an agent session next starts.
 
@@ -207,12 +191,12 @@ New worktrees initialize git submodules recursively. If that step is slow becaus
 declares many nested submodules, set **Submodules** in **Settings → Worktrees** under Advanced (with the project
 selected to override it there) to **Top level only** to stop at the ones the repository declares
 itself, or **Skip** to leave them for a setup script. It resolves in the same order as the
-workspace default: a `"worktreeSubmodules"` value in the `t3.json` of the branch being checked out
+workspace default: a `"worktreeSubmodules"` value in the `iglo.code.json` of the branch being checked out
 applies when the project and environment are both on **Inherit**.
 
 ## Worktree location
 
-New worktrees go in the `worktrees` folder of the T3 home directory. To put them somewhere else,
+New worktrees go in the `worktrees` folder of the iglo.code home directory. To put them somewhere else,
 such as another drive, set **Settings → Worktrees → Worktree location** to an absolute path like
 `D:\worktrees` or `~/worktrees`. The setting is per machine. Existing worktrees stay where they
 are, and cleanup covers both the default folder and the custom one.
@@ -220,13 +204,13 @@ are, and cleanup covers both the default folder and the custom one.
 ## Fast worktree checkout on macOS
 
 Fast worktree checkout is a beta. Turn it on for each Mac in **Settings → Labs → Fast worktree
-checkout**. T3 Code then keeps a few recent checkouts of each repository in the `caches` folder of
-the T3 home directory. A new worktree is cloned from one of them with APFS copy-on-write, which is
+checkout**. iglo.code then keeps a few recent checkouts of each repository in the `caches` folder of
+the iglo.code home directory. A new worktree is cloned from one of them with APFS copy-on-write, which is
 about twice as fast as writing every file and makes the first `git status` in it fast as well.
 Turning it off deletes the cache.
 
 The first worktree of a repository uses Git's normal checkout and fills the cache. It needs Git 2.42
-or newer. Git's normal checkout is also used for worktrees on a different drive from the T3 home
+or newer. Git's normal checkout is also used for worktrees on a different drive from the iglo.code home
 directory, sparse checkouts, repositories whose attributes use filters such as Git LFS, and
 repositories whose checkout settings changed.
 
@@ -245,7 +229,7 @@ Worktrees can be removed after a chosen number of inactive days, after a thread 
 merging, or when they have no commits beyond the default branch. Set settled retention to 0 days
 to remove a worktree at the next cleanup after settlement. In repositories without remotes,
 unchanged-worktree cleanup compares against the branch checked out in the project workspace;
-if that checkout has a detached HEAD, the worktree is kept. Only T3-managed worktrees are eligible.
+if that checkout has a detached HEAD, the worktree is kept. Only iglo.code-managed worktrees are eligible.
 Active sessions and shared worktrees prevent removal. **Keep worktrees with local changes** defaults
 to **Uncommitted changes**, which protects tracked edits and untracked files but deletes ignored
 files such as `.env` and build output. **Any local files** also protects ignored files other than
@@ -271,11 +255,11 @@ working. Current logs, message attachments, and browser profiles are kept.
 
 Select the project and open Project to choose an icon, emoji, monogram, or image. The choice applies to
 every checkout in the project group and appears on connected clients. Choose **Automatic** to let
-T3 Code detect an icon again.
+iglo.code detect an icon again.
 
 Choose **Monogram** in the icon picker to set one or two letters or numbers and a color.
 
-When no image is found, web and desktop show a two-character monogram with a color
+When no image is found, iglo.code shows a two-character monogram with a color
 from the icon palette, derived from the saved project name. For example, `Nebula` becomes `NA`,
 `Silver Orchard` becomes `SO`, and `M7 Forge` becomes `M7`.
 
@@ -283,8 +267,7 @@ from the icon palette, derived from the saved project name. For example, `Nebula
 
 In Source control, enable **Automatically pull** to keep the default-branch checkout up to date
 with its configured upstream. Choose an environment to set the default or a project to override it.
-On mobile, use **Settings → Source control** to change selected environment defaults or project overrides.
 
-T3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
+iglo.code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has
 local work, resolve it yourself before automatic pulls can resume.

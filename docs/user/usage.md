@@ -1,10 +1,8 @@
 # Usage and limits
 
-Open **Usage** from the sidebar or the command palette, or press `mod+u` on web and
-desktop when the terminal is not focused. Customize `usage.open` in
+Open **Usage** from the sidebar or the command palette, or press `mod+u` when the
+terminal is not focused. Customize `usage.open` in
 **Settings → Keybindings**.
-
-On mobile, choose **Usage** in the workspace navigation.
 
 ## Understand your usage
 
@@ -21,12 +19,12 @@ Text generation (thread titles, commit messages, PR text, branch names and revie
 the totals for Codex or Claude Code 2.0.63 and newer, because those runs save no session history.
 
 OpenCode reads its SQLite database and older JSON history. Antigravity reads local conversation
-databases, including T3-managed profiles. Set `OPENCODE_DATA_DIR` or `ANTIGRAVITY_DATA_DIR` on the
+databases, including iglo.code-managed profiles. Set `OPENCODE_DATA_DIR` or `ANTIGRAVITY_DATA_DIR` on the
 server to read a different data directory; comma-separated paths read multiple directories.
 
-Cursor reads account usage from Cursor's API for the account you signed in with in T3 or set as
-`CURSOR_API_KEY`. This includes headless T3 sessions and desktop usage across machines; the same
-account counts once across connected environments. T3 does not estimate missing tokens from
+Cursor reads account usage from Cursor's API for the account you signed in with in iglo.code or set as
+`CURSOR_API_KEY`. This includes headless iglo.code sessions and desktop usage across machines; the same
+account counts once across connected environments. iglo.code does not estimate missing tokens from
 conversation text.
 
 Usage includes each configured account's history, including disabled accounts. Custom homes follow
@@ -42,14 +40,14 @@ Use absolute paths or `~/` paths in the account's environment settings; relative
 depend on each project's working directory and cannot be reliably discovered by Usage. Accounts
 sharing a history directory count once.
 
-The server saves its first hostname in `<T3 home>/usage-host-id`, so a recreated container keeps
-its usage identity when T3 home is persisted. Set `T3CODE_HOST_ID` to choose the identity
+The server saves its first hostname in `<iglo.code home>/usage-host-id`, so a recreated container keeps
+its usage identity when the iglo.code home is persisted. Set `IGLO_CODE_HOST_ID` to choose the identity
 explicitly.
 
 When your app and server support different providers, usage totals may cover only the providers
 your app understands. Update the app to include newly supported providers.
 
-On web and desktop, use the environment dropdown to filter costs, tokens, and limits. All
+Use the environment dropdown to filter costs, tokens, and limits. All
 environments are selected by default. The dropdown shows which environments are still scanning;
 results appear as each one responds, and figures still updating are dimmed. Cursor shows its last
 saved totals first, then updates them when Cursor's API responds.
@@ -59,7 +57,7 @@ update model pricing.
 
 ## Set custom model prices
 
-On web or desktop, open the environment dropdown on **Usage**, then choose **Model prices** to add,
+Open the environment dropdown on **Usage**, then choose **Model prices** to add,
 edit, or reset a model's estimated price. **Apply to** starts with your current Usage filter;
 choose all environments or select individual destinations. Enter the exact model ID and USD
 rates per million input and output tokens. You can enter any model ID, including models
@@ -87,7 +85,7 @@ the dialog.
 ## Show only some models
 
 To count only some models, or to leave some out, add `usageModelFilter` to the server's
-`settings.json` in its `userdata` directory, such as `~/.t3/userdata/settings.json`:
+`settings.json` in its `userdata` directory, such as `~/.iglo.code/userdata/settings.json`:
 
 ```json
 {
@@ -143,7 +141,7 @@ current model's limits without leaving the conversation. The result opens above 
 closes when you dismiss it or send your next message. It uses the same snapshot as **Usage → Limits**, so it does not run the agent or refresh
 anything. The command is offered only for providers that appear under **Usage → Limits**.
 
-To keep them in view on web and desktop, turn on **Usage limits** in **Settings → Appearance → Thread details**, or right-click the thread details card.
+To keep them in view, turn on **Usage limits** in **Settings → Appearance → Thread details**, or right-click the thread details card.
 The bottom of the thread details card then shows how much is left in each limit window of the
 current provider account. Some windows, such as a weekly Opus limit, count only one model. Hover a
 row to see when it resets and your pace. Turn on **Context window** to also show the thread's
@@ -151,13 +149,13 @@ context use against the model's limit. A tick on the bar marks where the provide
 automatically, when it reports that point.
 
 OpenCode Go reports its session, weekly, and monthly allowance when OpenCode runs locally in
-the environment. T3 cannot report limits for external OpenCode servers because their credentials
+the environment. iglo.code cannot report limits for external OpenCode servers because their credentials
 belong to the remote server. Limits need an OpenCode Go API key, or an OpenCode Console connected
 in OpenCode with an API key. A Console browser sign-in alone does not report them. You can also add
 your Go API key as `OPENCODE_API_KEY` in the OpenCode instance's **Environment variables**, then
 refresh provider status. Cursor reports
 its monthly allowance, including separate Auto and API usage, for `CURSOR_AUTH_TOKEN` when it is set,
-otherwise for the account you signed in with in T3 or set as `CURSOR_API_KEY`.
+otherwise for the account you signed in with in iglo.code or set as `CURSOR_API_KEY`.
 Sign-in and API keys report limits only with Cursor's default API endpoint. If you configure a custom
 Cursor endpoint, use an explicit `CURSOR_AUTH_TOKEN` for limits.
 
@@ -180,16 +178,9 @@ This connection supplies usage information; configure
 the provider separately to send agent requests through the hub. Remove the hub from the same
 settings section when you no longer need it.
 
-## Subscription usage widget
-
-Add **Subscription usage** from your iOS or Android widget gallery to see remaining Codex and
-Claude quotas. Tap it to open **Usage → Limits**; on Android this works while T3 is running in
-the background, otherwise open the app from the launcher. On iOS, use **Edit Widget** to choose
-Session, Weekly, or both for each provider. Reopen T3 to refresh expired readings.
-
 ## Keyboard shortcuts
 
-On web and desktop, open Usage from the command palette. While on Usage,
+Open Usage from the command palette. While on Usage,
 press `C`, `T`, or `L` for Cost, Tokens, or Limits while not typing in a field.
 Use `Ctrl+Shift+1/2/3/4` (`Cmd+Shift+1/2/3/4` on macOS) for the past
 24 hours, 7 days, 30 days, or 90 days. Period shortcuts do nothing on Limits.

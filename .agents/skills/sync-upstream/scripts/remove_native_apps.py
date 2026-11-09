@@ -67,8 +67,8 @@ def prune(root):
         data = json.loads(text)
         data["scripts"] = {
             name: command for name, command in data.get("scripts", {}).items()
-            if not re.search(r"(?:mobile|android|ios)(?:$|:)", name)
-            and not re.search(r"apps/mobile|@t3tools/mobile|scripts/mobile-", command)
+            if not re.search(r"(?:mobile|android|ios|marketing)(?:$|:)", name)
+            and not re.search(r"apps/(?:mobile|marketing)|@t3tools/(?:mobile|marketing)|scripts/mobile-", command)
         }
         return text if data == json.loads(text) else json.dumps(data, indent=2) + "\n"
 
@@ -190,9 +190,23 @@ def prune(root):
 
     edit("scripts/effect-budget.json", effect_budget)
     edit(".gitignore", lambda text: re.sub(r"^apps/mobile/.*\n", "", text, flags=re.M))
-    edit(".cursor/rules/cursor-cloud.mdc", lambda text: re.sub(
-        r"^## Android native builds.*?(?=^## |\Z)", "", text, flags=re.M | re.S,
-    ))
+    # Cursor Cloud setup only serves upstream's hosted agents and native builds.
+    remove(".cursor/rules/cursor-cloud.mdc")
+
+    def macroscope_ignore(text):
+        # A comment block whose every path is in apps/mobile goes with those paths.
+        blocks = []
+        for block in re.split(r"\n(?=\n)", text):
+            lines = block.split("\n")
+            kept = [line for line in lines if "apps/mobile" not in line or line.lstrip().startswith("#")]
+            patterns = [line for line in kept if line.strip() and not line.lstrip().startswith("#")]
+            if len(kept) != len(lines) and not patterns:
+                continue
+            blocks.append("\n".join(kept))
+        result = "\n".join(blocks)
+        return result.rstrip("\n") + "\n" if text.endswith("\n") else result
+
+    edit(".macroscope/ignore.md", macroscope_ignore)
     edit(".agents/skills/test-t3-app/SKILL.md", lambda text: text
          .replace(" Use test-t3-mobile for native mobile verification.", "")
          .replace(" For native mobile\ntesting, use [test-t3-mobile](../test-t3-mobile/SKILL.md).", ""))
@@ -203,6 +217,21 @@ def prune(root):
     edit("assets/README.md", lambda text: re.sub(
         r"^## Android launcher and splash artwork.*", "", text, flags=re.M | re.S,
     ).rstrip() + "\n")
+    # The fork ships no website; drop upstream's t3.codes site and its hooks.
+    # Its package.json scripts go with the native app scripts above.
+    remove("apps/marketing")
+    edit("pnpm-lock.yaml", lambda text: re.sub(
+        r"^  apps/marketing:\n.*?(?=^  \S|^\S|\Z)", "", text, flags=re.M | re.S,
+    ))
+    edit("knip.jsonc", lambda text: re.sub(
+        r'^    "apps/marketing": \{\n.*?^    \},\n', "", text, flags=re.M | re.S,
+    ))
+    # A comment directly above a marketing path describes only that entry.
+    edit("vite.config.ts", lambda text: re.sub(
+        r'(?:^[ \t]+//[^\n]*\n)?^[ \t]+"apps/marketing/[^\n]*\n', "", text, flags=re.M,
+    ))
+    edit("scripts/release-smoke.ts", lambda text: re.sub(r"^.*apps/marketing/.*\n", "", text, flags=re.M))
+    edit(".gitignore", lambda text: re.sub(r"^(?:\.astro|apps/marketing/.*)\n", "", text, flags=re.M))
     return changed + prune_desktop(root)
 
 

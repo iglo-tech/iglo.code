@@ -17,7 +17,7 @@ import {
 import { AGENT_DEVICE_VERSION, DEVICE_HUB_VERSION } from "./DeviceToolchain.ts";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
-const bunPath = process.env.T3_BUN_EXECUTABLE ?? "bun";
+const bunPath = process.env.IGLO_CODE_BUN_EXECUTABLE ?? "bun";
 
 it.effect("finds Android Studio Java for a non-interactive SSH session", () =>
   Effect.gen(function* () {
@@ -70,7 +70,7 @@ it("runs the remote stdin bootstrap using Bun in its default install location", 
     const result = JSON.parse((await pending).stdout);
     expect(result.bunPath).toBe((await exec("which", [bunPath])).stdout.trim());
     expect(result.platforms).toHaveLength(2);
-    await expect(NodeFSP.stat(NodePath.join(home, ".t3/device/hosts"))).rejects.toThrow();
+    await expect(NodeFSP.stat(NodePath.join(home, ".iglo.code/device/hosts"))).rejects.toThrow();
   } finally {
     await NodeFSP.rm(home, { recursive: true, force: true });
   }
@@ -106,7 +106,7 @@ describe("remote helper lifecycle", () => {
           "#!/bin/sh\nprintf 'emulated webcam<N> none\\n' >&2\n",
           { mode: 0o755 },
         );
-        const root = NodePath.join(home, ".t3/device");
+        const root = NodePath.join(home, ".iglo.code/device");
         const hubDir = NodePath.join(root, `tools/expo-device-hub@${DEVICE_HUB_VERSION}`);
         const agentDir = NodePath.join(root, `tools/agent-device@${AGENT_DEVICE_VERSION}`);
         const hub = NodePath.join(hubDir, "node_modules/expo-device-hub/dist/server/cli.mjs");
@@ -324,7 +324,7 @@ it.effect("stops a daemon left for its owner when starting without agent tools",
       const bunExecutable = (await exec("which", [bunPath])).stdout.trim();
       const home = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-ssh-start-"));
       try {
-        const state = NodePath.join(home, ".t3/device/hosts/owner");
+        const state = NodePath.join(home, ".iglo.code/device/hosts/owner");
         const daemonFile = NodePath.join(state, "daemon.json");
         const calls = NodePath.join(home, "calls");
         const failMarker = NodePath.join(home, "fail-stop");
@@ -372,7 +372,7 @@ it.effect("keeps a daemon record its missing agent CLI cannot stop", () =>
       const bunExecutable = (await exec("which", [bunPath])).stdout.trim();
       const home = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-ssh-start-"));
       try {
-        const state = NodePath.join(home, ".t3/device/hosts/owner");
+        const state = NodePath.join(home, ".iglo.code/device/hosts/owner");
         const daemonFile = NodePath.join(state, "daemon.json");
         await NodeFSP.mkdir(NodePath.join(home, "bin"));
         await NodeFSP.mkdir(state, { recursive: true });

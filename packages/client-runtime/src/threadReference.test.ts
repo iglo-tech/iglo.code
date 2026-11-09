@@ -11,6 +11,7 @@ import { resolveThreadReferenceCopyTarget } from "./threadReference.ts";
 const thread = {
   threadRef: { environmentId: EnvironmentId.make("env-1"), threadId: ThreadId.make("thread-1") },
   title: "Fix the login flow",
+  hostedAppUrl: "https://app.t3.codes",
 };
 
 const crossRepositoryPullRequest: ThreadPullRequestLink = {
@@ -106,10 +107,12 @@ describe("resolveThreadReferenceCopyTarget", () => {
     });
   });
 
-  it("links through the build's hosted app", () => {
+  it("links through the web app it was copied from", () => {
     expect(
-      resolveThreadReferenceCopyTarget({ ...thread, hostedAppUrl: "https://preview.t3.codes" })
-        ?.value,
-    ).toBe("https://preview.t3.codes/threads/env-1/thread-1");
+      resolveThreadReferenceCopyTarget({
+        ...thread,
+        hostedAppUrl: "http://box.tailnet.ts.net:4773",
+      })?.value,
+    ).toBe("http://box.tailnet.ts.net:4773/threads/env-1/thread-1");
   });
 });

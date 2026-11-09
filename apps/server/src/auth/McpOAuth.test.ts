@@ -2,6 +2,8 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthMcpClientAccess,
+  AuthSessionId,
+  EnvironmentId,
   AuthStandardClientScopes,
   type AuthCreatePairingCredentialInput,
   EnvironmentHttpApi,
@@ -27,6 +29,7 @@ import * as Sqlite from "../persistence/Sqlite.ts";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as McpOAuth from "./McpOAuth.ts";
 import * as McpOAuthHttp from "./mcpOAuthHttp.ts";
+import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as AuthHttp from "./http.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
@@ -183,6 +186,35 @@ it.live("derives discovery metadata from the origin the client reached", () =>
         code_challenge_methods_supported: ["S256"],
       });
     }),
+  ),
+);
+
+it.effect("links an outside client's threads to the web app at the origin it reached", () =>
+  Effect.gen(function* () {
+    const authenticator = yield* McpHttpServer.McpClientAuthenticator;
+    const scope = yield* authenticator.authenticate(HttpServerRequest.fromWeb(at("/mcp")));
+    expect(scope?.client?.hostedAppUrl).toBe(ORIGIN);
+  }).pipe(
+    Effect.provide(
+      McpOAuth.layerMcpClientAuthenticator.pipe(
+        Layer.provide(
+          Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+            authenticateMcpClient: () =>
+              Effect.succeed({
+                sessionId: AuthSessionId.make("session-1"),
+                label: "Claude Code",
+                access: "auto",
+                peerLink: false,
+              }),
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(ServerEnvironment.ServerEnvironment)({
+            getEnvironmentId: Effect.succeed(EnvironmentId.make("environment-1")),
+          }),
+        ),
+      ),
+    ),
   ),
 );
 

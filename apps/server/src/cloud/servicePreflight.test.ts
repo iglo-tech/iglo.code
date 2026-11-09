@@ -28,11 +28,11 @@ it.each([1])("blocks legacy launcher protocol %i with exact recovery steps", (la
   expect(reason).toMatch(new RegExp(`\\b${launcherProtocol}\\b`));
   expect(reason).toMatch(new RegExp(`\\b${SERVICE_LAUNCHER_PROTOCOL}\\b`));
   expect(reason).toContain(
-    "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION=9.8.7 sh",
+    "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | IGLO_CODE_VERSION=9.8.7 sh",
   );
-  expect(reason).toContain("~/.local/bin/t3 service install");
-  expect(reason).toContain("t3 --version");
-  expect(reason).toContain("which -a t3");
+  expect(reason).toContain("~/.local/bin/iglo.code service install");
+  expect(reason).toContain("iglo.code --version");
+  expect(reason).toContain("which -a iglo.code");
 });
 
 it.layer(NodeServices.layer)("service preflight database", (it) => {

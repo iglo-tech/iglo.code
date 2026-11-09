@@ -1,7 +1,7 @@
 # Connection runtime
 
-Web, the desktop renderer, and mobile share one connection owner per environment
-in `packages/client-runtime`. Platform code supplies storage, credentials, network
+The web client has one connection owner per environment in
+`packages/client-runtime`, shared with upstream's desktop and mobile clients. Platform code supplies storage, credentials, network
 signals, and application lifecycle events. React views consume the runtime.
 Keeping retries and session lifetime here prevents competing reconnect loops when
 several views need the same environment.
@@ -25,11 +25,11 @@ answers. If the host answers while the socket delivers no frame, the socket is
 dead and is replaced, even while the network reports offline: at once on
 loopback and LAN, and 2.5 seconds after the check starts elsewhere, where one
 lost packet can stall a live socket. Without that evidence the probe deadline
-decides: 3 seconds on loopback and LAN routes and after a long mobile
+decides: 3 seconds on loopback and LAN routes and after a long
 suspension, when the data on screen is stale; 15 seconds elsewhere, because a
 tailnet over DERP or a VPN can be slower than that on a live socket. A long
 suspension's probe that times out also replaces the socket regardless of the
-network report. The web and desktop foreground probe skips the fresh request,
+network report. The web foreground probe skips the fresh request,
 because a busy host can answer it before a queued probe. Foregrounding also
 wakes a pending retry immediately. A long suspension restarts an in-flight
 attempt; a short one leaves it alone.
@@ -37,8 +37,9 @@ attempt; a short one leaves it alone.
 The [registry](../../packages/client-runtime/src/connection/registry.ts) scopes
 connections by environment. An involuntary disconnect retains the registration
 and cached data. Explicit removal closes the scope and clears credentials,
-projections, and platform-owned state such as drafts. Cloud-account changes apply
-to relay registrations; they must not discard directly paired environments.
+projections, and platform-owned state such as drafts. Cloud-account changes (upstream's
+T3 Connect) apply to relay registrations; they must not discard directly paired
+environments.
 
 ## HTTP authorization
 
@@ -49,9 +50,9 @@ Replacing a healthy socket for HTTP renewal would interrupt conversations and
 change the transport generation without a transport failure. Refresh failure
 belongs to the HTTP operation.
 
-The server closes a socket when its session is revoked or expires. T3 Connect
-access tokens last one hour, so the driver renews a live socket's token in its
-last minute. The server then moves the socket to the newer session for the same
+The server closes a socket when its session is revoked or expires. For
+short-lived tokens, such as upstream's one-hour T3 Connect tokens, the driver
+renews a live socket's token in its last minute. The server then moves the socket to the newer session for the same
 DPoP key, subject, and scopes
 ([`SessionStore.awaitInvalidation`](../../apps/server/src/auth/SessionStore.ts)).
 If renewal fails, the socket closes at expiry and the supervisor reconnects.
@@ -110,14 +111,15 @@ stream, which stops when the last consumer unmounts; hidden mounted routes still
 count. A registry-local cache retains state and its replay cursor for five idle
 minutes so back navigation can resume without another snapshot download.
 
-The desktop app adds one consumer: a
+Upstream's desktop app adds one consumer, which the web build never mounts
+(`isElectron` gates it in `__root.tsx`): a
 [keep-alive](../../apps/web/src/state/threads.ts) mounts every thread whose
 session is starting or running, in each enabled environment. Opening a running
 thread then needs no replay. The shell and detail streams are independent, so
 the shell can report a stop before the detail loads or catches up. A stopped
 thread stays mounted until its own stream is live and shows the stop, and the
 stream then closes and saves the settled state.
-Web and mobile do not keep threads alive.
+The web client does not keep threads alive.
 
 Retain state and cursor together only after an update finishes. Cancellation must
 not advance the cached cursor beyond the applied data, and an old scope must not

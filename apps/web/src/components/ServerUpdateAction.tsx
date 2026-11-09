@@ -10,7 +10,6 @@ import { environmentSession } from "~/state/session";
 import type {
   DesktopUpdateChannel,
   EnvironmentId,
-  ServerInstallation,
   ServerSelfUpdateCapability,
 } from "@t3tools/contracts";
 import type { ServerUpdateStage, ServerUpdateState } from "@t3tools/client-runtime/state/server";
@@ -56,7 +55,7 @@ function readUpdatesDenial(environmentId: EnvironmentId): string | undefined {
   );
 }
 
-const CROSS_TRACK_NOTE = "Switch tracks in About → Update track";
+const CROSS_TRACK_NOTE = "Switch tracks with `iglo.code update --channel` on the server";
 
 /** Hosts refuse a Stable/Nightly crossing outside a track switch, which checks the database first. */
 function refusedCrossing(
@@ -87,7 +86,6 @@ export interface ServerUpdateTarget {
   readonly environmentId: EnvironmentId;
   readonly serverLabel: string;
   readonly selfUpdate: ServerSelfUpdateCapability | null;
-  readonly installation?: ServerInstallation | undefined;
   readonly desktopAppUpdate?: boolean;
   readonly targetVersion: string;
   /** Set only by a track switch; the host's desktop app moves to this track. */
@@ -162,7 +160,7 @@ export function useServerUpdate() {
         description:
           selfUpdate === "desktop-managed"
             ? `Desktop app relaunched on ${result.value.targetVersion}.`
-            : `Reconnected on t3@${result.value.targetVersion}.`,
+            : `Reconnected on iglo.code@${result.value.targetVersion}.`,
       });
     }
     return { status: "updated" };
@@ -259,7 +257,6 @@ export function ServerUpdateAction({
   environmentId,
   serverLabel,
   selfUpdate,
-  installation,
   desktopAppUpdate = false,
   targetVersion,
   channel,
@@ -281,7 +278,7 @@ export function ServerUpdateAction({
       toastManager.add({
         type: "success",
         title: "Update command copied",
-        description: `Stop t3 on ${serverLabel}, run \`${command}\`, then restart t3 with your usual options.`,
+        description: `Stop iglo.code on ${serverLabel}, run \`${command}\`, then restart iglo.code with your usual options.`,
       });
     },
     onError: (error) => {
@@ -343,8 +340,7 @@ export function ServerUpdateAction({
     return <CrossTrackNote />;
   }
 
-  const manualCommand =
-    selfUpdate === null ? manualServerUpdateCommand(targetVersion, installation) : null;
+  const manualCommand = selfUpdate === null ? manualServerUpdateCommand(targetVersion) : null;
   const actionLabel = manualCommand !== null ? "Copy update command" : label;
   const onClick =
     manualCommand !== null
@@ -422,7 +418,7 @@ export function OutdatedServerUpdateAction({
     toastManager.add({
       type: "success",
       title: `${serverLabel} updated`,
-      description: `Reconnected on t3@${result.value.targetVersion}.`,
+      description: `Reconnected on iglo.code@${result.value.targetVersion}.`,
     });
   };
   if (fromVersion !== undefined && crossesReleaseTrack(fromVersion, targetVersion)) {

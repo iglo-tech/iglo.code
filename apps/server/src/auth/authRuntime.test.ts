@@ -10,7 +10,7 @@ it("pairs and persists browser and scoped OAuth sessions under actual Bun", asyn
   const home = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-bun-auth-"));
   try {
     const child = NodeChildProcess.spawnSync(
-      process.env.T3_BUN_EXECUTABLE ?? "bun",
+      process.env.IGLO_CODE_BUN_EXECUTABLE ?? "bun",
       [NodeURL.fileURLToPath(new URL("./testing/authRuntime.fixture.ts", import.meta.url)), home],
       { encoding: "utf8", timeout: 15_000 },
     );

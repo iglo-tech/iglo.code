@@ -78,10 +78,13 @@ describe("ssh auth", () => {
       const askpassPath = path.join(directory, "ssh-askpass.sh");
       assert.equal(env.SSH_ASKPASS, askpassPath);
       assert.equal(env.SSH_ASKPASS_REQUIRE, "force");
-      assert.equal(env.T3_SSH_AUTH_SECRET, "super-secret");
+      assert.equal(env.IGLO_CODE_SSH_AUTH_SECRET, "super-secret");
       assert.equal(env.DISPLAY, "t3code");
       assert.equal(yield* fs.exists(askpassPath), true);
-      assert.include(yield* fs.readFileString(askpassPath), 'printf "%s\\n" "$T3_SSH_AUTH_SECRET"');
+      assert.include(
+        yield* fs.readFileString(askpassPath),
+        'printf "%s\\n" "$IGLO_CODE_SSH_AUTH_SECRET"',
+      );
     }).pipe(
       Effect.provide(Layer.merge(NodeServices.layer, Layer.succeed(HostProcess.Platform, "linux"))),
       Effect.scoped,
@@ -246,7 +249,10 @@ describe("ssh auth", () => {
       assert.equal(yield* Fiber.join(next), first);
       assert.equal(callsDuringCancellation, callsBeforeCancellation);
       assert.equal(helperWrites, 3);
-      assert.include(yield* fs.readFileString(first), 'printf "%s\\n" "$T3_SSH_AUTH_SECRET"');
+      assert.include(
+        yield* fs.readFileString(first),
+        'printf "%s\\n" "$IGLO_CODE_SSH_AUTH_SECRET"',
+      );
     }).pipe(
       Effect.provide(Layer.merge(NodeServices.layer, Layer.succeed(HostProcess.Platform, "linux"))),
       Effect.scoped,

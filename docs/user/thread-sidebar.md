@@ -5,20 +5,14 @@ need a separate branch and working directory.
 
 ## Start a thread
 
-On web and desktop, **New thread** opens the project picker when you have more than one
+**New thread** opens the project picker when you have more than one
 open project in the default or project-grouped sidebar. Archived projects don't count. **Shift-click** to start in
 the current project, or use a project's own new-thread action. A new thread carries
 your model and mode selections, unless the destination project has its own model default.
 Its branch and workspace mode come from your configured defaults. To continue in
 an existing worktree, use **New thread in this worktree** from the branch toolbar.
 
-On mobile, **New thread** starts in the current thread's project, or else in the
-last project you opened or chose on that device. If neither is available, the
-project picker opens. Turn off **Settings → General → Use last project** to
-choose a project every time. When you pick a project that is on more than one
-machine, the thread starts on a connected one if any is connected.
-
-When you change a new thread's project, T3 Code stays in the current environment
+When you change a new thread's project, iglo.code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
 ### Start without a project
@@ -26,13 +20,12 @@ if that project exists there. Otherwise it selects an environment that has it.
 A thread does not need a project. To start one without a project, click **or
 start without a project** under a new thread's heading, pick **No project** from
 the project menu in that heading or from **New thread in...** in the command
-palette, or press `mod+alt+n`. On mobile, pick **No project** from the project
-list. It starts on your current machine; before sending, pick another machine
+palette, or press `mod+alt+n`. It starts on your current machine; before sending, pick another machine
 from the machine menu to move it there. To move a draft into a project, pick the
 project in the heading.
 
-Each thread without a project works in its own folder under `~/.t3/scratch` (the
-`scratch` folder of your T3 data directory), named after its date, the first words
+Each thread without a project works in its own folder under `~/.iglo.code/scratch` (the
+`scratch` folder of your iglo.code data directory), named after its date, the first words
 of its first message, and a short id, like
 `2026-09-25-convert-these-pngs-to-webp-a1b2c3d4`. Deleting a thread keeps its
 folder, so the files the agent wrote stay until you delete them. Branch, worktree, and diff controls stay hidden because
@@ -47,12 +40,12 @@ get branch and diff controls.
 
 ### Start in the background
 
-In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`
+Press `Cmd+Enter` on macOS or `Ctrl+Enter`
 on Windows and Linux to start a new thread and immediately open another draft. The
 next draft keeps the workspace mode and base branch you selected. With **New
 worktree**, each background submission creates its own worktree.
 
-To send the same prompt to several models on web or desktop, **Shift-click** models
+To send the same prompt to several models, **Shift-click** models
 in a new thread's model picker to add or remove them. A regular click returns to a
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
@@ -61,24 +54,24 @@ and worktree while you stay in the new thread composer. This requires a Git proj
 
 Pin a thread from its menu to keep it above your active work.
 
-On web and desktop, unpinning, settling, snoozing, and archiving a thread each show
+Unpinning, settling, snoozing, and archiving a thread each show
 a notification with **Undo** for five seconds. Undo restores the thread's previous
 state, including its pinned position, and reopens an archived thread you were
 viewing. Discarding an unsent draft from the sidebar works the same way: Undo brings
 back its text and attachments. `mod+z` triggers the most recent Undo, even from the composer; see
 [Keybindings](./keybindings.md#commands-with-special-behavior).
 
-On web and desktop, you can also drag files from your computer onto any thread row:
+You can also drag files from your computer onto any thread row:
 the thread opens and the files are attached in its composer, ready for
 your next message. The same per-message file limits apply as when attaching
 files directly; see [Attach files](./composer.md#attach-files).
 
-On web and desktop, pinning or unpinning a thread keeps the sidebar at your current
+Pinning or unpinning a thread keeps the sidebar at your current
 scroll position instead of following the thread to its new place in the list.
 
 Pinning does not prevent automatic settlement. Settling a thread removes its pin.
 
-On web and desktop, drag a thread between sections to change its state. Drag a thread up into
+Drag a thread between sections to change its state. Drag a thread up into
 the pinned section to pin it at the spot you drop it; drag a pinned thread down into the active
 list to unpin it. Dragging a thread onto the **Settled** header settles it, and dragging a settled
 thread into the active list un-settles it. A snoozed thread can be dragged out of the snoozed
@@ -95,15 +88,11 @@ thread is over takes the accent color. Section labels also
 identify empty sections and a collapsed settled shelf.
 
 Drag within the pinned or active section to change its order. Other rows slide aside to show the
-spot where the thread will land. Drops into either section keep the position you choose. On
-mobile, open a thread's menu and choose **Arrange threads**. Drag a handle within or between
-**Pinned** and **Active** to reorder, pin, or unpin. Drop onto the **Settled** divider to
-settle a thread. The dragged card shows the action before you release it. Expand **Snoozed**
-or **Settled** to drag a parked thread back into either live section. Each drop saves; close the sheet to return to the thread list.
+spot where the thread will land. Drops into either section keep the position you choose.
 **Move up** and **Move down** are also available in the thread menu. The server
 saves the order, so it survives a refresh and appears on your other connected devices.
 
-On web and desktop, the list also animates section changes made with thread actions such as
+The list also animates section changes made with thread actions such as
 **Pin**, **Settle**, and **Snooze**. These transitions respect your system's reduced-motion
 preference. While dragging, rows follow the insertion gap without replaying a second transition
 after the drop.
@@ -113,7 +102,7 @@ position, so using **Un-settle** returns it to the top. Pinning and snoozing pre
 position until you move it again. Thread activity does not change the order. The settled shelf
 continues to use settlement time.
 
-If dragging is unavailable for one environment, update the T3 Code server running in that
+If dragging is unavailable for one environment, update the iglo.code server running in that
 environment. Pinned and active reordering require server support. Threads from older servers keep
 their default order until the server is updated.
 
@@ -125,9 +114,9 @@ To change how titles are written, add **Thread title instructions** in **Setting
 Text generation**, under Advanced, such as a length limit or an identifier to put first. They apply to new and
 regenerated titles. Select a project to give it its own instructions.
 
-Agents connected through T3 Code can use the same server-owned metadata workflow to
+Agents connected through iglo.code can use the same server-owned metadata workflow to
 rename a thread, regenerate its title, or link and unlink a pull request. These changes
-appear on web, desktop, and mobile without requiring the originating browser to remain
+appear on every connected client without requiring the originating browser to remain
 open.
 
 ### Fold working threads (beta)
@@ -140,8 +129,7 @@ there. A thread returns to the top of the active list when it finishes, fails, o
 answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
 the pinned section.
 
-This is on by default. Turn it off with **Settings → General → Working section** on web and desktop,
-or **Settings → General → Working section** on iOS and Android. Each device keeps its own
+This is on by default. Turn it off with **Settings → General → Working section**. Each device keeps its own
 choice.
 
 While this is on, the active list is ordered by when each thread last came back to you, so you
@@ -149,7 +137,7 @@ cannot drag or move threads within it. Your saved order returns when you turn it
 
 ### Group threads by project (beta)
 
-Turn on **Settings → Labs → Boring sidebar (group by project)** on web and desktop to put active
+Turn on **Settings → Labs → Boring sidebar (group by project)** to put active
 threads in a folder for each project. Pinned projects come first. A project with no active
 threads has no folder unless it is pinned or you pick it in the project filter. An archived
 project's folder comes last and shows only while it has active threads. Click a folder to open or
@@ -169,18 +157,18 @@ sending an answer or restarting the agent. Settling also closes the thread's
 terminals that wait at an idle prompt, and keeps their output. A terminal that
 runs a command, such as a dev server, stays open unless its action has **Stop this action
 when the thread settles** enabled in Settings > Projects > Actions. You can also set
-`"stopOnSettle": true` on a `t3.json` action and import it there. Start the command through
-that action so T3 can stop its terminal and child processes. Commands started through an
+`"stopOnSettle": true` on a `iglo.code.json` action and import it there. Start the command through
+that action so iglo.code can stop its terminal and child processes. Commands started through an
 agent's own shell tools are managed by the provider.
 
 To reclaim disk space from settled work, turn on **Run in the thread's worktree when the
 thread settles** for one of the project's actions, or set `"runOnSettle": true` on a
-`t3.json` script, for example `cargo clean`. It runs each time a thread in its own
+`iglo.code.json` script, for example `cargo clean`. It runs each time a thread in its own
 worktree settles, manually or automatically, even if a terminal there still runs a
 command such as a dev server. Threads in the project's main checkout skip it. Its terminal
 closes when the command succeeds and stays open when it fails.
 
-On web and desktop, press a thread's **Settle** button and drag up or down to
+Press a thread's **Settle** button and drag up or down to
 settle every thread in that section between it and the one you release on.
 The **Un-settle** and **Wake** buttons work the same way in their sections.
 Press `Escape` while dragging to cancel.
@@ -201,10 +189,9 @@ choose **Auto-settle behavior**, and pick **Disabled**. The current option is ch
 is disabled.
 
 Change these rules in **Settings → Threads**.
-They continue to run when your apps are closed. On web and desktop, choose an environment at the
+They continue to run when your apps are closed. Choose an environment at the
 top to change only its rules, or **All environments** to update connected environments together.
-Mixed values show where the selected environments disagree. Mobile applies these
-rules to connected environments that support shared settings. Offline environments
+Mixed values show where the selected environments disagree. Offline environments
 and older servers keep their previous values. Changing a rule does not reopen
 already settled threads.
 
@@ -214,32 +201,28 @@ The server finds the PR for each unsettled thread's saved branch, even when your
 apps are closed. Settled threads keep their saved links. Update the server if
 automatic branch links do not appear.
 
-On web and desktop, right-click a pull request link in a thread and choose
+Right-click a pull request link in a thread and choose
 **Link to thread** to select a different PR. Use **Unlink from thread** on the
 same link to return to the branch PR, if one exists.
 The linked pull request participates in automatic settlement.
 
 ## Find and reference work
 
-On web and desktop, open the command palette with `Cmd/Ctrl+K` to search threads
+Open the command palette with `Cmd/Ctrl+K` to search threads
 across connected environments by title, branch, pull request, or project.
 Threads you open often or recently rank higher, and for three weeks the thread
 you last picked for a query ranks higher when you type that query again.
 Threads whose messages contain all your words appear below, under **In
 messages**, and open at the matching message. Message search needs at least
 one word of three or more letters, or two for Chinese, Japanese, and Korean.
-On mobile, the thread list search also lists message matches and opens them at
-the matching message; on an iPad with a keyboard, `Cmd+K` opens the same
-palette.
 
 Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request
 link when available, otherwise a link to the thread, which opens it from anywhere
 you paste it and pastes into a composer as a thread chip (see
 [sharing a thread](./prompt-links.md#share-a-thread)). To copy the thread even
-when it has a PR, choose **Copy → Thread** from its context menu, or **Copy
-thread** from its long-press menu on mobile.
-**Thread ID** copies the bare ID for scripts and the `t3` CLI. See
+when it has a PR, choose **Copy → Thread** from its context menu.
+**Thread ID** copies the bare ID for scripts and the `iglo.code` CLI. See
 [keybindings](./keybindings.md) for custom configuration.
 
 ## Inspect agent work
@@ -267,10 +250,7 @@ the snooze. Enable **Snooze until limits reset** in thread behavior settings to
 snooze limit stops by default. Providers without a reset time offer manual
 retry and the normal snooze choices.
 
-On web and desktop, use **Agents** to follow work delegated to subagents.
-On mobile, open a subagent from its conversation card or **Agents**. On iOS
-layouts with an inspector, its thread opens beside the parent. Maximize it to
-fill the screen; close the full-screen view to return to the parent and inspector.
+Use **Agents** to follow work delegated to subagents.
 Stop on a thread also stops the subagents it delegated to.
 
 Subagent threads started by the agent can't take messages; message the parent
@@ -281,13 +261,13 @@ Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
 
-On web and desktop, the thread details card lists the local servers that the
+The thread details card lists the local servers that the
 thread's terminals or its Claude agent started, with their ports. Not every one
 serves a web page. A server the agent started stays listed after the agent's
 turn ends.
 Select a server to open it in the browser panel. **Stop** ends the server's job
-and keeps the agent, the terminal, and T3 Code running. Stop needs terminal
-access to the environment and is not available on Windows.
+and keeps the agent, the terminal, and iglo.code running. Stop needs terminal
+access to the environment.
 
 To choose what the thread details card shows, right-click the card or open
 **Settings → Appearance → Thread details**. Hidden rows keep their keyboard
@@ -299,7 +279,7 @@ back the standard rows.
 A side chat lets you ask a question about a thread without adding to it. It starts
 with what the thread knows, and the thread keeps working while you ask.
 
-On web and desktop, start a message with `/side` or `/btw`, then your question.
+Start a message with `/side` or `/btw`, then your question.
 You can also choose **Side chat** from the **+** menu in the right panel. The side
 chat opens as a tab there, with its own composer. Side chats do not show in the
 sidebar. Find one again under **Side chats** in thread details.
@@ -316,20 +296,17 @@ Closing a side chat you never sent a message in deletes it. To delete one you us
 choose **Delete** at the top of the side chat. Deleting a thread also deletes its
 side chats.
 
-On mobile, a thread lists its side chats above the composer. Tap one to open it and
-answer its questions.
-
 ## Snooze until later
 
 To change the choices in the snooze menu, open **Settings → Threads → Snooze options**.
 Each option is a duration, such as 3 hours, or a time on a day, such as 9:00 PM
 tomorrow. A weekday means the next one after today. Menus list the options soonest
 first and hide a today option after its time passes. Saved with **All environments**
-selected, the options apply to every connected environment, and the mobile app uses them too.
+selected, the options apply to every connected environment.
 
 Choose **Snooze → Custom…** from a thread's menu to pick a date and time in your
 local time zone, or a duration in minutes, hours, or days. Durations start when
-you confirm; one day means 24 hours. On web and desktop, you can also snooze
+you confirm; one day means 24 hours. You can also snooze
 several selected threads together. Choose **Wake thread** to bring a thread back early.
 
 A snoozed thread keeps working and stays hidden until its wake time, even while

@@ -268,7 +268,7 @@ export function makeApplyDesktopShellEnvironmentSnapshot(
         ),
       );
     }
-    if (message.discovered) delete environment.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING;
+    if (message.discovered) delete environment.IGLO_CODE_DESKTOP_SHELL_DISCOVERY_PENDING;
   });
 }
 

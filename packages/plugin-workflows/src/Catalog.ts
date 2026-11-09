@@ -41,7 +41,7 @@ import { protectDefinition, protectParsed, restoreDefinition } from "./authoring
 import * as Display from "./display.ts";
 
 const isPluginError = Schema.is(PluginError);
-export const location = ".t3code/workflows";
+export const location = ".iglo-code/workflows";
 const decode = Schema.decodeUnknownEffect(Definition);
 const sizeReason = `Workflow YAML exceeds ${limits.definitionBytes / 1024} KiB.`;
 const duplicateReason = "This workflow identity is duplicated in the project catalog.";

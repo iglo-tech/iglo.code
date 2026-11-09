@@ -2452,7 +2452,7 @@ describe("AcpAdapterV2", () => {
                         title: "Wait for the child",
                         status: "in_progress",
                         rawInput: {
-                          server: "t3-code",
+                          server: "iglo-code",
                           tool: "t3_thread_wait",
                           arguments: { threadId: "child" },
                         },
@@ -3071,7 +3071,7 @@ describe("AcpAdapterV2", () => {
           (item) =>
             item.threadId === task?.childThreadId &&
             item.type === "dynamic_tool" &&
-            item.toolName === "t3-code.task_status",
+            item.toolName === "iglo-code.task_status",
         ),
       );
       const childMcp = items.find(
@@ -4472,7 +4472,7 @@ describe("AcpAdapterV2", () => {
         mcpServers: [
           {
             type: "stdio",
-            name: "t3-code",
+            name: "iglo-code",
             command: process.execPath,
             args: [
               process.argv[1] === undefined ? "t3" : NodePath.resolve(process.argv[1]),
@@ -4480,8 +4480,8 @@ describe("AcpAdapterV2", () => {
             ],
             env: [
               { name: "ELECTRON_RUN_AS_NODE", value: "1" },
-              { name: "T3_ACP_MCP_ENDPOINT", value: "http://127.0.0.1:43123/mcp" },
-              { name: "T3_ACP_MCP_AUTHORIZATION", value: "Bearer target-thread-token" },
+              { name: "IGLO_CODE_ACP_MCP_ENDPOINT", value: "http://127.0.0.1:43123/mcp" },
+              { name: "IGLO_CODE_ACP_MCP_AUTHORIZATION", value: "Bearer target-thread-token" },
             ],
           },
         ],
@@ -4502,7 +4502,7 @@ describe("AcpAdapterV2", () => {
         {
           sessionId: "mock-child-session-without-credential-scope",
           command: process.execPath,
-          args: ["-e", "process.stdout.write(process.env.T3_ACP_MCP_AUTHORIZATION ?? '')"],
+          args: ["-e", "process.stdout.write(process.env.IGLO_CODE_ACP_MCP_AUTHORIZATION ?? '')"],
         },
         { requestId: "test-unknown-terminal-create", method: "terminal/create" },
       );
@@ -4528,7 +4528,7 @@ describe("AcpAdapterV2", () => {
           command: process.execPath,
           args: [
             "-e",
-            "process.stdout.write(`${process.env.T3CODE_THREAD_ID ?? ''}\n${process.env.T3_ACP_MCP_AUTHORIZATION ?? ''}`)",
+            "process.stdout.write(`${process.env.IGLO_CODE_THREAD_ID ?? ''}\n${process.env.IGLO_CODE_ACP_MCP_AUTHORIZATION ?? ''}`)",
           ],
         },
         { requestId: "test-terminal-create", method: "terminal/create" },
@@ -5179,11 +5179,11 @@ describe("AcpAdapterV2", () => {
       assert.isString(rolledBack.providerThread.nativeThreadRef?.nativeId);
       assert.deepEqual(rolledBack.providerTurns, []);
       assert.equal(
-        runtimeInputs[1]?.processEnvironment?.T3_ACP_MCP_AUTHORIZATION,
+        runtimeInputs[1]?.processEnvironment?.IGLO_CODE_ACP_MCP_AUTHORIZATION,
         "Bearer rollback-target-token",
       );
       assert.equal(
-        runtimeInputs[1]?.processEnvironment?.T3CODE_THREAD_ID,
+        runtimeInputs[1]?.processEnvironment?.IGLO_CODE_THREAD_ID,
         "thread-acp-rollback-session-target",
       );
       const replacementMcpServer = runtimeInputs[1]?.mcpServers[0];
@@ -5194,8 +5194,9 @@ describe("AcpAdapterV2", () => {
           ? replacementMcpServer.env
           : undefined;
       assert.equal(
-        replacementMcpEnvironment?.find((variable) => variable.name === "T3_ACP_MCP_AUTHORIZATION")
-          ?.value,
+        replacementMcpEnvironment?.find(
+          (variable) => variable.name === "IGLO_CODE_ACP_MCP_AUTHORIZATION",
+        )?.value,
         "Bearer rollback-target-token",
       );
       const snapshotAfterRollback = yield* runtime.readThreadSnapshot({

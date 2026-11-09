@@ -7,8 +7,9 @@ description: Import T3 Code upstream changes into iglo.code while preserving its
 
 This fork ships the web client and server. The desktop and native mobile apps are
 deliberately removed so agents cannot spend work customizing them. Keep shared
-contracts, client runtime, server compatibility, CLI distribution, remote access,
-and the Device panel. Testing a user's mobile project and using a mobile browser
+contracts, client runtime, server compatibility, CLI distribution, remote access
+over LAN, Tailscale, and SSH, and the Device panel. iglo.code runs side by side
+with an installed T3 Code, so every import must keep its runtime identity apart. Testing a user's mobile project and using a mobile browser
 are separate features from shipping T3 Code's native clients.
 
 ## Intentional fork differences
@@ -21,7 +22,42 @@ current when an authorized change replaces a decision.
 
 - **Identity and repository tooling.** Keep the iglo.code name, branding, README,
   repo-local skills, and fork-specific AGENTS.md guidance. Upstream attribution
-  and compatible internal `t3` / `@t3tools` names remain valid.
+  and internal code names that never leave the process (`@t3tools/*` packages,
+  the `t3` workspace package, TypeScript identifiers, source file names) remain
+  valid; renaming them only causes merge conflicts.
+- **No website.** Keep upstream's `apps/marketing` (the t3.codes site) removed
+  with its scripts, lockfile importer, and lint, knip, and gitignore entries.
+- **Side-by-side runtime identity.** iglo.code and an installed T3 Code must run on
+  one machine at once without reading each other's state, whatever the user's
+  config. No data migration from T3 Code exists or is wanted. Every name that
+  reaches disk, the environment, git, the network, or an agent stays renamed:
+
+  | Upstream                                              | iglo.code                                                          |
+  | ----------------------------------------------------- | ------------------------------------------------------------------ |
+  | `t3` CLI binary, archive `t3-<ver>-<target>.tar.gz`   | `iglo.code`, `iglo.code-<ver>-<target>.tar.gz`                     |
+  | `~/.t3`, worktree `.t3`                               | `~/.iglo.code`, worktree `.iglo.code`                              |
+  | `T3CODE_*` and runtime `T3_*` variables               | `IGLO_CODE_*` (test-only mock-agent knobs such as `T3_ACP_*` stay) |
+  | default port `3773`                                   | `4773`                                                             |
+  | `com.t3tools.t3code.service`, `t3code.service`        | `code.iglo.service`, `iglo.code.service`                           |
+  | `refs/t3/…`, `refs/t3code/…`                          | `refs/iglo.code/…`                                                 |
+  | `t3_session`, `t3_dev_session_*` cookies              | `iglo_code_session`, `iglo_code_dev_session_*`                     |
+  | `t3-code` / `t3_code` MCP server and client names     | `iglo-code`                                                        |
+  | `t3.json` project file                                | `iglo.code.json` (`t3.json` is never read)                         |
+  | `t3-resource-monitor`, `t3code-server` telemetry name | `iglo-code-resource-monitor`, `iglo-code-server`                   |
+
+  Upstream adds new variables, paths, refs, and agent-facing names with every
+  release, and many merge without conflicts. Run the identity check below after
+  every import and rename what it reports; the table is the naming rule for new
+  names too.
+
+- **T3 Connect disabled.** The fork does not use T3 Connect, its relay, Clerk
+  sign-in, or the hosted `app.t3.codes` client. Keep it unreachable: no settings
+  entry, no `up` option, no relay connection at server start, no relay deploys.
+  Imported Connect code may stay dormant; do not re-enable an entry point. The
+  switch is `hasCloudPublicConfig = false` in the server and web
+  `cloud/publicConfig.ts`, which read no env var or build define; keep upstream's
+  relay/Clerk defines out of the Vite configs, and keep `infra/relay`, its catalog
+  entries, and its patches removed.
 - **Local development.** The maintainer uses the local toolchain. Keep
   `.devcontainer/` and `docs/internals/devcontainer.md` removed, along with their
   configuration and documentation references.
@@ -36,7 +72,9 @@ current when an authorized change replaces a decision.
   `runtime/bun` interpreter for helpers. Installed execution works without system
   Node, npm, or Bun. Preserve shared source/compiled self-invocation and service
   launch, update, checksum rejection, and rollback. The supported archive targets
-  are macOS arm64, Linux x64, and Linux arm64; expanding them is a separate request.
+  are macOS arm64, macOS x64 (Intel), Linux x64, and Linux arm64. Upstream excludes
+  `darwin-x64`; keep the fork's installer, archive builder, and release matrix
+  accepting it.
   Keep native assets, disk-backed SDK/browser dependencies, web assets, resource
   monitoring, and signing. Packaging remains available for manual use through
   [CLI staging](../../../scripts/lib/cli-stage.ts) and
@@ -55,17 +93,18 @@ current when an authorized change replaces a decision.
   Read [Bun runtime boundaries](../../../docs/internals/bun-runtime.md) when an
   import changes platform adapters; it records retained and inconclusive boundary decisions
   and the constraints behind the compatibility APIs.
-- **Fork installation and updates.** Default release downloads and lookups stay
-  on `iglo-tech/iglo.code`; npm launchers/packages stay under
-  `@iglo-tech/iglo-code`. Keep explicit mirror overrides and channel matching.
-  Server updates, service updates, install scripts, onboarding, and manual update
-  commands must agree; none silently falls back to upstream. Sources are
-  [release naming](../../../packages/shared/src/cliRelease.ts),
-  [npm launcher](../../../scripts/build-npm-launcher.ts), and
+- **Fork installation and updates.** Releases are GitHub Release assets on
+  `iglo-tech/iglo.code`, built and published by `.github/workflows/iglo-release.yml`
+  on a `v*` tag. The fork publishes nothing to npm: drop imported npm launcher,
+  `npx`/`bunx` install, and npm-based server update paths. Keep explicit mirror
+  overrides and channel matching. Server updates, service updates, install
+  scripts, onboarding, and manual update commands must agree; none silently
+  falls back to upstream. Sources are
+  [release naming](../../../packages/shared/src/cliRelease.ts) and
   [the shared update action](../../../apps/web/src/components/ServerUpdateAction.tsx).
 - **Device and remote features.** Retain the Device panel, local/SSH device hosts,
   `expo-device-hub`, `agent-device`, provider helpers, Browser streams, and
-  local/remote/relay/tunnel connections. Device tool installation and execution
+  local, LAN, Tailscale, and SSH connections. Device tool installation and execution
   use the supported Bun interpreter, including remote version checks; removing
   native T3 clients must not remove users' device-project support.
 - **Plugin and workflow extensions.** Preserve the fork's compiled plugin host,
@@ -83,12 +122,15 @@ current when an authorized change replaces a decision.
   usage limits or paused queues, while explicit Run now requests remain distinct.
   Retain original queued prompts and truthful queued/dispatched delivery status;
   see [recurring automations](../../../docs/user/project-settings.md#recurring-automations).
-- **No CI.** The fork keeps no GitHub workflows; the pruning helper deletes
-  `.github/workflows` on every import. Checks run locally before pushing:
+- **Release-only CI.** The fork's one workflow, `iglo-release.yml`, builds and
+  publishes release archives; it runs no checks. The pruning helper deletes every
+  other file in `.github/workflows` on each import, including upstream's
+  `release.yml` and `ci.yml`. Checks run locally before pushing:
   `vp fmt --check`, `vp run lint`,
   `vp run --parallel --filter 't3...' --concurrency-limit 2 typecheck`, the smoke tests in
   [development checks](../../../docs/operations/development.md#checks), and
-  `vp run --filter t3 build`. Importing upstream is not a request to restore CI.
+  `vp run --filter t3 build`. Importing upstream is not a request to restore check CI.
+  When upstream changes archive building, reconcile it into `iglo-release.yml`.
   `.github/scripts/ci-changes.cjs` stays because `vp run check:changed` uses it. Upstream's
   shared Vite task cache (`infra/task-cache`, `.task-cache.json`, and its root
   `vite.config.ts` hooks) targets upstream's own Cloudflare worker; keep it removed.
@@ -130,7 +172,7 @@ python3 -B .agents/skills/sync-upstream/scripts/remove_native_apps.py
 ```
 
 The helper needs only Python's standard library and can run before dependency
-installation. It removes both app trees, the devcontainer and its guide, native tools, workflows, patches,
+installation. It removes both app trees, `apps/marketing`, the devcontainer and its guide, native tools, workflows, patches,
 dependency configuration, and known workspace hooks. It rewrites known combined
 desktop/CLI packaging integrations; apply the CI policy above to any remaining
 workflows. It is safe to rerun. It drops obsolete native app lockfile importers
@@ -141,7 +183,7 @@ Audit newly imported integrations; the helper covers the known upstream layout.
 Search for active hooks and contradictory guidance:
 
 ```sh
-rg --hidden -n 'apps/(desktop|mobile)|@t3tools/(desktop|mobile)|dev:desktop|build:desktop|release-desktop|test-t3-mobile|mobile-native|mobile-showcase' \
+rg --hidden -n 'apps/(desktop|mobile|marketing)|@t3tools/(desktop|mobile|marketing)|dev:desktop|build:desktop|release-desktop|test-t3-mobile|mobile-native|mobile-showcase' \
   AGENTS.md README.md package.json pnpm-workspace.yaml vite.config.ts knip.jsonc \
   scripts .github .agents docs assets
 git grep -inE 'devcontainer|codespace|containerEnv|remoteContainers' -- ':!.repos/**'
@@ -178,8 +220,18 @@ Run the helper again and confirm it reports no changes. Run its focused tests:
 python3 -B .agents/skills/sync-upstream/scripts/test_remove_native_apps.py
 ```
 
+Run the identity check and rename every hit it reports, following the naming
+table above. Explain anything you allow instead of renaming in the check's
+allowlist:
+
+```sh
+python3 -B .agents/skills/sync-upstream/scripts/check_fork_identity.py
+```
+
 Review the final diff against the intentional fork differences, including files
-that merged automatically. Confirm no `.github/workflows` remain. For each affected difference, compare its behavior with the pre-import
+that merged automatically. Confirm `.github/workflows` holds only
+`iglo-release.yml`, and that docs added by upstream do not reintroduce the
+desktop or mobile apps, T3 Connect, npm installs, or `t3` command names. For each affected difference, compare its behavior with the pre-import
 notes and run the smallest relevant proof. Changes to runtime launch, helper
 execution, or packaging need source and actual standalone archive smoke checks;
 a source-only pass cannot prove packaged helper execution or bundled dependency
@@ -194,7 +246,7 @@ footprint and avoid treating one sample or forced GC as normal memory usage.
 Follow AGENTS.md for verification scope and browser consent.
 
 Finish when both native apps, the devcontainer, and their active hooks are absent, the lockfile
-matches the remaining workspace, and fork customizations survive. Report the
+matches the remaining workspace, the identity check passes, and fork customizations survive. Report the
 imported upstream revision (when applicable), checks, affected fork differences
 preserved, and unresolved conflicts.
 Commit, push, and PR creation follow the user's request and repository instructions.

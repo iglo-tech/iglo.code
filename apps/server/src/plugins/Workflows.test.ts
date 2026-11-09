@@ -369,11 +369,11 @@ it.effect(
         ).toMatchObject({ code: "conflict" });
         const fs = yield* FileSystem.FileSystem;
         yield* fs.writeFileString(
-          `${test.directory}/.t3code/workflows/invalid.yaml`,
+          `${test.directory}/.iglo-code/workflows/invalid.yaml`,
           "entry: [unclosed",
         );
         expect(yield* test.invoke("catalog", scope)).toContainEqual({
-          source: ".t3code/workflows/invalid.yaml",
+          source: ".iglo-code/workflows/invalid.yaml",
           definition: null,
           runnable: false,
           reasons: ["Invalid workflow YAML."],

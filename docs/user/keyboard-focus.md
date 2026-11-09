@@ -12,7 +12,7 @@ becomes ready. Opening or switching to a terminal explicitly still focuses it.
 
 ## Move between workspace areas
 
-On web and desktop, press `F6` or `Shift+F6` to move between the Threads sidebar,
+Press `F6` or `Shift+F6` to move between the Threads sidebar,
 conversation, message input, and visible panels. Navigation wraps around and restores
 the last focused control in each area. Pull Requests has a page content area. In Settings,
 `F6` moves between the section list and the open section. Hidden areas are skipped. Other

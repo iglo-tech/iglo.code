@@ -689,7 +689,7 @@ it("requestSecret saves a pasted value to a file without opening a card", async 
     readonly requestKey: string;
     readonly value: string;
   }> = [];
-  const file = "/home/user/.t3/userdata/secrets/files/0123456789abcdef0123456789abcdef";
+  const file = "/home/user/.iglo.code/userdata/secrets/files/0123456789abcdef0123456789abcdef";
 
   const layer = layerOrchestratorService.pipe(
     Layer.provide(

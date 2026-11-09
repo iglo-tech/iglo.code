@@ -52,7 +52,7 @@ it.effect.each([
         .invoke("validate", { ...scope, definition })
         .pipe(Effect.flatMap(decodeEntry));
       expect(valid.runnable).toBe(!scenario.oversized);
-      const filename = `${test.directory}/.t3code/workflows/large-enums.yaml`;
+      const filename = `${test.directory}/.iglo-code/workflows/large-enums.yaml`;
       const saved = yield* test
         .invoke("save", { ...scope, definition, expectedRevision: null })
         .pipe(Effect.result);

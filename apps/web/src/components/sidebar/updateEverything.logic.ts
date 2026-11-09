@@ -124,7 +124,6 @@ export function collectServerUpdateTargets(
       environmentId: machine.environmentId,
       serverLabel: machine.label,
       selfUpdate,
-      installation: config.environment.capabilities.serverInstallation,
       desktopAppUpdate,
       targetVersion,
     };
@@ -140,7 +139,7 @@ function unavailableReason(machine: UpdateEverythingMachine): string | null {
   return null;
 }
 
-/** The latest release on the track a fleet switches to, as npm reports it. */
+/** The latest release on the track a fleet switches to, as a connected server reports it. */
 export interface ChannelSwitchRelease {
   readonly channel: DesktopUpdateChannel;
   readonly version: string;
@@ -166,8 +165,9 @@ function channelSwitchBlockReason(
   if (currentMigration === undefined) {
     return `its server predates database checks; update it on ${from} first`;
   }
+  // A release without a readable release.json cannot prove a crossing safe.
   if (release.databaseMigration === undefined) {
-    return `${release.version} predates database checks; wait for a newer ${channelSwitchLabel(release.channel)} release`;
+    return `${release.version} does not say which database changes it supports, so the switch cannot be checked`;
   }
   return currentMigration > release.databaseMigration
     ? `its database has changes ${release.version} does not support yet; stay on ${from} until ${channelSwitchLabel(release.channel)} has them`
@@ -241,7 +241,6 @@ export function collectChannelSwitchTargets(
       environmentId: machine.environmentId,
       serverLabel: machine.label,
       selfUpdate,
-      installation: config?.environment.capabilities.serverInstallation,
       desktopAppUpdate: config !== null && supportsDesktopAppUpdate(config),
       targetVersion,
       ...(selfUpdate === "desktop-managed" ? { channel: release.channel } : {}),
@@ -297,7 +296,7 @@ export function collectChannelSwitchTargets(
       compareSemverVersions(release.version, serverVersion) <= 0
     ) {
       skip(
-        `run \`t3 update --channel ${release.channel === "nightly" ? "nightly" : "stable"} --allow-downgrade\` there`,
+        `run \`iglo.code update --channel ${release.channel === "nightly" ? "nightly" : "stable"} --allow-downgrade\` there`,
       );
       continue;
     }

@@ -47,6 +47,6 @@ inventory, and machine-readable verdict. Suite reports link every attempt,
 including failures; repeating a test does not erase an earlier failure. Evidence
 is local and may contain provider output. Do not upload the entire T3 home.
 
-This loop does not verify rendered folding, mobile UI, cancellation, or abrupt
+This loop does not verify rendered folding, phone-width UI, cancellation, or abrupt
 process loss between provider acceptance and receipt persistence. Those require
 additional scenarios before claiming complete background-lifecycle coverage.

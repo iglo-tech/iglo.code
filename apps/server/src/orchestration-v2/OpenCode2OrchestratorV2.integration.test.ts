@@ -62,8 +62,8 @@ const labelled = (entry: ProviderReplayEntry, label: string): ProviderReplayEntr
   entry.type === "runtime_exit" ? entry : { ...entry, label };
 /** MCP rules are last-match-wins; allow this thread after denying all T3 servers. */
 const mcpRules = (name: string) => [
-  { action: "t3-code-*", resource: "*", effect: "deny" },
-  { action: `t3-code-thread_${name}_*`, resource: "*", effect: "allow" },
+  { action: "iglo-code-*", resource: "*", effect: "deny" },
+  { action: `iglo-code-thread_${name}_*`, resource: "*", effect: "allow" },
 ];
 const FULL_ACCESS = [{ action: "*", resource: "*", effect: "allow" }];
 
@@ -139,7 +139,7 @@ const sessionInfo = (directory: string, permissions: ReadonlyArray<unknown>, tit
 });
 
 const instructionsWritten: ReadonlyArray<ProviderReplayEntry> = [
-  out("session.instructions.entry.put", { sessionID: SESSION, key: "t3-code", value: "<any>" }),
+  out("session.instructions.entry.put", { sessionID: SESSION, key: "iglo-code", value: "<any>" }),
   reply("session.instructions.entry.put", null),
 ];
 

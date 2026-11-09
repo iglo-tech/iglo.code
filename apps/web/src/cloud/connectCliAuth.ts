@@ -7,10 +7,10 @@ import {
 import { clerkFrontendApiUrlFromPublishableKey } from "@t3tools/shared/relayAuth";
 
 import { isHostedStaticApp } from "../hostedPairing";
-import { hasCloudPublicConfig, resolveCloudPublicConfig, trimNonEmpty } from "./publicConfig";
+import { hasCloudPublicConfig, resolveCloudPublicConfig } from "./publicConfig";
 
 function resolveConnectCliOAuthClientId(): string | null {
-  return trimNonEmpty(import.meta.env.VITE_CLERK_CLI_OAUTH_CLIENT_ID as string | undefined);
+  return null;
 }
 
 function hasConnectCliAuthConfig(): boolean {

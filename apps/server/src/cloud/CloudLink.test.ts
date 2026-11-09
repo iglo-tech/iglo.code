@@ -1,5 +1,6 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -28,6 +29,12 @@ import {
   RELAY_URL_SECRET,
 } from "./config.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+
+// These cover the dormant T3 Connect code as it runs in a build with its public config.
+vi.mock("./publicConfig.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./publicConfig.ts")>()),
+  hasCloudPublicConfig: true,
+}));
 
 const encode = (value: string) => new TextEncoder().encode(value);
 

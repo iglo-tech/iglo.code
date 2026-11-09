@@ -12,7 +12,7 @@
       "entry": [".coderabbit.config.ts"],
     },
     "scripts": {
-      // Knip loads its preprocessor through a CLI option; worktree setup (from t3.json) run directly.
+      // Knip loads its preprocessor through a CLI option; worktree setup (from iglo.code.json) run directly.
       "entry": [
         // These fixture scripts are injected into a browser page by path.
         "fixtures/*/*.js",
@@ -27,10 +27,9 @@
         "smoke-cli-archive.ts",
         "sync-third-party-license-notices.ts",
       ],
-      // The npm launcher package's files: copied into the package, never imported.
       // knip-schemas.test.ts writes a throwaway project to .knip-test-*, which a
       // knip run beside it in check:changed must not report.
-      "ignore": ["npm-launcher/**", ".knip-test-*/**"],
+      "ignore": [".knip-test-*/**"],
     },
     "apps/server": {
       // Vite+ pack entries and the launcher used by installed background services.
@@ -86,14 +85,6 @@
       // named subcomponents even before they have callers; the file audit still
       // reports an entire component module when nothing imports it.
       "ignoreIssues": { "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"] },
-    },
-    "apps/marketing": {
-      // `astro check` runs from the typecheck task in vite.config.ts, which knip does not read.
-      "ignoreDependencies": ["@astrojs/check"],
-    },
-    "infra/relay": {
-      // Alchemy loads src/worker.ts as the Worker entry and reads its default export.
-      "entry": ["alchemy.run.ts!", "src/persistence/schema.ts!", "src/worker.ts!"],
     },
     "packages/*": {
       // These workspace packages are private to this monorepo.

@@ -846,23 +846,23 @@ function acpMcpContext(
   return {
     servers: [
       {
-        name: "t3-code",
+        name: "iglo-code",
         command: self.command,
         args: [...selfInvocationArgs(self, ["acp-mcp-bridge"])],
         env: [
           { name: "ELECTRON_RUN_AS_NODE", value: "1" },
-          { name: "T3_ACP_MCP_ENDPOINT", value: session.endpoint },
-          { name: "T3_ACP_MCP_AUTHORIZATION", value: session.authorizationHeader },
+          { name: "IGLO_CODE_ACP_MCP_ENDPOINT", value: session.endpoint },
+          { name: "IGLO_CODE_ACP_MCP_AUTHORIZATION", value: session.authorizationHeader },
         ],
       },
     ],
-    acpServers: [{ type: "acp", name: "t3-code", serverId: "t3-code" }],
+    acpServers: [{ type: "acp", name: "iglo-code", serverId: "iglo-code" }],
     httpServers:
       mcpOverHttp === true
         ? [
             {
               type: "http",
-              name: "t3-code",
+              name: "iglo-code",
               url: session.endpoint,
               headers: [{ name: "Authorization", value: session.authorizationHeader }],
             },
@@ -875,11 +875,11 @@ function acpMcpContext(
       // from its shell can find its T3 thread. Claude and Codex sessions set
       // the same variable (PortScanner.AGENT_THREAD_ENV; a string literal here
       // because this package cannot reach apps/server).
-      T3CODE_THREAD_ID: session.threadId,
-      T3_ACP_MCP_ENDPOINT: session.endpoint,
-      T3_ACP_MCP_AUTHORIZATION: session.authorizationHeader,
-      T3_ACP_MCP_NODE: self.command,
-      ...(self.entrypoint === undefined ? {} : { T3_ACP_MCP_ENTRYPOINT: self.entrypoint }),
+      IGLO_CODE_THREAD_ID: session.threadId,
+      IGLO_CODE_ACP_MCP_ENDPOINT: session.endpoint,
+      IGLO_CODE_ACP_MCP_AUTHORIZATION: session.authorizationHeader,
+      IGLO_CODE_ACP_MCP_NODE: self.command,
+      ...(self.entrypoint === undefined ? {} : { IGLO_CODE_ACP_MCP_ENTRYPOINT: self.entrypoint }),
     },
   };
 }
@@ -2374,7 +2374,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               elicitation: { form: {}, ...(flavor.onUrlElicitation ? { url: {} } : {}) },
               ...(flavor.clientCapabilitiesMeta ? { _meta: flavor.clientCapabilitiesMeta } : {}),
             },
-            clientInfo: { name: "t3-code", version: "0.0.0" },
+            clientInfo: { name: "iglo-code", version: "0.0.0" },
             onTermination: (error) =>
               Effect.sync(() => agentRequests.clear()).pipe(Effect.andThen(onTermination(error))),
             ...(promptInactivityTimeoutMillis === undefined

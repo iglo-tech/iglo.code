@@ -82,7 +82,7 @@ export const runDefaultServerCommand = Effect.fn("server.runDefaultServerCommand
 });
 
 export const startCommand = Command.make("start", { ...sharedServerCommandFlags }).pipe(
-  Command.withDescription("Same as `t3`."),
+  Command.withDescription("Same as `iglo.code`."),
   Command.unlisted,
   Command.withHandler((flags) => runServerCommand(flags, { rejectRunningServer: true })),
 );
@@ -90,7 +90,7 @@ export const startCommand = Command.make("start", { ...sharedServerCommandFlags 
 export const serveCommand = Command.make("serve", { ...sharedServerCommandFlags }).pipe(
   Command.withShortDescription("Run T3 Code in this terminal, with no browser."),
   Command.withDescription(
-    "Run T3 Code in this terminal without opening a browser, and print pairing details. The background service runs this. To set up access from your other devices, run `t3 up`.",
+    "Run T3 Code in this terminal without opening a browser, and print pairing details. The background service runs this. To set up access from your other devices, run `iglo.code up`.",
   ),
   Command.withHandler((flags) =>
     runServerCommand(flags, {

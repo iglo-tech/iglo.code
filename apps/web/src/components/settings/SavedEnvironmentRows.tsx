@@ -10,7 +10,6 @@ import { useEffect, useEffectEvent, useState } from "react";
 import {
   AuthRelayWriteScope,
   type EnvironmentId,
-  connectReachabilityHelpUrl,
   formatConnectReachable,
   managedCapabilityDenial,
   resolveEnvironmentMachineKind,
@@ -152,7 +151,7 @@ export function SavedBackendListRow({
       toastManager.add({
         type: "success",
         title: "MCP URL copied",
-        description: `Add it to an agent, e.g. claude mcp add --transport http t3 ${url}`,
+        description: `Add it to an agent, e.g. claude mcp add --transport http iglo-code ${url}`,
       });
     },
     onError: (error) => {
@@ -371,7 +370,6 @@ export function SavedBackendListRow({
           environmentId={environmentId}
           serverLabel={`${environment.label} server`}
           selfUpdate={resolveServerSelfUpdateCapability(environment.serverConfig)}
-          installation={environment.serverConfig?.environment.capabilities.serverInstallation}
           desktopAppUpdate={supportsDesktopAppUpdate(environment.serverConfig)}
           targetVersion={versionMismatch.clientVersion}
           label={serverUpdateState.status === "failed" ? "Retry update" : "Update"}
@@ -574,15 +572,7 @@ function ConfiguredCloudLinkRow({
       <span className="block text-destructive">
         {[reachability.reason, reachability.hint, `Fix: ${reachability.fix}`]
           .filter(Boolean)
-          .join(" ")}{" "}
-        <a
-          href={connectReachabilityHelpUrl(reachability.cause)}
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-2"
-        >
-          More info
-        </a>
+          .join(" ")}
       </span>
     ) : null;
 
@@ -687,7 +677,7 @@ function ConfiguredCloudLinkRow({
       ) : linkRevoked ? (
         <SettingsRow
           title={searchableSetting("t3-connect").title}
-          description="This environment was removed from T3 Connect. Run `t3 connect link` on the host to link it again."
+          description="This environment was removed from T3 Connect. Run `iglo.code connect link` on the host to link it again."
         />
       ) : null}
       {signedOut && isElectron ? null : (

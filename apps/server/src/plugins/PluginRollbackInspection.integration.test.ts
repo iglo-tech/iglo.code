@@ -344,7 +344,7 @@ it.live("inspection excludes abandoned background work after native rollback", (
             parentCheckpointId: null,
             ordinalWithinScope: 0,
             appRunOrdinal: null,
-            ref: CheckpointRef.make("refs/t3/review-baseline"),
+            ref: CheckpointRef.make("refs/iglo.code/review-baseline"),
             status: "ready",
             files: [],
             capturedAt: now,

@@ -14,7 +14,7 @@ function snapshot(overrides: Partial<WorktreeSetupSnapshot>): WorktreeSetupSnaps
     endedAt: null,
     branch: "t3/feature",
     baseRef: "main",
-    worktreePath: "/repo/.t3/worktrees/feature",
+    worktreePath: "/repo/.iglo.code/worktrees/feature",
     setupScript: null,
     stages: [
       {

@@ -237,7 +237,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       const layerConfig = ConfigProvider.layer(
         ConfigProvider.fromEnv({
           env: {
-            T3CODE_DEV_AUTH_TOKEN: "  reusable-dev-auth-token-that-is-long-enough  ",
+            IGLO_CODE_DEV_AUTH_TOKEN: "  reusable-dev-auth-token-that-is-long-enough  ",
           },
         }),
       );
@@ -280,7 +280,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         lan: Option.none<boolean>(),
       };
       const layerConfig = ConfigProvider.layer(
-        ConfigProvider.fromEnv({ env: { T3CODE_DEV_AUTH_TOKEN: secret } }),
+        ConfigProvider.fromEnv({ env: { IGLO_CODE_DEV_AUTH_TOKEN: secret } }),
       );
       const error = yield* resolveServerConfig(flags, Option.none()).pipe(
         Effect.provide(Layer.mergeAll(layerConfig, NetService.layer)),
@@ -342,10 +342,10 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_BOOTSTRAP_FD: String(fd),
-                  T3CODE_NO_BROWSER: "true",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
-                  T3CODE_LOG_WS_EVENTS: "true",
+                  IGLO_CODE_BOOTSTRAP_FD: String(fd),
+                  IGLO_CODE_NO_BROWSER: "true",
+                  IGLO_CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
+                  IGLO_CODE_LOG_WS_EVENTS: "true",
                 },
               }),
             ),
@@ -419,12 +419,12 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_MODE: "web",
-                  T3CODE_BOOTSTRAP_FD: String(fd),
-                  T3CODE_HOME: baseDir,
-                  T3CODE_NO_BROWSER: "true",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
-                  T3CODE_LOG_WS_EVENTS: "true",
+                  IGLO_CODE_MODE: "web",
+                  IGLO_CODE_BOOTSTRAP_FD: String(fd),
+                  IGLO_CODE_HOME: baseDir,
+                  IGLO_CODE_NO_BROWSER: "true",
+                  IGLO_CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
+                  IGLO_CODE_LOG_WS_EVENTS: "true",
                 },
               }),
             ),
@@ -577,55 +577,57 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
-  it.effect("lets T3CODE_OTEL_SDK_DISABLED=false override an ambient OTEL_SDK_DISABLED=true", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-otel-on-" });
-      const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
-      yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
-      yield* fs.writeFileString(
-        derivedPaths.settingsPath,
-        `${JSON.stringify({
-          observability: {
-            otlpTracesUrl: "http://localhost:4318/v1/traces",
+  it.effect(
+    "lets IGLO_CODE_OTEL_SDK_DISABLED=false override an ambient OTEL_SDK_DISABLED=true",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-otel-on-" });
+        const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
+        yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
+        yield* fs.writeFileString(
+          derivedPaths.settingsPath,
+          `${JSON.stringify({
+            observability: {
+              otlpTracesUrl: "http://localhost:4318/v1/traces",
+            },
+          })}\n`,
+        );
+
+        const resolved = yield* resolveServerConfig(
+          {
+            mode: Option.some("desktop"),
+            port: Option.some(4888),
+            host: Option.none(),
+            baseDir: Option.some(baseDir),
+            cwd: Option.none(),
+            devUrl: Option.none(),
+            noBrowser: Option.none(),
+            bootstrapFd: Option.none(),
+            autoBootstrapProjectFromCwd: Option.none(),
+            logWebSocketEvents: Option.none(),
+            tailscaleServeEnabled: Option.none(),
+            tailscaleServePort: Option.none(),
+            lan: Option.none(),
           },
-        })}\n`,
-      );
-
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.some("desktop"),
-          port: Option.some(4888),
-          host: Option.none(),
-          baseDir: Option.some(baseDir),
-          cwd: Option.none(),
-          devUrl: Option.none(),
-          noBrowser: Option.none(),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
-          lan: Option.none(),
-        },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(
-              ConfigProvider.fromEnv({
-                env: { T3CODE_OTEL_SDK_DISABLED: "false", OTEL_SDK_DISABLED: "true" },
-              }),
+          Option.none(),
+        ).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ConfigProvider.layer(
+                ConfigProvider.fromEnv({
+                  env: { IGLO_CODE_OTEL_SDK_DISABLED: "false", OTEL_SDK_DISABLED: "true" },
+                }),
+              ),
+              NetService.layer,
             ),
-            NetService.layer,
           ),
-        ),
-      );
+        );
 
-      expect(resolved.otelEnvironment.disabled).toBe(false);
-      expect(resolved.otlpTracesUrl).toBe("http://localhost:4318/v1/traces");
-    }),
+        expect(resolved.otelEnvironment.disabled).toBe(false);
+        expect(resolved.otlpTracesUrl).toBe("http://localhost:4318/v1/traces");
+      }),
   );
 
   it.effect("forces noBrowser and disables auto-bootstrap for headless startup presentation", () =>
@@ -660,8 +662,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_NO_BROWSER: "false",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
+                  IGLO_CODE_NO_BROWSER: "false",
+                  IGLO_CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
                 },
               }),
             ),
@@ -720,8 +722,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_OTLP_HEADERS: "authorization=Bearer abc==, x-tenant=t3",
-                  T3CODE_OTLP_TRACES_URL: "http://collector.internal:4318",
+                  IGLO_CODE_OTLP_HEADERS: "authorization=Bearer abc==, x-tenant=t3",
+                  IGLO_CODE_OTLP_TRACES_URL: "http://collector.internal:4318",
                 },
               }),
             ),
@@ -782,17 +784,17 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         );
 
       expect(yield* resolvePort({ port: Option.none() })).toBe(50_123);
-      expect(selected).toEqual([3773]);
+      expect(selected).toEqual([4773]);
       expect(yield* resolvePort({ port: Option.some(8788) })).toBe(8788);
       expect(
         yield* resolvePort({ mode: Option.some("desktop" as const), port: Option.none() }),
-      ).toBe(3773);
-      expect(selected).toEqual([3773]);
+      ).toBe(4773);
+      expect(selected).toEqual([4773]);
     }),
   );
 
   it.effect(
-    "resolves each signal's endpoint through T3CODE_OTLP_*_URL, an OTEL endpoint, the bootstrap envelope, and persisted Settings, in that order",
+    "resolves each signal's endpoint through IGLO_CODE_OTLP_*_URL, an OTEL endpoint, the bootstrap envelope, and persisted Settings, in that order",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -828,8 +830,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
               ConfigProvider.layer(
                 ConfigProvider.fromEnv({
                   env: {
-                    T3CODE_OTLP_TRACES_URL: "http://t3:4318/v1/traces",
-                    T3CODE_OTLP_HEADERS: "x-key=secret",
+                    IGLO_CODE_OTLP_TRACES_URL: "http://t3:4318/v1/traces",
+                    IGLO_CODE_OTLP_HEADERS: "x-key=secret",
                     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-traces:4318/custom",
                     OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "http://otel-metrics:4318/custom",
                     OTEL_EXPORTER_OTLP_HEADERS: "x-key=otel",
@@ -852,7 +854,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         expect(resolved.otlpLogsUrl).toBe("http://settings:4318/v1/logs");
         expect(resolved.otlpLogsExport.headers).toEqual({ "x-key": "secret" });
         expect(resolved).toMatchObject({
-          otlpTracesVariable: "T3CODE_OTLP_TRACES_URL",
+          otlpTracesVariable: "IGLO_CODE_OTLP_TRACES_URL",
           otlpMetricsVariable: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
         });
         expect(resolved.otlpLogsVariable).toBeUndefined();
@@ -893,7 +895,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
               ConfigProvider.layer(
                 ConfigProvider.fromEnv({
                   env: {
-                    T3CODE_OTLP_TRACES_URL: "http://t3:4318/v1/traces",
+                    IGLO_CODE_OTLP_TRACES_URL: "http://t3:4318/v1/traces",
                     OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel:4318",
                     OTEL_EXPORTER_OTLP_HEADERS: "x-key=%zz",
                   },
@@ -910,7 +912,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       }),
   );
 
-  it.effect("listens on private networks per T3CODE_LAN, else under the service launcher", () =>
+  it.effect("listens on private networks per IGLO_CODE_LAN, else under the service launcher", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
       const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-service-host");
@@ -940,26 +942,28 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           }),
         );
 
-      // A service installed before T3CODE_LAN existed.
+      // A service installed before IGLO_CODE_LAN existed.
       expect(yield* resolveHost({ connected: true })).toEqual({
         host: "0.0.0.0",
         privateNetworkOnly: true,
       });
       // `service.env` reaches the server as its environment.
-      expect(yield* resolveHost({ connected: true, env: { T3CODE_HOST: "127.0.0.1" } })).toEqual({
-        host: "127.0.0.1",
-        privateNetworkOnly: undefined,
-      });
-      expect(yield* resolveHost({ connected: true, env: { T3CODE_LAN: "false" } })).toEqual({
+      expect(yield* resolveHost({ connected: true, env: { IGLO_CODE_HOST: "127.0.0.1" } })).toEqual(
+        {
+          host: "127.0.0.1",
+          privateNetworkOnly: undefined,
+        },
+      );
+      expect(yield* resolveHost({ connected: true, env: { IGLO_CODE_LAN: "false" } })).toEqual({
         host: undefined,
         privateNetworkOnly: undefined,
       });
-      expect(yield* resolveHost({ connected: false, env: { T3CODE_LAN: "true" } })).toEqual({
+      expect(yield* resolveHost({ connected: false, env: { IGLO_CODE_LAN: "true" } })).toEqual({
         host: "0.0.0.0",
         privateNetworkOnly: true,
       });
       // Without the launcher's IPC channel the context was inherited, e.g. by
-      // `t3 serve` started from an agent inside the service.
+      // `iglo.code serve` started from an agent inside the service.
       expect(yield* resolveHost({ connected: false })).toEqual({
         host: undefined,
         privateNetworkOnly: undefined,

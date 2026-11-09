@@ -59,10 +59,10 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer term
           ...process.env,
           TERM: "xterm",
           NO_COLOR: "1",
-          T3CODE_VERSION: version,
-          T3CODE_HOME: NodePath.join(root, "home"),
-          T3CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
-          T3CODE_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}`,
+          IGLO_CODE_VERSION: version,
+          IGLO_CODE_HOME: NodePath.join(root, "home"),
+          IGLO_CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
+          IGLO_CODE_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}`,
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -118,8 +118,8 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer term
 
 describe("installer release selection", () => {
   it.each([
-    ["Darwin", "x86_64"],
     ["FreeBSD", "x86_64"],
+    ["Linux", "riscv64"],
     ["Linux", "i686"],
   ])("rejects unsupported hosts before downloading (%s/%s)", async (platform, arch) => {
     const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-platform-"));
@@ -133,13 +133,52 @@ describe("installer release selection", () => {
         "/bin/sh",
         [NodePath.join(import.meta.dirname, "install.sh")],
         {
-          env: { ...process.env, PATH: root, T3CODE_HOME: NodePath.join(root, "home") },
+          env: { ...process.env, PATH: root, IGLO_CODE_HOME: NodePath.join(root, "home") },
           encoding: "utf8",
         },
       );
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("supported targets: darwin-arm64, linux-x64, linux-arm64");
+      expect(result.stderr).toContain(
+        "supported targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64",
+      );
       expect(await NodeFSP.readdir(root)).toEqual(["uname"]);
+    } finally {
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["0", "darwin-x64"],
+    ["1", "darwin-arm64"],
+  ])("picks the Intel Mac archive unless Rosetta translates (%s)", async (translated, target) => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-darwin-"));
+    try {
+      const stubs: ReadonlyArray<readonly [string, string]> = [
+        ["uname", `case "$1" in -s) echo Darwin;; -m) echo x86_64;; esac`],
+        ["sysctl", `echo ${translated}`],
+        // An empty SHA256SUMS: the installer then names the archive it looked for.
+        ["curl", "printf 200"],
+      ];
+      for (const [name, body] of stubs) {
+        await NodeFSP.writeFile(NodePath.join(root, name), `#!/bin/sh\n${body}\n`, {
+          mode: 0o755,
+        });
+      }
+      const result = NodeChildProcess.spawnSync(
+        "/bin/sh",
+        [NodePath.join(import.meta.dirname, "install.sh")],
+        {
+          env: {
+            ...process.env,
+            PATH: `${root}:/usr/bin:/bin`,
+            IGLO_CODE_HOME: NodePath.join(root, "home"),
+            IGLO_CODE_VERSION: "1.2.3",
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`has no release archive for ${target}`);
     } finally {
       await NodeFSP.rm(root, { recursive: true, force: true });
     }
@@ -161,9 +200,9 @@ describe("installer release selection", () => {
           env: {
             ...process.env,
             PATH: `${root}:/usr/bin:/bin`,
-            T3CODE_HOME: NodePath.join(root, "home"),
-            T3CODE_VERSION: "1.2.3",
-            T3CODE_RELEASE_BASE_URL: "",
+            IGLO_CODE_HOME: NodePath.join(root, "home"),
+            IGLO_CODE_VERSION: "1.2.3",
+            IGLO_CODE_RELEASE_BASE_URL: "",
             T3_INSTALL_REQUEST_LOG: requestLog,
           },
           encoding: "utf8",
@@ -210,10 +249,10 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer home
           env: {
             ...process.env,
             HOME: root,
-            T3CODE_HOME: homeName,
-            T3CODE_VERSION: version,
-            T3CODE_INSTALL_BIN_DIR: NodePath.dirname(launcher),
-            T3CODE_RELEASE_BASE_URL: "http://127.0.0.1:1",
+            IGLO_CODE_HOME: homeName,
+            IGLO_CODE_VERSION: version,
+            IGLO_CODE_INSTALL_BIN_DIR: NodePath.dirname(launcher),
+            IGLO_CODE_RELEASE_BASE_URL: "http://127.0.0.1:1",
           },
           encoding: "utf8",
         },
@@ -275,12 +314,12 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer chan
           const child = NodeChildProcess.spawn("sh", [installer], {
             env: {
               ...process.env,
-              T3CODE_VERSION: "",
-              T3CODE_CHANNEL: channel,
-              T3CODE_HOME: NodePath.join(root, "home"),
-              T3CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
+              IGLO_CODE_VERSION: "",
+              IGLO_CODE_CHANNEL: channel,
+              IGLO_CODE_HOME: NodePath.join(root, "home"),
+              IGLO_CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
               // A wrong version must fail here instead of downloading a real release.
-              T3CODE_RELEASE_BASE_URL: origin,
+              IGLO_CODE_RELEASE_BASE_URL: origin,
             },
             stdio: ["ignore", "pipe", "pipe"],
           });
@@ -322,11 +361,11 @@ async function installOver(input: {
     ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
     env: {
       ...process.env,
-      T3CODE_CHANNEL: "",
-      T3CODE_VERSION: "1.2.3",
-      T3CODE_HOME: input.home,
-      T3CODE_INSTALL_BIN_DIR: input.binDir,
-      T3CODE_RELEASE_BASE_URL: "http://127.0.0.1:9",
+      IGLO_CODE_CHANNEL: "",
+      IGLO_CODE_VERSION: "1.2.3",
+      IGLO_CODE_HOME: input.home,
+      IGLO_CODE_INSTALL_BIN_DIR: input.binDir,
+      IGLO_CODE_RELEASE_BASE_URL: "http://127.0.0.1:9",
       ...input.env,
     },
   });
@@ -444,7 +483,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "win32")("install.ps1 t3
     const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-ps1-"));
     try {
       // Windows PowerShell 5.1 reads files as ANSI by default and expands wildcards in paths.
-      const home = NodePath.join(root, "José", ".t3");
+      const home = NodePath.join(root, "José", ".iglo.code");
       const binDir = NodePath.join(root, "bin[t3]");
       const shim = NodePath.join(binDir, "t3.cmd");
       await NodeFSP.mkdir(binDir, { recursive: true });
@@ -457,7 +496,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "win32")("install.ps1 t3
       expect(await NodeFSP.readFile(shim, "utf8")).toBe(desktopShim);
 
       // A hand-edited wrapper may set its own environment; replacing it would drop that.
-      const edited = `@echo off\r\nset "T3CODE_HOME=D:\\other"\r\n"${NodePath.join(home, "runtime", "versions", "1.0.0", "t3.exe")}" %*`;
+      const edited = `@echo off\r\nset "IGLO_CODE_HOME=D:\\other"\r\n"${NodePath.join(home, "runtime", "versions", "1.0.0", "t3.exe")}" %*`;
       await NodeFSP.writeFile(shim, edited, "utf8");
       const wrapper = await installOver({ script: "install.ps1", home, binDir });
       expect(wrapper.code).not.toBe(0);
@@ -596,10 +635,10 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer chec
                   env: {
                     ...process.env,
                     PATH: tools,
-                    T3CODE_VERSION: version,
-                    T3CODE_HOME: home,
-                    T3CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
-                    T3CODE_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}`,
+                    IGLO_CODE_VERSION: version,
+                    IGLO_CODE_HOME: home,
+                    IGLO_CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
+                    IGLO_CODE_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}`,
                   },
                   stdio: ["ignore", "pipe", "pipe"],
                 },

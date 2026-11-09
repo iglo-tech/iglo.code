@@ -52,7 +52,7 @@ const layerServerSettings = (policy?: ManagedPolicyDocument) =>
     Layer.provideMerge(
       Layer.fresh(
         ServerConfig.layerTest(process.cwd(), {
-          prefix: "t3code-server-settings-test-",
+          prefix: "iglo-code-server-settings-test-",
         }),
       ),
     ),
@@ -66,7 +66,7 @@ const layerServerSettingsWithSecrets = () =>
     Layer.provideMerge(
       Layer.fresh(
         ServerConfig.layerTest(process.cwd(), {
-          prefix: "t3code-server-settings-test-",
+          prefix: "iglo-code-server-settings-test-",
         }),
       ),
     ),
@@ -1965,7 +1965,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
       Layer.provideMerge(
         Layer.fresh(
           ServerConfig.layerTest(process.cwd(), {
-            prefix: "t3code-server-settings-legacy-failure-test-",
+            prefix: "iglo-code-server-settings-legacy-failure-test-",
           }),
         ),
       ),
@@ -2223,7 +2223,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         Layer.provideMerge(
           Layer.fresh(
             ServerConfig.layerTest(process.cwd(), {
-              prefix: "t3code-server-settings-materialization-failure-test-",
+              prefix: "iglo-code-server-settings-materialization-failure-test-",
             }),
           ),
         ),

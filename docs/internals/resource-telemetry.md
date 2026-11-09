@@ -1,10 +1,9 @@
 # Resource telemetry
 
 Process counters come from a [standalone Rust monitor](../../native/resource-monitor/src/main.rs)
-using `sysinfo`. Electron main supplies host power and Electron process metrics.
-Keeping native collection outside Node isolates collector crashes and avoids a
-Node/Electron addon ABI matrix. Desktop and CLI servers use the same child-process
-protocol. A missing or failed collector leaves the server running.
+using `sysinfo`. Keeping native collection outside the server process isolates
+collector crashes and avoids a native addon ABI matrix. A missing or failed
+collector leaves the server running.
 
 ## Collection cost
 
@@ -26,32 +25,25 @@ Large process trees therefore shorten the available history window. Linux task
 enumeration is disabled because walking every `/proc/<pid>/task/<tid>` directory
 makes sampling itself expensive.
 
-Electron power updates travel over private inherited pipes, independent of the
-renderer connection. Power events and slow heartbeats continue with diagnostics
-closed; `app.getAppMetrics()` runs only on live demand. The receiver's stale deadline
-must exceed the slowest configured heartbeat plus scheduling grace, or intentional
+Host power data came from upstream's Electron main process. The server this fork
+ships is headless, so power data stays unknown. If a power feed returns, its stale
+deadline must exceed the slowest configured heartbeat plus scheduling grace, or
 idle polling makes background policy oscillate between constrained and
-unconstrained states. Headless servers leave unavailable power data unknown.
+unconstrained states.
 
 ## Measurement traps
 
 - Process identity includes start time because operating systems reuse PIDs.
-  Electron and native start times have different precision, so merging allows a
-  small tolerance. Process signaling rechecks the native identity with a fresh
+  Start times from different sources have different precision, so merging allows
+  a small tolerance. Process signaling rechecks the native identity with a fresh
   sample.
 - Snapshot sequence numbers belong to a monitor generation. Comparing them across
   restarts would discard the new monitor's samples until its sequence caught up.
 - Sampling can miss a process that starts and exits between samples. Cumulative
   counters still yield deltas for processes observed across samples.
-- Windows process I/O includes more than disk traffic. Unix counters report storage
-  I/O, which can differ from logical application reads and writes because of OS
+- Unix counters report storage I/O, which can differ from logical application reads and writes because of OS
   caching. Keep instrumented logical I/O separate from these counters.
 - Group totals accumulate observed deltas since telemetry started. Per-process
   cumulative counters cover the operating system's lifetime for that process.
-- Historical replay uses native samples without current Electron CPU or memory
-  metrics. Merging the latest Electron values would overwrite the past.
-
-A WSL backend needs a Linux monitor even though Electron runs on Windows. Windows
-desktop packages currently supply only the Windows executable, so native process
-telemetry for the WSL backend is unavailable. The inherited Electron power feed
-still works.
+- Historical replay uses only native samples. Merging the latest values from
+  another source would overwrite the past.

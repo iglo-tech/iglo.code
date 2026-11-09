@@ -528,7 +528,7 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
 
 describe("ClaudeAdapterV2 MCP query overrides", () => {
   const T3_MCP_SERVERS = {
-    "t3-code": {
+    "iglo-code": {
       type: "http",
       url: "http://127.0.0.1:43123/mcp",
       headers: {
@@ -551,7 +551,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     browserToolsAvailable: true,
   });
 
-  it("pre-approves only read-only t3-code tools in a read-only sandbox", () => {
+  it("pre-approves only read-only iglo-code tools in a read-only sandbox", () => {
     const threadId = ThreadId.make("thread-claude-mcp-read-only");
     const mcpSession = mcpSessionFor(threadId);
     const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
@@ -570,7 +570,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     assert.isFalse(overrides.allowedTools?.includes(ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD));
   });
 
-  it("pre-approves only read-only t3-code tools in a read-only sandbox without an allowlist", () => {
+  it("pre-approves only read-only iglo-code tools in a read-only sandbox without an allowlist", () => {
     const threadId = ThreadId.make("thread-claude-mcp-read-only-no-allowlist");
     const mcpSession = mcpSessionFor(threadId);
     const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
@@ -596,8 +596,8 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       readOnlyPluginTools: ["plugin_fixture_report"],
     };
     const policy = ClaudeAdapterV2.claudeMcpQueryOverrides({ mcpSession, readOnlySandbox: true });
-    assert.include(policy.allowedTools ?? [], "mcp__t3-code__plugin_fixture_report");
-    assert.notInclude(policy.allowedTools ?? [], "mcp__t3-code__*");
+    assert.include(policy.allowedTools ?? [], "mcp__iglo-code__plugin_fixture_report");
+    assert.notInclude(policy.allowedTools ?? [], "mcp__iglo-code__*");
   });
 
   it("keys live-query reuse on the MCP-derived pre-approvals", () => {
@@ -667,7 +667,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       ...Object.values(HtmlToolkit.tools),
     ]
       .filter((tool) => Context.get(tool.annotations, Tool.Readonly))
-      .map((tool) => `mcp__t3-code__${tool.name}`)
+      .map((tool) => `mcp__iglo-code__${tool.name}`)
       .sort();
 
     assert.deepEqual(
@@ -696,9 +696,9 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
       allowedTools: ["Read"],
     });
     assert.deepEqual(overrides, {
-      allowedTools: ["Read", "mcp__t3-code__*"],
+      allowedTools: ["Read", "mcp__iglo-code__*"],
       mcpServers: {
-        "t3-code": {
+        "iglo-code": {
           type: "http",
           url: "http://127.0.0.1:43123/mcp",
           headers: {
@@ -762,7 +762,7 @@ describe("ClaudeAdapterV2 device instructions", () => {
       resume: false,
       cwd: "/workspace",
       ...(input.mcp
-        ? { mcpServers: { "t3-code": { type: "http" as const, url: "http://127.0.0.1/mcp" } } }
+        ? { mcpServers: { "iglo-code": { type: "http" as const, url: "http://127.0.0.1/mcp" } } }
         : {}),
       deviceToolsAvailable: input.deviceToolsAvailable,
       environment: {},
@@ -2763,7 +2763,7 @@ describe("ClaudeAdapterV2 MCP credential channel", () => {
             resume: false,
             cwd: null,
             environment: { PATH: "/usr/bin" },
-            mcpServers: { "t3-code": t3McpServer },
+            mcpServers: { "iglo-code": t3McpServer },
           }),
           pathToClaudeCodeExecutable: "/opt/claude/cli.js",
           spawnClaudeCodeProcess: cli.spawn,
@@ -2812,7 +2812,7 @@ describe("ClaudeAdapterV2 MCP credential channel", () => {
 
       assert.deepInclude(cli.controlRequests, {
         subtype: "mcp_set_servers",
-        servers: { "t3-code": t3McpServer },
+        servers: { "iglo-code": t3McpServer },
       });
       assert.deepInclude(
         cli.controlRequests.find((request) => Reflect.get(request, "subtype") === "initialize"),
@@ -2991,7 +2991,7 @@ describe("ClaudeAdapterV2 native session identity", () => {
             mcpSessions: fixture.mcpSessions,
           });
           assert.equal(first[0]?.options.sessionId, "native-session-identity");
-          const firstConnection = first[0]?.options.mcpServers?.["t3-code"];
+          const firstConnection = first[0]?.options.mcpServers?.["iglo-code"];
           if (firstConnection === undefined || !("url" in firstConnection))
             return yield* Effect.die("Missing managed MCP connection");
           assert.equal(
@@ -3012,7 +3012,7 @@ describe("ClaudeAdapterV2 native session identity", () => {
             mcpSessions: fixture.mcpSessions,
           });
           assert.equal(resumed[0]?.options.resume, "native-session-identity");
-          const resumedConnection = resumed[0]?.options.mcpServers?.["t3-code"];
+          const resumedConnection = resumed[0]?.options.mcpServers?.["iglo-code"];
           if (resumedConnection === undefined || !("url" in resumedConnection))
             return yield* Effect.die("Missing resumed MCP connection");
           assert.equal(
@@ -3023,7 +3023,7 @@ describe("ClaudeAdapterV2 native session identity", () => {
             { url: resumedConnection.url, headers: { ...resumedConnection.headers } },
             "resumed",
           );
-          assert.include(resumed[0]?.options.allowedTools ?? [], "mcp__t3-code__*");
+          assert.include(resumed[0]?.options.allowedTools ?? [], "mcp__iglo-code__*");
         }),
       ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );

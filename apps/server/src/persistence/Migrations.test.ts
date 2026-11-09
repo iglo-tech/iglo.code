@@ -165,7 +165,6 @@ describe("runMigrations", () => {
   );
 });
 
-// The npm launcher reads the highest migration id from these file names.
 it.effect("registers every migration file", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

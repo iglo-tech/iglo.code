@@ -5,7 +5,7 @@ import * as NodeURL from "node:url";
 
 const TEST_EXCLUDE = [
   "**/.repos/**",
-  "**/.t3/**",
+  "**/.iglo.code/**",
   "**/node_modules/**",
   "**/dist/**",
   "**/.{idea,git,cache,output,temp}/**",
@@ -184,7 +184,6 @@ export default defineConfig({
       ".repos/**",
       // Macroscope requires one glob per line; Markdown formatting corrupts it.
       ".macroscope/ignore.md",
-      ".alchemy",
       "dist",
       "node_modules",
       "pnpm-lock.yaml",
@@ -401,14 +400,6 @@ export default defineConfig({
         rules: { "t3code/no-global-process-runtime": "off" },
       },
       {
-        // The `t3` npm launcher is published as plain, dependency-free Node.
-        files: ["scripts/npm-launcher/**"],
-        rules: {
-          "t3code/no-global-process-runtime": "off",
-          "t3code/namespace-node-imports": "off",
-        },
-      },
-      {
         files: ["apps/server/src/mcp/McpHttpServer.ts"],
         rules: { "t3code/no-raw-mcp-registration": "off" },
       },
@@ -516,8 +507,6 @@ export default defineConfig({
           "**/*.{test,spec}.{ts,tsx,js,jsx,mts,cts,mjs,cjs}",
           "**/testkit/**",
           "**/_generated/**",
-          // Real user quotes stay verbatim.
-          "apps/marketing/src/lib/tweets.ts",
         ],
         rules: { "t3code/no-em-dash-copy": "error" },
       },

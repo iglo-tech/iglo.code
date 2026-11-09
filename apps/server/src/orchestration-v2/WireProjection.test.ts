@@ -209,7 +209,7 @@ describe("orchestration V2 wire projection", () => {
     const item = {
       ...base,
       type: "dynamic_tool" as const,
-      toolName: "mcp__t3-code__device_screenshot",
+      toolName: "mcp__iglo-code__device_screenshot",
       input: { deviceId: "phone" },
       output: {
         content: [{ type: "image", source: { type: "base64", media_type: "image/png", data } }],
@@ -460,7 +460,7 @@ describe("live body deduper", () => {
         parentCheckpointId: null,
         ordinalWithinScope: 1,
         appRunOrdinal: null,
-        ref: CheckpointRef.make("refs/t3/checkpoints/large"),
+        ref: CheckpointRef.make("refs/iglo.code/checkpoints/large"),
         status: "ready",
         files,
         capturedAt: at,

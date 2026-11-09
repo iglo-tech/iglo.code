@@ -863,7 +863,7 @@ it.effect("SQL shells flag only an active turn blocked solely on T3 thread waits
       id: TurnItemId.make("item:thread-wait:active"),
       runId: run.id,
       type: "dynamic_tool" as const,
-      toolName: "mcp__t3_code__t3_thread_wait",
+      toolName: "mcp__iglo_code__t3_thread_wait",
       input: { threadId: "child-thread" },
       status: "running" as const,
     };
@@ -959,7 +959,7 @@ it.effect("SQL shells flag only an active turn blocked solely on T3 thread waits
     const delegation = {
       ...wait,
       id: TurnItemId.make("item:thread-wait:delegation"),
-      toolName: "t3-code-thread_opencode2-adapter_delegate_task",
+      toolName: "iglo-code-thread_opencode2-adapter_delegate_task",
       input: { task: "Review", mode: "async" },
     };
     yield* updateItem(delegation);
@@ -1924,7 +1924,7 @@ it.effect("SQL shells read a subagent family and a worktree's threads", () =>
     const store = yield* ProjectionStore.ProjectionStoreV2;
     const now = yield* DateTime.now;
     const projectId = ProjectId.make("project:family");
-    const worktreePath = "/repo/.t3/worktrees/family";
+    const worktreePath = "/repo/.iglo.code/worktrees/family";
     const id = (name: string) => ThreadId.make(`thread:family:${name}`);
     const payloadOf = (input: {
       readonly name: string;
@@ -2863,7 +2863,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           parentCheckpointId: null,
           ordinalWithinScope: 0,
           appRunOrdinal: null,
-          ref: CheckpointRef.make("refs/t3/bounded-sql-history/0"),
+          ref: CheckpointRef.make("refs/iglo.code/bounded-sql-history/0"),
           status: "ready",
           files: [],
           capturedAt: now,
@@ -3234,7 +3234,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         workCursor = page.nextCursor;
       }
       assert.strictEqual(workIds.size, 999);
-      for (const toolName of ["t3-code.delegate_task", "mcp__t3_code__delegate_task"]) {
+      for (const toolName of ["iglo-code.delegate_task", "mcp__iglo_code__delegate_task"]) {
         yield* sql`UPDATE orchestration_v2_projection_turn_items SET type = 'dynamic_tool',
           payload_json = json_set(payload_json, '$.type', 'dynamic_tool', '$.toolName', ${toolName})
           WHERE thread_id = ${threadId} AND ordinal = 2`;

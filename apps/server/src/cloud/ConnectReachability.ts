@@ -1,10 +1,6 @@
 import * as NodeNet from "node:net";
 
-import {
-  connectReachabilityHelpUrl,
-  type EnvironmentConnectReachability,
-  formatConnectReachable,
-} from "@t3tools/contracts";
+import { type EnvironmentConnectReachability, formatConnectReachable } from "@t3tools/contracts";
 import { readTailscaleExitNode, type TailscaleExitNode } from "@t3tools/tailscale";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -74,14 +70,14 @@ export function classifyReachability(
     fix: string,
     hint: string | null = null,
   ): Unreachable => ({ status: "unreachable", checkedAt, cause, reason, hint, fix });
-  const restart = "Restart T3 Code. If it stays, run `t3 connect` again.";
+  const restart = "Restart T3 Code. If it stays, run `iglo.code connect` again.";
 
   if (!facts.managedTunnelConfigured) {
-    // A running server reads the link `t3 connect` stores only at startup.
+    // A running server reads the link `iglo.code connect` stores only at startup.
     return fail(
       "not_linked",
       "The server has not set up a T3 Connect tunnel.",
-      "Run `t3 connect`, then restart T3 Code so it applies the link.",
+      "Run `iglo.code connect`, then restart T3 Code so it applies the link.",
     );
   }
   if (connector === null) {
@@ -171,7 +167,6 @@ export function formatReachabilityFailure(result: Unreachable): string {
     `  ${result.reason}`,
     ...(result.hint ? [`  ${result.hint}`] : []),
     `  Fix: ${result.fix}`,
-    `  More info: ${connectReachabilityHelpUrl(result.cause)}`,
   ].join("\n");
 }
 

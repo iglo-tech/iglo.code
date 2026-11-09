@@ -3378,10 +3378,10 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         yield* git(cwd, ["fetch", "origin"]);
         yield* git(cwd, ["fetch", "upstream"]);
         yield* git(cwd, ["checkout", "-b", "t3/temporary"]);
-        yield* git(cwd, ["config", "branch.t3/temporary.t3-merge-base", "main"]);
+        yield* git(cwd, ["config", "branch.t3/temporary.iglo-code-merge-base", "main"]);
         yield* git(cwd, [
           "config",
-          "branch.t3/temporary.t3-merge-base-ref",
+          "branch.t3/temporary.iglo-code-merge-base-ref",
           "refs/remotes/upstream/main",
         ]);
         yield* writeTextFile(cwd, "feature.txt", "thread work\n");
@@ -4325,7 +4325,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const cwd = yield* makeTmpDir();
         yield* initRepoWithCommit(cwd);
         const driver = yield* GitVcsDriver.GitVcsDriver;
-        // A local `t3` branch is why launches start on the flat `t3-<hex>` temporary branch.
+        // A local `iglo.code` branch is why launches start on the flat `t3-<hex>` temporary branch.
         yield* git(cwd, ["branch", parent]);
         yield* git(cwd, ["checkout", "-b", "t3-abcd1234"]);
         yield* git(cwd, ["branch", "t3-fix-login"]);
@@ -4587,7 +4587,11 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
             assert.equal(yield* git(worktreePath, ["rev-parse", "HEAD"]), head);
             assert.equal(yield* git(cwd, ["rev-parse", "origin/dev"]), head);
             assert.equal(
-              yield* git(cwd, ["for-each-ref", "--format=%(refname)", "refs/t3/worktree-owners/"]),
+              yield* git(cwd, [
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/iglo.code/worktree-owners/",
+              ]),
               "",
             );
             yield* driver.removeWorktree({ cwd, path: worktreePath });
@@ -4617,7 +4621,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           "update-ref",
           "--create-reflog",
           "-m",
-          `t3code-worktree:${Hex.encode(new TextEncoder().encode(ownerId))}`,
+          `iglo-code-worktree:${Hex.encode(new TextEncoder().encode(ownerId))}`,
           `refs/heads/${input.newRefName}`,
           yield* git(cwd, ["rev-parse", "HEAD"]),
           "",
@@ -4774,7 +4778,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           yield* git(cwd, ["rev-parse", "HEAD"]),
         );
         assert.equal(
-          yield* git(cwd, ["config", "branch.feature/parallel.t3-merge-base"]),
+          yield* git(cwd, ["config", "branch.feature/parallel.iglo-code-merge-base"]),
           initialBranch,
         );
         for (const [configured, expected] of [
@@ -4857,7 +4861,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
 
           assert.equal(yield* git(worktreePath, ["rev-parse", "HEAD"]), commit);
           assert.equal(
-            yield* driver.readConfigValue(cwd, "branch.feature/revision.t3-merge-base"),
+            yield* driver.readConfigValue(cwd, "branch.feature/revision.iglo-code-merge-base"),
             null,
           );
         }),
@@ -4967,7 +4971,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           const renamed = `${branch}-renamed`;
           assert.equal(yield* git(cwd, ["config", `branch.${renamed}.remote`]), "origin");
           assert.equal(
-            yield* git(cwd, ["config", `branch.${renamed}.t3-merge-base-ref`]),
+            yield* git(cwd, ["config", `branch.${renamed}.iglo-code-merge-base-ref`]),
             `refs/remotes/origin/${initialBranch}`,
           );
         }
@@ -4993,7 +4997,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           });
 
           assert.equal(
-            yield* driver.readConfigValue(cwd, "branch.feature/branch.t3-merge-base"),
+            yield* driver.readConfigValue(cwd, "branch.feature/branch.iglo-code-merge-base"),
             baseBranch,
           );
         }),
@@ -5325,7 +5329,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       }),
     );
 
-    it.effect("resolves the submodule mode from the option, then t3.json", () =>
+    it.effect("resolves the submodule mode from the option, then iglo.code.json", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const pathService = yield* Path.Path;
@@ -5354,11 +5358,11 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           branch: string,
           submodules: WorktreeSubmodules | null = null,
         ) {
-          yield* writeTextFile(cwd, "t3.json", `{ "worktreeSubmodules": "${fileMode}" }`);
-          yield* git(cwd, ["add", "t3.json"]);
+          yield* writeTextFile(cwd, "iglo.code.json", `{ "worktreeSubmodules": "${fileMode}" }`);
+          yield* git(cwd, ["add", "iglo.code.json"]);
           yield* git(cwd, ["commit", "--allow-empty", "-m", `submodules: ${fileMode}`]);
           const worktreePath = pathService.join(worktreesDir, branch);
-          const disabled = yield* Ref.make<"settings" | "t3.json" | false>(false);
+          const disabled = yield* Ref.make<"settings" | "iglo.code.json" | false>(false);
           yield* driver.createWorktree(
             { cwd, path: worktreePath, refName: initialBranch, newRefName: branch },
             {
@@ -5396,7 +5400,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           nested: false,
         });
         assert.deepEqual(yield* createWithMode("none", "none"), {
-          disabled: "t3.json",
+          disabled: "iglo.code.json",
           inner: false,
           nested: false,
         });
@@ -5437,7 +5441,10 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           "# test\n",
         );
         assert.equal(
-          yield* driver.readConfigValue(worktreePath, "branch.feature/locked-config.t3-merge-base"),
+          yield* driver.readConfigValue(
+            worktreePath,
+            "branch.feature/locked-config.iglo-code-merge-base",
+          ),
           null,
         );
         assert.equal(yield* fileSystem.exists(pathService.join(cwd, ".git/config.lock")), true);
@@ -6457,7 +6464,10 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         assert.strictEqual(status.branchChanges?.deletions, 0);
         // gh pr create consumes this setting verbatim as the hosted target branch.
         assert.equal(
-          yield* driver.readConfigValue(worktreePath, "branch.feature/from-upstream.t3-merge-base"),
+          yield* driver.readConfigValue(
+            worktreePath,
+            "branch.feature/from-upstream.iglo-code-merge-base",
+          ),
           "release",
         );
         assert.equal(changes.baseRef, "upstream/release");
@@ -6774,7 +6784,10 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           yield* git(cwd, ["rev-parse", "--abbrev-ref", "@{upstream}"]),
           "origin/feature/x",
         );
-        assert.equal(yield* driver.readConfigValue(cwd, "branch.feature/x.t3-merge-base"), "dev");
+        assert.equal(
+          yield* driver.readConfigValue(cwd, "branch.feature/x.iglo-code-merge-base"),
+          "dev",
+        );
 
         const preview = yield* driver.getReviewDiffPreview({ cwd });
         const changes = preview.sources.find((source) => source.kind === "branch-range")!;

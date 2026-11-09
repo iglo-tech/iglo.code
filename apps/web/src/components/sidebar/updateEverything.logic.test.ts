@@ -185,7 +185,7 @@ describe("collectChannelSwitchTargets", () => {
     ]);
     expect(targets.every((target) => target.targetDatabaseMigration === 69)).toBe(true);
     expect(skipped.map((entry) => [entry.label, entry.reason])).toEqual([
-      ["newer-service", "run `t3 update --channel stable --allow-downgrade` there"],
+      ["newer-service", "run `iglo.code update --channel stable --allow-downgrade` there"],
       [
         "new-service",
         "its database has changes 0.1.3 does not support yet; stay on Nightly until Stable has them",
@@ -244,6 +244,15 @@ describe("collectChannelSwitchTargets", () => {
         "no-nightly",
         "Example Corp manages T3 Code updates. Only stable releases can be installed.",
       ],
+    ]);
+    // A release that publishes no migration head cannot prove the crossing safe.
+    const unknown = collectChannelSwitchTargets(
+      [host(machine("service", "0.1.2", "boot-service"), 70)],
+      { ...nightly, databaseMigration: undefined },
+    );
+    expect(unknown.targets).toEqual([]);
+    expect(unknown.skipped.map((entry) => entry.reason)).toEqual([
+      `${NIGHTLY} does not say which database changes it supports, so the switch cannot be checked`,
     ]);
   });
 });

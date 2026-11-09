@@ -128,7 +128,7 @@ it.effect(
           NodeServices.layer,
           NodeCrypto.layer,
           NetService.layer,
-          ConfigProvider.layer(ConfigProvider.fromEnv({ env: { T3CODE_PORT: "3773" } })),
+          ConfigProvider.layer(ConfigProvider.fromEnv({ env: { IGLO_CODE_PORT: "3773" } })),
         ),
       ),
     ),

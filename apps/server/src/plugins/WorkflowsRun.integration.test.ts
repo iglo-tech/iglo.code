@@ -28,7 +28,7 @@ const decodeLink = Schema.decodeUnknownEffect(Schema.NullOr(ThreadLink));
 const harness = Effect.gen(function* () {
   const test = yield* fixture;
   const fs = yield* FileSystem.FileSystem;
-  const catalog = `${test.directory}/.t3code/workflows`;
+  const catalog = `${test.directory}/.iglo-code/workflows`;
   yield* fs.makeDirectory(catalog, { recursive: true });
   const save = (definition: Definition) =>
     fs.writeFileString(`${catalog}/sequence.yaml`, Yaml.stringify(definition));
@@ -76,7 +76,7 @@ it.effect("starts one saved revision across a lost response and a later catalog 
       expect(preview).toMatchObject({
         definitionId: "sequence",
         revision: 1,
-        source: ".t3code/workflows/sequence.yaml",
+        source: ".iglo-code/workflows/sequence.yaml",
         runnable: true,
         agents: [{ nodeId: "implement", providerInstanceId: "codex", model: "fixture" }],
         workspace: { path: test.directory, branch: "main" },
@@ -87,7 +87,7 @@ it.effect("starts one saved revision across a lost response and a later catalog 
         state: "running",
         input: { task: "Ship the change" },
         definition: { id: "sequence", revision: 1 },
-        source: { trigger: "manual", catalogSource: ".t3code/workflows/sequence.yaml" },
+        source: { trigger: "manual", catalogSource: ".iglo-code/workflows/sequence.yaml" },
         workspace: { type: "current" },
         // Cancel is authorized as soon as the start is acknowledged.
         allowedActions: ["cancel"],
@@ -316,7 +316,7 @@ it.effect("keeps an old run selectable and live outside the latest-run page", ()
       expect(older.map((run) => run.id)).toEqual([oldest.id]);
       expect(older[0]?.source).toEqual({
         trigger: "manual",
-        catalogSource: ".t3code/workflows/sequence.yaml",
+        catalogSource: ".iglo-code/workflows/sequence.yaml",
       });
 
       const api = yield* test.registry.api("plugins.workflows.watch");

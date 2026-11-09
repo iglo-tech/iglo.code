@@ -1,11 +1,11 @@
 # Appearance and themes
 
-On web and desktop, open **Settings → Appearance** to choose a theme and follow the system
+Open **Settings → Appearance** to choose a theme and follow the system
 appearance or stay in light or dark mode. To use different themes for light and dark mode, select
 the corresponding preview within each theme. Appearance preferences are saved separately on each
 device or browser.
 
-On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
+Use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.
 Use **Change appearance** in the command palette to choose System, Light, or Dark independently of
 the theme. **Cmd+Option+Shift+A** on macOS or **Ctrl+Alt+Shift+A** on Windows/Linux cycles through
@@ -17,12 +17,12 @@ Git-backed projects show branch and worktree controls below the composer while y
 The controls retreat as the composer docks after you send the first message.
 
 Turn on **Composer context** to keep those controls visible after the thread starts. This preference
-applies to the web and desktop clients.
+applies to the web app.
 
 ## Math
 
 Turn on **Render math** in **Settings → Appearance** to typeset LaTeX in messages and Markdown
-previews on web, desktop, and mobile. It reads `$…$`, `$$…$$`, `\(…\)`, and `\[…\]`, outside of code.
+previews. It reads `$…$`, `$$…$$`, `\(…\)`, and `\[…\]`, outside of code.
 Fenced `math` blocks also render. Formulas work in tables, including absolute-value bars.
 Dollar amounts such as `$5 and $10` stay text; write `\$` to keep any other dollar sign literal.
 Wide formulas scroll horizontally while the surrounding text wraps. Copying a formula or
@@ -40,40 +40,38 @@ without replaying its transitions.
 
 ## Custom themes
 
-On web and desktop, choose **Create theme** to adjust a palette, or import a T3 Code or VS Code
+Choose **Create theme** to adjust a palette, or import an iglo.code or VS Code
 theme. The theme editor's color picker lets you select an area of the app to find the color to
 change. Export your theme as JSON to share it.
 
 ## Environment themes
 
-Environment themes and defaults come from the server serving your web app or the desktop app's
-main local environment. With the desktop app's local environment off, they come from the
-[background service](./background-service.md) on the same machine while the app is connected to
-it. app.t3.codes and other connections do not use them.
+Environment themes and defaults come from the server serving your web app. Other environments
+the web app connects to do not apply theirs.
 
 Select a published theme in **Settings → Appearance** to follow its palette as the server updates
 it. **Duplicate** makes an independent copy you can edit. A saved custom theme with the same ID
-takes precedence. If the server stops publishing the selected theme, T3 Code falls back to its
+takes precedence. If the server stops publishing the selected theme, iglo.code falls back to its
 standard theme.
 
 Run this on the server to set a default and switch connected clients to it:
 
 ```bash
-t3 theme set nightfall
+iglo.code theme set nightfall
 ```
 
 Clients that are offline apply it when they reconnect. Each client applies the setting once;
-choosing another theme afterward sticks until the next `t3 theme set`. Run the command again to
+choosing another theme afterward sticks until the next `iglo.code theme set`. Run the command again to
 reapply it, even if the name is unchanged.
 
-`t3 theme clear` removes the default without changing anyone's current theme. `t3 theme show` lists
+`iglo.code theme clear` removes the default without changing anyone's current theme. `iglo.code theme show` lists
 the default and published themes.
 
 ### Publish a theme
 
-Save a theme exported from T3 Code into `~/.t3/userdata/themes/` on the server, or the `themes`
+Save a theme exported from iglo.code into `~/.iglo.code/userdata/themes/` on the server, or the `themes`
 directory under your custom state directory. The filename supplies the theme ID: `nightfall.json`
-can be selected with `t3 theme set nightfall`. Keep the filename stable when updating its colors.
+can be selected with `iglo.code theme set nightfall`. Keep the filename stable when updating its colors.
 Do not use `system`, `light`, `dark`, or a built-in theme's ID.
 
 For an integration that generates a palette, this shorter format also works:
@@ -91,7 +89,7 @@ For an integration that generates a palette, this shorter format also works:
 }
 ```
 
-Set `appearance` to `light` or `dark` and supply hex colors for `canvas` and `accent`. T3 Code
+Set `appearance` to `light` or `dark` and supply hex colors for `canvas` and `accent`. iglo.code
 generates the rest. The optional `colors` overrides use the names in the theme editor's advanced
 view.
 

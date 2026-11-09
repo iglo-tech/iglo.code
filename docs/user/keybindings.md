@@ -1,6 +1,6 @@
 # Keybindings
 
-Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
+Customize shortcuts in **Settings → Keybindings**. That page
 also lists the command IDs and defaults available in your version.
 
 ## Composer controls
@@ -12,7 +12,7 @@ Dictation**, and the hold or toggle behavior in **Settings → Voice**. See
 
 In **Settings → Chat → Send shortcut**, choose whether Enter sends, requires
 `mod+Enter` for multiline prompts, or always requires `mod+Enter`. `Shift+Enter`
-inserts a new line. This applies to the web and desktop composer at desktop widths.
+inserts a new line. This applies to the composer at desktop widths.
 
 **Follow-up behavior** chooses Queue or Steer while the agent runs. Use
 `mod+Enter` to do the opposite for one message, even when the send shortcut
@@ -46,7 +46,7 @@ model search. Right at the end of the search moves to the highlighted model's ef
 levels, and Left comes back. Choosing a model keeps the picker open on its effort. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the
 search. These provider shortcuts can also be changed in Settings.
 
-These shortcuts run inside the focused web or desktop client. `mod` uses Command
+These shortcuts run inside the focused web app. `mod` uses Command
 on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
@@ -69,31 +69,10 @@ match in a folded file opens it. Escape closes the search. This shortcut is not
 configurable. A very large uncommitted diff loads its files as you scroll, and
 find only searches the files loaded so far.
 
-## iPad
-
-With a hardware keyboard, use `Cmd+1` through `Cmd+9` to open the first nine
-displayed threads. The shortcuts follow the current list filters and order.
-`Cmd+K` opens the command palette to search commands, projects, and threads.
-Use the arrow keys and Return to choose a result, or `Cmd+1` through `Cmd+9` to
-choose directly. Escape or `Cmd+K` closes the palette. Start a search with `>`
-to show only actions.
-
-In a new thread, `Cmd+Shift+H` moves the draft to the next machine.
-
-In the composer, Return sends and `Shift+Return` inserts a new line. While a
-turn is running, `Cmd+Return` sends with the other follow-up action. To make
-Return insert a new line instead, change the Return key behavior in Settings →
-Keyboard; `Cmd+Return` then sends.
-
-## Android
-
-With a hardware keyboard, the composer handles Return as on iPad, with `Ctrl` in
-place of `Cmd`. The on-screen keyboard's Return always inserts a new line.
-
 ## Edit the configuration file
 
 Keybindings live on the environment's machine, in
-`~/.t3/userdata/keybindings.json` by default. You can edit this file directly.
+`~/.iglo.code/userdata/keybindings.json` by default. You can edit this file directly.
 It is a JSON array of rules:
 
 ```json
@@ -103,10 +82,10 @@ It is a JSON array of rules:
 ]
 ```
 
-T3 Code creates the file with its defaults and adds new defaults on later startups.
+iglo.code creates the file with its defaults and adds new defaults on later startups.
 New defaults do not replace commands you customized. If a new default overlaps one
 of your shortcuts, [rule order](#precedence) decides which runs.
-Invalid rules are ignored; if the file cannot be parsed, T3 Code uses defaults.
+Invalid rules are ignored; if the file cannot be parsed, iglo.code uses defaults.
 
 ## Rule shape
 
@@ -130,8 +109,8 @@ Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
 open; the default `mod+t` uses it to open the panel's new-tab menu.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
 `editableFocus` is true while a text field, the composer, or another editor has
-the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
-desktop app. Unknown keys evaluate to `false`.
+the keyboard. `isWeb` is true in a browser tab. `isDesktop` is kept for upstream
+compatibility and is always false here. Unknown keys evaluate to `false`.
 
 `mod+1` through `mod+9` jump to the first nine threads, and to models while the
 model picker is open. The thread jumps do not run while the model picker is open.
@@ -182,9 +161,7 @@ through the pages you have visited, like a browser's back and forward buttons.
 
 ## Reserved shortcuts
 
-In the desktop app, `mod+w` closes the focused terminal or the active right-panel
-tab. When nothing remains to close, it does nothing; it never closes the window. In a browser, `mod+w`
-closes the browser tab; rebind `rightPanel.close` and `terminal.close` to an available
+In a browser, `mod+w` closes the browser tab; rebind `rightPanel.close` and `terminal.close` to an available
 shortcut such as `alt+w`.
 
 `mod+shift+t` reopens the last closed tab across the app, including files,

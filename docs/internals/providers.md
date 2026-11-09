@@ -21,7 +21,7 @@ directory must not share one T3 MCP entry.
   after an idle period. See the [1.x adapter](../../packages/provider-opencode/src/server/adapter.ts).
 - **2.x** serves every directory from one
   [server per instance](../../packages/provider-opencode/src/server/v2/OpenCode2Server.ts). Each thread
-  registers its own `t3-code-<thread>` MCP entry, and session permission rules deny every other
+  registers its own `iglo-code-<thread>` MCP entry, and session permission rules deny every other
   thread's entry. See the [2.x adapter](../../packages/provider-opencode/src/server/v2/adapter.ts).
 
 External OpenCode servers remain externally owned and can require an external restart to pick up
@@ -118,8 +118,8 @@ Codex async questions arrive as notifications and are answered with a new user m
 no pending RPC response to send. The
 [adapter](../../apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts) persists them as
 `user_input_request` turn items and runtime requests with `responseCapability: { type: "message" }`.
-Their execution nodes do not block the run. Web, desktop, and mobile use their normal question
-panels, and requests remain pending after a turn finishes, a provider exits, or the server restarts.
+Their execution nodes do not block the run. The web client uses its normal question
+panel, and requests remain pending after a turn finishes, a provider exits, or the server restarts.
 
 `runtime-request.respond` reads the persisted request and question item, validates required
 answers, and commits the resolution and a user message in one transaction. Repeating the same

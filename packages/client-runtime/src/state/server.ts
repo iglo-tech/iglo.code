@@ -103,7 +103,7 @@ export class ServerUpdateResumeTimeoutError extends Schema.TaggedError<ServerUpd
   },
 ) {
   override get message(): string {
-    return `Could not confirm that the server resumed on t3@${this.targetVersion}. Reconnect to check the update outcome.`;
+    return `Could not confirm that the server resumed on iglo.code@${this.targetVersion}. Reconnect to check the update outcome.`;
   }
 }
 
@@ -114,7 +114,7 @@ export class ServerUpdateProgressIncompleteError extends Schema.TaggedError<Serv
   },
 ) {
   override get message(): string {
-    return `The t3@${this.targetVersion} update ended before the server accepted the restart.`;
+    return `The iglo.code@${this.targetVersion} update ended before the server accepted the restart.`;
   }
 }
 
@@ -127,7 +127,7 @@ export class ServerUpdateTerminalError extends Schema.TaggedError<ServerUpdateTe
   },
 ) {
   override get message(): string {
-    return this.reason ?? `The t3@${this.targetVersion} update ${this.status}.`;
+    return this.reason ?? `The iglo.code@${this.targetVersion} update ${this.status}.`;
   }
 }
 
@@ -1306,9 +1306,9 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:trace-diagnostics",
       tag: WS_METHODS.serverGetTraceDiagnostics,
     }),
-    npmRelease: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:npm-release",
-      tag: WS_METHODS.serverGetNpmRelease,
+    release: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:release",
+      tag: WS_METHODS.serverGetRelease,
       staleTimeMs: 60_000,
       refreshIntervalMs: 5 * 60_000,
     }),

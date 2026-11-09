@@ -1,16 +1,15 @@
 # Observability
 
-> For maintainers. Using T3 Code? See [docs/user](../user/).
+> For maintainers. Using iglo.code? See [docs/user](../user/).
 
-T3 Code has one server-side observability model:
+iglo.code has one server-side observability model:
 
 - pretty logs go to stdout for humans
 - completed spans go to a local NDJSON trace file
 - traces, metrics, and logs can also be exported over OTLP to a real backend like Grafana LGTM
 
-The local trace file is the persisted source of truth for normal local launches. Those launches do not
-write a separate server log file, but SSH-managed launches also persist the remote process's
-stdout/stderr at `~/.t3/ssh-launch/<state>/server.log`.
+The local trace file is the persisted source of truth. Launches do not write a separate server log
+file.
 
 ## Where To Find Things
 
@@ -20,8 +19,7 @@ Logs are human-facing:
 
 - destination: stdout
 - format: `Logger.consolePretty()`
-- normal local persistence: none
-- SSH-managed launch persistence: `~/.t3/ssh-launch/<state>/server.log`
+- local persistence: none
 - remote export: OTLP only, when configured
 
 If you want a log message to show up in the trace file, emit it inside an active span with `Effect.log...`. `Logger.tracerLogger` will attach it as a span event.
@@ -29,17 +27,16 @@ If you want a log message to show up in the trace file, emit it inside an active
 Configuring a logs endpoint takes over that job. The server then exports log records, which cover
 every message instead of only the ones inside an active span and carry the trace and span ids so
 they still line up with the trace. `Logger.tracerLogger` is dropped in that mode, so the same
-message is not exported twice and the trace file stops carrying log messages. stdout output and
-SSH-managed launch persistence stay unchanged either way.
+message is not exported twice and the trace file stops carrying log messages. stdout output stays unchanged either way.
 
 ### Traces
 
 Completed spans are written as NDJSON records to `serverTracePath`. The default depends on how the
 server starts: production and explicitly configured homes use
-`<home>/userdata/logs/server.trace.ndjson` (so `~/.t3/userdata/...` by default, or
+`<home>/userdata/logs/server.trace.ndjson` (so `~/.iglo.code/userdata/...` by default, or
 `/custom/path/userdata/...` with `--home-dir /custom/path`), a linked worktree dev run uses
-`<worktree>/.t3/userdata/logs/server.trace.ndjson`, and an implicit dev run outside a linked
-worktree uses `~/.t3/dev/logs/server.trace.ndjson`.
+`<worktree>/.iglo.code/userdata/logs/server.trace.ndjson`, and an implicit dev run outside a linked
+worktree uses `~/.iglo.code/dev/logs/server.trace.ndjson`.
 
 Important fields common to both record types:
 
@@ -76,17 +73,17 @@ request.
 
 #### Summarize the trace file
 
-`t3 trace summary` reads the trace file and its rotated backups directly, so it works while the
+`iglo.code trace summary` reads the trace file and its rotated backups directly, so it works while the
 server is stalled or stopped. It prints counts, rates, and latency percentiles per span name. Use
 it to measure background work or to compare two builds.
 
 ```bash
-t3 trace summary --since 30m --limit 40
+iglo.code trace summary --since 30m --limit 40
 ```
 
-It reads `T3CODE_TRACE_FILE` if set, else `<home>/userdata/logs/server.trace.ndjson` for
-`--base-dir` or `T3CODE_HOME`, plus the `T3CODE_TRACE_MAX_FILES` rotated backups. For a dev run or
-a copied file, set `T3CODE_TRACE_FILE`. `--since 30m` keeps spans that ended in the last 30
+It reads `IGLO_CODE_TRACE_FILE` if set, else `<home>/userdata/logs/server.trace.ndjson` for
+`--base-dir` or `IGLO_CODE_HOME`, plus the `IGLO_CODE_TRACE_MAX_FILES` rotated backups. For a dev run or
+a copied file, set `IGLO_CODE_TRACE_FILE`. `--since 30m` keeps spans that ended in the last 30
 minutes. The rate is per minute between the first and last span end.
 
 ### Metrics
@@ -104,7 +101,7 @@ If OTLP is not configured, metrics still exist in-process, but you will not have
 `apps/server/src/observability/EventLoopMonitor.ts` samples the server's event loop every 30 s. When
 the loop stalled for more than 2 s since the previous sample, it records a root
 `server.eventLoop.stall` span with a warning. The span has trace level `Warn`, so it stays when
-`T3CODE_TRACE_MIN_LEVEL` is `Warn`. The warning shows in Settings > Diagnostics unless OTLP logs are
+`IGLO_CODE_TRACE_MIN_LEVEL` is `Warn`. The warning shows in Settings > Diagnostics unless OTLP logs are
 on. The span time is when the sample ran, not when the stall happened.
 
 The trace file rotates in well under an hour on a busy server, so each stall is also appended as one
@@ -187,20 +184,20 @@ Default Grafana login:
 
 For endpoint settings and startup precedence, see the
 [user telemetry guide](../user/telemetry.md#export-diagnostics-to-your-own-receiver).
-In a worktree, use `vp run dev` instead of `t3` to keep state isolated.
+In a worktree, use `vp run dev` instead of `iglo.code` to keep state isolated.
 
 ```bash
-export T3CODE_OTLP_TRACES_URL=http://localhost:4318/v1/traces
-export T3CODE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics
-export T3CODE_OTLP_LOGS_URL=http://localhost:4318/v1/logs
+export IGLO_CODE_OTLP_TRACES_URL=http://localhost:4318/v1/traces
+export IGLO_CODE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics
+export IGLO_CODE_OTLP_LOGS_URL=http://localhost:4318/v1/logs
 export OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=development
 ```
 
 Optional:
 
 ```bash
-export T3CODE_TRACE_MIN_LEVEL=Info
-export T3CODE_TRACE_TIMING_ENABLED=true
+export IGLO_CODE_TRACE_MIN_LEVEL=Info
+export IGLO_CODE_TRACE_TIMING_ENABLED=true
 ```
 
 #### 3. Launch the app from that same shell
@@ -208,7 +205,7 @@ export T3CODE_TRACE_TIMING_ENABLED=true
 CLI:
 
 ```bash
-t3
+iglo.code
 ```
 
 Monorepo web/server dev:
@@ -217,29 +214,12 @@ Monorepo web/server dev:
 vp run dev
 ```
 
-macOS app bundle example:
-
-```bash
-T3CODE_OTLP_TRACES_URL=http://localhost:4318/v1/traces \
-T3CODE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics \
-T3CODE_OTLP_LOGS_URL=http://localhost:4318/v1/logs \
-"/Applications/T3 Code.app/Contents/MacOS/T3 Code"
-```
-
-Direct binary example:
-
-```bash
-T3CODE_OTLP_TRACES_URL=http://localhost:4318/v1/traces \
-T3CODE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics \
-T3CODE_OTLP_LOGS_URL=http://localhost:4318/v1/logs \
-./path/to/your/desktop-app-binary
-```
-
-Do not rely on launching from Finder, Spotlight, the dock, or the Start menu after setting shell env vars. Those launches usually will not pick them up.
+The background service does not read your shell. Put the same variables in
+`~/.iglo.code/service.env` and restart it with `iglo.code service restart`.
 
 #### 4. Fully restart after changing env
 
-The backend reads observability config at process start. If you change OTLP env vars, stop the app completely and start it again.
+The backend reads observability config at process start. If you change OTLP env vars, stop the server completely and start it again.
 
 ## How To Use Traces And Metrics To Debug The Server
 
@@ -251,19 +231,19 @@ Resolve the path for the launch mode once. Production and explicitly configured 
 state under the base directory's `userdata` folder:
 
 ```bash
-TRACE_FILE="${T3CODE_HOME:-$HOME/.t3}/userdata/logs/server.trace.ndjson"
+TRACE_FILE="${IGLO_CODE_HOME:-$HOME/.iglo.code}/userdata/logs/server.trace.ndjson"
 ```
 
 A dev server started from a linked worktree defaults to that worktree's local home:
 
 ```bash
-TRACE_FILE="$WORKTREE/.t3/userdata/logs/server.trace.ndjson"
+TRACE_FILE="$WORKTREE/.iglo.code/userdata/logs/server.trace.ndjson"
 ```
 
 Only an implicit dev run outside a linked worktree uses the shared dev directory:
 
 ```bash
-TRACE_FILE="$HOME/.t3/dev/logs/server.trace.ndjson"
+TRACE_FILE="$HOME/.iglo.code/dev/logs/server.trace.ndjson"
 ```
 
 Tail the selected file:
@@ -363,12 +343,12 @@ Recommended flow in Grafana:
 2. Pick the `Tempo` data source.
 3. Set the time range to something recent like `Last 15 minutes`.
 4. Start broad. Do not begin with a very narrow query.
-5. Look for spans from the `t3code-server` or `t3code-desktop` service, then narrow by span name or
+5. Look for spans from the `iglo-code-server` service, then narrow by span name or
    attributes.
 
 Good first searches:
 
-- service name `t3code-server`, plus a resource attribute such as
+- service name `iglo-code-server`, plus a resource attribute such as
   `deployment.environment.name`
 - span names like `sendTurn` or a Git operation such as `GitVcsDriver.statusDetails.status`
 - Git spans whose `git.operation` attribute identifies the operation
@@ -397,22 +377,20 @@ Counters tell you volume and failure rate:
 
 Webhooks have their own families:
 
-- `t3_webhook_deliveries_total` by `outcome` and `source` (`relay` or `direct`). Beyond what the
-  sender sees, `queue_full` means a task already had its limit of deliveries waiting,
-  `prompt_too_long` means the filled-in prompt passed the provider limit, and `duplicate` means
-  the relay delivered a request this environment had already run.
+- `t3_webhook_deliveries_total` by `outcome`. Beyond what the sender sees, `queue_full` means a
+  task already had its limit of deliveries waiting, and `prompt_too_long` means the filled-in
+  prompt passed the provider limit. Its `source` is always `direct`: the `relay` source and
+  `duplicate` outcome come from T3 Connect, which this fork disables.
 - `t3_webhook_runs_total` by `outcome` (`started`, `skipped`, `failed`) for the runs those
   deliveries start, which happen after the sender has its answer.
-- `t3_webhook_held_delay` for how long requests the relay held waited before arriving.
 
 - `t3_secret_requests_total` by `status` (`saved`, `declined`, `cancelled`, `timed_out`) for secrets
   agents asked users for, and `t3_secret_refs_consumed_total` by `result` (`used`, `rejected`) for
   tools redeeming them. Neither ever carries a value.
 
 `ScheduledTaskService.triggerWebhook` spans carry the same outcome per request, and each run
-started from a delivery is its own `ScheduledTaskService.runWebhookDelivery` trace. For a request
-the relay forwarded, the span also goes to the T3 Connect trace export as a child of the relay's
-span; requests that reach the environment directly never join a sender's trace.
+started from a delivery is its own `ScheduledTaskService.runWebhookDelivery` trace. Requests
+reach the environment directly and never join a sender's trace.
 
 Use metrics when the question is:
 
@@ -452,7 +430,7 @@ Use traces when the question is:
 
 Usually one of these is true:
 
-- `T3CODE_OTLP_TRACES_URL` was not set
+- `IGLO_CODE_OTLP_TRACES_URL` was not set
 - the app was launched from a different environment than the one where you exported the vars
 - the app was not fully restarted after changing env
 - Grafana is looking at the wrong time range or service name
@@ -577,79 +555,74 @@ It provides:
 
 Local trace file:
 
-- `T3CODE_TRACE_FILE`: override trace file path
-- `T3CODE_TRACE_MAX_BYTES`: per-file rotation size, default `10485760`
-- `T3CODE_TRACE_MAX_FILES`: rotated file count, default `10`
-- `T3CODE_TRACE_BATCH_WINDOW_MS`: flush window, default `1000`
-- `T3CODE_TRACE_MIN_LEVEL`: minimum trace level, default `Info`
-- `T3CODE_TRACE_TIMING_ENABLED`: enable timing metadata, default `true`
+- `IGLO_CODE_TRACE_FILE`: override trace file path
+- `IGLO_CODE_TRACE_MAX_BYTES`: per-file rotation size, default `10485760`
+- `IGLO_CODE_TRACE_MAX_FILES`: rotated file count, default `10`
+- `IGLO_CODE_TRACE_BATCH_WINDOW_MS`: flush window, default `1000`
+- `IGLO_CODE_TRACE_MIN_LEVEL`: minimum trace level, default `Info`
+- `IGLO_CODE_TRACE_TIMING_ENABLED`: enable timing metadata, default `true`
 
 OTLP export:
 
-- `T3CODE_OTLP_TRACES_URL`: OTLP trace endpoint
-- `T3CODE_OTLP_METRICS_URL`: OTLP metric endpoint
-- `T3CODE_OTLP_LOGS_URL`: OTLP log endpoint
-- `T3CODE_OTLP_EXPORT_INTERVAL_MS`: export interval, default `10000`
-- `T3CODE_OTLP_HEADERS`: extra headers for all three exporters, same format as
+- `IGLO_CODE_OTLP_TRACES_URL`: OTLP trace endpoint
+- `IGLO_CODE_OTLP_METRICS_URL`: OTLP metric endpoint
+- `IGLO_CODE_OTLP_LOGS_URL`: OTLP log endpoint
+- `IGLO_CODE_OTLP_EXPORT_INTERVAL_MS`: export interval, default `10000`
+- `IGLO_CODE_OTLP_HEADERS`: extra headers for all three exporters, same format as
   `OTEL_EXPORTER_OTLP_HEADERS`: comma-separated `key=value` pairs with percent-encoded values.
-- `T3CODE_OTLP_PROTOCOL`: `http/json` (default) or `http/protobuf`
+- `IGLO_CODE_OTLP_PROTOCOL`: `http/json` (default) or `http/protobuf`
 
 The server also reads the standard
 `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_ENDPOINT` and generic `OTEL_EXPORTER_OTLP_ENDPOINT` (with
 `/v1/traces`, `/v1/metrics`, or `/v1/logs` appended), for a collector expecting those instead. A
-non-blank `T3CODE_OTLP_*_URL` wins over either, and a per-signal endpoint wins over the generic one
+non-blank `IGLO_CODE_OTLP_*_URL` wins over either, and a per-signal endpoint wins over the generic one
 for its signal. A blank value counts as unset. A signal with an OTEL endpoint takes its headers from
 `OTEL_EXPORTER_OTLP_HEADERS` and its protocol from `OTEL_EXPORTER_OTLP_PROTOCOL` (default
 `http/protobuf`, read case-insensitively), and a per-signal
 `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS` or `_PROTOCOL` wins over the generic one for its
-signal. `T3CODE_OTLP_HEADERS` and `T3CODE_OTLP_PROTOCOL` never apply to it. An endpoint that is not
+signal. `IGLO_CODE_OTLP_HEADERS` and `IGLO_CODE_OTLP_PROTOCOL` never apply to it. An endpoint that is not
 an `http` or `https` URL, a protocol other than `http/protobuf` or `http/json` such as `grpc`, or
 headers that are not `key=value` pairs with percent-encoded values turn that signal's export off
 with a startup warning, rather than sending it to the Settings endpoint.
 
-The service name is fixed: `t3code-server` for the backend, in `service.namespace` `t3code`. `OTEL_SERVICE_NAME` and a `service.name` or
+The service name is fixed: `iglo-code-server` for the backend, in `service.namespace` `iglo-code`. `OTEL_SERVICE_NAME` and a `service.name` or
 `service.namespace` in `OTEL_RESOURCE_ATTRIBUTES` are ignored. Tell installations apart with other
 resource attributes, such as `OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=staging`.
 
-Each process reports its own build, not the one it talks to: the server, the desktop main process,
-the UI, and the mobile app each carry `t3code.release.channel` (`dev`, `stable`, `nightly`, or
-`preview`, from their own version; desktop PR builds count as `preview`, and a server not built by a
-release workflow reports `dev`) and `deployment.environment.name` (`development`, `production`, or
-`staging` for `preview`). On the server and the desktop main process either key in
-`OTEL_RESOURCE_ATTRIBUTES` wins. The UI and mobile app never read that variable: Vercel PR previews
-set `VITE_RELEASE_CHANNEL=preview` because their `APP_VERSION` must stay comparable with the
-server's, and the mobile app maps its build variant (`development`, `preview`, `production`), or
-reports `dev` from a development bundle.
+Each process reports its own build, not the one it talks to: the server and the UI each carry
+`t3code.release.channel` (`dev`, `stable`, `nightly`, or `preview`, from their own version; a
+server not built by a release workflow reports `dev`) and `deployment.environment.name`
+(`development`, `production`, or `staging` for `preview`). On the server either key in
+`OTEL_RESOURCE_ATTRIBUTES` wins. The UI never reads that variable; `VITE_RELEASE_CHANNEL`
+overrides its channel at build time.
 
-Attributes specific to T3 Code use the `t3code.` prefix. The UI runs as `t3code-web` in both a
-browser and the desktop window, since it is the same code, and `t3code.client.surface` is `desktop`
-or `web`. The server's `t3code.server.managed_by` is `desktop` when the desktop app launched it and
-`standalone` otherwise. The desktop main process reports `t3code.desktop.mode` as `development` or
-`packaged` (formerly `service.mode`; dashboards filtering on that key must switch). Server and
-helper processes also report the semantic `process.runtime.name`, `process.runtime.version`, and
-`process.runtime.description` (`bun` under Bun, `nodejs` under Node), and UI traces report `browser.language`, `user_agent.original`, and,
-in Chromium, `browser.platform`, `browser.mobile`, and `browser.brands`.
+Attributes specific to the app keep upstream's `t3code.` prefix. The UI runs as `iglo-code-web`
+with `t3code.client.surface` `web`, and the server's `t3code.server.managed_by` is `standalone`.
+Server and helper processes also report the semantic `process.runtime.name`,
+`process.runtime.version`, and `process.runtime.description` (`bun` under Bun, `nodejs` under
+Node), and UI traces report `browser.language`, `user_agent.original`, and, in Chromium,
+`browser.platform`, `browser.mobile`, and `browser.brands`.
 
-Every resource also carries a `service.instance.id`: random per process for the server and desktop,
-per page load for the UI, and the Expo session on mobile. A `service.instance.id` in
-`OTEL_RESOURCE_ATTRIBUTES` replaces the generated one on the server and desktop.
+Every resource also carries a `service.instance.id`: random per process for the server and per
+page load for the UI. A `service.instance.id` in `OTEL_RESOURCE_ATTRIBUTES` replaces the
+generated one on the server.
 
 If the OTLP URLs are unset, local tracing still works, metrics stay in-process only, and logs stay
 on stdout only.
 
 ### The Kill Switch
 
-`T3CODE_OTEL_SDK_DISABLED` and `OTEL_SDK_DISABLED` turn off every OTLP export in the server, overriding any endpoint from the environment or Settings. Local trace
+`IGLO_CODE_OTEL_SDK_DISABLED` and `OTEL_SDK_DISABLED` turn off every OTLP export in the server, overriding any endpoint from the environment or Settings. Local trace
 files and stdout logs are unaffected.
 
-`T3CODE_OTEL_SDK_DISABLED` wins when set, so `T3CODE_OTEL_SDK_DISABLED=false` re-enables export on a
+`IGLO_CODE_OTEL_SDK_DISABLED` wins when set, so `IGLO_CODE_OTEL_SDK_DISABLED=false` re-enables export on a
 machine that sets `OTEL_SDK_DISABLED` for everything else. It accepts the usual boolean spellings
 (`true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0`, `y`/`n`). `OTEL_SDK_DISABLED` follows the
 OpenTelemetry specification and only `true` disables export, so `OTEL_SDK_DISABLED=1` does not.
 Values are case-insensitive and trimmed. An unrecognized value is ignored with a startup warning.
 
 `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, or `OTEL_LOGS_EXPORTER` set to `none` turns off
-just that signal, overriding an OTEL endpoint and the Settings endpoint. A `T3CODE_OTLP_*_URL` still
+just that signal, overriding an OTEL endpoint and the Settings endpoint. A `IGLO_CODE_OTLP_*_URL` still
 wins for its signal. `otlp` is the default, and any other exporter name, such as `console` or
 `prometheus`, is ignored with a startup warning.
 
@@ -677,8 +650,8 @@ Current high-value span and metric boundaries include:
 ## Heap Snapshots
 
 To see what a long-running server holds in memory, send it `SIGUSR2`. The server writes a V8-format
-heap snapshot of Bun's JavaScriptCore heap to its logs dir and logs the path. This works for `t3` and service installs
-on macOS and Linux. Windows has no `SIGUSR2`.
+heap snapshot of Bun's JavaScriptCore heap to its logs dir and logs the path. This works for `iglo.code` and service installs
+on macOS and Linux.
 
 Send the signal to the server pid in `server-runtime.json`, which sits in the server's state dir
 next to the `logs` dir. For a dev server or a `--home-dir` launch, use that server's state dir from
@@ -687,11 +660,11 @@ handler exits on `SIGUSR2`. After a crash the file can keep a stale pid that now
 different process, so check the pid first.
 
 ```bash
-pid="$(jq .pid "${T3CODE_HOME:-$HOME/.t3}/userdata/server-runtime.json")"
+pid="$(jq .pid "${IGLO_CODE_HOME:-$HOME/.iglo.code}/userdata/server-runtime.json")"
 ps -p "$pid" -o command=
 ```
 
-If `ps` shows the T3 Code server, send the signal:
+If `ps` shows the iglo.code server, send the signal:
 
 ```bash
 kill -USR2 "$pid"

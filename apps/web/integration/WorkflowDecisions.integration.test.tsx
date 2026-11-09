@@ -544,7 +544,7 @@ it.live(
               catalog,
               registry,
               invoke,
-              directory: `${config.baseDir}/.t3code/workflows`,
+              directory: `${config.baseDir}/.iglo-code/workflows`,
               tracked: track(createWorkflowsClient(environmentId)),
               grantWrite: SubscriptionRef.set(prepared, Option.some(prepare(writable.token))),
             };
@@ -1260,7 +1260,7 @@ it.live(
         // Clear a saved check's arguments, publish through the authenticated editor and reload.
         yield* promise(() =>
           go(first.environmentId, "workflows.editor", {
-            source: ".t3code/workflows/repeat-implementation-once.yaml",
+            source: ".iglo-code/workflows/repeat-implementation-once.yaml",
             step: "check-1",
           }),
         );

@@ -3,10 +3,10 @@ import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/serve
 
 export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
 
-export const T3_MCP_URL_ENV = "T3_MCP_URL";
-export const T3_MCP_BEARER_ENV = "T3_MCP_BEARER_TOKEN";
-export const T3_PI_RUNTIME_MODE_ENV = "T3_PI_RUNTIME_MODE";
-export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
+export const T3_MCP_URL_ENV = "IGLO_CODE_MCP_URL";
+export const T3_MCP_BEARER_ENV = "IGLO_CODE_MCP_BEARER_TOKEN";
+export const T3_PI_RUNTIME_MODE_ENV = "IGLO_CODE_PI_RUNTIME_MODE";
+export const T3_PI_MCP_EXTENSION_PATH_ENV = "IGLO_CODE_PI_MCP_EXTENSION_PATH";
 export const PI_T3_SERVICE_TIER_COMMAND = "t3-service-tier";
 
 // These tools trigger file-change approvals, bypassed by Auto-accept edits.
@@ -374,7 +374,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   if (endpoint === undefined || token === undefined) {
     pi.on("session_start", async (_event, ctx) => {
       ctx.ui.notify(
-        "t3-code MCP unavailable: T3_MCP_URL or T3_MCP_BEARER_TOKEN is missing.",
+        "iglo-code MCP unavailable: IGLO_CODE_MCP_URL or IGLO_CODE_MCP_BEARER_TOKEN is missing.",
         "warning",
       );
     });
@@ -394,13 +394,13 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   const registerTools = () => {
     // Preserve public names for saved loadouts and tool selectors. Hidden
     // canonical names reserve ownership against Pi's configured MCP servers.
-    const prefixes = supportsExposure ? ["mcp__t3-code__", "mcp__t3_code__"] : ["mcp__t3-code__"];
+    const prefixes = supportsExposure ? ["mcp__iglo-code__", "mcp__iglo_code__"] : ["mcp__iglo-code__"];
     readOnlyMcpTools.clear();
     for (const tool of catalog) {
       const name = tool.name;
       for (const prefix of prefixes) {
         if (tool.annotations?.readOnlyHint === true) readOnlyMcpTools.add(\`\${prefix}\${name}\`);
-        const exposure = prefix === "mcp__t3_code__" ? "hidden" :
+        const exposure = prefix === "mcp__iglo_code__" ? "hidden" :
           deferOptionalTools && !directTools.has(name) ? "deferred" : "direct";
         pi.registerTool({
           name: \`\${prefix}\${name}\`,
@@ -417,12 +417,12 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
             );
             const content = mcpModelContent(result);
             if (isMcpToolError(result) && !content.some((part) => part.type === "text" && part.text.length > 0)) {
-              content.push({ type: "text", text: "MCP tool t3-code/" + name + " returned an error" });
+              content.push({ type: "text", text: "MCP tool iglo-code/" + name + " returned an error" });
             }
             return {
               content,
               structuredContent: mcpScriptResult(result),
-              details: { server: "t3-code", tool: name },
+              details: { server: "iglo-code", tool: name },
               ...(isMcpToolError(result) ? { isError: true } : {}),
             };
           },
@@ -465,7 +465,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     // Pi still applies --tools/--exclude-tools to this active loadout.
     const required = [
       ...(hasToolSearch ? ["tool_search"] : []),
-      ...(ctx.model?.api === "openai-completions" ? catalog.map((tool) => "mcp__t3-code__" + tool.name) : []),
+      ...(ctx.model?.api === "openai-completions" ? catalog.map((tool) => "mcp__iglo-code__" + tool.name) : []),
     ];
     const missing = required.filter((name) => !active.includes(name));
     if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
@@ -480,7 +480,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       await ensureStarted();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      ctx.ui.notify(\`t3-code MCP unavailable: \${message}\`, "warning");
+      ctx.ui.notify(\`iglo-code MCP unavailable: \${message}\`, "warning");
     }
   });
 

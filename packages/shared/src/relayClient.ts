@@ -31,7 +31,7 @@ import * as HostProcess from "./HostProcess.ts";
 export const CLOUDFLARED_VERSION = "2026.10.4";
 // Minimum for --output support; older connectors exit on that flag.
 export const CLOUDFLARED_MIN_VERSION = "2025.6.1";
-const CLOUDFLARED_PATH_ENV_NAME = "T3CODE_CLOUDFLARED_PATH";
+const CLOUDFLARED_PATH_ENV_NAME = "IGLO_CODE_CLOUDFLARED_PATH";
 
 const CLOUDFLARED_DOWNLOAD_TIMEOUT = "10 minutes";
 

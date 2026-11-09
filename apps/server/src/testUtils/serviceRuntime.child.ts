@@ -11,7 +11,7 @@ import {
   SERVICE_STOP_MARKER_FILE,
 } from "../cloud/serviceProtocol.ts";
 
-const home = process.env.T3CODE_HOME;
+const home = process.env.IGLO_CODE_HOME;
 const context = decodeServiceLauncherContext(process.env[SERVICE_LAUNCHER_CONTEXT_ENV] ?? "");
 if (!home || !context || !process.send || !process.versions["bun"]) {
   throw new Error("Service runtime fixture requires Bun and the launcher's real IPC channel");

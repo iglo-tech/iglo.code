@@ -223,10 +223,10 @@ it.live(
         const options = opened[0]!.options;
         const credential = (yield* mcpSessions.read(threadId))!;
         expect(options.permissionMode).toBe("default");
-        expect(options.allowedTools).not.toContain("mcp__t3-code__*");
-        expect(options.allowedTools).toContain("mcp__t3-code__plugin_fixture_query");
-        expect(options.allowedTools).toContain("mcp__t3-code__plugin_fixture_allowed");
-        expect(options.allowedTools).toContain("mcp__t3-code__t3_thread_launch");
+        expect(options.allowedTools).not.toContain("mcp__iglo-code__*");
+        expect(options.allowedTools).toContain("mcp__iglo-code__plugin_fixture_query");
+        expect(options.allowedTools).toContain("mcp__iglo-code__plugin_fixture_allowed");
+        expect(options.allowedTools).toContain("mcp__iglo-code__t3_thread_launch");
         expect(options.canUseTool).toBeTypeOf("function");
         expect(credential.readOnlyPluginTools).not.toContain("plugin_fixture_report");
         const approval = yield* Deferred.make<void>();
@@ -244,7 +244,7 @@ it.live(
         const asking = yield* Effect.promise(() =>
           Promise.resolve(
             options.canUseTool!(
-              "mcp__t3-code__plugin_fixture_report",
+              "mcp__iglo-code__plugin_fixture_report",
               { id: "control", summary: "Control requires permission" },
               {
                 toolUseID: "approval-control",

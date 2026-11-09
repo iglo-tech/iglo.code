@@ -403,7 +403,7 @@ it("persists transactions and large integers under the actual Bun runtime", asyn
   const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-bun-sqlite-"));
   try {
     const child = NodeChildProcess.spawnSync(
-      process.env.T3_BUN_EXECUTABLE ?? "bun",
+      process.env.IGLO_CODE_BUN_EXECUTABLE ?? "bun",
       [
         NodeURL.fileURLToPath(new URL("./testing/sqliteRuntime.fixture.ts", import.meta.url)),
         NodePath.join(directory, "state.sqlite"),

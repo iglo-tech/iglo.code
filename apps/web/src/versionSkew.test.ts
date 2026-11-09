@@ -24,33 +24,20 @@ const MISMATCH_HINT =
   "Version mismatch. Try syncing the client and server to the same T3 Code version.";
 
 describe("versionSkew", () => {
-  it("updates legacy and unknown installations only through the fork installer", () => {
-    const command =
-      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.45' sh";
-    expect(manualServerUpdateCommand("0.0.45")).toBe(command);
-    expect(manualServerUpdateCommand("0.0.45", { kind: "npm-global", prefix: "/opt/node" })).toBe(
-      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.45' T3CODE_INSTALL_BIN_DIR='/opt/node/bin' sh",
-    );
-    expect(manualServerUpdateCommand("0.0.45", { kind: "npx" })).toBe(command);
-    expect(manualServerUpdateCommand("0.0.45", { kind: "pnpm-dlx" })).toBe(command);
-    expect(manualServerUpdateCommand("0.0.45", { kind: "bunx" })).toBe(command);
-  });
-
-  it("passes version and the active global bin directory literally to the POSIX installer", async () => {
+  it("passes the version literally to the POSIX installer", async () => {
     const targetVersion = "0.0.45'; printf injected; #";
-    const prefix = "/opt/My tools'$(printf injected)/";
-    const command = manualServerUpdateCommand(targetVersion, { kind: "npm-global", prefix });
+    const command = manualServerUpdateCommand(targetVersion);
     // Serve a harmless installer body from the shell function; never fetch or install a release.
     const output = await Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       return yield* spawner.string(
         ChildProcess.make("/bin/sh", [
           "-c",
-          `curl() { printf '%s\\n' 'printf "%s\\n" "$T3CODE_VERSION" "$T3CODE_INSTALL_BIN_DIR"'; }\n${command}`,
+          `curl() { printf '%s\\n' 'printf "%s\\n" "$IGLO_CODE_VERSION"'; }\n${command}`,
         ]),
       );
     }).pipe(Effect.provide(NodeServices.layer), Effect.runPromise);
-    expect(output).toBe("0.0.45'; printf injected; #\n/opt/My tools'$(printf injected)/bin\n");
+    expect(output).toBe("0.0.45'; printf injected; #\n");
   });
   beforeEach(() => {
     branding.APP_VERSION = "0.0.34";

@@ -3,7 +3,7 @@
 The environment server owns simulators and emulators the way it owns
 terminals: discovery, streaming, and agent access all run there, and every
 client reaches them through the environment connection. This is what makes the
-Device panel work over Tailscale and T3 Connect, including when an SSH host runs the devices.
+Device panel work over the LAN and Tailscale, including when an SSH host runs the devices.
 
 ## Two external tools, one seam
 
@@ -151,7 +151,7 @@ AVCC with a 409 naming the transport. The viewer still asks for AVCC first, so
 hubs that serve it pay nothing, and switches on that 409, or when its MJPEG
 image fails in a browser that has `RTCPeerConnection`. Offers are not trickled:
 serve-sim takes one offer with every candidate. The video element only feeds
-the same canvas sink, so the panel and the mobile WebView keep one surface.
+the same canvas sink, so the panel keeps one surface.
 Android asks serve-emu's `/api` before opening its video socket and streams
 WebRTC when it is advertised (EAS Simulator), keeping a separate `video=0`
 socket for input so input can reconnect without restarting video.

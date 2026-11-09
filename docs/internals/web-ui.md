@@ -15,7 +15,7 @@ Style with Tailwind classes in the component that renders the element.
 
 - Global CSS, in [`index.css`](../../apps/web/src/index.css) or any other stylesheet, is only for
   what classes on the owning component can't express: generated Markdown or imperative DOM, custom
-  elements and shadow roots, animations, runtime theme variables, and browser or Electron
+  elements and shadow roots, animations, runtime theme variables, and browser
   integration.
 - No `style={{ ... }}` or inline `<style>` for static values a class covers. Values computed at
   runtime are fine.

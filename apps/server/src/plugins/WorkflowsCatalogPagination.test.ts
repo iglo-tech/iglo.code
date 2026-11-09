@@ -26,7 +26,7 @@ it.effect.each([
       const fs = yield* FileSystem.FileSystem;
       const scope = { environmentId: test.environmentId, projectId: test.projectId };
       const packaged = yield* test.invoke("catalog", scope).pipe(Effect.flatMap(decodeCatalog));
-      const directory = `${test.directory}/.t3code/workflows`;
+      const directory = `${test.directory}/.iglo-code/workflows`;
       yield* fs.makeDirectory(directory, { recursive: true });
       const count = mode.startsWith("99") ? 99 : 100;
       const duplicated = mode === "100-duplicate-conflict";
@@ -72,7 +72,7 @@ it.effect.each([
         expect(saved._tag).toBe("Success");
         if (saved._tag === "Success")
           expect((yield* decodeEntry(saved.success)).source).toBe(
-            ".t3code/workflows/zz-original.yml",
+            ".iglo-code/workflows/zz-original.yml",
           );
         const edited = yield* decodeDefinition(Yaml.parse(contents));
         expect(edited).toEqual({ ...definition, revision: 2 });

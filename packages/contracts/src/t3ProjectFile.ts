@@ -5,9 +5,7 @@ import { ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
 import { ProjectScriptIcon } from "./project.ts";
 import type { ProjectScopedServerSettingKey, ServerSettings } from "./settings.ts";
 
-export const T3_PROJECT_FILE_NAME = "t3.json";
-
-export const T3_PROJECT_FILE_SCHEMA_URL = "https://t3.codes/schema/t3.json";
+export const T3_PROJECT_FILE_NAME = "iglo.code.json";
 
 const T3_PROJECT_FILE_PATH_MAX_LENGTH = 512;
 const T3_PROJECT_FILE_MAX_SCRIPTS = 50;
@@ -78,7 +76,7 @@ export type T3ProjectFileScript = typeof T3ProjectFileScript.Type;
 export const T3ProjectFile = Schema.Struct({
   $schema: Schema.optionalKey(
     Schema.String.annotate({
-      description: `URL of the JSON Schema for this file, typically "${T3_PROJECT_FILE_SCHEMA_URL}".`,
+      description: "URL of a JSON Schema for this file, for editors.",
     }),
   ),
   iconPath: Schema.optionalKey(
@@ -112,11 +110,11 @@ export const T3ProjectFile = Schema.Struct({
 }).annotate({
   title: "T3 project file",
   description:
-    "Checked-in project configuration for T3 Code (t3.json at the repository root). See https://t3.codes for documentation.",
+    "Checked-in project configuration for iglo.code (iglo.code.json at the repository root).",
 });
 export type T3ProjectFile = typeof T3ProjectFile.Type;
 
-/** Keys must be nullable in ServerSettings so both environment and project overrides can inherit t3.json. */
+/** Keys must be nullable in ServerSettings so both environment and project overrides can inherit iglo.code.json. */
 export const PROJECT_FILE_BACKED_SETTINGS = {
   defaultThreadEnvMode: { field: "defaultThreadEnvMode", builtIn: "local" },
   worktreeSubmodules: { field: "worktreeSubmodules", builtIn: "recursive" },

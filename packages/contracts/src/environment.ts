@@ -61,12 +61,6 @@ export type ExecutionEnvironmentPlatform = typeof ExecutionEnvironmentPlatform.T
 export const ServerSelfUpdateMethod = Schema.Literals(["boot-service", "respawn", "desktop-app"]);
 export type ServerSelfUpdateMethod = typeof ServerSelfUpdateMethod.Type;
 
-export const ServerInstallation = Schema.Union([
-  Schema.Struct({ kind: Schema.Literals(["npx", "pnpm-dlx", "bunx"]) }),
-  Schema.Struct({ kind: Schema.Literal("npm-global"), prefix: TrimmedNonEmptyString }),
-]);
-export type ServerInstallation = typeof ServerInstallation.Type;
-
 export const ServerSelfUpdateCapability = Schema.Literals([
   "boot-service",
   "respawn",
@@ -136,10 +130,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   threadPullRequestWatch: Schema.optionalKey(Schema.Boolean),
   pullRequestStackActions: Schema.optionalKey(Schema.Boolean),
   serverSelfUpdate: Schema.optionalKey(ServerSelfUpdateCapability),
-  /** Server answers server.getNpmRelease using its configured npm registry. */
-  npmReleaseLookup: Schema.optionalKey(Schema.Boolean),
-  /** Manual commands must update this install, not the host's default global prefix. */
-  serverInstallation: ForwardCompatibleOptional(ServerInstallation),
+  /** Server answers server.getRelease from its update source. */
+  releaseLookup: Schema.optionalKey(Schema.Boolean),
   serverSelfUpdateProgress: Schema.optionalKey(Schema.Boolean),
   serverUpdateThreadContinuation: Schema.optionalKey(Schema.Boolean),
   /** Only explicit false skips Live Activity seeding; older servers may still publish. */

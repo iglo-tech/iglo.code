@@ -1,13 +1,13 @@
 # Terminal history
 
 Each terminal keeps up to 5,000 lines and 8 MiB of scrollback on its environment
-server. T3 Code removes the oldest output when either limit is reached. A long
+server. iglo.code removes the oldest output when either limit is reached. A long
 line can be shortened at the start. New terminal output is not truncated.
 
-These limits apply when you reconnect and when T3 Code restores saved terminal
+These limits apply when you reconnect and when iglo.code restores saved terminal
 history. A client can show less scrollback than the server keeps.
 
-On web and desktop, use Shift+PageUp and Shift+PageDown to read scrollback
+Use Shift+PageUp and Shift+PageDown to read scrollback
 without leaving terminal input. Ctrl+Shift+Home and Ctrl+Shift+End jump to the
 start and latest output; use Cmd instead of Ctrl on macOS. Full-screen terminal
 programs keep these navigation keys.
@@ -17,17 +17,14 @@ then copy. Cmd+A on macOS and Ctrl+Shift+A elsewhere select the same output.
 Ctrl+A still moves to the beginning of shell input on Windows and Linux.
 Jump to latest in the context menu returns to the current output.
 
-On iPhone and iPad, long-press the terminal to paste or to choose Select Text.
-Select Text shows the visible output, where you can copy text or tap a link.
-
 ## fish
 
-T3 Code starts fish with `no-query-term`, avoiding startup waits for terminal
+iglo.code starts fish with `no-query-term`, avoiding startup waits for terminal
 replies. This disables optional fish features that depend on those replies.
-T3 Code's exported `fish_features` also hides any universal flags you set with
+iglo.code's exported `fish_features` also hides any universal flags you set with
 `set -U fish_features`.
 
 To preserve those flags or enable queries with `query-term`, include them in
-`fish_features` in the environment that launches T3 Code. A shell export applies
-when you launch T3 Code from that shell; it does not configure a desktop app
-launched from the Dock or Finder. Enabling queries can restore the startup wait.
+`fish_features` in the environment that launches iglo.code. A shell export applies
+when you launch iglo.code from that shell; it does not configure the background
+service, which reads [`service.env`](./background-service.md#configure-the-service-environment). Enabling queries can restore the startup wait.

@@ -269,7 +269,7 @@ it.live.each(modes)(
                   parentCheckpointId: null,
                   ordinalWithinScope: 1,
                   appRunOrdinal: 1,
-                  ref: CheckpointRef.make("refs/t3/original-checkpoint"),
+                  ref: CheckpointRef.make("refs/iglo.code/original-checkpoint"),
                   status: mode === "resume-checkpoint-prior-error" ? "error" : "ready",
                   files: [],
                   capturedAt: now,
@@ -526,7 +526,7 @@ it.live.each(modes)(
                     parentCheckpointId: null,
                     ordinalWithinScope: 1,
                     appRunOrdinal: owner.ordinal,
-                    ref: CheckpointRef.make("refs/t3/resumed-checkpoint"),
+                    ref: CheckpointRef.make("refs/iglo.code/resumed-checkpoint"),
                     status:
                       mode === "resume-checkpoint-current-error" ||
                       mode === "resume-checkpoint-released-error"

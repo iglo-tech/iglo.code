@@ -26,14 +26,14 @@ const LOOPBACK_AUTH = {
   policy: "loopback-browser",
   bootstrapMethods: ["one-time-token"],
   sessionMethods: ["browser-session-cookie"],
-  sessionCookieName: "t3_session",
+  sessionCookieName: "iglo_code_session",
 } as const;
 
 const DESKTOP_AUTH = {
   policy: "desktop-managed-local",
   bootstrapMethods: ["desktop-bootstrap"],
   sessionMethods: ["browser-session-cookie"],
-  sessionCookieName: "t3_session",
+  sessionCookieName: "iglo_code_session",
 } as const;
 
 const SESSION_EXPIRES_AT = DateTime.makeUnsafe("2026-04-05T00:00:00.000Z");

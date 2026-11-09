@@ -1,9 +1,4 @@
-import type {
-  EnvironmentId,
-  ServerConfig,
-  ServerInstallation,
-  ServerSelfUpdateCapability,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ServerConfig, ServerSelfUpdateCapability } from "@t3tools/contracts";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
 import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 import * as Schema from "effect/Schema";
@@ -95,20 +90,9 @@ export function supportsDesktopAppUpdate(
   return serverConfig?.environment.capabilities.desktopAppUpdate === true;
 }
 
-export function manualServerUpdateCommand(
-  targetVersion: string,
-  installation?: ServerInstallation,
-): string {
+export function manualServerUpdateCommand(targetVersion: string): string {
   const version = `'${targetVersion.replaceAll("'", "'\\''")}'`;
-  const binDirectory =
-    installation?.kind === "npm-global"
-      ? `${installation.prefix.replace(/\/+$/, "")}/bin`
-      : undefined;
-  const destination =
-    binDirectory === undefined
-      ? ""
-      : ` T3CODE_INSTALL_BIN_DIR='${binDirectory.replaceAll("'", "'\\''")}'`;
-  return `curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION=${version}${destination} sh`;
+  return `curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | IGLO_CODE_VERSION=${version} sh`;
 }
 
 export function buildVersionMismatchDismissalKey(

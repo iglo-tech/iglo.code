@@ -23,12 +23,7 @@ import { projectCommand } from "./cli/project.ts";
 import { threadCommand } from "./cli/thread.ts";
 import { runDefaultServerCommand, serveCommand, startCommand } from "./cli/server.ts";
 import { updateCommand } from "./cli/update.ts";
-import {
-  confirmCliInstall,
-  inTerminalForeground,
-  installCommand,
-  offerCliInstall,
-} from "./cli/install.ts";
+import { installCommand } from "./cli/install.ts";
 import { uninstallCommand } from "./cli/uninstall.ts";
 import { runServiceLauncherCli } from "./cli/serviceLauncher.ts";
 import { speechWorkerCommand } from "./cli/speechWorker.ts";
@@ -43,8 +38,7 @@ import { connectCommand, statusCommand, upCommand } from "./cli/up.ts";
 
 const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer);
 
-const connectPublicConfigMissingMessage =
-  "T3 Connect commands are unavailable: this build is missing T3 Connect public configuration.";
+const connectPublicConfigMissingMessage = "T3 Connect is not available in iglo.code.";
 
 class ConnectPublicConfigMissingError extends CliError.UserError {
   override get message() {
@@ -55,12 +49,12 @@ class ConnectPublicConfigMissingError extends CliError.UserError {
 const connectUnavailableCommand = Command.make("connect", {
   command: Argument.String("command").pipe(Argument.variadic),
 }).pipe(
-  Command.withDescription("T3 Connect is unavailable in builds without public configuration."),
+  Command.withDescription(connectPublicConfigMissingMessage),
   Command.unlisted,
   Command.withHandler(() =>
     Effect.fail(
       new CliError.ShowHelp({
-        commandPath: ["t3", "connect"],
+        commandPath: ["iglo.code", "connect"],
         errors: [new ConnectPublicConfigMissingError({ cause: connectPublicConfigMissingMessage })],
       }),
     ),
@@ -68,16 +62,16 @@ const connectUnavailableCommand = Command.make("connect", {
 );
 
 export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
-  Command.make("t3", { ...sharedServerCommandFlags }).pipe(
+  Command.make("iglo.code", { ...sharedServerCommandFlags }).pipe(
     Command.withDescription(
-      "Run T3 Code in this terminal and open it in your browser. To use it from your other devices, run `t3 up`.",
+      "Run T3 Code in this terminal and open it in your browser. To use it from your other devices, run `iglo.code up`.",
     ),
     Command.withHandler(runDefaultServerCommand),
     Command.withSubcommands([
       Command.make("help").pipe(
         Command.withDescription("Show command help."),
         Command.withHandler(() =>
-          Effect.fail(new CliError.ShowHelp({ commandPath: ["t3"], errors: [] })),
+          Effect.fail(new CliError.ShowHelp({ commandPath: ["iglo.code"], errors: [] })),
         ),
       ),
       acpMcpBridgeCommand,
@@ -122,22 +116,7 @@ export const cli = makeCli();
 export function runCli() {
   extendConnectionAttemptTimeout();
   keepOutboundFetchOnHttp1();
-  offerCliInstall({
-    args: process.argv.slice(2),
-    // A child started over IPC (a service launcher) has no one to answer.
-    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY) && process.send === undefined,
-    foreground: inTerminalForeground,
-    confirm: confirmCliInstall,
-  }).pipe(
-    // The offer handles its own errors; even an unexpected defect must not stop the command.
-    Effect.catchDefect(() => Effect.succeed(true)),
-    Effect.flatMap((proceed) =>
-      proceed
-        ? Command.run(cli, { version: packageJson.version })
-        : Effect.sync(() => {
-            process.exitCode = 130;
-          }),
-    ),
+  Command.run(cli, { version: packageJson.version }).pipe(
     Effect.scoped,
     Effect.provide(layerCliRuntime),
     NodeRuntime.runMain,

@@ -14,7 +14,7 @@ let origin: string;
 
 beforeAll(async () => {
   server = NodeChildProcess.spawn(
-    process.env.T3_BUN_EXECUTABLE ?? "bun",
+    process.env.IGLO_CODE_BUN_EXECUTABLE ?? "bun",
     [NodeURL.fileURLToPath(new URL("./testUtils/rpcHttpServer.fixture.ts", import.meta.url))],
     { stdio: ["ignore", "pipe", "pipe"] },
   );

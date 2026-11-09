@@ -48,24 +48,24 @@ Flags go directly after the task name, for example `vp run dev --home-dir /tmp/t
 Add `--browser` to open a browser automatically.
 
 To stop a worktree's dev stack when its thread settles, import the **Dev** action from
-`t3.json` in Settings > Projects > Actions and start it through the action menu or its
+`iglo.code.json` in Settings > Projects > Actions and start it through the action menu or its
 keybinding. Its `stopOnSettle` option lets T3 stop the terminal and its child processes.
 Running `vp run dev` through an agent's own shell tool does not attach it to this lifecycle.
 
 ### State and ports
 
-Linked worktrees default to their own `.t3/userdata`, even when `T3CODE_HOME` is set.
-The main checkout defaults to `~/.t3/dev`. An explicit `--home-dir` wins in both cases.
+Linked worktrees default to their own `.iglo.code/userdata`, even when `IGLO_CODE_HOME` is set.
+The main checkout defaults to `~/.iglo.code/dev`. An explicit `--home-dir` wins in both cases.
 The first start in a worktree seeds its empty database from a read-only copy of
-`~/.t3/userdata/statev2.sqlite` if the source is at most 500 MiB. Larger sources warn
-and dev starts with an empty database. `--no-seed` or `T3CODE_DEV_SEED=0` skips seeding.
+`~/.iglo.code/userdata/statev2.sqlite` if the source is at most 500 MiB. Larger sources warn
+and dev starts with an empty database. `--no-seed` or `IGLO_CODE_DEV_SEED=0` skips seeding.
 To copy a larger source, run `vp run migrate-dev-db` with dev stopped. It may use
 substantial disk space before pruning.
-Never run a development server against the live `~/.t3/userdata`.
+Never run a development server against the live `~/.iglo.code/userdata`.
 See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
 
 Read ports from the `[dev-runner]` output. Worktrees derive stable preferences from their paths,
-but occupied ports can shift them. `T3CODE_PORT_OFFSET` or `T3CODE_DEV_INSTANCE` can select a
+but occupied ports can shift them. `IGLO_CODE_PORT_OFFSET` or `IGLO_CODE_DEV_INSTANCE` can select a
 different preference when needed.
 
 ### Replay provider
@@ -74,7 +74,7 @@ different preference when needed.
 [dev-replay-agent.ts](../../apps/server/scripts/dev-replay-agent.ts). It plays recorded
 ACP transcripts with simulated streaming, so the real adapter, orchestration, and UI run
 without a paid model. Each scenario is a model, and each prompt plays the next recorded turn.
-Bundled servers, including desktop dev, skip it because they have no agent script.
+Bundled servers skip it because they have no agent script.
 Dev servers add it back on start, so turn it off in Settings instead of removing it.
 To add a scenario, point a `SCENARIOS` entry at a generic ACP replay fixture
 (`registry_transcript.ndjson`) or a file in [dev-replay](../../apps/server/scripts/dev-replay).
@@ -91,7 +91,7 @@ Leave `VITE_HTTP_URL` and `VITE_WS_URL` unset. Vite proxies the backend through 
 origin so the same build works over localhost and remote connections.
 
 Shared runs enable bundled dev to avoid a network round trip for each import level.
-`T3CODE_BUNDLED_DEV=0` opts out when debugging bundler differences. Two reload traps matter
+`IGLO_CODE_BUNDLED_DEV=0` opts out when debugging bundler differences. Two reload traps matter
 when changing this setup:
 
 - The web entry must dynamically import the app so React refresh initializes before application
@@ -131,16 +131,16 @@ openssl rand -hex 32
 Put that value in the main checkout's gitignored `.env`:
 
 ```dotenv
-T3CODE_DEV_AUTH_TOKEN=<the value generated above>
+IGLO_CODE_DEV_AUTH_TOKEN=<the value generated above>
 ```
 
-The `t3.json` Setup Worktree action links that file to each worktree's `.env`. The dev runner reads repository env files at startup. `.env.local` and inherited process
+The `iglo.code.json` Setup Worktree action links that file to each worktree's `.env`. The dev runner reads repository env files at startup. `.env.local` and inherited process
 environment values override `.env`, so no per-worktree export is needed after setup.
 
 For a manual worktree or launcher without that link, export the same fixed value instead:
 
 ```sh
-export T3CODE_DEV_AUTH_TOKEN="<the value generated above>"
+export IGLO_CODE_DEV_AUTH_TOKEN="<the value generated above>"
 ```
 
 Do not generate a new value at startup. Start or restart `vp run dev --share` after configuration,
@@ -159,7 +159,7 @@ for the security model.
 changed files, `knip:check` when code or a manifest changes, the generated GraphQL checks, typecheck
 of the affected packages and their dependents, and the test files beside the changed files. It also
 runs the checks that read other files: the agent context budget when the server is affected, and
-React Compiler coverage for only the changed web and mobile files. It maps
+React Compiler coverage for only the changed web files. It maps
 files to packages with [ci-changes.cjs](../../.github/scripts/ci-changes.cjs). It
 compares against the closest merge base with any remote's `main`, so a fork whose `main` lags
 upstream still compares against upstream, or with a ref you pass. It skips the full test
@@ -189,9 +189,8 @@ run in Node. The fork's plugin and workflow tests in `apps/web/integration` stil
 
 TypeScript workspaces typecheck with `effect-tsgo tsrs --noEmit` from `@effect/tsgo`: the
 [tsrs](https://github.com/oxc-project/tsrs) checker with Effect diagnostics, quick fixes, and
-refactors built in. Only `apps/marketing` installs `typescript`, for Astro. VS Code's TypeScript 7
-extension starts the same checker through `.vscode/tsdk/tsgo` (`js/ts.tsdk.path`), a POSIX
-script, so on Windows open the workspace through WSL.
+refactors built in. VS Code's TypeScript 7 extension starts the same checker through
+`.vscode/tsdk/tsgo` (`js/ts.tsdk.path`).
 
 This fork has no CI. Before pushing to `main`, run the checks locally:
 

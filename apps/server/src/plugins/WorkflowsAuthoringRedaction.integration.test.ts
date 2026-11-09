@@ -28,7 +28,7 @@ it.live("preserves protected values through authoring read, save and YAML round 
       });
       const runtime = yield* test.boot(Host.of({ ...test.core, lifecycle: () => Stream.never }));
       const fs = yield* FileSystem.FileSystem;
-      const filename = `${test.config.baseDir}/.t3code/workflows/protected.yaml`;
+      const filename = `${test.config.baseDir}/.iglo-code/workflows/protected.yaml`;
       const authored = decodeDefinition({
         ...sequence,
         id: "protected",
@@ -109,7 +109,7 @@ it.live("preserves protected values through authoring read, save and YAML round 
       );
       // Repair also restores placeholders from a schema-invalid source, retaining its exact
       // filename rather than deriving a new file from the candidate's identity.
-      const repairSource = ".t3code/workflows/retained-name.yml";
+      const repairSource = ".iglo-code/workflows/retained-name.yml";
       const repairFile = `${test.config.baseDir}/${repairSource}`;
       const repairDefinition = { ...authored, id: "repaired" };
       yield* fs.writeFileString(repairFile, Yaml.stringify({ ...repairDefinition, entry: 3 }));
@@ -136,7 +136,7 @@ it.live("preserves protected values through authoring read, save and YAML round 
       expect(decodeDefinition(Yaml.parse(yield* fs.readFileString(repairFile)))).toEqual(
         repairDefinition,
       );
-      expect(yield* fs.exists(`${test.config.baseDir}/.t3code/workflows/repaired.yaml`)).toBe(
+      expect(yield* fs.exists(`${test.config.baseDir}/.iglo-code/workflows/repaired.yaml`)).toBe(
         false,
       );
     }),

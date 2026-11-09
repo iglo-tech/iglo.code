@@ -460,7 +460,7 @@ const decodeHostSetup = (reason: string): PreviewStreamHostSetup => {
       return { need: value.need, command: value.command };
     }
   } catch {}
-  return { need: "sandbox", command: "sudo npx t3 browser setup" };
+  return { need: "sandbox", command: "sudo iglo.code browser setup" };
 };
 
 export const previewStreamHostSetupMessage = (setup: PreviewStreamHostSetup) =>

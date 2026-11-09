@@ -1067,12 +1067,12 @@ function acpMcpFallbackInput(value: string | undefined): Record<string, unknown>
   return undefined;
 }
 
-// Known T3 inventory gates matches, so server-name separators can stay loose. Kiro titles "@t3-code/<tool>".
+// Known T3 inventory gates matches, so server-name separators can stay loose. Kiro titles "@iglo-code/<tool>".
 const T3_MCP_TITLE_CALL =
-  /^(?:@|mcp[-_]{1,2})?t3[-_ ]?code[-_.:/ ]{1,3}(?<tool>[A-Za-z0-9][A-Za-z0-9_.-]*)(?::.*)?$/i;
+  /^(?:@|mcp[-_]{1,2})?iglo[-_ ]?code[-_.:/ ]{1,3}(?<tool>[A-Za-z0-9][A-Za-z0-9_.-]*)(?::.*)?$/i;
 
 const T3_MCP_TITLE_SUFFIX_CALL =
-  /^(?<tool>[A-Za-z0-9][A-Za-z0-9_.-]*?)(?: \(t3[-_ ]?code MCP Server\)(?::|$)|[-_.]t3[-_ ]?code$)/i;
+  /^(?<tool>[A-Za-z0-9][A-Za-z0-9_.-]*?)(?: \(iglo[-_ ]?code MCP Server\)(?::|$)|[-_.]iglo[-_ ]?code$)/i;
 
 /**
  * glm and Kimi use bare names; Antigravity uses "Running <tool>". Kimi appends
@@ -1115,7 +1115,7 @@ export function extractMcpToolCallIdentity(
     : undefined;
   const metaServerId = typeof meta?.serverId === "string" ? meta.serverId.trim() : "";
   const metaToolName = typeof meta?.toolName === "string" ? meta.toolName.trim() : "";
-  if (/^t3[-_ ]?code$/i.test(metaServerId) && metaToolName.length > 0) {
+  if (/^iglo[-_ ]?code$/i.test(metaServerId) && metaToolName.length > 0) {
     for (const knownTool of T3_MCP_TOOL_NAMES) {
       const boundary = metaToolName.length - knownTool.length - 1;
       if (
@@ -1124,15 +1124,15 @@ export function extractMcpToolCallIdentity(
           boundary >= 0 &&
           !/[A-Za-z0-9]/.test(metaToolName.charAt(boundary)))
       ) {
-        return { server: "t3-code", tool: knownTool };
+        return { server: "iglo-code", tool: knownTool };
       }
     }
   }
   const gooseExtension =
     typeof gooseToolCall?.extensionName === "string" ? gooseToolCall.extensionName.trim() : "";
   const assertsForeignOrigin =
-    (metaServerId.length > 0 && !/^t3[-_ ]?code$/i.test(metaServerId)) ||
-    (gooseExtension.length > 0 && !/^t3[-_ ]?code$/i.test(gooseExtension));
+    (metaServerId.length > 0 && !/^iglo[-_ ]?code$/i.test(metaServerId)) ||
+    (gooseExtension.length > 0 && !/^iglo[-_ ]?code$/i.test(gooseExtension));
   // goose metadata also tags built-ins; retain their command/file projections instead of classifying as MCP.
   if (assertsForeignOrigin) {
     if (metaServerId.length === 0 || metaToolName.length === 0) return undefined;
@@ -1151,7 +1151,7 @@ export function extractMcpToolCallIdentity(
   for (const candidate of candidates) {
     const trimmed = candidate.trim();
     const qualified = /^mcp__(.+?)__(.+)$/i.exec(trimmed);
-    if (qualified?.[1] && qualified[2] && !/^t3[-_ ]?code$/i.test(qualified[1]))
+    if (qualified?.[1] && qualified[2] && !/^iglo[-_ ]?code$/i.test(qualified[1]))
       return { server: qualified[1], tool: qualified[2] };
     const match =
       T3_MCP_TITLE_CALL.exec(trimmed) ??
@@ -1159,7 +1159,7 @@ export function extractMcpToolCallIdentity(
       T3_MCP_BARE_TITLE_CALL.exec(trimmed);
     const candidateTool = match?.groups?.tool;
     if (candidateTool !== undefined && T3_MCP_TOOL_NAMES.has(candidateTool)) {
-      return { server: "t3-code", tool: candidateTool };
+      return { server: "iglo-code", tool: candidateTool };
     }
   }
   const commands = [
@@ -1172,7 +1172,7 @@ export function extractMcpToolCallIdentity(
     const match = ACP_MCP_FALLBACK_CALL.exec(command);
     if (match?.[1] !== undefined) {
       const input = acpMcpFallbackInput(match[2]);
-      return { server: "t3-code", tool: match[1], ...(input === undefined ? {} : { input }) };
+      return { server: "iglo-code", tool: match[1], ...(input === undefined ? {} : { input }) };
     }
   }
   return undefined;

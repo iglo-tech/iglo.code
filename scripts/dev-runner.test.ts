@@ -61,7 +61,7 @@ const devServerInput = {
   autoBootstrapProjectFromCwd: undefined,
   logWebSocketEvents: undefined,
   host: undefined,
-  port: 13_773,
+  port: 23_773,
   devUrl: undefined,
   dryRun: false,
   share: false,
@@ -74,7 +74,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
     it.effect("forwards the reusable auth token to web dev", () =>
       Effect.gen(function* () {
         const input = {
-          baseEnv: { T3CODE_DEV_AUTH_TOKEN: "reusable-dev-auth-token-that-is-long-enough" },
+          baseEnv: { IGLO_CODE_DEV_AUTH_TOKEN: "reusable-dev-auth-token-that-is-long-enough" },
           serverOffset: 0,
           webOffset: 0,
           t3Home: undefined,
@@ -87,7 +87,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         } as const;
         const web = yield* createDevRunnerEnv({ ...input, mode: "dev" });
 
-        assert.equal(web.T3CODE_DEV_AUTH_TOKEN, input.baseEnv.T3CODE_DEV_AUTH_TOKEN);
+        assert.equal(web.IGLO_CODE_DEV_AUTH_TOKEN, input.baseEnv.IGLO_CODE_DEV_AUTH_TOKEN);
       }),
     );
 
@@ -108,11 +108,11 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const byDefault = yield* createDevRunnerEnv({ ...input, baseEnv: {} });
         const optedIn = yield* createDevRunnerEnv({
           ...input,
-          baseEnv: { T3CODE_TELEMETRY_ENABLED: "true" },
+          baseEnv: { IGLO_CODE_TELEMETRY_ENABLED: "true" },
         });
 
-        assert.equal(byDefault.T3CODE_TELEMETRY_ENABLED, "false");
-        assert.equal(optedIn.T3CODE_TELEMETRY_ENABLED, "true");
+        assert.equal(byDefault.IGLO_CODE_TELEMETRY_ENABLED, "false");
+        assert.equal(optedIn.IGLO_CODE_TELEMETRY_ENABLED, "true");
       }),
     );
 
@@ -121,8 +121,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
           baseEnv: {
-            T3_SERVICE_LAUNCHER_CONTEXT: '{"childVersion":"9.9.9"}',
-            T3_BOOT_SERVICE_UNIT: "t3code.service",
+            IGLO_CODE_SERVICE_LAUNCHER_CONTEXT: '{"childVersion":"9.9.9"}',
+            IGLO_CODE_BOOT_SERVICE_UNIT: "iglo.code.service",
           },
           serverOffset: 0,
           webOffset: 0,
@@ -135,8 +135,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3_SERVICE_LAUNCHER_CONTEXT, undefined);
-        assert.equal(env.T3_BOOT_SERVICE_UNIT, undefined);
+        assert.equal(env.IGLO_CODE_SERVICE_LAUNCHER_CONTEXT, undefined);
+        assert.equal(env.IGLO_CODE_BOOT_SERVICE_UNIT, undefined);
       }),
     );
 
@@ -163,8 +163,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
           assert.equal(env.VITE_HTTP_URL, undefined);
           assert.equal(env.VITE_WS_URL, undefined);
-          assert.equal(env.T3CODE_PORT, "13773");
-          assert.equal(env.T3CODE_SINGLE_ORIGIN_DEV, "1");
+          assert.equal(env.IGLO_CODE_PORT, "23773");
+          assert.equal(env.IGLO_CODE_SINGLE_ORIGIN_DEV, "1");
         }),
     );
 
@@ -192,7 +192,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   describe("findFirstAvailableOffset", () => {
     it.effect("advances until all required ports are available", () =>
       Effect.gen(function* () {
-        const taken = new Set([13773, 5733, 13774, 5734]);
+        const taken = new Set([23773, 9733, 23774, 9734]);
         const offset = yield* findFirstAvailableOffset({
           startOffset: 0,
           requireServerPort: true,
@@ -208,8 +208,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       Effect.gen(function* () {
         const probed: Array<{ port: number; role: string | undefined }> = [];
         const offset = yield* findFirstAvailableOffset({
-          // 5733 + 833 = 6566, which browsers block as sane-port.
-          startOffset: 833,
+          // 9733 + 347 = 10080, which browsers block as amanda.
+          startOffset: 347,
           requireServerPort: true,
           requireWebPort: true,
           checkPortAvailability: (port, role) => {
@@ -218,10 +218,10 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           },
         });
 
-        assert.equal(offset, 834);
+        assert.equal(offset, 348);
         assert.deepStrictEqual(probed, [
-          { port: 14_607, role: "server" },
-          { port: 6567, role: "web" },
+          { port: 24_121, role: "server" },
+          { port: 10_081, role: "web" },
         ]);
       }),
     );
@@ -229,13 +229,13 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
     it.effect("does not reject a server-only offset because its unused web port is blocked", () =>
       Effect.gen(function* () {
         const offset = yield* findFirstAvailableOffset({
-          startOffset: 833,
+          startOffset: 347,
           requireServerPort: true,
           requireWebPort: false,
           checkPortAvailability: () => Effect.succeed(true),
         });
 
-        assert.equal(offset, 833);
+        assert.equal(offset, 347);
       }),
     );
   });
@@ -247,7 +247,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const calls: Array<[number, string]> = [];
 
         const available = yield* checkPortAvailabilityOnHosts(
-          13_773,
+          23_773,
           ["127.0.0.1", "0.0.0.0", "::"],
           (port, host) =>
             Effect.promise(async () => {
@@ -262,9 +262,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
         assert.equal(available, true);
         assert.deepStrictEqual(calls, [
-          [13_773, "127.0.0.1"],
-          [13_773, "0.0.0.0"],
-          [13_773, "::"],
+          [23_773, "127.0.0.1"],
+          [23_773, "0.0.0.0"],
+          [23_773, "::"],
         ]);
       }),
     );
@@ -287,8 +287,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         });
 
         assert.deepStrictEqual(probed, [
-          { port: 13_773, role: "server" },
-          { port: 5733, role: "web" },
+          { port: 23_773, role: "server" },
+          { port: 9733, role: "web" },
         ]);
       }),
     );
@@ -297,7 +297,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   describe("resolveModePortOffsets", () => {
     it.effect("uses a shared fallback offset for dev mode", () =>
       Effect.gen(function* () {
-        const taken = new Set([13773, 5733]);
+        const taken = new Set([23773, 9733]);
         const offsets = yield* resolveModePortOffsets({
           mode: "dev",
           startOffset: 0,
@@ -312,7 +312,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
     it.effect("keeps server offset stable for dev:web and only shifts web offset", () =>
       Effect.gen(function* () {
-        const taken = new Set([5733]);
+        const taken = new Set([9733]);
         const offsets = yield* resolveModePortOffsets({
           mode: "dev:web",
           startOffset: 0,
@@ -327,7 +327,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
     it.effect("shifts only server offset for dev:server", () =>
       Effect.gen(function* () {
-        const taken = new Set([13773]);
+        const taken = new Set([23773]);
         const offsets = yield* resolveModePortOffsets({
           mode: "dev:server",
           startOffset: 0,
@@ -390,11 +390,11 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       });
     });
 
-    it.effect("ignores an ambient T3CODE_HOME when no home is resolved", () =>
+    it.effect("ignores an ambient IGLO_CODE_HOME when no home is resolved", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
-          baseEnv: { T3CODE_HOME: "/home/user/.t3" },
+          baseEnv: { IGLO_CODE_HOME: "/home/user/.iglo.code" },
           serverOffset: 0,
           webOffset: 0,
           t3Home: undefined,
@@ -406,7 +406,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3CODE_HOME, undefined);
+        assert.equal(env.IGLO_CODE_HOME, undefined);
       }),
     );
 
@@ -428,7 +428,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             devUrl: undefined,
           }).pipe(
             Effect.provideService(HostProcess.HomeDirectory, "/home/dev"),
-            Effect.map((env) => env.T3CODE_HOME),
+            Effect.map((env) => env.IGLO_CODE_HOME),
           );
 
         assert.equal(yield* homeFor("~/t3-dev"), path.join("/home/dev", "t3-dev"));
@@ -472,7 +472,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
     // A shared origin means a remote browser, where unbundled dev's
     // per-module waterfall pays a tailnet round trip per import level. The
     // runner defaults bundled dev on for the spawned stack, but only
-    // defaults: an explicit T3CODE_BUNDLED_DEV (even "0") must pass through.
+    // defaults: an explicit IGLO_CODE_BUNDLED_DEV (even "0") must pass through.
     describe("--share spawn wiring", () => {
       const shareSpawned = (input: {
         readonly ambientBundledDev?: string | undefined;
@@ -535,17 +535,17 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
               HostProcess.Environment,
               input.ambientBundledDev === undefined
                 ? {}
-                : { T3CODE_BUNDLED_DEV: input.ambientBundledDev },
+                : { IGLO_CODE_BUNDLED_DEV: input.ambientBundledDev },
             ),
           );
 
           return { env: captured, vpArgs, tailscaleCalls };
         });
 
-      it.effect("keeps an explicit T3CODE_BUNDLED_DEV=0 opt-out", () =>
+      it.effect("keeps an explicit IGLO_CODE_BUNDLED_DEV=0 opt-out", () =>
         Effect.gen(function* () {
           const { env } = yield* shareSpawned({ ambientBundledDev: "0" });
-          assert.equal(env?.T3CODE_BUNDLED_DEV, "0");
+          assert.equal(env?.IGLO_CODE_BUNDLED_DEV, "0");
         }),
       );
 
@@ -553,13 +553,13 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         Effect.gen(function* () {
           const { env, vpArgs, tailscaleCalls } = yield* shareSpawned({ built: true });
           assert.include(vpArgs, "dev:built");
-          assert.equal(env?.T3CODE_BUILT_DEV, "1");
-          assert.equal(env?.T3CODE_BUNDLED_DEV, undefined);
+          assert.equal(env?.IGLO_CODE_BUILT_DEV, "1");
+          assert.equal(env?.IGLO_CODE_BUNDLED_DEV, undefined);
           assert.equal(env?.VITE_DEV_SERVER_URL, `https://host.example.ts.net:${env?.PORT}/`);
           const serve = tailscaleCalls.find((args) => args.includes("--bg"));
           assert.deepEqual(serve?.slice(-2), [
             `--https=${env?.PORT}`,
-            `http://127.0.0.1:${env?.T3CODE_PORT}`,
+            `http://127.0.0.1:${env?.IGLO_CODE_PORT}`,
           ]);
         }),
       );
@@ -568,7 +568,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         Effect.gen(function* () {
           const { env, tailscaleCalls } = yield* shareSpawned({ built: true, host: "::1" });
           const serve = tailscaleCalls.find((args) => args.includes("--bg"));
-          assert.equal(serve?.at(-1), `http://[::1]:${env?.T3CODE_PORT}`);
+          assert.equal(serve?.at(-1), `http://[::1]:${env?.IGLO_CODE_PORT}`);
         }),
       );
 
@@ -577,7 +577,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           const { env, vpArgs, tailscaleCalls } = yield* shareSpawned({});
           assert.include(vpArgs, "dev");
           assert.notInclude(vpArgs, "dev:built");
-          assert.equal(env?.T3CODE_BUNDLED_DEV, "1");
+          assert.equal(env?.IGLO_CODE_BUNDLED_DEV, "1");
           const serve = tailscaleCalls.find((args) => args.includes("--bg"));
           assert.equal(serve?.at(-1), `http://localhost:${env?.PORT}`);
         }),
@@ -673,15 +673,15 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
             Effect.provideService(HostProcess.Platform, "linux"),
             Effect.provideService(HostProcess.WorkingDirectory, input.cwd),
-            // No ~/.t3 here, so these runs never seed from this machine's install.
+            // No ~/.iglo.code here, so these runs never seed from this machine's install.
             Effect.provideService(HostProcess.HomeDirectory, input.cwd),
             Effect.provideService(
               HostProcess.Environment,
-              input.ambientHome === undefined ? {} : { T3CODE_HOME: input.ambientHome },
+              input.ambientHome === undefined ? {} : { IGLO_CODE_HOME: input.ambientHome },
             ),
           );
 
-          return captured?.T3CODE_HOME;
+          return captured?.IGLO_CODE_HOME;
         });
 
       it.effect("prefers an explicit --home-dir over the worktree default", () =>
@@ -691,7 +691,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           const home = yield* spawnedHome({
             t3Home: "/tmp/explicit-home",
             cwd: root,
-            ambientHome: "/home/user/.t3",
+            ambientHome: "/home/user/.iglo.code",
           });
           assert.equal(home, path.resolve("/tmp/explicit-home"));
         }).pipe(Effect.scoped),
@@ -704,32 +704,32 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           const home = yield* spawnedHome({
             t3Home: "   ",
             cwd: root,
-            ambientHome: "/home/user/.t3",
+            ambientHome: "/home/user/.iglo.code",
           });
-          assert.equal(home, path.join(path.resolve(root), ".t3"));
+          assert.equal(home, path.join(path.resolve(root), ".iglo.code"));
         }).pipe(Effect.scoped),
       );
 
-      it.effect("prefers the worktree .t3 over an ambient T3CODE_HOME", () =>
+      it.effect("prefers the worktree .iglo.code over an ambient IGLO_CODE_HOME", () =>
         Effect.gen(function* () {
           const path = yield* Path.Path;
           const root = yield* makeWorktree;
           const home = yield* spawnedHome({
             t3Home: undefined,
             cwd: root,
-            ambientHome: "/home/user/.t3",
+            ambientHome: "/home/user/.iglo.code",
           });
-          assert.equal(home, path.join(path.resolve(root), ".t3"));
+          assert.equal(home, path.join(path.resolve(root), ".iglo.code"));
         }).pipe(Effect.scoped),
       );
 
-      it.effect("seeds a worktree database from ~/.t3 only when it has none", () =>
+      it.effect("seeds a worktree database from ~/.iglo.code only when it has none", () =>
         Effect.gen(function* () {
           const path = yield* Path.Path;
           const root = yield* makeWorktree;
           const home = path.join(root, "home");
-          NodeFS.mkdirSync(path.join(home, ".t3", "userdata"), { recursive: true });
-          NodeFS.writeFileSync(path.join(home, ".t3", "userdata", "statev2.sqlite"), "");
+          NodeFS.mkdirSync(path.join(home, ".iglo.code", "userdata"), { recursive: true });
+          NodeFS.writeFileSync(path.join(home, ".iglo.code", "userdata", "statev2.sqlite"), "");
 
           const spawnedArgs = (seed: boolean | undefined) =>
             Effect.gen(function* () {
@@ -757,11 +757,14 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
           assert.deepStrictEqual(yield* spawnedArgs(false), []);
           const [seedArgs] = yield* spawnedArgs(undefined);
-          assert.includeMembers([...(seedArgs ?? [])], ["--base-dir", path.join(root, ".t3")]);
+          assert.includeMembers(
+            [...(seedArgs ?? [])],
+            ["--base-dir", path.join(root, ".iglo.code")],
+          );
 
           // Either database means the worktree already has data.
           for (const name of ["state.sqlite", "statev2.sqlite"]) {
-            const file = path.join(root, ".t3", "userdata", name);
+            const file = path.join(root, ".iglo.code", "userdata", name);
             NodeFS.mkdirSync(path.dirname(file), { recursive: true });
             NodeFS.writeFileSync(file, "");
             assert.deepStrictEqual(yield* spawnedArgs(undefined), []);
@@ -782,7 +785,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             const path = yield* Path.Path;
             const root = yield* makeWorktree;
             const home = path.join(root, "home");
-            const source = path.join(home, ".t3", "userdata", "statev2.sqlite");
+            const source = path.join(home, ".iglo.code", "userdata", "statev2.sqlite");
             NodeFS.mkdirSync(path.dirname(source), { recursive: true });
             NodeFS.writeFileSync(source, "");
             const spawned: Array<ReadonlyArray<string>> = [];
@@ -844,15 +847,15 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           }).pipe(Effect.scoped),
       );
 
-      it.effect("falls back to an ambient T3CODE_HOME outside a worktree", () =>
+      it.effect("falls back to an ambient IGLO_CODE_HOME outside a worktree", () =>
         Effect.gen(function* () {
           const path = yield* Path.Path;
           const home = yield* spawnedHome({
             t3Home: undefined,
             cwd: NodeOS.tmpdir(),
-            ambientHome: "/home/user/.t3",
+            ambientHome: "/home/user/.iglo.code",
           });
-          assert.equal(home, path.resolve("/home/user/.t3"));
+          assert.equal(home, path.resolve("/home/user/.iglo.code"));
         }),
       );
     });

@@ -413,7 +413,7 @@ const cloneFixture = Effect.gen(function* () {
   );
   return {
     environmentId,
-    directory: `${config.baseDir}/.t3code/workflows`,
+    directory: `${config.baseDir}/.iglo-code/workflows`,
     client: createWorkflowsClient(environmentId),
     drafts: createPluginDraftStore(memoryStorage(), environmentId, "workflows"),
   };
@@ -508,7 +508,7 @@ it.live("clones past a later-page invalid filename and scoped local drafts", () 
       expect(later.entries).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            source: ".t3code/workflows/implementation-copy.yaml",
+            source: ".iglo-code/workflows/implementation-copy.yaml",
             definitionId: null,
             reasons: ["Invalid workflow YAML."],
           }),
@@ -651,7 +651,7 @@ it.live(
                 environmentId,
                 config,
                 catalog,
-                directory: `${config.baseDir}/.t3code/workflows`,
+                directory: `${config.baseDir}/.iglo-code/workflows`,
                 tracked: track(createWorkflowsClient(environmentId)),
                 projects: Context.get(server.context, Projects.ProjectService),
                 grantWrite: SubscriptionRef.set(prepared, Option.some(prepare(writable.token))),
@@ -1051,7 +1051,7 @@ it.live(
         expect(page()).toContain("Saved revision 1");
         // Reopening the saved file keeps the selected step in the inspector.
         expect(router.state.location.search).toMatchObject({
-          pluginState: { source: ".t3code/workflows/release-notes.yaml", step: "agent-2" },
+          pluginState: { source: ".iglo-code/workflows/release-notes.yaml", step: "agent-2" },
         });
         expect(control(pluginDesign.Textarea, "wf-agent-2-instruction").props.value).toBe(
           "Review the notes carefully",
@@ -1080,7 +1080,7 @@ it.live(
         // A coalesced draft write still pending when the page is hidden (reload, tab close) is
         // flushed then, since unmount effects never run on a reload.
         const sourceDraft = (key: string) =>
-          key.endsWith(encodeURIComponent(`${projectId}:.t3code/workflows/release-notes.yaml`));
+          key.endsWith(encodeURIComponent(`${projectId}:.iglo-code/workflows/release-notes.yaml`));
         authoringTimings.draftDelayMs = 60_000;
         yield* promise(clearSelection);
         yield* promise(() => type("wf-workflow-title", "Pending title"));
@@ -1356,7 +1356,7 @@ it.live(
         yield* promise(() => tracked.settle("read"));
         expect(page()).toContain("Saved revision 1");
         expect(router.state.location.search).toMatchObject({
-          pluginState: { source: ".t3code/workflows/implementation-copy-3.yaml" },
+          pluginState: { source: ".iglo-code/workflows/implementation-copy-3.yaml" },
         });
         expect(
           decodeDefinition(

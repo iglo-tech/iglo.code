@@ -15,7 +15,7 @@ const tracesTo = (policy?: ManagedPolicyDocument) =>
   Effect.service(RelayTracing.RelayClientTracer).pipe(
     Effect.provide(
       relayLayer(
-        { serviceName: "t3code-server", runtime: "node", client: "environment-server" },
+        { serviceName: "iglo-code-server", runtime: "node", client: "environment-server" },
         { tracesUrl: "https://traces.example.com", tracesDataset: "relay", tracesToken: "token" },
       ).pipe(
         Layer.provide(ManagedPolicy.layerTest(policy)),

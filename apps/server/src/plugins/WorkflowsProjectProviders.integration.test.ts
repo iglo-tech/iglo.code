@@ -182,7 +182,7 @@ it.live.each([
           message: expect.stringContaining("disabled in this project"),
         },
       });
-      expect(yield* fs.exists(`${test.config.baseDir}/.t3code/workflows/sequence.yaml`)).toBe(
+      expect(yield* fs.exists(`${test.config.baseDir}/.iglo-code/workflows/sequence.yaml`)).toBe(
         false,
       );
       const saved = yield* runtime

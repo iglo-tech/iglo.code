@@ -19,12 +19,12 @@ it.effect.each(["sequence.yaml", "sequence.yml", "authored.yaml"])(
         const test = yield* fixture;
         const fs = yield* FileSystem.FileSystem;
         const scope = { environmentId: test.environmentId, projectId: test.projectId };
-        const directory = `${test.directory}/.t3code/workflows`;
+        const directory = `${test.directory}/.iglo-code/workflows`;
         yield* fs.makeDirectory(directory, { recursive: true });
         yield* fs.writeFileString(`${directory}/${filename}`, encodeJson(sequence));
         const catalog = yield* test.invoke("catalog", scope).pipe(Effect.flatMap(decodeCatalog));
         expect(
-          catalog.find((entry) => entry.source === `.t3code/workflows/${filename}`),
+          catalog.find((entry) => entry.source === `.iglo-code/workflows/${filename}`),
         ).toMatchObject({ runnable: true, definition: { revision: 1 } });
         const saved = yield* test.invoke("save", {
           ...scope,
@@ -32,13 +32,13 @@ it.effect.each(["sequence.yaml", "sequence.yml", "authored.yaml"])(
           definition: { ...sequence, revision: 2, title: "Changed title" },
         });
         expect(saved).toMatchObject({
-          source: `.t3code/workflows/${filename}`,
+          source: `.iglo-code/workflows/${filename}`,
           definition: { revision: 2, title: "Changed title" },
         });
         const reloaded = yield* test.invoke("catalog", scope).pipe(Effect.flatMap(decodeCatalog));
         expect(reloaded.filter((entry) => entry.definition?.id === "sequence")).toMatchObject([
           {
-            source: `.t3code/workflows/${filename}`,
+            source: `.iglo-code/workflows/${filename}`,
             definition: { revision: 2, title: "Changed title" },
           },
         ]);
@@ -65,7 +65,7 @@ it.effect.each(["duplicate", "other-identity", "invalid"])(
         const test = yield* fixture;
         const fs = yield* FileSystem.FileSystem;
         const scope = { environmentId: test.environmentId, projectId: test.projectId };
-        const directory = `${test.directory}/.t3code/workflows`;
+        const directory = `${test.directory}/.iglo-code/workflows`;
         yield* fs.makeDirectory(directory, { recursive: true });
         const contents =
           conflict === "invalid"

@@ -132,7 +132,7 @@ it.live.each([
           "config",
           "--local",
           "--unset",
-          "branch.review/work.t3codeBaseCommit",
+          "branch.review/work.igloCodeBaseCommit",
         );
       if (proof === "expired")
         yield* git(config.baseDir, "reflog", "expire", "--expire=now", "--all");

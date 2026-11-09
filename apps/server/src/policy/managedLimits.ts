@@ -25,6 +25,7 @@ import * as Schema from "effect/Schema";
 import * as NetService from "@t3tools/shared/Net";
 
 import { loopbackBindAddress } from "../auth/utils.ts";
+import { hasCloudPublicConfig } from "../cloud/publicConfig.ts";
 
 type PolicyDocument = { readonly document: ManagedPolicyDocument | undefined };
 
@@ -83,7 +84,10 @@ const refuse = (policy: PolicyDocument, action: string, detail?: string) =>
     ...(detail === undefined ? {} : { detail }),
   });
 
-export const refuseConnect = (policy: PolicyDocument) => refuse(policy, "T3 Connect");
+export const refuseConnect = (policy: PolicyDocument) =>
+  hasCloudPublicConfig
+    ? refuse(policy, "T3 Connect")
+    : new ManagedPolicyRefusedError({ organization: "iglo.code", action: "T3 Connect" });
 
 // Node throws ENOTDIR, outside the spawner's error mapping, when PATH ends in a file.
 const isMissingCli = (cause: unknown) =>
@@ -100,7 +104,7 @@ const NOTHING_TO_CLOSE: ReadonlySet<TailscaleStderrDiagnostic | undefined> = new
 
 /**
  * Turns off the Tailscale Serve routes that forward to the server at `target`, such as one
- * `t3 pair --tailscale` left from before the policy, and keeps every other route. Runs before the
+ * `iglo.code pair --tailscale` left from before the policy, and keeps every other route. Runs before the
  * server binds, and fails unless a fresh read shows no route here, since `off` can exit 0 and
  * leave it. Without the CLI, or with Tailscale down or logged out, nothing forwards.
  */
@@ -222,7 +226,7 @@ export const checkServerReachability = Effect.fn("managedLimits.checkServerReach
       refuseRemoteClients(
         policy,
         input.privateNetworkOnly === true
-          ? "so the background service cannot listen on private networks; set T3CODE_HOST=127.0.0.1 in its service.env"
+          ? "so the background service cannot listen on private networks; set IGLO_CODE_HOST=127.0.0.1 in its service.env"
           : `so the server cannot listen on ${input.host === "" ? "every interface" : (input.host ?? "this host")}`,
       );
     if (!allowsAuthPolicy(policy, input.authPolicy)) {

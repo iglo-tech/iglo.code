@@ -14,7 +14,7 @@ const MAX_EVENTS = 64;
 const MAX_BYTES = 1024 * 1024;
 const encodeQueue = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
-export const enabled = Config.Boolean("T3CODE_PROVIDER_COMMIT_BATCHING").pipe(
+export const enabled = Config.Boolean("IGLO_CODE_PROVIDER_COMMIT_BATCHING").pipe(
   Config.withDefault(true),
   Effect.orDie,
 );

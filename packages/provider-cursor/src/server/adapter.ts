@@ -206,7 +206,7 @@ export function cursorMcpServers(
     return undefined;
   }
   return {
-    "t3-code": {
+    "iglo-code": {
       type: "http",
       url: session.endpoint,
       headers: {

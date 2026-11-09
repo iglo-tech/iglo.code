@@ -1,0 +1,269 @@
+# Builds the standalone CLI archives on each target's own hardware and publishes them, with
+# release.json and SHA256SUMS, as the GitHub Release that scripts/install.sh and
+# `iglo.code update` read.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, such as v1.2.3 or v1.2.4-nightly.20261109.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iglo-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Resolve release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      channel: ${{ steps.meta.outputs.channel }}
+    steps:
+      # Channels follow packages/shared/src/cliRelease.ts. Stable must be plain X.Y.Z: the
+      # installer finds it through /releases/latest and only accepts that form there.
+      - id: meta
+        name: Resolve version and channel
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if [[ "$TAG" != v* ]]; then
+            echo "Release tags start with v; got '$TAG'." >&2
+            exit 1
+          elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            channel=stable
+          elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(nightly|preview)\.[0-9]{8}\.[0-9]+$ ]]; then
+            channel="${BASH_REMATCH[1]}"
+          else
+            echo "'$TAG' is neither vX.Y.Z nor vX.Y.Z-(nightly|preview).YYYYMMDD.N." >&2
+            exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "version=$version"
+            echo "channel=$channel"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG on the $channel channel."
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: darwin-arm64, runner: macos-15, platform: mac, arch: arm64 }
+          - { target: darwin-x64, runner: macos-15-intel, platform: mac, arch: x64 }
+          - { target: linux-x64, runner: ubuntu-24.04, platform: linux, arch: x64 }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm, platform: linux, arch: arm64 }
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      IGLO_CODE_TELEMETRY_CHANNEL: ${{ needs.preflight.outputs.channel }}
+      VITE_RELEASE_CHANNEL: ${{ needs.preflight.outputs.channel }}
+    steps:
+      # .repos holds vendored references the build never reads.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: package.json
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Vite+ comes from the lockfile; build-cli-archive runs `vp install` itself, so it goes on PATH.
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm install --global "$(node -p "require('./package.json').packageManager")"
+          pnpm install --frozen-lockfile
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+
+      # Nightly and preview tags are cut without a version commit; the binary reports the tag.
+      - name: Align package versions to the tag
+        run: bun scripts/update-release-package-versions.ts "$VERSION"
+
+      - name: Build web and server
+        run: vp run --filter t3 build
+
+      - name: Build resource monitor
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
+          mkdir -p "apps/server/dist/resource-monitor/${{ matrix.target }}"
+          cp native/resource-monitor/target/release/iglo-code-resource-monitor \
+            "apps/server/dist/resource-monitor/${{ matrix.target }}/"
+
+      - name: Build executable
+        run: bun apps/server/scripts/cli.ts build-exe --target "${{ matrix.target }}"
+
+      # Without CSC_LINK the archive is signed ad hoc, which is enough for curl installs:
+      # curl does not quarantine downloads, so Gatekeeper never assesses them.
+      - name: Import macOS signing certificate
+        if: matrix.platform == 'mac'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CSC_LINK" || -z "$CSC_KEY_PASSWORD" ]]; then
+            echo "No CSC_LINK; the archive is signed ad hoc and not notarized."
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/iglo-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 16)"
+          echo "::add-mask::$keychain_password"
+          cert_path="$RUNNER_TEMP/iglo-signing.p12"
+          printf '%s' "$CSC_LINK" | base64 --decode > "$cert_path"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$cert_path" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+          rm -f "$cert_path"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -n 1)"
+          if [[ -z "$identity" ]]; then
+            echo "CSC_LINK holds no Developer ID Application identity." >&2
+            exit 1
+          fi
+          echo "IGLO_CODE_CLI_MAC_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "macOS signing enabled."
+
+      # Notarizes only with a Developer ID identity and all three APPLE_API_* secrets.
+      - name: Build archive
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.platform }}" == mac && -n "$APPLE_API_KEY" ]]; then
+            key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+            printf '%s' "$APPLE_API_KEY" > "$key_path"
+            export APPLE_API_KEY="$key_path"
+          else
+            unset APPLE_API_KEY
+          fi
+          bun scripts/build-cli-archive.ts \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "$VERSION" \
+            --output-dir release-cli
+
+      - name: Smoke-test archive
+        run: >-
+          bun scripts/smoke-cli-archive.ts
+          --archive "release-cli/iglo.code-$VERSION-${{ matrix.target }}.tar.gz"
+          --expect-version "$VERSION"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: release-cli/iglo.code-${{ needs.preflight.outputs.version }}-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+      # Every target builds the same migrations, so one writes the manifest track switches read.
+      - name: Write release manifest
+        if: matrix.target == 'linux-x64'
+        run: bun apps/server/scripts/cli.ts release-manifest --version "$VERSION" --output-dir release-manifest
+
+      - name: Upload release manifest
+        if: matrix.target == 'linux-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: release-manifest/release.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.preflight.outputs.tag }}
+      VERSION: ${{ needs.preflight.outputs.version }}
+      CHANNEL: ${{ needs.preflight.outputs.channel }}
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Download release manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: release-manifest
+          path: release-assets
+
+      # Installers and updates look up "<sha256>  <file>" lines by name, so extra entries are fine.
+      - name: Write SHA256SUMS
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          expected=4
+          shopt -s nullglob
+          archives=(iglo.code-"$VERSION"-*.tar.gz)
+          if [[ ${#archives[@]} -ne $expected ]]; then
+            echo "Expected $expected archives, found ${#archives[@]}: ${archives[*]}" >&2
+            exit 1
+          fi
+          sha256sum "${archives[@]}" release.json > SHA256SUMS
+          cat SHA256SUMS
+
+      # Drafts are invisible to the installer and updater, so publishing after every upload means
+      # no client ever sees a release with missing assets. Only stable becomes "latest": the
+      # installer resolves stable through /releases/latest, and nightly/preview list releases.
+      - name: Publish release
+        run: |
+          set -euo pipefail
+          if [[ "$CHANNEL" == stable ]]; then
+            channel_flags=(--latest)
+          else
+            channel_flags=(--prerelease --latest=false)
+          fi
+          gh release create "$TAG" release-assets/* \
+            --verify-tag \
+            --draft \
+            --title "iglo.code $TAG" \
+            --generate-notes \
+            "${channel_flags[@]}"
+          gh release edit "$TAG" --draft=false "${channel_flags[@]}"

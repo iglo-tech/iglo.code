@@ -302,7 +302,6 @@ function ConnectionsSettingsContent({
           environmentId: environment.environmentId,
           serverLabel: environment.label,
           selfUpdate,
-          installation: environment.serverConfig?.environment.capabilities.serverInstallation,
           desktopAppUpdate,
           targetVersion: mismatch.clientVersion,
         },
@@ -1210,9 +1209,6 @@ function ConnectionsSettingsContent({
                         primaryEnvironment ? `${primaryEnvironment.label} server` : "server"
                       }
                       selfUpdate={resolveServerSelfUpdateCapability(primaryServerConfig)}
-                      installation={
-                        primaryServerConfig?.environment.capabilities.serverInstallation
-                      }
                       desktopAppUpdate={supportsDesktopAppUpdate(primaryServerConfig)}
                       targetVersion={primaryVersionMismatch.clientVersion}
                       label={
@@ -1326,7 +1322,7 @@ function ConnectionsSettingsContent({
                 <AlertDialogDescription>
                   {pendingDesktopServerExposureMode === "network-accessible"
                     ? "Let your other devices connect to T3 Code over the network. Pair devices to give them access. T3 Code will restart."
-                    : "Devices connected over your local network will disconnect. Existing tunnels, such as T3 Connect or Tailscale HTTPS, keep working. T3 Code will restart."}
+                    : "Devices connected over your local network will disconnect. Existing tunnels, such as Tailscale HTTPS, keep working. T3 Code will restart."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

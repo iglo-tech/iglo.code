@@ -17,7 +17,7 @@ import {
 import { normalizeProjectPathForComparison } from "./path.ts";
 import { fallbackTextGenerationModelSelection } from "./serverSettings.ts";
 
-export type ProjectSettingSource = "environment" | "project" | "t3.json";
+export type ProjectSettingSource = "environment" | "project" | "iglo.code.json";
 
 export type ProjectSettingSources = Readonly<
   Record<ProjectScopedServerSettingKey, ProjectSettingSource>
@@ -103,7 +103,7 @@ export function resolveProjectFileBackedSetting<K extends ProjectFileBackedSetti
   const fromFile = projectFile?.[field] as ResolvedServerSettings[K] | undefined;
   return fromFile === undefined
     ? { value: builtIn as ResolvedServerSettings[K], source: "environment" }
-    : { value: fromFile, source: "t3.json" };
+    : { value: fromFile, source: "iglo.code.json" };
 }
 
 function resolveProjectOverrides(

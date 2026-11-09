@@ -45,7 +45,7 @@ export interface McpClientCaller {
    * another environment passing on the limits of the agent it calls for.
    */
   readonly narrowedTo?: ClientModes | undefined;
-  /** An outside client's thread links go through this hosted app, as Copy thread's do. */
+  /** The web app origin the outside client reached this server at; its thread links open there. */
   readonly hostedAppUrl?: string | undefined;
 }
 
@@ -135,7 +135,7 @@ export interface McpInvocationScope {
 
 /**
  * T3 Code renders `t3-thread://` links as thread chips. Other MCP clients cannot open them, so
- * they get the hosted link Copy thread copies, which opens the thread in either app or a browser.
+ * they get a web link to this server's own web app, as Copy thread copies.
  * A known `title` labels the chip for clients that cannot load this environment's threads.
  */
 export const threadLinkFor = (

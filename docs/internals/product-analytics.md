@@ -2,7 +2,7 @@
 
 The server owns analytics delivery, opt-out, and identity for every connected client.
 Clients do not load the PostHog browser SDK. Client-use events require an
-authenticated connection, so visiting the hosted app without connecting does not
+authenticated connection, so loading the web client without connecting does not
 count as product use.
 
 ## Installs and owners
@@ -20,10 +20,10 @@ with it. Who an install belongs to is a separate fact, sent as
 a rule can change and apply to all history.
 
 [Owner sources](../../apps/server/src/telemetry/Identify.ts), strongest first:
-T3 Connect, then the OpenAI and Claude person ids, then the client device. The
-server reports what it can read itself: the linked Connect account and provider
-logins. A connecting client reports its signed-in Connect account and its device,
-which links every environment opened from one phone, browser, or desktop. Use the
+a T3 Connect account (never present in this fork, which disables Connect), then the
+OpenAI and Claude person ids, then the client device. The server reports what it
+can read itself: provider logins. A connecting client reports its device, which
+links every environment opened from one browser. Use the
 OpenAI `user_id` claim, not the Codex `account_id` (the ChatGPT workspace, which a
 whole Team shares) or the token `sub` (one per login method). Two Connect accounts are never the same person, whatever
 weaker ids they share.
@@ -35,12 +35,12 @@ The server accepts only hashes from clients.
 ## Attribution boundaries
 
 Client dimensions belong to the event's WebSocket connection. A server-global
-"current client" would misattribute simultaneous web, desktop, and mobile use.
+"current client" would misattribute simultaneous use from several browsers.
 Provider execution has its own events because a turn can outlive the requesting
 connection.
 
-Keep client and server dimensions separate. A desktop host can serve a phone or a
-remote browser, and a direct connection can cross a network. Older clients omit
+Keep client and server dimensions separate. One server can serve a phone browser and a
+remote desktop browser, and a direct connection can cross a network. Older clients omit
 metadata. Missing client values must stay unknown rather than being backfilled
 from server properties. The legacy `clientType` property describes how the server
 runs; use `surface` for the connected client.
@@ -48,7 +48,8 @@ runs; use `surface` for the connected client.
 ## Interpreting events
 
 Use `client.turn.requested` for active-use reports. There is no connection event,
-because T3 Connect sessions expire hourly and each reconnect would count again.
+because clients reconnect often (on a network change or token renewal) and each
+reconnect would count again.
 A command whose id was already accepted is a retry, so it records nothing again.
 One identity can appear in several client groups during a period; adding those
 groups double-counts users.
@@ -134,8 +135,9 @@ repeating the call's outcome and duration, so event counts are not call counts.
 
 ## Delivery
 
-The server sends batches to the ingest endpoint at `ingest.t3.codes`, which archives
-every event and forwards some of them to PostHog. A send can fail after the endpoint
+iglo.code sends nothing unless `IGLO_CODE_POSTHOG_HOST` names an endpoint. The server
+sends batches to that endpoint's `/batch/`; upstream's ingest archives every event and
+forwards some of them to PostHog. A send can fail after the endpoint
 has stored the batch, so every retry is a copy.
 [Delivery](../../apps/server/src/telemetry/AnalyticsService.ts) gives each event a
 uuid when it is recorded (the endpoint rejects events without one), backs off after
@@ -149,6 +151,6 @@ send prompts, authentication material, raw provider payloads, user-assigned devi
 names, or conversation identifiers. Client metadata is best effort; invalid values
 must not reject a connection. PostHog person profiles remain disabled.
 
-Dev-runner servers and the CI archive smoke test turn telemetry off, which also
-stops relay tracing, because each would count as a new install. Set
-`T3CODE_TELEMETRY_ENABLED=true` to test analytics or relay tracing from a dev server.
+Dev-runner servers and the archive smoke test turn telemetry off, because each
+would count as a new install. Set `IGLO_CODE_TELEMETRY_ENABLED=true` to test
+analytics from a dev server.

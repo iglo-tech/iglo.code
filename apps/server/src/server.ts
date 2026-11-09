@@ -323,7 +323,7 @@ const layerRelayClient = Layer.unwrap(
     const config = yield* ServerConfig.ServerConfig;
     const policy = yield* ManagedPolicy.ManagedPolicy;
     const layerCloudflared = RelayClient.layerCloudflared({ baseDir: config.baseDir });
-    if (ManagedLimits.allowsConnect(policy)) return layerCloudflared;
+    if (hasCloudPublicConfig && ManagedLimits.allowsConnect(policy)) return layerCloudflared;
     // The connector only carries T3 Connect, so a policy without Connect never installs one.
     const refused = Effect.fn("RelayClient.installRefusedByPolicy")(function* () {
       return yield* new RelayClient.RelayClientInstallError({
@@ -999,8 +999,11 @@ const layerServer = Layer.unwrap(
     const layerCloudDesiredLinkReconcile = Layer.effectDiscard(
       Effect.gen(function* () {
         const cloudLink = yield* CloudLink.CloudLink;
-        // CloudLink unlinks on startup when the policy turns Connect off; nothing to restore.
-        if (!ManagedLimits.allowsConnect(yield* ManagedPolicy.ManagedPolicy)) {
+        // CloudLink unlinks on startup when Connect is off; nothing to restore.
+        if (
+          !hasCloudPublicConfig ||
+          !ManagedLimits.allowsConnect(yield* ManagedPolicy.ManagedPolicy)
+        ) {
           yield* Deferred.succeed(cloudLinkParked, undefined).pipe(Effect.orDie);
           return;
         }

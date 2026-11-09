@@ -19,7 +19,7 @@ function configuredRelayUrl(): string {
 
 const layerHttpClient = layerRemoteHttpClient((input, init) => globalThis.fetch(input, init));
 const layerRelayTracing = RelayTracing.layer(resolveRelayTracingConfig(), {
-  serviceName: "t3code-web",
+  serviceName: "iglo-code-web",
   serviceVersion: import.meta.env.APP_VERSION,
   runtime: "browser",
   serviceInstanceId: ClientTracer.serviceInstanceId,

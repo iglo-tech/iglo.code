@@ -22,13 +22,13 @@ export interface ThreadReferenceCopyTarget {
 }
 
 /**
- * A link that opens the thread from anywhere, through `hostedAppUrl`, this build's hosted app. It
- * pastes back as a chip into any composer whose agent reads that thread's machine.
+ * A link that opens the thread in the web app at `hostedAppUrl`, the one the person copying uses.
+ * It pastes back as a chip into any composer whose agent reads that thread's machine.
  */
 export function threadChipCopyTarget(
   threadRef: ScopedThreadRef,
   title: string,
-  hostedAppUrl?: string,
+  hostedAppUrl: string,
 ): ThreadReferenceCopyTarget {
   const record = threadContextRecord(threadRef, title);
   return {
@@ -49,7 +49,7 @@ export function resolveThreadReferenceCopyTarget(input: {
   readonly openPanelPullRequestUrl?: string | null | undefined;
   readonly pullRequests?: ReadonlyArray<ThreadPullRequestLink> | undefined;
   readonly linkedPullRequestUrl?: string | null;
-  readonly hostedAppUrl?: string;
+  readonly hostedAppUrl: string;
 }): ThreadReferenceCopyTarget | null {
   if (input.openPanelPullRequestUrl === null) return null;
   const pullRequestUrl =

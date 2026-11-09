@@ -194,7 +194,7 @@ it.live.each([
           "update-ref",
           "--create-reflog",
           "-m",
-          `t3code-worktree:${Hex.encode(new TextEncoder().encode(`launch:${coreCommandId}`))}`,
+          `iglo-code-worktree:${Hex.encode(new TextEncoder().encode(`launch:${coreCommandId}`))}`,
           `refs/heads/${input.workspace.branch}`,
           ref,
           "",

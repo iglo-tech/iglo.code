@@ -26,7 +26,7 @@ export function resolveReusableDevAuth(
   return {
     credential: Redacted.value(token),
     sessionId: AuthSessionId.make(`${REUSABLE_DEV_SESSION_PREFIX}${tokenId}`),
-    cookieName: `t3_dev_session_${tokenId}`,
+    cookieName: `iglo_code_dev_session_${tokenId}`,
     matches: (credential: string) =>
       Mac.timingSafeEqual(hash, NodeCrypto.createHash("sha256").update(credential).digest()),
   };

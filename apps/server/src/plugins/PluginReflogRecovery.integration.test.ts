@@ -98,7 +98,7 @@ it.live.each([false, true])("recorded workspace recovery after reflog expiry=%s"
         .threads[0]!;
       yield* fs.writeFileString(state.workspacePath + "/retained-user-file", "keep");
       const before = yield* git("reflog", "show", "--format=%gs", "refs/heads/expiry-owned");
-      expect(before).toContain("refs/t3/worktree-owners/");
+      expect(before).toContain("refs/iglo.code/worktree-owners/");
       if (expire) yield* git("reflog", "expire", "--expire=now", "--all");
       const after = yield* git("reflog", "show", "--format=%gs", "refs/heads/expiry-owned");
       expect(after).toBe(expire ? "" : before);

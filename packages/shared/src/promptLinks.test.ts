@@ -99,6 +99,7 @@ describe("link round trips", () => {
       repository: { owner: "pingdotgg", name: "t3code" },
       provider: "claudeAgent",
       model: "opus",
+      origin: "https://app.t3.codes",
     });
     const path = promptLinkAppPath(link);
     expect(path).toBe(new URL(link).pathname + new URL(link).search);
@@ -109,10 +110,10 @@ describe("link round trips", () => {
   });
 
   it("opens a copied thread link in the app at that thread", () => {
-    const link = hostedThreadLink({
-      environmentId: EnvironmentId.make("env-1"),
-      threadId: ThreadId.make("mcp:1"),
-    });
+    const link = hostedThreadLink(
+      { environmentId: EnvironmentId.make("env-1"), threadId: ThreadId.make("mcp:1") },
+      "https://app.t3.codes",
+    );
     const path = promptLinkAppPath(link);
     expect(path).toBe("/env-1/mcp%3A1");
     const deepLink = promptLinkDeepLink(path!);

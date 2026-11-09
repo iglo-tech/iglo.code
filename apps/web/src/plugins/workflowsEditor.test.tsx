@@ -102,7 +102,7 @@ const design: PluginDesign = {
     when ? <button onClick={onDiscard}>Discard navigation draft</button> : null,
 };
 
-const source = ".t3code/workflows/kept-name.yml";
+const source = ".iglo-code/workflows/kept-name.yml";
 const projectId = ProjectId.make("project");
 const EditorPageView = web.pages.find((page) => page.id === "workflows.editor")!.component;
 type PageProps = PluginWebContext & { readonly client: WorkflowClient };

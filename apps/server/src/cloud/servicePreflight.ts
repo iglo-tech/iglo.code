@@ -24,13 +24,13 @@ export function runServicePreflight(input: {
     return {
       status: "blocked",
       version,
-      // A stale `t3` earlier on PATH (an old npm/nvm global) makes `t3 service install`
+      // A stale `iglo.code` earlier on PATH (an old npm/nvm global) makes `iglo.code service install`
       // reinstall itself and report success, so name the exact install and the path check.
       reason: [
-        `The installed service launcher speaks protocol ${input.launcherProtocol}, but t3@${version} requires protocol ${SERVICE_LAUNCHER_PROTOCOL}.`,
-        `On the server machine, install this exact CLI: \`curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION=${version} sh\`.`,
-        `Check that \`t3 --version\` prints ${version} and that \`which -a t3\` lists no older t3 (such as an npm or nvm install) first, then run \`~/.local/bin/t3 service install\` (the installer's default path).`,
-        "`t3 service update` only repairs the service with whichever CLI runs it.",
+        `The installed service launcher speaks protocol ${input.launcherProtocol}, but iglo.code@${version} requires protocol ${SERVICE_LAUNCHER_PROTOCOL}.`,
+        `On the server machine, install this exact CLI: \`curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | IGLO_CODE_VERSION=${version} sh\`.`,
+        `Check that \`iglo.code --version\` prints ${version} and that \`which -a iglo.code\` lists no older iglo.code (such as an npm or nvm install) first, then run \`~/.local/bin/iglo.code service install\` (the installer's default path).`,
+        "`iglo.code service update` only repairs the service with whichever CLI runs it.",
       ].join(" "),
     };
   }
@@ -40,14 +40,14 @@ export function runServicePreflight(input: {
     return {
       status: "blocked",
       version,
-      reason: `Could not read this database to confirm t3@${version} supports it.`,
+      reason: `Could not read this database to confirm iglo.code@${version} supports it.`,
     };
   }
   if (newer.length > 0) {
     return {
       status: "blocked",
       version,
-      reason: `This database has migrations that t3@${version} does not know: ${newer.join(", ")}. A newer build wrote them, and running t3@${version} on this database is not safe. Stay on the newer release, or wait for a release that includes these migrations.`,
+      reason: `This database has migrations that iglo.code@${version} does not know: ${newer.join(", ")}. A newer build wrote them, and running iglo.code@${version} on this database is not safe. Stay on the newer release, or wait for a release that includes these migrations.`,
     };
   }
 

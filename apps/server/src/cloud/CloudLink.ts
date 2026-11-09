@@ -99,7 +99,7 @@ import * as ConnectReachability from "./ConnectReachability.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
-import { relayUrlConfig } from "./publicConfig.ts";
+import { hasCloudPublicConfig, relayUrlConfig } from "./publicConfig.ts";
 import {
   filterRelayResponse,
   relayRequestError,
@@ -189,7 +189,7 @@ export class CloudLinkAuthorizationMissingError extends Schema.TaggedError<Cloud
   {},
 ) {
   override get message(): string {
-    return "Run `t3 connect link` to authorize this environment.";
+    return "Run `iglo.code connect link` to authorize this environment.";
   }
 }
 
@@ -237,8 +237,7 @@ export class CloudLinkEndpointUnavailableError extends Schema.TaggedError<CloudL
 }
 
 const INTERNAL_OPERATION_MESSAGES = {
-  "relay-url-unconfigured":
-    "T3CODE_RELAY_URL must be configured as a secure absolute HTTPS origin.",
+  "relay-url-unconfigured": "T3 Connect is not available in iglo.code.",
   "generate-link-proof": "Could not generate environment link proof.",
   "persist-relay-config": "Could not persist environment relay configuration.",
   "register-endpoint-origin": "Could not register the managed endpoint origin.",
@@ -1228,7 +1227,7 @@ const make = Effect.gen(function* () {
     if (Option.isNone(token)) {
       return false;
     }
-    // Use the persisted relay URL; T3CODE_RELAY_URL may have changed since linking.
+    // Use the persisted relay URL; the configured one may have changed since linking.
     const relayUrl = yield* secrets.get(RELAY_URL_SECRET);
     if (Option.isNone(relayUrl)) {
       return false;
@@ -1619,10 +1618,10 @@ const make = Effect.gen(function* () {
     Effect.catchIf(ServerSecretStore.isSecretStoreError, internalError("issue-credential")),
   );
 
-  if (!ManagedLimits.allowsConnect(managedPolicy)) {
+  if (!hasCloudPublicConfig || !ManagedLimits.allowsConnect(managedPolicy)) {
     // Reading state and unlinking stay available so clients can show and leave the old link.
     yield* unlink().pipe(
-      Effect.tap(() => Effect.logInfo("T3 Connect is off by managed policy; unlinked.")),
+      Effect.tap(() => Effect.logInfo("T3 Connect is off; unlinked.")),
       Effect.catch((cause) =>
         Effect.logWarning("Failed to unlink T3 Connect turned off by managed policy", { cause }),
       ),

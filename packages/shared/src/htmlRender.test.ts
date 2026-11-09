@@ -123,9 +123,9 @@ describe("htmlRenderFromToolItem", () => {
 
   it("reads the reference from each provider's result envelope", () => {
     for (const [toolName, output] of [
-      ["mcp__t3-code__html_render", [{ type: "text", text: JSON.stringify(result) }]],
-      ["t3-code.html_render", { structuredContent: result, content: [] }],
-      ["t3-code-thread_1_html_render", JSON.stringify(result)],
+      ["mcp__iglo-code__html_render", [{ type: "text", text: JSON.stringify(result) }]],
+      ["iglo-code.html_render", { structuredContent: result, content: [] }],
+      ["iglo-code-thread_1_html_render", JSON.stringify(result)],
       ["html_render", result],
     ] as const) {
       expect(htmlRenderFromToolItem({ toolName, output })).toEqual(reference);

@@ -87,7 +87,7 @@ connection keeps the file open until its prepared statements are collected, and 
 binding has no `finalize`, so the client drops its statement cache and collects on
 close. A read-only open of a WAL database without a `-shm` file, which is what a
 cleanly stopped server leaves, is refused, so an existing file reopens as a
-`query_only` connection. Both break offline maintenance (`t3 doctor`) and usage
+`query_only` connection. Both break offline maintenance (`iglo.code doctor`) and usage
 readers that open another program's database in the same process.
 
 ### Subprocesses: retained spawner, inconclusive shell and launcher

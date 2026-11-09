@@ -4,7 +4,7 @@ import ReactDOM from "react-dom/client";
 import "@fontsource-variable/inter";
 import "./index.css";
 
-import { hasCloudPublicConfig } from "./cloud/publicConfig";
+import { hasCloudPublicConfig, resolveCloudPublicConfig } from "./cloud/publicConfig";
 import { isElectron } from "./env";
 import { startAppServices } from "./appInit";
 import { AppRoot } from "./AppRoot";
@@ -12,7 +12,7 @@ import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkR
 
 const router = startAppServices();
 
-const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+const { clerkPublishableKey } = resolveCloudPublicConfig();
 
 let chunkLoadFailed = false;
 let reloadScheduled = false;

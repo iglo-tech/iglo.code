@@ -56,13 +56,6 @@ with the ready event after reconnecting, then check the outcome and target versi
 A reconnect alone cannot distinguish successful replacement from rollback. Older
 servers without an update ID retain version-only correlation.
 
-Desktop updates have a separate two-phase handoff because installing the app stops
-its bundled backend. Preparation returns a token while the connection is alive;
-the client commits that token only after receiving it. Otherwise backend shutdown
-could lose the only successful RPC result. The client must then observe the
-prepared version after reconnecting. If installation fails, desktop restarts the
-stopped backends and replays the failure for the same token.
-
 ## Recovering interrupted threads
 
 Restart continuation is an environment-owned preference, on by default. A

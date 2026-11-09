@@ -141,7 +141,7 @@ it.live.each(cases)("enforces the effective MCP policy: %j", (policyCase) =>
             mcpSession: yield* mcpSessions.read(threadId),
             readOnlySandbox: false,
           }).allowedTools,
-        ).toContain("mcp__t3-code__*");
+        ).toContain("mcp__iglo-code__*");
       }
       const http = Context.get(server.context, HttpClient.HttpClient);
       const headers = {

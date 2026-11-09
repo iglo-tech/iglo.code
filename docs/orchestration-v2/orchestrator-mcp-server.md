@@ -35,7 +35,7 @@ The orchestration tools share the existing authenticated HTTP MCP endpoint:
 http://127.0.0.1:<server-port>/mcp
 ```
 
-The provider-visible server key is `t3-code`. The endpoint registers both the
+The provider-visible server key is `iglo-code`. The endpoint registers both the
 preview toolkit and the orchestration toolkit.
 
 Before `ProviderSessionManager` opens a new V2 provider session, it asks
@@ -63,8 +63,8 @@ Codex gets T3's MCP server in each thread's `thread/start`, `thread/resume`,
 and `thread/fork` config, with the provider-session token in an
 `Authorization` header. The same server is registered twice:
 
-- `t3-code`: every tool except `t3_thread_wait`.
-- `t3-code-direct`: only `t3_thread_wait`, with `omit_tools_from = ["code_mode", "deferred"]`.
+- `iglo-code`: every tool except `t3_thread_wait`.
+- `iglo-code-direct`: only `t3_thread_wait`, with `omit_tools_from = ["code_mode", "deferred"]`.
 
 Code Mode runs a nested call as part of a script, so the model keeps working
 while a blocking wait runs. The second entry makes the wait a direct tool call,
@@ -79,7 +79,7 @@ Claude receives an HTTP MCP server in its query options:
 ```ts
 {
   mcpServers: {
-    "t3-code": {
+    "iglo-code": {
       type: "http",
       url: "http://127.0.0.1:<port>/mcp",
       headers: {
@@ -89,7 +89,7 @@ Claude receives an HTTP MCP server in its query options:
   },
   allowedTools: [
     // existing allowed tools
-    "mcp__t3-code__*",
+    "mcp__iglo-code__*",
   ],
 }
 ```
@@ -160,12 +160,12 @@ extension into the server cache and spawns
 `pi --mode rpc --extension <cache>/pi-t3-mcp-extension.ts` with:
 
 ```text
-T3_MCP_URL=http://127.0.0.1:<port>/mcp
-T3_MCP_BEARER_TOKEN=<provider-session-token>
+IGLO_CODE_MCP_URL=http://127.0.0.1:<port>/mcp
+IGLO_CODE_MCP_BEARER_TOKEN=<provider-session-token>
 ```
 
-The extension preserves public names under `mcp__t3-code__` for saved loadouts
-and tool selectors. Modern Pi also receives hidden `mcp__t3_code__` aliases,
+The extension preserves public names under `mcp__iglo-code__` for saved loadouts
+and tool selectors. Modern Pi also receives hidden `mcp__iglo_code__` aliases,
 which reserve the normalized namespace against configured MCP servers without
 adding declarations or search results. On Pi 0.99+,
 `orchestrator_capabilities`, `delegate_task`, and `task_status` remain directly
@@ -412,9 +412,9 @@ know renders as a label that opens nothing. Older `t3-thread://v1/<threadId>`
 links name no environment: clients resolve them in the message's environment,
 then by a unique match in another enabled environment. An outside OAuth client,
 one that is not a linked environment, cannot render `t3-thread://` links, so it
-gets the link Copy thread copies, `https://app.t3.codes/threads/<environmentId>/<threadId>`
-on the server's `T3CODE_HOSTED_APP_URL`, for threads in this environment. The
-hosted app offers the desktop app, the mobile app, or itself.
+gets the link Copy thread copies, `<hosted app>/threads/<environmentId>/<threadId>`, for threads
+in this environment. The hosted origin is still upstream's `DEFAULT_HOSTED_APP_URL`, which this
+fork does not run, so those links do not open an iglo.code server.
 
 List and read results report `snoozed` and `snoozedUntil`, and
 `t3_thread_list` filters on `snoozed`. The server's `isSnoozed` follows the

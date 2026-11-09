@@ -5,18 +5,22 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
-import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
-
 import { compareSemverVersions } from "./semver.ts";
 
 const CLI_RELEASE_REPOSITORY = "iglo-tech/iglo.code";
 export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
-export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
+/** `{ version, databaseMigration }`: the highest database migration the release's build runs. */
+export const CLI_RELEASE_MANIFEST_FILE = "release.json";
+export const CLI_RELEASE_BASE_URL_ENV = "IGLO_CODE_RELEASE_BASE_URL";
 
 /** Release targets supported by the web-only fork. */
-export const CLI_ARCHIVE_PLATFORM_KEYS = ["darwin-arm64", "linux-arm64", "linux-x64"] as const;
+export const CLI_ARCHIVE_PLATFORM_KEYS = [
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-arm64",
+  "linux-x64",
+] as const;
 export type CliArchivePlatformKey = (typeof CLI_ARCHIVE_PLATFORM_KEYS)[number];
 
 export function cliArchivePlatformKey(
@@ -38,7 +42,7 @@ export function cliArchiveTarCommand(
 }
 
 export function cliArchiveFileName(version: string, platformKey: CliArchivePlatformKey): string {
-  return `t3-${version}-${platformKey}.tar.gz`;
+  return `iglo.code-${version}-${platformKey}.tar.gz`;
 }
 
 const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;
@@ -150,15 +154,4 @@ export function newestCliReleaseVersion(
     if (cliReleaseChannelOf(version) === channel) return version;
   }
   return undefined;
-}
-
-const NpmReleaseMigrationManifest = Schema.Struct({
-  t3code: Schema.Struct({ databaseMigration: Schema.Int }),
-});
-const decodeNpmReleaseMigrationManifest = Schema.decodeUnknownOption(NpmReleaseMigrationManifest);
-
-/** Highest database migration a release's server knows, from its npm `t3` manifest. */
-export function npmReleaseDatabaseMigration(manifest: unknown): number | undefined {
-  return Option.getOrUndefined(decodeNpmReleaseMigrationManifest(manifest))?.t3code
-    .databaseMigration;
 }

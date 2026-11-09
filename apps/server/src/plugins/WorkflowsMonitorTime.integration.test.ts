@@ -208,7 +208,7 @@ it.live.each([
                 parentCheckpointId: null,
                 ordinalWithinScope: 1,
                 appRunOrdinal: 2,
-                ref: CheckpointRef.make("refs/t3/follow-checkpoint"),
+                ref: CheckpointRef.make("refs/iglo.code/follow-checkpoint"),
                 status: scenario === "monitor-late-error-artifact" ? "error" : "ready",
                 files: [],
                 capturedAt,

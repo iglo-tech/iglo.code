@@ -1,63 +1,60 @@
-# Updating T3 Code
+# Updating iglo.code
 
-The app you use and the server running your agents can be on different machines.
-When a server is behind your web app, the update button at the bottom
-of the sidebar and **Settings → Environments** offer to update it.
+iglo.code installs from GitHub Releases on `iglo-tech/iglo.code`. Each machine
+follows a release channel: **stable** (the default) or **nightly**. A source
+checkout is updated with `git pull` and a rebuild instead; see
+[Run from source](./install.md#run-from-source).
 
-## Update everything at once
+## Update a machine
 
-The update button at the bottom of the sidebar updates every connected machine
-in one step. It updates outdated providers, then servers that are behind, then
-the desktop app you are using. Servers move to the
-version your desktop app is installing, or to your web app's version. A
-background service stays on its current release channel. A remote desktop app
-installs the latest release from its own channel. Hover the button to see what
-it will update.
+On the machine running iglo.code, run:
 
-While it runs, the button widens to show progress. It names a machine that is
-taking longer than usual, and offers **Retry** for a server that failed. Click
-it to see every machine. The desktop app restarts once each server has started
-its own restart, after a short countdown. Choose **Later** to keep working and
-restart from the update button when you are ready. A server still restarting
-finishes on its own, and the button keeps showing it after the desktop app
-restarts.
+```sh
+iglo.code update
+```
 
-Each server checks that it can install the release before it restarts. If the
-release is not available to a server yet, its update fails, the server keeps
-running, and you can retry. The confirmation lists each machine it skips and
-why, such as a machine that is offline or needs a manual update. Use
-**Settings → Environments** for those.
+It installs the newest release on the machine's channel. Pass an exact version,
+such as `iglo.code update 1.2.3`, to move to that release. If a background
+service is installed, the command asks before restarting it; pass `--yes` to
+restart without asking, or decline and run `iglo.code service restart` when you
+are ready. For a server you started by hand, stop it and start it again with
+your usual options such as `--host` or `--tailscale-serve`.
 
-If a desktop app restarts on its old version, T3 Code tells you the update did
-not apply. It does not install that version again on its own, even when another
-device asks. Use the update button on that machine to retry.
+If the fork has no matching archive for the machine, the update fails without
+downloading upstream releases.
 
-The confirmation counts the running threads that the restarts will interrupt,
-and how many can resume afterwards. See **Continue threads after restarts**
-below.
+## Switch between stable and nightly
 
-## Switch between Stable and Nightly
+Pass `--channel` to move a machine to the other channel:
 
-In the desktop app, change **Settings → About → Update track**. T3 Code shows each
-connected machine it will move and each one it skips, then moves them in one
-step. Remote servers install the latest release on the new track. Remote desktop
-apps reinstall on the new track. This app reinstalls last. Your threads,
-settings, and data stay.
+```sh
+iglo.code update --channel nightly
+```
 
-A background service cannot move to an older release remotely. When Stable is
-older than its Nightly, run `t3 update --channel stable --allow-downgrade` on
-that machine.
+The machine keeps following that channel for later updates. Moving back can
+mean an older version: when stable is older than the nightly you run, use
+`iglo.code update --channel stable --allow-downgrade`. Your threads, settings,
+and data stay.
 
-A switch is blocked for a machine whose database already has changes the
-target release does not support, or when T3 Code cannot confirm that it does.
-The dialog says why: update a machine on its current track first when its
-release is too old to check, or wait until the target track includes the
-changes. A Mac running the desktop app must switch on that Mac.
+## Update from the web app
 
-Each machine keeps the new track even if its switch did not finish, but it
-moves to that track only through a switch. **Update track** shows how many
-machines still run the other track. **Review** opens the same dialog with fresh
-checks.
+One web app can connect to several environments. When a connected server runs
+an older release than the server hosting your web app, the update button at the
+bottom of the sidebar and **Settings → Environments** offer to update it. The
+sidebar button updates outdated providers first, then every server that is
+behind. Hover it to see what it will update. A background service stays on its
+current release channel.
+
+| Action                  | What to do                                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Update server**       | Keep the web app open while it installs and reconnects. Background services update remotely.                           |
+| **Copy update command** | Stop the command-line server on the named host, run the copied command there, then restart it with your usual options. |
+
+Each server checks that it can install the release before it restarts. If it
+cannot, its update fails, the server keeps running, and you can retry. The
+confirmation lists each machine it skips and why, such as a machine that is
+offline or needs a manual update. The confirmation also counts the running
+threads that the restarts will interrupt, and how many can resume afterwards.
 
 ## Before you update
 
@@ -69,7 +66,7 @@ It resumes supported active threads after an update, crash, or machine
 restart. Changes are saved to connected environments that support this setting;
 update older servers first. If a supported environment was offline or has a
 different value, use **Apply to all** in Settings after it connects.
-T3 Code must start again on that machine;
+iglo.code must start again on that machine;
 the setting does not enable automatic startup. Terminal commands may still be
 interrupted, and threads without saved provider resume state need a new message.
 A thread that finished its turn to wait on a subagent, a background task, or a
@@ -81,7 +78,7 @@ while it is archived, snoozed, or settled. After three automatic resumes in a ro
 the thread waits for your next message.
 
 Updates from the previous orchestration system preserve conversation transcripts but cannot carry
-every kind of runtime history forward. Read [Threads from older T3 Code versions](./thread-migration.md)
+every kind of runtime history forward. Read [Threads from older versions](./thread-migration.md)
 before continuing an important older thread.
 
 ## When versions don't match
@@ -89,80 +86,24 @@ before continuing an important older thread.
 A client and server must speak the same orchestration protocol. If they do not, the connection is
 refused rather than running half-upgraded:
 
-- An app newer than the server is blocked before connecting, with a notice telling you to update
-  T3 Code on the machine named in the notice.
-- A server newer than your app refuses the connection with an update message.
+- A web app newer than the server is blocked before connecting, with a notice telling you to
+  update iglo.code on the machine named in the notice.
+- A server newer than your web app refuses the connection with an update message.
 
 Update the side the notice names, then reconnect.
 
-## Update a connected server
-
-The offered action depends on how the server runs:
-
-| Action                  | What to do                                                                                                              |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Update server**       | Keep the client open while it installs and reconnects. Supported background services update remotely.                   |
-| **Copy update command** | Stop the command-line server on the named host, run the copied installer command, then restart with your usual options. |
-
-On the host, run:
-
-```sh
-t3 update <client-version>
-```
-
-Replace `<client-version>` with the version shown in the notice. The command
-asks before restarting the background service; if you decline, run
-`t3 service restart` when you are ready. For a server you started by hand,
-stop it and start it again afterwards with your usual options such as `--host`
-or `--tailscale-serve`.
-
-Installed iglo.code environments select releases from `iglo-tech/iglo.code`. If that
-fork has no matching archive, the update fails without downloading upstream T3 Code.
-For a source checkout, update the repository and restart its Bun server instead.
-
 ## If an update fails
 
-Keep the client open until it reconnects or reports a failure. A failed service
-update can roll back to the previous version. If the update still fails:
+Keep the web app open until it reconnects or reports a failure. A failed service
+update rolls back to the previous version. If the update still fails:
 
-1. Retry the offered action once.
+1. Retry once.
 2. Check that you updated the server's machine, not only the device you are using.
-3. For a command-line server, stop it and relaunch the exact version shown in the notice.
+3. For a command-line server, stop it and relaunch the exact version you want.
 
-Only one server can use a T3 home directory at a time. If startup reports that
-another server owns it, stop that server before retrying, or use a separate home
-directory and pair with the running server.
-
-### macOS app does not reopen after an Alpha update
-
-Updating an older **T3 Code (Alpha)** installation can replace it with
-**T3 Code (Beta)** without reopening the app. Open **T3 Code (Beta)** from
-Applications, or run:
-
-```sh
-open "/Applications/T3 Code (Beta).app"
-```
-
-If an old Dock shortcut no longer opens the app, remove it and add the Beta app
-from Applications again.
-
-## If the desktop app does not start
-
-If the desktop app's server keeps failing at startup, T3 Code shows a "T3 Code
-could not start" window instead of the app. If a newer version is available,
-choose **Update** to install it. If not, the window links to the last version
-that started on your computer. Download and install it to go back. Use **Copy
-details** to include the error in a bug report.
-
-## Registries and proxies
-
-Each server checks T3 Code releases, and providers installed with npm, through
-its own npm, so the checks use npm's configured registry, authentication, and
-proxy settings. Providers installed with Homebrew or pnpm check through those
-tools.
-Configure npm on the server's machine. If that registry cannot be reached, the
-release shows as unavailable; T3 Code does not try the public registry instead.
-Machines without npm check the public npm registry directly.
+Only one server can use an iglo.code home directory at a time. If startup
+reports that another server owns it, stop that server before retrying, or use a
+separate home directory and pair with the running server.
 
 ## Update providers
 
@@ -174,10 +115,10 @@ or when its instances use different update commands, such as two instances that
 run different CLI installs. Update those by hand, or point every instance of the
 provider at the same CLI.
 
-After a successful provider CLI update, T3 Code refreshes model discovery for
+After a successful provider CLI update, iglo.code refreshes model discovery for
 every enabled instance of that provider using its own configuration. Connected
 clients receive the refreshed catalogs automatically. Provider update checks
-must be enabled to download the latest T3 Code model catalog.
+must be enabled to download the latest model catalog.
 
 Provider updates do not restart running chats. An existing session can keep
 using the previous CLI until it ends. If discovery fails, check the provider

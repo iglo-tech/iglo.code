@@ -66,6 +66,7 @@ import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.t
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
 import {
   CLAUDE_PROVIDER,
+  CLAUDE_T3_MCP_TOOL_WILDCARD,
   makeClaudeQueryOptions,
 } from "../../apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import { proxyConfig } from "../shared/proxy.ts";
@@ -111,7 +112,10 @@ type PricedModel = keyof typeof PRICES;
 const PROXY_SHELL_MODELS = ["gpt-6-luna", "gpt-6.1-terra"] as const;
 type ShellModel = PricedModel | (typeof PROXY_SHELL_MODELS)[number];
 const isPricedModel = (model: ShellModel): model is PricedModel => model in PRICES;
-const T3_PREFIX = "mcp__t3-code__";
+const T3_PREFIX = CLAUDE_T3_MCP_TOOL_WILDCARD.slice(0, -1);
+const T3_SERVER = T3_PREFIX.slice("mcp__".length, -"__".length);
+/** Codex code mode exposes MCP tools with the server name's dashes turned into underscores. */
+const CODE_MODE_PREFIX = T3_PREFIX.replaceAll("-", "_");
 const RUNTIME_MARKER = "<runtime_info>";
 const TOOL_LOADED = "Tool loaded.";
 
@@ -390,7 +394,7 @@ const toolResult = (id: string, content: unknown): Block => ({
 });
 const texts = (content: typeof Content.Type) =>
   typeof content === "string" ? [content] : content.flatMap((block) => block.text ?? []);
-const isT3Name = (name: string) => name.startsWith(T3_PREFIX) || name.startsWith("mcp__t3_code__");
+const isT3Name = (name: string) => name.startsWith(T3_PREFIX) || name.startsWith(CODE_MODE_PREFIX);
 const hasTool = (tools: ReadonlyArray<ApiTool>, name: string) =>
   tools.some((tool) => tool.name === name);
 
@@ -503,7 +507,7 @@ const claudeQueryOptions = (model: Model, device = true) => {
     nativeThreadId: "mcp-tool-use-eval",
     resume: false,
     cwd: null,
-    mcpServers: { "t3-code": { type: "http", url: "http://127.0.0.1/mcp" } },
+    mcpServers: { [T3_SERVER]: { type: "http", url: "http://127.0.0.1/mcp" } },
     deviceToolsAvailable: device,
   };
   return makeClaudeQueryOptions(input);
@@ -771,7 +775,7 @@ const codexCall = (name: string, input: unknown) => {
           : `python3 -c ${JSON.stringify(`from pathlib import Path; p=Path(${JSON.stringify(file)}); p.write_text(p.read_text().replace(${JSON.stringify(args.old_string)}, ${JSON.stringify(args.new_string)}))`)}`;
     return `text(await tools.exec_command(${JSON.stringify({ cmd: command })}));`;
   }
-  return `text(await tools.${name.replace("mcp__t3-code__", "mcp__t3_code__")}(${JSON.stringify(input)}));`;
+  return `text(await tools.${name.replace(T3_PREFIX, CODE_MODE_PREFIX)}(${JSON.stringify(input)}));`;
 };
 const codexMessages = (messages: ReadonlyArray<ApiMessage>): Array<Block> =>
   messages.flatMap((message) =>
@@ -1196,7 +1200,7 @@ export const t3Default = (
       const home =
         /^\/(?:home|Users)\/[^/]+/.exec(sample.base.environment.cwd)?.[0] ?? "/home/user";
       return input.delivery === "file" || pastedSecret(name, input)
-        ? { status: "saved", file: `${home}/.t3/userdata/secrets/files/${id}` }
+        ? { status: "saved", file: `${home}/.iglo.code/userdata/secrets/files/${id}` }
         : { status: "saved", secretRef: `secret-ref:${id}` };
     }
     case "unlink_pull_request":
@@ -1918,7 +1922,7 @@ export const executeCodex = async (
 
 const codexCatalog = (base: Base) => [
   ...base.t3.map((tool) => ({
-    name: tool.name.replace("mcp__t3-code__", "mcp__t3_code__"),
+    name: tool.name.replace(T3_PREFIX, CODE_MODE_PREFIX),
     description: `${valueText(tool.description)}\nInput JSON schema: ${JSON.stringify(tool.input_schema)}`,
   })),
   ...[

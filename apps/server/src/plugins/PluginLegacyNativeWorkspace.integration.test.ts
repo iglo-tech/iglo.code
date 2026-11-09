@@ -153,7 +153,7 @@ it.live.each([
           config.baseDir,
           "config",
           "--local",
-          "branch.legacy-native.t3codeOwner",
+          "branch.legacy-native.igloCodeOwner",
           "foreign-owner",
         );
       yield* fs.writeFileString(checkout + "/retained-user-file", "keep");
@@ -200,7 +200,7 @@ it.live.each([
       const marker = yield* spawn.exitCode(
         ChildProcess.make(
           "git",
-          ["config", "--local", "--get", "branch.legacy-native.t3codeOwner"],
+          ["config", "--local", "--get", "branch.legacy-native.igloCodeOwner"],
           { cwd: config.baseDir },
         ),
       );
@@ -213,7 +213,7 @@ it.live.each([
             "config",
             "--local",
             "--get",
-            "branch.legacy-native.t3codeBaseCommit",
+            "branch.legacy-native.igloCodeBaseCommit",
           ),
         ).toBe(pinned);
       }
@@ -224,7 +224,7 @@ it.live.each([
             "config",
             "--local",
             "--get",
-            "branch.legacy-native.t3codeOwner",
+            "branch.legacy-native.igloCodeOwner",
           ),
         ).toBe("foreign-owner");
       yield* Fiber.interrupt(server.fiber);

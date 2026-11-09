@@ -150,15 +150,15 @@ it.live.each(["changed-compaction", "changed-user-turn", "unchanged-compaction"]
         );
         const ingestor = yield* Layer.build(Ingestor.layer).pipe(Effect.provide(ctx));
         const mcprules = [
-          { action: "t3-code-*", resource: "*", effect: "deny" },
-          { action: "t3-code-thread_opencode2-adapter_*", resource: "*", effect: "allow" },
+          { action: "iglo-code-*", resource: "*", effect: "deny" },
+          { action: "iglo-code-thread_opencode2-adapter_*", resource: "*", effect: "allow" },
         ];
         const narrow = [
           { action: "shell", resource: "*", effect: "ask" },
           { action: "edit", resource: "*", effect: "ask" },
           { action: "external_directory", resource: "*", effect: "ask" },
           ...mcprules,
-          { action: "t3-code-thread_opencode2-adapter_plugin_*", resource: "*", effect: "ask" },
+          { action: "iglo-code-thread_opencode2-adapter_plugin_*", resource: "*", effect: "ask" },
         ];
         const broad = [{ action: "*", resource: "*", effect: "allow" }, ...mcprules];
         const native = {

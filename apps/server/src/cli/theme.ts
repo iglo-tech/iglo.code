@@ -154,11 +154,11 @@ export class ThemeTargetMissingError extends Schema.TaggedError<ThemeTargetMissi
   {},
 ) {
   override get message(): string {
-    return "Provide a theme id or file, or run `t3 theme clear` to remove the theme.";
+    return "Provide a theme id or file, or run `iglo.code theme clear` to remove the theme.";
   }
 }
 
-const envT3Home = Config.String("T3CODE_HOME").pipe(Config.option);
+const envT3Home = Config.String("IGLO_CODE_HOME").pipe(Config.option);
 
 const resolveThemePaths = Effect.fn(function* (explicitBaseDir: Option.Option<string>) {
   const envHome = Option.filter(yield* envT3Home, (value) => value.trim().length > 0);

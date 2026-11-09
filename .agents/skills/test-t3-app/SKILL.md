@@ -13,8 +13,8 @@ Do not install or switch to another automation system.
 
 Reuse this task's healthy dev server. Otherwise run `vp run dev` from the
 repository root and retain its terminal session. Use the worktree's ignored
-`.t3` state and read the actual ports and pairing URL from the dev-runner output.
-Never run against `~/.t3/userdata` or set `VITE_HTTP_URL` or `VITE_WS_URL`.
+`.iglo.code` state and read the actual ports and pairing URL from the dev-runner output.
+Never run against `~/.iglo.code/userdata` or set `VITE_HTTP_URL` or `VITE_WS_URL`.
 
 Test with meaningful project and thread data. Read
 [references/sqlite-fixtures.md](references/sqlite-fixtures.md) only when
@@ -29,7 +29,7 @@ through the real adapter and orchestration. Its models are scenarios:
 Press `Ctrl+Alt+Shift+R` for a picker (GNOME takes that key for screen
 recording), call `window.t3dev.replay("showcase")`
 with `preview_evaluate`, or run
-`node apps/server/src/bin.ts thread start --base-dir .t3 --provider devReplay --model showcase <project> "go"`.
+`node apps/server/src/bin.ts thread start --base-dir .iglo.code --provider devReplay --model showcase <project> "go"`.
 When the test needs real provider behavior, use that provider's cheapest
 model, such as Haiku for Claude or Luna for Codex.
 

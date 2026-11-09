@@ -116,7 +116,7 @@ it.effect("reads the newest version from the update feed file a mirror publishes
   }),
 );
 
-it.layer(NodeServices.layer)("t3 update under a managed policy", (it) => {
+it.layer(NodeServices.layer)("iglo.code update under a managed policy", (it) => {
   const runWithPolicy = (
     updates: ManagedUpdatesPolicy,
     input: { readonly channel?: "stable" | "nightly"; readonly requestedVersion?: string } = {},
@@ -192,7 +192,7 @@ it.layer(NodeServices.layer)("t3 update under a managed policy", (it) => {
   );
 });
 
-it.layer(NodeServices.layer)("t3 update launcher", (it) => {
+it.layer(NodeServices.layer)("iglo.code update launcher", (it) => {
   it.effect("repoints a symlink that lives in a runtime versions tree", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -226,7 +226,7 @@ it.layer(NodeServices.layer)("t3 update launcher", (it) => {
     { name: "Windows launcher records", recorded: "C:\\t3.cmd\r\n" },
     // An interrupted append cut this record short.
     { name: "an unterminated launcher record", recorded: "/opt/t" },
-    // Another process's append is cut short after t3 update reads the records.
+    // Another process's append is cut short after iglo.code update reads the records.
     { name: "a record cut short after the read", recorded: "/opt/t3\n", cut: "/opt/t" },
   ])("keeps the runtime a repointed launcher off PATH points at with $name", ({ recorded, cut }) =>
     Effect.gen(function* () {
@@ -335,7 +335,7 @@ it.layer(NodeServices.layer)("t3 update launcher", (it) => {
   );
 
   it.effect.each(["recording", "repointing"] as const)(
-    "never leaves a repointed launcher unrecorded when t3 update dies while %s",
+    "never leaves a repointed launcher unrecorded when iglo.code update dies while %s",
     (step) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -350,11 +350,11 @@ it.layer(NodeServices.layer)("t3 update launcher", (it) => {
             ...fs,
             writeFileString: (path, data, options) =>
               step === "recording" && path === launchersFile
-                ? Effect.die("t3 update was killed")
+                ? Effect.die("iglo.code update was killed")
                 : fs.writeFileString(path, data, options),
             rename: (from, to) =>
               step === "repointing" && to === launcher
-                ? Effect.die("t3 update was killed")
+                ? Effect.die("iglo.code update was killed")
                 : fs.rename(from, to),
           }),
           Effect.exit,
@@ -456,7 +456,7 @@ const withoutTerminals = Effect.acquireRelease(
     }),
 );
 
-it.layer(NodeServices.layer)("t3 update with a background service", (it) => {
+it.layer(NodeServices.layer)("iglo.code update with a background service", (it) => {
   it.effect("names the version a service with a pending restart still runs", () =>
     Effect.gen(function* () {
       yield* withoutTerminals;
@@ -468,9 +468,9 @@ it.layer(NodeServices.layer)("t3 update with a background service", (it) => {
       yield* fs.makeDirectory(runtime.versionDir, { recursive: true });
       yield* fs.writeFileString(runtime.entryPath, "");
       yield* fs.writeFileString(runtime.sentinelPath, `${version}\n`);
-      const unitPath = path.join(baseDir, "t3code.service");
+      const unitPath = path.join(baseDir, "iglo.code.service");
       const logPath = path.join(baseDir, "boot-service.log");
-      // An earlier `t3 update` pointed the service at this version without restarting it.
+      // An earlier `iglo.code update` pointed the service at this version without restarting it.
       const service = Layer.mock(BootService.BootService, {
         status: Effect.succeed<BootService.BootServiceStatus>({
           supported: true,
@@ -490,7 +490,7 @@ it.layer(NodeServices.layer)("t3 update with a background service", (it) => {
           input.args?.includes("--version") === true
             ? unrelatedLsof
                 .run(input)
-                .pipe(Effect.map((result) => ({ ...result, stdout: `t3 v${version}\n` })))
+                .pipe(Effect.map((result) => ({ ...result, stdout: `iglo.code v${version}\n` })))
             : unrelatedLsof.run(input),
       });
 
@@ -521,7 +521,7 @@ it.layer(NodeServices.layer)("t3 update with a background service", (it) => {
 
       assert.include(
         output,
-        `Background service still running the version before ${version}. Run \`t3 service restart\` when you are ready to switch it to ${version}.`,
+        `Background service still running the version before ${version}. Run \`iglo.code service restart\` when you are ready to switch it to ${version}.`,
       );
     }).pipe(
       Effect.scoped,

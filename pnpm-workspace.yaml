@@ -3,7 +3,6 @@ packages:
   - evals
   - "!apps/desktop"
   - "!apps/mobile"
-  - infra/*
   - oxlint-plugin-t3code
   - packages/*
   - scripts
@@ -18,32 +17,20 @@ allowBuilds:
   esbuild: true
   # Ships prebuilds; its host-architecture probe triggers source builds during cross-packaging.
   koffi: false
-  sharp: true
   utf-8-validate: false
   workerd: false
 
 catalog:
-  "@alchemy.run/axiom": 2.0.0-beta.85
-  "@alchemy.run/cloudflare": 2.0.0-beta.85
-  "@alchemy.run/drizzle": 2.0.0-beta.85
-  "@alchemy.run/planetscale": 2.0.0-beta.85
-  "@alchemy.run/test": 2.0.0-beta.85
-  "@clerk/backend": 3.25.0
   "@clerk/clerk-js": 6.40.0
   "@clerk/electron": 0.1.3
   "@clerk/react": 6.18.0
   "@clerk/shared": 4.41.0
-  # Must match the version alchemy depends on: the relay overrides its
-  # Cloudflare retry policy through this package's Retry service.
-  "@distilled.cloud/cloudflare": 1.0.0-rc.18
   "@effect/atom-react": 4.1.2
   "@effect/graphql-generator": 4.1.2
   "@effect/openapi-generator": 4.1.2
   "@effect/platform-bun": 4.1.2
   "@effect/platform-node": 4.1.2
   "@effect/platform-node-shared": 4.1.2
-  "@effect/sql-pg": 4.1.2
-  "@effect/sql-sqlite-do": 4.1.2
   "@effect/vitest": 4.1.2
   "@legendapp/list": 3.7.2
   "@noble/curves": 1.9.1
@@ -57,7 +44,6 @@ catalog:
   "@types/react": ~19.3.0
   "@types/react-dom": ~19.3.0
   "@types/ws": 8.18.2
-  alchemy: 2.0.0-beta.85
   effect: 4.1.2
   jose: 6.2.2
   lightningcss: 1.33.0
@@ -91,7 +77,6 @@ overrides:
   micromark-extension-llm-math: 3.1.0
   micromark: 4.0.2
   mdast-util-to-hast: 13.2.1
-  alchemy: "catalog:"
   "@ff-labs/fff-node": 0.11.0
   "@legendapp/list": 3.7.2
   "@pierre/diffs": 1.6.1
@@ -106,7 +91,6 @@ overrides:
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64-musl": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-arm64": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-x64": "-"
-  "@clerk/backend": "catalog:"
   "@clerk/clerk-js": "catalog:"
   "@clerk/clerk-js>@base-org/account": "-"
   "@clerk/clerk-js>@coinbase/wallet-sdk": "-"
@@ -118,7 +102,6 @@ overrides:
   "@effect/platform-bun": "catalog:"
   "@effect/platform-node": "catalog:"
   "@effect/platform-node-shared": "catalog:"
-  "@effect/sql-pg": "catalog:"
   "@effect/vitest": "catalog:"
   "@effect/vitest>vitest": "-"
   # @pierre/trees pins @pierre/theming 1.0.0, whose peer range predates @pierre/theme 2.
@@ -163,7 +146,6 @@ patchedDependencies:
   micromark-extension-gfm-table@2.1.1: patches/micromark-extension-gfm-table@2.1.1.patch
   micromark@4.0.2: patches/micromark@4.0.2.patch
   mdast-util-to-hast@13.2.1: patches/mdast-util-to-hast@13.2.1.patch
-  "@alchemy.run/test@2.0.0-beta.85": patches/@alchemy.run__test@2.0.0-beta.85.patch
   "@effect/vitest@4.1.2": patches/@effect__vitest@4.1.2.patch
   "@ff-labs/fff-node@0.11.0": patches/@ff-labs__fff-node@0.11.0.patch
   # Exports the dependency-light subpaths mobile and the web diff parser import, and keeps
@@ -171,8 +153,6 @@ patchedDependencies:
   "@pierre/diffs@1.6.1": patches/@pierre%2Fdiffs@1.6.1.patch
   # Observe the owned host exit independently of descendants retaining its stdio.
   "@muse-code/sdk@1.4.6": patches/@muse-code__sdk@1.4.6.patch
-  # A failed Artifacts.cached effect hangs every later caller: https://github.com/alchemy-run/alchemy/issues/2981
-  alchemy@2.0.0-beta.85: patches/alchemy@2.0.0-beta.85.patch
   # Android: a marker orient other than "auto" or a number (auto-start-reverse) no longer throws.
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
@@ -192,8 +172,6 @@ peerDependencyRules:
 # approved. We curate our own skills, so deny these to keep installs quiet.
 permissions:
   "@tanstack/router-plugin":
-    skills: false
-  drizzle-kit:
     skills: false
 # @cursor/sdk finds its platform package (sandbox helper, rg, tree-sitter) by
 # walking up from the entry script for node_modules/@cursor/sdk-<platform>-<arch>.

@@ -1,8 +1,11 @@
-"""Prune the known upstream desktop integrations and GitHub workflows."""
+"""Prune the known upstream desktop integrations and upstream GitHub workflows."""
 
 import json
 import re
 import shutil
+
+# Upstream names its own workflows release.yml/ci.yml, so fork names never collide.
+FORK_WORKFLOWS = {"iglo-release.yml"}
 
 
 def desktop_dependency(name):
@@ -60,8 +63,14 @@ def prune_desktop(root):
                 target.write_text(after)
                 changed.append(str(path))
 
-    # The fork runs its checks locally and keeps no GitHub workflows.
-    remove(".github/workflows")
+    # Checks run locally; the fork's only workflow publishes its own releases.
+    workflows = root / ".github/workflows"
+    if workflows.is_dir() and not workflows.is_symlink():
+        for target in sorted(workflows.iterdir()):
+            if target.name not in FORK_WORKFLOWS:
+                remove(target.relative_to(root))
+    else:
+        remove(".github/workflows")
     remove("apps/desktop")
     for path in (
         ".devcontainer", "docs/internals/devcontainer.md",

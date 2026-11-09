@@ -1,20 +1,19 @@
 # Kiro
 
-T3 Code runs the [Kiro CLI](https://kiro.dev/docs/cli/) as an agent, using your own Kiro account,
+iglo.code runs the [Kiro CLI](https://kiro.dev/docs/cli/) as an agent, using your own Kiro account,
 custom agents, steering, hooks, and MCP configuration.
 
 ## Set Up Kiro
 
-1. Install the Kiro CLI on the machine running the T3 Code server. On macOS or Linux, run
-   `curl -fsSL https://cli.kiro.dev/install | bash`. On Windows 11, run
-   `irm 'https://cli.kiro.dev/install.ps1' | iex` in PowerShell. Kiro's
+1. Install the Kiro CLI on the machine running the iglo.code server. Run
+   `curl -fsSL https://cli.kiro.dev/install | bash`. Kiro's
    [installation guide](https://kiro.dev/docs/getting-started/installation/) lists other options.
 2. Run `kiro-cli login` once in a terminal. Kiro Pro and higher plans can instead set an API key as
    `KIRO_API_KEY` in the Kiro provider's environment variables.
 3. Open **Settings → Providers**, enable Kiro, and refresh it.
 
 If `kiro-cli` is not on the server's `PATH`, set its **Binary path**. On macOS and Linux, the
-installer usually puts it in `~/.local/bin`. T3 Code starts Kiro's CLI V3 engine, so a Kiro CLI
+installer usually puts it in `~/.local/bin`. iglo.code starts Kiro's CLI V3 engine, so a Kiro CLI
 that cannot run V3 will not start.
 
 ## Models
@@ -40,14 +39,14 @@ leaves the thread on Kiro's current agent.
 
 ## Permission Modes
 
-Kiro asks before tool calls such as writes and commands, and T3 Code answers by the permission mode:
+Kiro asks before tool calls such as writes and commands, and iglo.code answers by the permission mode:
 
 - **Supervised** sends those requests to you. Kiro's Autopilot is off, so Kiro also asks you to
   review the turn's file changes before it finishes.
 - **Full access** approves them without asking you. Autopilot stays on, so there is no review step.
 
 Kiro offers no **Auto** or **Auto-accept edits**. Approvals offer only the choices Kiro sends. Kiro's
-**Always allow** saves a rule for the whole workspace, so T3 Code shows it only when Kiro offers no
+**Always allow** saves a rule for the whole workspace, so iglo.code shows it only when Kiro offers no
 one-time choice.
 
 ## Steering, Forks and Compaction

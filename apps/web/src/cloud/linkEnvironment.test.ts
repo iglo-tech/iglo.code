@@ -48,6 +48,18 @@ const relayClientInstallDialog = vi.hoisted(() => ({
   finish: vi.fn(),
 }));
 
+// These cover the dormant T3 Connect code as it runs in a build with its public config.
+vi.mock("./publicConfig", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./publicConfig")>();
+  return {
+    ...actual,
+    resolveCloudPublicConfig: () => ({
+      ...actual.resolveCloudPublicConfig(),
+      relayUrl: "https://relay.example.test",
+    }),
+  };
+});
+
 vi.mock("./relayClientInstallDialog", () => ({
   requestRelayClientInstallConfirmation: relayClientInstallDialog.requestConfirmation,
   reportRelayClientInstallProgress: relayClientInstallDialog.reportProgress,
@@ -188,7 +200,6 @@ function withServices<A, E>(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubEnv("VITE_T3CODE_RELAY_URL", "https://relay.example.test");
   relayClientInstallDialog.requestConfirmation.mockResolvedValue(true);
 });
 

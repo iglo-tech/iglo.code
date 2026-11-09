@@ -9,11 +9,12 @@ import { macosProfile, windowsAdmx } from "./policyTemplates.ts";
 
 it("gives every registry value the Windows reader accepts a Group Policy control", () => {
   const admx = windowsAdmx();
-  for (const name of Object.keys(WINDOWS_POLICY_VALUES)) {
+  // iglo.code has no T3 Connect to allow; the reader still accepts the value from shared policies.
+  for (const name of Object.keys(WINDOWS_POLICY_VALUES).filter((name) => name !== "Connect")) {
     assert.include(admx, `valueName="${name}"`);
   }
   for (const key of Object.keys(WINDOWS_POLICY_LISTS)) {
-    assert.include(admx, `key="SOFTWARE\\Policies\\T3Tools\\T3Code\\${key}"`);
+    assert.include(admx, `key="SOFTWARE\\Policies\\Iglo\\IgloCode\\${key}"`);
   }
   for (const name of Object.keys(WINDOWS_POLICY_GROUPS)) {
     assert.include(admx, `valueName="${name}"`);

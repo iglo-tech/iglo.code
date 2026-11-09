@@ -6,24 +6,25 @@ import * as FileSystem from "effect/FileSystem";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import { NPM_LAUNCHER_PACKAGE_NAME } from "../../../scripts/build-npm-launcher.ts";
 import { DEVELOPMENT_ICON_OVERRIDES } from "../../../scripts/lib/brand-assets.ts";
 import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-executable-imports.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { BUN_VERSION } from "@t3tools/shared/bunRuntime";
-import { CLI_ARCHIVE_PLATFORM_KEYS } from "@t3tools/shared/cliRelease";
+import { CLI_ARCHIVE_PLATFORM_KEYS, CLI_RELEASE_MANIFEST_FILE } from "@t3tools/shared/cliRelease";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
-  ServerCliBuildAssetMissingError,
   ServerCliCommandExitError,
   ServerCliDevelopmentIconSourceMissingError,
   ServerCliDevelopmentIconTargetMissingError,
   ServerCliExecutableImportError,
   ServerCliExecutableBuildConfigurationError,
 } from "./cliErrors.ts";
+import { ReleaseManifest } from "../src/cloud/releaseLookup.ts";
+import { BUILD_MIGRATION_HEAD } from "../src/persistence/databaseMigrationHead.ts";
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("../../..", import.meta.url))),
@@ -110,7 +111,7 @@ const buildExeCmd = Command.make(
     verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
     target: Flag.String("target").pipe(
       Flag.withDescription(
-        "Compile for darwin-arm64, linux-x64, or linux-arm64; defaults to the host.",
+        `Compile for ${CLI_ARCHIVE_PLATFORM_KEYS.join(", ")}; defaults to the host.`,
       ),
       Flag.optional,
     ),
@@ -142,7 +143,7 @@ const buildExeCmd = Command.make(
           cwd: serverDir,
           env: {
             ...process.env,
-            T3CODE_PACK_EXE: "1",
+            IGLO_CODE_PACK_EXE: "1",
           },
           stdout: config.verbose ? "inherit" : "ignore",
           stderr: "inherit",
@@ -178,7 +179,7 @@ const buildExeCmd = Command.make(
           },
         ),
       );
-      if (target === "darwin-arm64" && hostPlatform === "darwin") {
+      if (target.startsWith("darwin-") && hostPlatform === "darwin") {
         yield* runCommand(
           ChildProcess.make("codesign", ["--force", "--sign", "-", executablePath]),
         );
@@ -193,48 +194,38 @@ const buildExeCmd = Command.make(
   ),
 );
 
-/** Publishes the `@iglo-tech/iglo-code.tgz` launcher after the GitHub release exists; it downloads from it. */
-const publishCmd = Command.make(
-  "publish",
+const encodeReleaseManifest = Schema.encodeEffect(Schema.fromJsonString(ReleaseManifest));
+
+const releaseManifestCmd = Command.make(
+  "release-manifest",
   {
-    packagesDir: Flag.String("packages-dir").pipe(
-      Flag.withDescription("Output dir of scripts/build-npm-launcher.ts."),
-    ),
-    tag: Flag.String("tag").pipe(Flag.withDefault("latest")),
-    access: Flag.String("access").pipe(Flag.withDefault("public")),
-    provenance: Flag.Boolean("provenance").pipe(Flag.withDefault(false)),
-    dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
-    verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
+    version: Flag.String("version"),
+    outputDir: Flag.String("output-dir"),
   },
   (config) =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const fs = yield* FileSystem.FileSystem;
-      const packagesDir = path.resolve(config.packagesDir);
-      const launcherTarball = path.join(packagesDir, `${NPM_LAUNCHER_PACKAGE_NAME}.tgz`);
-      if (!(yield* fs.exists(launcherTarball))) {
-        return yield* new ServerCliBuildAssetMissingError({ assetPath: launcherTarball });
-      }
-
-      const args = ["publish", "--access", config.access, "--tag", config.tag];
-      if (config.provenance) args.push("--provenance");
-      if (config.dryRun) args.push("--dry-run");
-      const spawnCommand = yield* resolveSpawnCommand("npm", [...args, launcherTarball]);
-      yield* Effect.log(`[cli] npm ${args.join(" ")} ${NPM_LAUNCHER_PACKAGE_NAME}.tgz`);
-      yield* runCommand(
-        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-          cwd: packagesDir,
-          stdout: config.verbose ? "inherit" : "ignore",
-          stderr: "inherit",
-          shell: spawnCommand.shell,
-        }),
+      const manifestPath = path.join(config.outputDir, CLI_RELEASE_MANIFEST_FILE);
+      yield* fs.makeDirectory(config.outputDir, { recursive: true });
+      const manifest = yield* encodeReleaseManifest({
+        version: config.version,
+        databaseMigration: BUILD_MIGRATION_HEAD,
+      });
+      yield* fs.writeFileString(manifestPath, `${manifest}\n`);
+      yield* Effect.log(
+        `[cli] Wrote ${manifestPath} (database migration ${BUILD_MIGRATION_HEAD}).`,
       );
     }),
-).pipe(Command.withDescription("Publish the iglo.code launcher to npm."));
+).pipe(
+  Command.withDescription(
+    `Write ${CLI_RELEASE_MANIFEST_FILE}, which track switches read to check database compatibility.`,
+  ),
+);
 
 const cli = Command.make("cli").pipe(
-  Command.withDescription("T3 server build & publish CLI."),
-  Command.withSubcommands([buildCmd, buildExeCmd, publishCmd]),
+  Command.withDescription("T3 server build CLI."),
+  Command.withSubcommands([buildCmd, buildExeCmd, releaseManifestCmd]),
 );
 
 Command.run(cli, { version: "0.0.0" }).pipe(

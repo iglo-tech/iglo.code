@@ -36,7 +36,7 @@ try {
     NodeAssert.strict.equal(entries.length, 1, "The archive must contain one install root");
     root = NodePath.join(scratch, entries[0]!);
     bun = NodePath.join(root, "runtime/bun");
-    application = NodePath.join(root, "t3");
+    application = NodePath.join(root, "iglo.code");
   } else {
     await NodeFSP.symlink(
       NodePath.resolve(scriptDirectory, "../node_modules"),

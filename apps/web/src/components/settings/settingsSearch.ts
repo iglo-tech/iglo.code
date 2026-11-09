@@ -486,7 +486,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Guest links",
     to: "/settings/labs",
     scope: "environment",
-    searchTerms: ["beta share guest invite link teammate watch t3 connect tunnel"],
+    searchTerms: ["beta share guest invite link teammate watch iglo.code connect tunnel"],
+    cloudOnly: true,
   },
   {
     id: "linked-environments-beta",
@@ -768,7 +769,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Submodules",
     to: "/settings/worktrees",
     scope: "project-defaults",
-    searchTerms: ["git submodule init recursive top-level none worktree t3.json"],
+    searchTerms: ["git submodule init recursive top-level none worktree iglo.code.json"],
   },
   {
     id: "start-from-origin",
@@ -845,16 +846,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "cli-command",
-    title: "t3 command",
+    title: "iglo.code command",
     to: "/settings/about",
     searchTerms: ["cli terminal shell path install command line"],
     desktopOnly: true,
-  },
-  {
-    id: "mobile-app",
-    title: "Mobile app",
-    to: "/settings/about",
-    searchTerms: ["phone tablet iPhone iPad iOS Android App Store Google Play QR"],
   },
   {
     id: "privacy-policy",
@@ -1178,7 +1173,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "project-actions",
     title: "Actions",
     to: "/settings/projects",
-    searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
+    searchTerms: ["commands scripts setup run dev server checkout worktree iglo.code.json import"],
   },
   {
     id: "environment-icon",
@@ -1239,7 +1234,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Hold webhooks while offline",
     to: "/settings/access",
     targetId: "connections-environment",
-    searchTerms: ["webhook automations offline queue mailbox t3 connect"],
+    searchTerms: ["webhook automations offline queue mailbox iglo.code connect"],
     cloudOnly: true,
     managedTunnelOnly: true,
   },
@@ -1272,7 +1267,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "remote-environments",
     title: "Environments",
     to: "/settings/connections",
-    searchTerms: ["add pair backend host code ssh config agent tunnel saved t3 connect"],
+    searchTerms: ["add pair backend host code ssh config agent tunnel saved iglo.code connect"],
   },
   {
     id: "load-balancing",

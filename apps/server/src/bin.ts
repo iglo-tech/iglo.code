@@ -1,6 +1,6 @@
 /**
- * Every ACP agent spawns `t3 acp-mcp-bridge` while opening its session, and terminal-fallback
- * agents run `t3 acp-mcp-call` per tool call, so their startup sits on first-message latency.
+ * Every ACP agent spawns `iglo.code acp-mcp-bridge` while opening its session, and terminal-fallback
+ * agents run `iglo.code acp-mcp-call` per tool call, so their startup sits on first-message latency.
  * They and Codex's managed-token helper dispatch before the full CLI module graph (seconds
  * of evaluation) loads; everything else defers to the real CLI in ./binCli.ts.
  */
@@ -61,7 +61,7 @@ async function runCliCommand(command: string | undefined) {
     attachConsoleStdin();
     const importStart = performance.now();
     const { runCli } = await import("./binCli.ts");
-    if (process.env.T3CODE_STARTUP_PROFILE_DIR) {
+    if (process.env.IGLO_CODE_STARTUP_PROFILE_DIR) {
       performance.measure("server.import.binCli", { start: importStart });
     }
     runCli();

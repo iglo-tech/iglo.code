@@ -25,11 +25,11 @@ import { SERVICE_LAUNCHER_PROTOCOL, SERVICE_STOP_MARKER_FILE } from "./cloud/ser
 import { ensurePinnedRuntimeInstalled } from "./cloud/pinnedRuntime.ts";
 import * as ProcessRunner from "./processRunner.ts";
 
-// Set T3_SERVICE_TEST_EXECUTABLE to an extracted archive's t3 to exercise its
+// Set T3_SERVICE_TEST_EXECUTABLE to an extracted archive's iglo.code to exercise its
 // public __service-launcher command. Otherwise compile the production launcher.
 const fixtureDir = NodeURL.fileURLToPath(new URL("./testUtils/", import.meta.url));
 const bun = NodeChildProcess.execFileSync(
-  process.env.T3_BUN_EXECUTABLE ?? "bun",
+  process.env.IGLO_CODE_BUN_EXECUTABLE ?? "bun",
   ["--print", "process.execPath"],
   {
     encoding: "utf8",
@@ -71,7 +71,7 @@ beforeAll(async () => {
       const archiveName = cliArchiveFileName(version, platformKey);
       const archiveRoot = NodePath.join(buildDir, archiveName.replace(/\.tar\.gz$/, ""));
       await NodeFSP.mkdir(archiveRoot, { recursive: true });
-      const executable = NodePath.join(archiveRoot, "t3");
+      const executable = NodePath.join(archiveRoot, "iglo.code");
       if (mode === "compiled") await NodeFSP.copyFile(NodePath.join(buildDir, "child"), executable);
       else
         await NodeFSP.writeFile(
@@ -243,7 +243,7 @@ function start(home: string, mode: "source" | "compiled", scenario = "lifecycle"
         ? ["__service-launcher"]
         : [];
   const child = NodeChildProcess.spawn(executable, args, {
-    env: { ...process.env, PATH: "", T3CODE_HOME: home, T3_SERVICE_TEST_SCENARIO: scenario },
+    env: { ...process.env, PATH: "", IGLO_CODE_HOME: home, T3_SERVICE_TEST_SCENARIO: scenario },
     stdio: ["ignore", "pipe", "pipe"],
   });
   launchers.add(child);

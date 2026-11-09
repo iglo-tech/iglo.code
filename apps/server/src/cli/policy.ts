@@ -149,9 +149,9 @@ const templatesCommand = Command.make("templates", {
         return yield* new CliError.UserError({ cause: document, userMessage: profile.reason });
       }
       const files = [
-        [path.join(directory, "windows", "t3code.admx"), windowsAdmx()],
-        [path.join(directory, "windows", "en-US", "t3code.adml"), windowsAdml()],
-        [path.join(directory, "macos", "t3code.mobileconfig"), profile.profile],
+        [path.join(directory, "windows", "iglocode.admx"), windowsAdmx()],
+        [path.join(directory, "windows", "en-US", "iglocode.adml"), windowsAdml()],
+        [path.join(directory, "macos", "iglocode.mobileconfig"), profile.profile],
       ] as const;
       for (const [file, contents] of files) {
         yield* fs.makeDirectory(path.dirname(file), { recursive: true });

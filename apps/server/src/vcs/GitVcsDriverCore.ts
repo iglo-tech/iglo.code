@@ -57,7 +57,7 @@ import { sourceControlDefinitions } from "../sourceControl/sourceControlDefiniti
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 /** T3's record of the branch, named as on the host, that a branch was cut from. */
-const branchBaseConfigKey = (branch: string) => `branch.${branch}.t3-merge-base`;
+const branchBaseConfigKey = (branch: string) => `branch.${branch}.iglo-code-merge-base`;
 /**
  * Where T3 kept that record before it had a key of its own, for every host alike: the GitHub
  * CLI's key, which branches cut before then still carry instead.
@@ -1882,7 +1882,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       readonly knownOriginDefaultBranch?: string | null;
     },
   ) {
-    const configuredBaseRef = yield* readConfigValue(cwd, `branch.${refName}.t3-merge-base-ref`);
+    const configuredBaseRef = yield* readConfigValue(
+      cwd,
+      `branch.${refName}.iglo-code-merge-base-ref`,
+    );
     if (
       configuredBaseRef?.startsWith("refs/heads/") ||
       configuredBaseRef?.startsWith("refs/remotes/")
@@ -2794,10 +2797,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             key: branchBaseConfigKey(branch),
             value: currentUpstream.branchName,
           });
-          if (!(yield* readConfigValue(cwd, `branch.${branch}.t3-merge-base-ref`))) {
+          if (!(yield* readConfigValue(cwd, `branch.${branch}.iglo-code-merge-base-ref`))) {
             yield* writeConfigValue({
               cwd,
-              key: `branch.${branch}.t3-merge-base-ref`,
+              key: `branch.${branch}.iglo-code-merge-base-ref`,
               value: `refs/remotes/${currentUpstream.upstreamRef}`,
             });
           }
@@ -4312,7 +4315,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       });
     }
     if (options?.ownerId !== undefined && input.newRefName !== undefined) {
-      const ownerMarker = `t3code-worktree:${Hex.encode(new TextEncoder().encode(options.ownerId))}`;
+      const ownerMarker = `iglo-code-worktree:${Hex.encode(new TextEncoder().encode(options.ownerId))}`;
       const ownerHash = yield* digest
         .digest(Digest.sha256, new TextEncoder().encode(options.ownerId))
         .pipe(
@@ -4328,9 +4331,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               }),
           ),
         );
-      const ownerRef = `refs/t3/worktree-owners/${ownerHash}`;
-      const ownerConfigKey = `branch.${targetBranch}.t3codeOwner`;
-      const baseConfigKey = `branch.${targetBranch}.t3codeBaseCommit`;
+      const ownerRef = `refs/iglo.code/worktree-owners/${ownerHash}`;
+      const ownerConfigKey = `branch.${targetBranch}.igloCodeOwner`;
+      const baseConfigKey = `branch.${targetBranch}.igloCodeBaseCommit`;
       if (options.resume && branchExistsBeforeClaim) {
         const configured = yield* executeGit(
           "GitVcsDriver.createWorktree.ownership",
@@ -4348,8 +4351,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           options.allowLegacyClaim === true &&
           options.recordedWorktreePath !== undefined &&
           configured.exitCode === 1 &&
-          !history.includes("branch: Created from refs/t3/worktree-owners/") &&
-          !history.includes(" t3code-worktree:");
+          !history.includes("branch: Created from refs/iglo.code/worktree-owners/") &&
+          !history.includes(" iglo-code-worktree:");
         if (
           !legacy &&
           configured.stdout.trim() !== ownerMarker &&
@@ -4744,9 +4747,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
                 Effect.flatMap((contents) => {
                   const file = parseT3ProjectFile(contents);
                   return file === null
-                    ? Effect.logWarning("t3.json is invalid; initializing submodules recursively", {
-                        worktreePath,
-                      }).pipe(Effect.as(null))
+                    ? Effect.logWarning(
+                        "iglo.code.json is invalid; initializing submodules recursively",
+                        {
+                          worktreePath,
+                        },
+                      ).pipe(Effect.as(null))
                     : Effect.succeed(file);
                 }),
                 Effect.orElseSucceed(() => null),
@@ -4754,7 +4760,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         );
     if (hasSubmodules && submoduleMode.value === "none" && progress?.onSubmodulesDisabled) {
       yield* progress.onSubmodulesDisabled({
-        source: submoduleMode.source === "t3.json" ? "t3.json" : "settings",
+        source: submoduleMode.source === "iglo.code.json" ? "iglo.code.json" : "settings",
       });
     }
     if (submoduleMode.value !== "none") {
@@ -4819,7 +4825,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           // The base key names a branch on the host; this one keeps the remote it came from.
           yield* writeConfigValue({
             cwd: input.cwd,
-            key: `branch.${targetBranch}.t3-merge-base-ref`,
+            key: `branch.${targetBranch}.iglo-code-merge-base-ref`,
             value: base.baseRef,
           });
         }
@@ -4922,7 +4928,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         yield* executeGit(
           "GitVcsDriver.refreshCheckedOutBranch.keepPrevious",
           input.cwd,
-          ["update-ref", "refs/t3code/pre-refresh", headCommit],
+          ["update-ref", "refs/iglo.code/pre-refresh", headCommit],
           { fallbackErrorDetail: "git failed to record the previous checkout commit" },
         );
       }

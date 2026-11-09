@@ -62,7 +62,7 @@ export const findOwnedLauncher = Effect.fn("cli.uninstall.find_launcher")(functi
   return isVersionExecutable(path, input.versionsDir, resolved) ? input.launchedAs : undefined;
 });
 
-/** Whether `launcher` is a link or unedited `t3.cmd` into this home's runtime/versions. */
+/** Whether `launcher` is a link or unedited `iglo.code.cmd` into this home's runtime/versions. */
 const ownsLauncher = Effect.fn("cli.uninstall.owns_launcher")(function* (
   launcher: string,
   versionsDir: string,
@@ -99,9 +99,9 @@ const ownsLauncher = Effect.fn("cli.uninstall.owns_launcher")(function* (
 });
 
 /**
- * Launchers recorded in `runtime/launchers` by the install scripts and `t3 install` that still
- * point into this home's runtime/versions. npx can run a different version than the installed
- * one, so the launcher this process started from does not always name them.
+ * Launchers recorded in `runtime/launchers` by the install scripts and `iglo.code install` that still
+ * point into this home's runtime/versions. Another version can run this command than the one
+ * linked on PATH, so the launcher this process started from does not always name them.
  */
 export const findRecordedLaunchers = Effect.fn("cli.uninstall.find_recorded_launchers")(function* (
   versionsDir: string,
@@ -127,10 +127,10 @@ export function spawnWindowsRemoval(comspec: string, dir: string) {
       "/v:off",
       "/s",
       "/c",
-      '"ping -n 3 127.0.0.1 >nul & rmdir /s /q "%T3_UNINSTALL_RUNTIME%""',
+      '"ping -n 3 127.0.0.1 >nul & rmdir /s /q "%IGLO_CODE_UNINSTALL_RUNTIME%""',
     ],
     {
-      env: { ...process.env, T3_UNINSTALL_RUNTIME: dir },
+      env: { ...process.env, IGLO_CODE_UNINSTALL_RUNTIME: dir },
       windowsVerbatimArguments: true,
       detached: true,
       stdio: "ignore",
@@ -181,7 +181,7 @@ export const uninstallCommand = Command.make("uninstall", {
   ),
 }).pipe(
   Command.withDescription(
-    "Remove t3 from this machine: the background service, the launcher, and every downloaded version. Your projects and threads are kept.",
+    "Remove iglo.code from this machine: the background service, the launcher, and every downloaded version. Your projects and threads are kept.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
@@ -205,10 +205,10 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
   const plan = yield* planUninstall({ baseDir: input.baseDir });
 
   if (!plan.service && plan.launchers.length === 0 && plan.runtimeDir === undefined) {
-    yield* Console.log(`Nothing to remove: t3 is not installed for ${input.baseDir}.`);
+    yield* Console.log(`Nothing to remove: iglo.code is not installed for ${input.baseDir}.`);
     if (!(yield* HostProcess.IsExecutable)) {
       yield* Console.log(
-        "  This t3 runs from a Bun script built from source. Remove its checkout to uninstall it.",
+        "  This iglo.code runs from a Bun script built from source. Remove its checkout to uninstall it.",
       );
     }
     return;
@@ -232,7 +232,7 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
       });
     }
     const confirmed = yield* Prompt.run(
-      Prompt.Confirm({ message: "Remove t3 from this machine?", initial: false }),
+      Prompt.Confirm({ message: "Remove iglo.code from this machine?", initial: false }),
     ).pipe(Effect.catchTags({ QuitError: () => Effect.succeed(false) }));
     if (!confirmed) {
       yield* Console.log("Left as is.");
@@ -271,7 +271,7 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
             reason: `Could not schedule removal of ${runtimeDir}. Delete it yourself once this window is closed.`,
           }),
       });
-      yield* Console.log(`${runtimeDir} will be removed once t3 exits.`);
+      yield* Console.log(`${runtimeDir} will be removed once iglo.code exits.`);
     } else {
       yield* fs
         .remove(plan.runtimeDir, { recursive: true, force: true })
@@ -284,5 +284,5 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
     }
   }
   yield* Console.log("");
-  yield* Console.log("t3 is uninstalled. Thanks for trying T3 Code.");
+  yield* Console.log("iglo.code is uninstalled. Thanks for trying T3 Code.");
 });

@@ -28,7 +28,7 @@ export function getDesktopUpdateDownloadedVersion(state: DesktopUpdateState): st
 
 export function getDesktopUpdateReleaseUrl(
   version: string | null,
-  repository: string | undefined = import.meta.env.T3CODE_DESKTOP_UPDATE_REPOSITORY,
+  repository: string | undefined = import.meta.env.IGLO_CODE_DESKTOP_UPDATE_REPOSITORY,
 ): string | null {
   const normalizedVersion = version?.trim();
   if (!normalizedVersion) return null;
@@ -36,7 +36,7 @@ export function getDesktopUpdateReleaseUrl(
 }
 
 export function getDesktopUpdateReleaseHistoryUrl(
-  repository: string | undefined = import.meta.env.T3CODE_DESKTOP_UPDATE_REPOSITORY,
+  repository: string | undefined = import.meta.env.IGLO_CODE_DESKTOP_UPDATE_REPOSITORY,
 ): string {
   return desktopReleaseRepositoryUrl(repository);
 }

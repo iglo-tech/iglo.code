@@ -48,14 +48,14 @@ it.live.each([
             : node,
         ),
       });
-      const directory = `${test.config.baseDir}/.t3code/workflows`;
+      const directory = `${test.config.baseDir}/.iglo-code/workflows`;
       yield* fs.makeDirectory(directory, { recursive: true });
       const encoded = encodeDefinition(definition);
       yield* fs.writeFileString(`${directory}/sequence.yml`, encoded);
       const entries = yield* runtime
         .invoke("catalog", test.scope)
         .pipe(Effect.flatMap(decodeCatalog));
-      const entry = entries.find((entry) => entry.source === ".t3code/workflows/sequence.yml")!;
+      const entry = entries.find((entry) => entry.source === ".iglo-code/workflows/sequence.yml")!;
       const validation = yield* runtime
         .invoke("validate", { ...test.scope, definition })
         .pipe(Effect.result);
@@ -72,7 +72,9 @@ it.live.each([
       const reloaded = yield* rebooted
         .invoke("catalog", test.scope)
         .pipe(Effect.flatMap(decodeCatalog));
-      const retained = reloaded.find((entry) => entry.source === ".t3code/workflows/sequence.yml")!;
+      const retained = reloaded.find(
+        (entry) => entry.source === ".iglo-code/workflows/sequence.yml",
+      )!;
       expect(entry.runnable).toBe(false);
       expect(entry.definition?.id).toBe("sequence");
       expect(retained.definition?.id).toBe("sequence");

@@ -124,9 +124,9 @@ export async function createEnvironmentFixture(
     );
     NodeAssert.ok(root, "The archive must contain an install directory.");
     cwd = NodePath.join(scratch, root);
-    executable = NodePath.join(cwd, "t3");
+    executable = NodePath.join(cwd, "iglo.code");
     // No system Node, npm or Bun; helper execution must use the archive's runtime/bun.
-    env = { PATH: "", HOME: home, SHELL: "/bin/sh", TMPDIR: scratch, T3CODE_HOME: home };
+    env = { PATH: "", HOME: home, SHELL: "/bin/sh", TMPDIR: scratch, IGLO_CODE_HOME: home };
     const version = await run(executable, ["--version"], cwd, env);
     NodeAssert.ok(version.includes(input.expectVersion), `Unexpected CLI version: ${version}`);
     const reservation = NodeNet.createServer();
@@ -159,10 +159,10 @@ export async function createEnvironmentFixture(
       SHELL: "/bin/sh",
       TMPDIR: scratch,
       PATH: `${NodePath.join(cwd, "node_modules/.bin")}${NodePath.delimiter}${process.env.PATH ?? ""}`,
-      T3CODE_HOME: home,
-      T3CODE_DEV_INSTANCE: scratch,
-      T3CODE_DEV_AUTH_TOKEN: "",
-      T3CODE_DEV_ALLOWED_ORIGINS: "http://remote-client.example.test",
+      IGLO_CODE_HOME: home,
+      IGLO_CODE_DEV_INSTANCE: scratch,
+      IGLO_CODE_DEV_AUTH_TOKEN: "",
+      IGLO_CODE_DEV_ALLOWED_ORIGINS: "http://remote-client.example.test",
     };
     delete env.VITE_HTTP_URL;
     delete env.VITE_WS_URL;

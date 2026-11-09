@@ -685,7 +685,7 @@ export const makeDeviceTools = Effect.fn("evaluateMcpToolUse.makeDeviceTools")(f
     const session = yield* agentDeviceSession(threadId, device.hostId, deviceId);
     owners.push({ deviceId, threadId, session });
   }
-  const config = ServerConfig.layerTest(environment.cwd, `${home}/.t3`);
+  const config = ServerConfig.layerTest(environment.cwd, `${home}/.iglo.code`);
   const files = FileSystem.layerNoop({
     makeDirectory: () => Effect.void,
     writeFileString: () => Effect.void,
@@ -699,7 +699,14 @@ export const makeDeviceTools = Effect.fn("evaluateMcpToolUse.makeDeviceTools")(f
       const digest = yield* Digest.Digest;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const { stateDir } = yield* ServerConfig.ServerConfig;
-      const agentEntry = path.join(home, ".t3", "tools", "agent-device", "bin", "agent-device.mjs");
+      const agentEntry = path.join(
+        home,
+        ".iglo.code",
+        "tools",
+        "agent-device",
+        "bin",
+        "agent-device.mjs",
+      );
       const hosts = new Map<DeviceHostId, DeviceHost.DeviceHost["Service"]>([
         [
           LOCAL_DEVICE_HOST_ID,

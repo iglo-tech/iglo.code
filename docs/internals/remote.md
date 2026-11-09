@@ -1,9 +1,9 @@
 # Remote architecture
 
 Each connection joins a client to one environment over HTTP and WebSocket. The
-environment owns providers, execution, files, and durable state. Direct access,
-Tailscale, SSH, and T3 Connect change how the client reaches that server; they do
-not introduce another execution model. See
+environment owns providers, execution, files, and durable state. LAN, Tailscale,
+and SSH change how the client reaches that server; they do not introduce another
+execution model. Upstream's T3 Connect relay is disabled in this fork. See
 [remote access](../user/remote-access.md) for setup.
 
 ## Identity is independent of the route
@@ -35,8 +35,7 @@ the first that works. Each direct route is first checked with the public
 descriptor, so a saved LAN address that a different machine answers on another
 network receives no credential. That check is not proof of a working route:
 when every route stays silent, each is still tried. A route that fails to
-connect, including a blocked one such as a signed-out T3 Connect, moves on to
-the next; only an incompatible server stops the walk, because it is the same
+connect moves on to the next; only an incompatible server stops the walk, because it is the same
 server on every route. While connected over a later route the
 [supervisor](../../packages/client-runtime/src/connection/supervisor.ts)
 preflights the earlier ones and replaces the session when one would connect.
@@ -46,9 +45,7 @@ held back for a cooldown so a flaky network cannot bounce the connection.
 
 A connected server reports the LAN and tailnet addresses it is bound to, and the
 client saves them as learned routes. A learned route reuses the credential of
-the route it was learned over: the T3 Connect access token, which is not bound
-to an origin because each DPoP proof names the URL it signs, or the paired
-bearer token. A paired token only learns a plain HTTP address off the tailnet
+the route it was learned over, the paired bearer token. A paired token only learns a plain HTTP address off the tailnet
 when it was itself paired over plain HTTP, so a token paired over HTTPS never
 starts travelling unencrypted. Learned routes the server stops reporting are
 dropped, which is how a changed LAN address replaces the old one; routes the
@@ -60,7 +57,7 @@ headless machines. It listens on every IPv4 interface and closes each
 connection unless both addresses of the direct peer are loopback, private, or
 tailnet IPv4. That keeps a VPS's public address closed, including a cloud VM
 whose public address is NATed to a private interface. It is not a firewall:
-T3 Connect and Tailscale Serve reach the server over loopback by design, and a
+Tailscale Serve and SSH forwards reach the server over loopback by design, and a
 proxy that rewrites the source address looks private. One listener per address would
 miss a DHCP change, and the wildcard keeps the reported addresses current.
 
@@ -101,8 +98,9 @@ Unlinking on the linking side only forgets the token.
   so idempotency keys are hashed with the caller's namespace before they
   leave. Without that, two agents reusing a key would collide on the far side.
 - **A forwarded wait is split into calls of at most 50 s**, because the
-  receiving `/mcp` sends nothing while a wait is open and T3 Connect's edge
-  drops idle requests after about 100 s.
+  receiving `/mcp` sends nothing while a wait is open and proxies in the
+  route, such as upstream's T3 Connect edge, drop idle requests after about
+  100 s.
 
 **Work a link paired below full access starts stays within that link.** The
 receiving environment knows a session is a peer link because the linking side
@@ -139,33 +137,31 @@ its agents can already do anything that user can, so the fence would only stop
 T3's own tools. Its work still carries `linkOrigin`, so clients show where it
 came from. A stamp without the access, from before it was recorded, is fenced.
 
-## Hosted web is a client
+## The web client is a client
 
-The hosted web app stores its connection catalog in the browser and connects
-directly to each environment. It does not proxy traffic or hold server-side
-pairing state. Hosting the UI over HTTPS therefore cannot make a plain HTTP LAN
-backend accessible from that browser context.
+Each server serves the web client, and the browser stores its connection catalog
+locally and connects directly to each environment, including ones other than the
+server that served the page. No server proxies another's traffic or holds the
+catalog. A page loaded over HTTPS, such as through Tailscale Serve, therefore
+cannot reach a plain HTTP LAN backend.
 
-A [hosted pairing URL](../../apps/web/src/hostedPairing.ts) identifies the backend
-in its query and carries the pairing secret in its fragment. Fragments stay out
-of requests to the hosted origin. The browser exchanges the secret with the
-environment and strips it from its history. Moving the token into a query
-parameter would disclose it to the wrong origin.
+Pairing URLs carry the pairing secret in the fragment, which never reaches a
+server in a request. The browser exchanges the secret with the environment and
+strips it from its history. Moving the token into a query parameter would
+disclose it to whatever origin serves the page. Upstream's hosted-app pairing
+([hostedPairing](../../apps/web/src/hostedPairing.ts)) relies on the same rule.
 
 ## Access and process ownership are different
 
 Tailscale supplies an endpoint for ordinary pairing, so it needs no separate
 environment type. Authentication remains the environment's responsibility for
-every route. See [environment authentication](./environment-auth.md) and the
-[T3 Connect trust boundary](./t3-connect.md).
+every route. See [environment authentication](./environment-auth.md).
 
-SSH can launch a server as well as forward a port. Desktop main owns that
-lifecycle because it can spawn SSH and handle authentication prompts. The
-renderer uses the forwarded endpoint through the shared connection runtime.
-[SSH cleanup](../../packages/ssh/src/tunnel.ts) stops a remote server only if the
-launcher owns it; a server it discovered already running must survive a client
-disconnect. Reconnection restores the forward before opening the application
-transport.
+In this fork SSH reaches a server through a port the user forwards to a server
+they started there. The browser has no SSH launcher: upstream's desktop app owned
+that lifecycle, and [the launcher](../../packages/ssh/src/tunnel.ts) has no
+caller here. The server uses only [SSH commands](../../packages/ssh/src/command.ts)
+for remote device hosts.
 
 Remote servers can outlive several client releases. Clients must use advertised
 capabilities and handle their absence, rather than assume their own version

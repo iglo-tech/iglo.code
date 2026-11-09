@@ -1208,20 +1208,20 @@ describe("AcpRegistryAdapterV2", () => {
       const http = (authorization: string) => [
         {
           type: "http",
-          name: "t3-code",
+          name: "iglo-code",
           url: endpoint,
           headers: [{ name: "Authorization", value: authorization }],
         },
       ];
       const stdio = (authorization: string) => [
         {
-          name: "t3-code",
+          name: "iglo-code",
           command: selfInvocation.command,
           args: [...selfInvocationArgs(selfInvocation, ["acp-mcp-bridge"])],
           env: [
             { name: "ELECTRON_RUN_AS_NODE", value: "1" },
-            { name: "T3_ACP_MCP_ENDPOINT", value: endpoint },
-            { name: "T3_ACP_MCP_AUTHORIZATION", value: authorization },
+            { name: "IGLO_CODE_ACP_MCP_ENDPOINT", value: endpoint },
+            { name: "IGLO_CODE_ACP_MCP_AUTHORIZATION", value: authorization },
           ],
         },
       ];
@@ -1230,7 +1230,7 @@ describe("AcpRegistryAdapterV2", () => {
         yield* sessionMcpServers({ agentId: "github-copilot-cli" }, { T3_ACP_MCP_HTTP: "1" }),
         { new: http("Bearer opened-token"), load: http("Bearer rotated-token") },
       );
-      const acp = [{ type: "acp", name: "t3-code", serverId: "t3-code" }];
+      const acp = [{ type: "acp", name: "iglo-code", serverId: "iglo-code" }];
       assert.deepEqual(
         yield* sessionMcpServers(
           { agentId: "github-copilot-cli" },
@@ -1322,9 +1322,9 @@ describe("AcpRegistryAdapterV2", () => {
         (environment) => environment?.T3_ACP_SESSION_LIFECYCLE === "1",
       );
       assert.isDefined(agentEnvironment, "the agent itself must have been spawned");
-      assert.equal(agentEnvironment?.T3CODE_THREAD_ID, "thread-acp-registry-thread-env");
-      assert.equal(agentEnvironment?.T3_ACP_MCP_ENDPOINT, endpoint);
-      assert.equal(agentEnvironment?.T3_ACP_MCP_AUTHORIZATION, "Bearer thread-env-token");
+      assert.equal(agentEnvironment?.IGLO_CODE_THREAD_ID, "thread-acp-registry-thread-env");
+      assert.equal(agentEnvironment?.IGLO_CODE_ACP_MCP_ENDPOINT, endpoint);
+      assert.equal(agentEnvironment?.IGLO_CODE_ACP_MCP_AUTHORIZATION, "Bearer thread-env-token");
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
@@ -2341,7 +2341,7 @@ describe("AcpRegistryAdapterV2", () => {
               event.turnItem.nativeItemRef?.nativeId ===
                 "agent-1:session:grandchild:tool:terminal-tool" &&
               event.turnItem.threadId === row.subagent.childThreadId &&
-              event.turnItem.toolName === "t3-code.orchestrator_capabilities",
+              event.turnItem.toolName === "iglo-code.orchestrator_capabilities",
           ),
           "embedded agent-terminal commands preserve nested MCP identity",
         );

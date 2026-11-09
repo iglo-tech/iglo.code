@@ -58,7 +58,7 @@ export const layerFromPath = Effect.fn("makeSqlitePersistenceLive")(function* (d
       checkpointWorker: true,
       spanAttributes: {
         "db.name": path.basename(dbPath),
-        "service.name": "t3code-server",
+        "service.name": "iglo-code-server",
       },
     }),
   );

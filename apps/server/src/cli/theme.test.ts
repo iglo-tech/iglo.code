@@ -48,7 +48,7 @@ const writeSettings = (baseDir: string, settings: Record<string, unknown>) => {
   NodeFS.writeFileSync(settingsPathFor(baseDir), `${JSON.stringify(settings, null, 2)}\n`);
 };
 
-describe("t3 theme", () => {
+describe("iglo.code theme", () => {
   it.effect("preserves settings it does not recognise", () =>
     Effect.gen(function* () {
       const baseDir = makeBaseDir();

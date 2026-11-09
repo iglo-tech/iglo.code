@@ -6,14 +6,14 @@ node_modules
 *.tsbuildinfo
 apps/*/dist
 apps/*/dist-exe
-infra/*/dist
-.astro
 packages/*/dist
 .env
 .env.local
 build/
 .logs/
 release/
+.iglo.code
+# Pre-rename worktree dev state; keep it out of commits.
 .t3
 .idea/
 apps/web/.playwright
@@ -34,10 +34,8 @@ artifacts/mobile-behavior/
 .github/pr-assets/
 native/**/target/
 node_modules/
-.alchemy/
 *.log
 .env*
-!.env.example
 
 # pnpm content-addressable store; never belongs in the repo.
 .pnpm-store/

@@ -86,8 +86,8 @@ export const resolveBunExecutable = Effect.fn("bunRuntime.resolveBunExecutable")
   const path = yield* Path.Path;
   const env = environment ?? (yield* HostProcess.Environment);
   const bundledRuntime = path.join(path.dirname(executablePath), "runtime", "bun");
-  const configuredBunPath = env.T3_BUN_EXECUTABLE
-    ? env.T3_BUN_EXECUTABLE
+  const configuredBunPath = env.IGLO_CODE_BUN_EXECUTABLE
+    ? env.IGLO_CODE_BUN_EXECUTABLE
     : (yield* fs
           .exists(bundledRuntime)
           .pipe(Effect.mapError((cause) => new BunRuntimeUnavailableError({ feature, cause }))))

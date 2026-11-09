@@ -389,7 +389,7 @@ it.live(
                 environmentId,
                 catalog,
                 rpc,
-                directory: `${config.baseDir}/.t3code/workflows`,
+                directory: `${config.baseDir}/.iglo-code/workflows`,
                 tracked,
                 target: bind(workflowsWeb, tracked.client).scheduleTargets[0]!,
                 grantWrite: SubscriptionRef.set(prepared, Option.some(prepare(writable.token))),

@@ -84,7 +84,7 @@ it.live.each(["known-secret", "unrelated-control"] as const)(
           .pipe(Effect.flatMap(decodeEntry));
         const fs = yield* FileSystem.FileSystem;
         const authored = yield* fs.readFileString(
-          `${test.config.baseDir}/.t3code/workflows/catalog-privacy.yaml`,
+          `${test.config.baseDir}/.iglo-code/workflows/catalog-privacy.yaml`,
         );
         expect(authored).toContain(marker);
         const started = yield* runtime
@@ -136,7 +136,9 @@ it.live.each(["known-secret", "unrelated-control"] as const)(
           expected,
         ]);
         expect(
-          yield* fs.readFileString(`${test.config.baseDir}/.t3code/workflows/catalog-privacy.yaml`),
+          yield* fs.readFileString(
+            `${test.config.baseDir}/.iglo-code/workflows/catalog-privacy.yaml`,
+          ),
         ).toBe(authored);
         const db = new NodeSqlite.DatabaseSync(test.databasePath);
         try {

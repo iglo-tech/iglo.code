@@ -3,7 +3,7 @@ import { cn } from "~/lib/utils";
 import { CommandBlock } from "./CommandBlock";
 
 /**
- * Setup steps for another computer: install `t3`, then run `command`. The installer is shown
+ * Setup steps for another computer: install `iglo.code`, then run `command`. The installer is shown
  * because the browser showing this is often not the computer being set up.
  */
 export function InstallT3Commands({

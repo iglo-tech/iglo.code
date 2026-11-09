@@ -1,4 +1,4 @@
-export type T3McpToolLogo = "t3-code";
+export type T3McpToolLogo = "iglo-code";
 
 export interface T3McpToolPresentation {
   readonly displayName: string;
@@ -73,26 +73,26 @@ export type T3McpToolSummaryAction =
 export interface T3McpToolDefinition {
   readonly displayName: string;
   readonly labels: readonly [action: string, running: string, completed: string, detail: string];
-  readonly icon: "t3-code" | "browser" | "device" | "pull-request";
+  readonly icon: "iglo-code" | "browser" | "device" | "pull-request";
   readonly summaryAction: T3McpToolSummaryAction;
 }
 
 function tool(
   labels: T3McpToolDefinition["labels"],
   summaryAction: T3McpToolSummaryAction,
-  icon: T3McpToolDefinition["icon"] = "t3-code",
+  icon: T3McpToolDefinition["icon"] = "iglo-code",
   displayName = `${labels[0]} ${labels[3]}`,
 ): T3McpToolDefinition {
   return { displayName, labels, icon, summaryAction };
 }
 
-// Codex registers "t3-code-direct" for T3 tools kept out of Code Mode.
+// Codex registers "iglo-code-direct" for T3 tools kept out of Code Mode.
 const T3_MCP_SERVER_ALIASES = new Set([
-  "t3-code",
-  "t3_code",
-  "t3code",
-  "t3-code-direct",
-  "t3_code_direct",
+  "iglo-code",
+  "iglo_code",
+  "iglocode",
+  "iglo-code-direct",
+  "iglo_code_direct",
 ]);
 
 const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
@@ -410,18 +410,18 @@ function parseT3McpToolName(value: string): string | null {
   }
 
   const namespaceMatch =
-    /^(?<server>t3[-_]code[-_]direct|t3-code|t3_code|t3code)(?:[.:/]|\s*·\s*)(?<tool>.+)$/i.exec(
+    /^(?<server>iglo[-_]code[-_]direct|iglo-code|iglo_code|iglocode)(?:[.:/]|\s*·\s*)(?<tool>.+)$/i.exec(
       label,
     );
   if (namespaceMatch?.groups) {
     return namespaceMatch.groups.tool ?? null;
   }
 
-  const prefixed = /^(?:mcp[-_]{1,2})?t3[-_ ]?code(?:__|[-_.:/ ])(?<tool>.+)$/i.exec(label);
+  const prefixed = /^(?:mcp[-_]{1,2})?iglo[-_ ]?code(?:__|[-_.:/ ])(?<tool>.+)$/i.exec(label);
   const candidate = prefixed?.groups?.tool ?? label;
   if (Object.hasOwn(T3_MCP_TOOLS, candidate)) return candidate;
   // OpenCode 2 thread prefixes can contain underscores; choose the longest known tool-name suffix.
-  if (!/^t3-code-/i.test(label)) return null;
+  if (!/^iglo-code-/i.test(label)) return null;
   let longest: string | null = null;
   for (const tool of Object.keys(T3_MCP_TOOLS)) {
     if (label.endsWith(`_${tool}`) && tool.length > (longest?.length ?? 0)) longest = tool;
@@ -490,5 +490,5 @@ export function resolveT3McpToolPresentation(
   input?: unknown,
 ): T3McpToolPresentation | null {
   const definition = resolveT3McpToolDefinition(toolName, input);
-  return definition === null ? null : { displayName: definition.displayName, logo: "t3-code" };
+  return definition === null ? null : { displayName: definition.displayName, logo: "iglo-code" };
 }

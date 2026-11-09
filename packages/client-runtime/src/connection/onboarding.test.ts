@@ -145,7 +145,7 @@ function layerPairingHttp(
             policy: "remote-reachable",
             bootstrapMethods: ["one-time-token"],
             sessionMethods: ["bearer-access-token"],
-            sessionCookieName: "t3_session",
+            sessionCookieName: "iglo_code_session",
           },
           scopes: sessionScopes,
           sessionMethod: "bearer-access-token",

@@ -770,7 +770,7 @@ it.live(
                 catalog,
                 registry,
                 invoke,
-                directory: `${config.baseDir}/.t3code/workflows`,
+                directory: `${config.baseDir}/.iglo-code/workflows`,
                 tracked: track(createWorkflowsClient(environmentId)),
                 grantWrite: SubscriptionRef.set(prepared, Option.some(prepare(writable.token))),
               };
@@ -1185,7 +1185,7 @@ it.live(
             (node) => node.type === pluginDesign.Tooltip && node.props.label === content,
           );
         expect(page()).toContain("Manual · sequence.yaml");
-        expect(tip("Manual · .t3code/workflows/sequence.yaml")).toHaveLength(1);
+        expect(tip("Manual · .iglo-code/workflows/sequence.yaml")).toHaveLength(1);
         expect(tip("sequence · revision 1")).toHaveLength(1);
         expect(page()).toContain("Current checkout");
         expect(page()).toContain("Cancel run");

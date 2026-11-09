@@ -127,11 +127,11 @@ export async function prepareWebDependencies(
     env: {
       PATH: `${bin}${inheritedPath ? `${NodePath.delimiter}${inheritedPath}` : ""}`,
       SHELL: "/bin/sh",
-      T3_BUN_EXECUTABLE: paths.interpreter,
+      IGLO_CODE_BUN_EXECUTABLE: paths.interpreter,
       ANDROID_HOME: sdk,
       ANDROID_SDK_ROOT: sdk,
       T3_FAKE_DEVICE_MODE: deviceMode,
-      T3CODE_SERVER_BROWSER_SANDBOX: "0",
+      IGLO_CODE_SERVER_BROWSER_SANDBOX: "0",
       // This is solely the fixture's provider configuration, not application state.
       T3_WEB_FIXTURE_BIN: bin,
     },

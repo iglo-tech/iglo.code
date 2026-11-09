@@ -9,7 +9,7 @@ import { AsyncResult } from "effect/reactivity";
 import { APP_VERSION } from "~/branding";
 import { useDesktopUpdateState } from "~/state/desktopUpdate";
 import { useEnvironments } from "~/state/environments";
-import { npmReleaseAtom, npmReleaseFailureMessage } from "~/state/npmRelease";
+import { trackReleaseAtom, trackReleaseFailureMessage } from "~/state/trackRelease";
 import { downloadLocalUpdate, installLocalUpdate } from "../sidebar/SidebarUpdatePill";
 import { UpdateEverythingDialog } from "../sidebar/UpdateEverythingDialog";
 import {
@@ -39,9 +39,8 @@ export function UpdateTrackSwitchDialog({
   readonly channel: DesktopUpdateChannel;
   readonly onClose: () => void;
 }) {
-  // npm dist-tags match the desktop channel names.
-  const release = useAtomValue(npmReleaseAtom(channel));
-  if (AsyncResult.isSuccess(release) && release.value !== null) {
+  const release = useAtomValue(trackReleaseAtom(channel));
+  if (AsyncResult.isSuccess(release)) {
     return <SwitchPlan release={{ channel, ...release.value }} onClose={onClose} />;
   }
   const label = channelSwitchLabel(channel);
@@ -52,10 +51,8 @@ export function UpdateTrackSwitchDialog({
           <AlertDialogTitle>Switch to {label}</AlertDialogTitle>
           <AlertDialogDescription>
             {AsyncResult.isFailure(release)
-              ? npmReleaseFailureMessage(release.cause)
-              : AsyncResult.isSuccess(release)
-                ? `Could not find the latest ${label} release in this environment's npm registry.`
-                : "Checking releases…"}
+              ? trackReleaseFailureMessage(release.cause)
+              : "Checking releases…"}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

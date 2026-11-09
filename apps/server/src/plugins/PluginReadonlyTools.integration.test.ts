@@ -213,9 +213,9 @@ it.live("preapproves ordinary read-only plugin tools in native Claude queries", 
       const credential = (yield* mcpSessions.read(threadId))!;
       expect(options.permissionMode).toBe("dontAsk");
       // Native preapproval and authenticated MCP execution must agree on read-only permissions.
-      expect(options.allowedTools).toContain("mcp__t3-code__plugin_fixture_query");
-      expect(options.allowedTools).toContain("mcp__t3-code__plugin_fixture_allowed");
-      expect(options.allowedTools).not.toContain("mcp__t3-code__plugin_fixture_mutation");
+      expect(options.allowedTools).toContain("mcp__iglo-code__plugin_fixture_query");
+      expect(options.allowedTools).toContain("mcp__iglo-code__plugin_fixture_allowed");
+      expect(options.allowedTools).not.toContain("mcp__iglo-code__plugin_fixture_mutation");
       expect(credential.readOnlyPluginTools).toEqual([
         "plugin_fixture_allowed",
         "plugin_fixture_query",
@@ -223,7 +223,7 @@ it.live("preapproves ordinary read-only plugin tools in native Claude queries", 
       expect(
         Claude.claudeMcpQueryOverrides({ mcpSession: credential, readOnlySandbox: false })
           .allowedTools,
-      ).toContain("mcp__t3-code__*");
+      ).toContain("mcp__iglo-code__*");
       const http = Context.get(server.context, HttpClient.HttpClient);
       const headers = {
         authorization: credential.authorizationHeader,

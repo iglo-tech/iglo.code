@@ -219,14 +219,14 @@ it.live("guards Reports mutations and refreshes their availability after re-pair
         () =>
           workflows.replace({
             projectId,
-            source: ".t3code/workflows/guarded.yaml",
+            source: ".iglo-code/workflows/guarded.yaml",
             fingerprint: "0".repeat(64),
             definition,
           }),
         () =>
           workflows.remove({
             projectId,
-            source: ".t3code/workflows/guarded.yaml",
+            source: ".iglo-code/workflows/guarded.yaml",
             fingerprint: "0".repeat(64),
           }),
         () =>

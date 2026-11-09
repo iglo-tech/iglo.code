@@ -3381,7 +3381,7 @@ describe("streaming v2 row projection", () => {
         {
           runId: source.historyRunId,
           checkpointTurnCount: 1,
-          checkpointRef: CheckpointRef.make("refs/t3/checkpoints/history"),
+          checkpointRef: CheckpointRef.make("refs/iglo.code/checkpoints/history"),
           status: "ready",
           files: [],
           assistantMessageId: MessageId.make("history-assistant"),
@@ -3733,7 +3733,7 @@ describe("linked timeline resources", () => {
               runId,
               type: "dynamic_tool",
               status: failed ? "failed" : status,
-              toolName: "t3-code.delegate_task",
+              toolName: "iglo-code.delegate_task",
               input: { task: taskId === "b" ? "a" : taskId, role },
               ...(status === "completed"
                 ? {

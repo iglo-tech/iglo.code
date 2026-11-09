@@ -232,7 +232,7 @@ it.live.each(["replacement", "continuation", "unchanged continuation"] as const)
           scenario === "replacement" ? "dontAsk" : "default",
         );
         expect(opened[0]?.options.allowedTools).not.toContain(
-          "mcp__t3-code__plugin_fixture_report",
+          "mcp__iglo-code__plugin_fixture_report",
         );
         const credential = (yield* mcpSessions.read(threadId))!;
         const http = Context.get(server.context, HttpClient.HttpClient);

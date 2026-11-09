@@ -1,5 +1,5 @@
 import { RegistryContext } from "@effect/atom-react";
-import { AuthSessionState, type EnvironmentId, type ServerInstallation } from "@t3tools/contracts";
+import { AuthSessionState, type EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -75,7 +75,7 @@ const legacyAuth = {
   policy: "remote-reachable",
   bootstrapMethods: ["one-time-token"],
   sessionMethods: ["bearer-access-token"],
-  sessionCookieName: "t3_session",
+  sessionCookieName: "iglo_code_session",
 } as const;
 
 const currentSession = {
@@ -185,50 +185,21 @@ describe("ServerUpdateAction", () => {
     expect(testState.updateServer).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [
-      { kind: "npm-global", prefix: "/opt/node" },
-      "Copy update command",
-      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.45' T3CODE_INSTALL_BIN_DIR='/opt/node/bin' sh",
-      "Update command copied",
-      "then restart t3",
-    ],
-    [
-      { kind: "npx" },
-      "Copy update command",
-      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.45' sh",
-      "Update command copied",
-      "then restart t3",
-    ],
-    [
-      undefined,
-      "Copy update command",
-      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | T3CODE_VERSION='0.0.45' sh",
-      "Update command copied",
-      "then restart t3",
-    ],
-  ] satisfies ReadonlyArray<
-    readonly [ServerInstallation | undefined, string, string, string, string]
-  >)(
-    "copies an honest manual command for %j without invoking remote update",
-    async (installation, label, command, title, guidance) => {
-      using _state = setup();
-      await using screen = await renderAction({
-        selfUpdate: null,
-        installation,
-        targetVersion: "0.0.45",
-      });
-      await click(screen, label);
-      expect(testState.clipboard).toHaveBeenCalledWith(command);
-      expect(testState.toast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title,
-          description: expect.stringContaining(guidance),
-        }),
-      );
-      expect(testState.updateServer).not.toHaveBeenCalled();
-    },
-  );
+  it("copies an honest manual command without invoking remote update", async () => {
+    using _state = setup();
+    await using screen = await renderAction({ selfUpdate: null, targetVersion: "0.0.45" });
+    await click(screen, "Copy update command");
+    expect(testState.clipboard).toHaveBeenCalledWith(
+      "curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | IGLO_CODE_VERSION='0.0.45' sh",
+    );
+    expect(testState.toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Update command copied",
+        description: expect.stringContaining("then restart iglo.code"),
+      }),
+    );
+    expect(testState.updateServer).not.toHaveBeenCalled();
+  });
 
   it("reports success only after the shared update flow reconnects", async () => {
     using _state = setup();
@@ -244,7 +215,7 @@ describe("ServerUpdateAction", () => {
     expect(testState.toast).toHaveBeenCalledWith({
       type: "success",
       title: "Test server updated",
-      description: "Reconnected on t3@0.0.31.",
+      description: "Reconnected on iglo.code@0.0.31.",
     });
   });
 

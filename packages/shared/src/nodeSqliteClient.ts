@@ -45,7 +45,7 @@ export interface SqliteClientConfig {
 /**
  * Bun's `node:sqlite` close waits for every prepared statement to be collected
  * before releasing the file, and its binding has no `finalize`. Without a
- * collection, a later connection in the same process (`t3 doctor` inspecting
+ * collection, a later connection in the same process (`iglo.code doctor` inspecting
  * and then compacting) sees the database as still in use.
  */
 const releaseClosedDatabase = () =>

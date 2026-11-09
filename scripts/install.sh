@@ -5,21 +5,21 @@
 #   curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | sh
 #
 # Environment:
-#   T3CODE_CHANNEL           release train to follow: stable, nightly, or preview
+#   IGLO_CODE_CHANNEL           release train to follow: stable, nightly, or preview
 #                            (default: stable; preview is a maintainers' test train)
-#   T3CODE_VERSION           exact version to install (overrides T3CODE_CHANNEL)
-#   T3CODE_HOME              T3 home directory (default: ~/.t3)
-#   T3CODE_INSTALL_BIN_DIR   where the `t3` symlink goes (default: ~/.local/bin)
-#   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub)
+#   IGLO_CODE_VERSION           exact version to install (overrides IGLO_CODE_CHANNEL)
+#   IGLO_CODE_HOME              T3 home directory (default: ~/.iglo.code)
+#   IGLO_CODE_INSTALL_BIN_DIR   where the `iglo.code` symlink goes (default: ~/.local/bin)
+#   IGLO_CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub)
 #
-# The archive is unpacked into $T3CODE_HOME/runtime/versions/<version>, the
-# same layout `t3 service install` uses, so the service reuses this download
+# The archive is unpacked into $IGLO_CODE_HOME/runtime/versions/<version>, the
+# same layout `iglo.code service install` uses, so the service reuses this download
 # instead of fetching the release again.
 set -eu
 
 repo="iglo-tech/iglo.code"
-base_url="${T3CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
-t3_home="${T3CODE_HOME:-$HOME/.t3}"
+base_url="${IGLO_CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
+t3_home="${IGLO_CODE_HOME:-$HOME/.iglo.code}"
 case "$t3_home" in
   /*) ;;
   *)
@@ -28,15 +28,15 @@ case "$t3_home" in
     t3_home="${t3_cwd%??}/$t3_home"
     ;;
 esac
-bin_dir="${T3CODE_INSTALL_BIN_DIR:-$HOME/.local/bin}"
-# Trailing slashes would put `//` in the paths the t3 command guard compares.
+bin_dir="${IGLO_CODE_INSTALL_BIN_DIR:-$HOME/.local/bin}"
+# Trailing slashes would put `//` in the paths the iglo.code command guard compares.
 while [ "${t3_home%/}" != "$t3_home" ] && [ "$t3_home" != / ]; do t3_home="${t3_home%/}"; done
 while [ "${bin_dir%/}" != "$bin_dir" ] && [ "$bin_dir" != / ]; do bin_dir="${bin_dir%/}"; done
 # Absolute, so the PATH hint never adds a folder that changes with the working directory.
 case "$bin_dir" in /*) ;; *) bin_dir="$PWD/$bin_dir" ;; esac
 
 fail() {
-  printf '\nt3 install: %s\n' "$1" >&2
+  printf '\niglo.code install: %s\n' "$1" >&2
   exit 1
 }
 
@@ -139,16 +139,21 @@ download() {
 case "$(uname -s)" in
   Darwin) platform="darwin" ;;
   Linux) platform="linux" ;;
-  *) fail "unsupported operating system $(uname -s); supported targets: darwin-arm64, linux-x64, linux-arm64" ;;
+  *) fail "unsupported operating system $(uname -s); supported targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64" ;;
 esac
 case "$(uname -m)" in
   arm64 | aarch64) arch="arm64" ;;
   x86_64 | amd64) arch="x64" ;;
-  *) fail "unsupported architecture $(uname -m); supported targets: darwin-arm64, linux-x64, linux-arm64" ;;
+  *) fail "unsupported architecture $(uname -m); supported targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64" ;;
 esac
+# A shell under Rosetta reports x86_64 on Apple Silicon; install the native build instead.
+if [ "$platform" = darwin ] && [ "$arch" = x64 ] &&
+  [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
+  arch="arm64"
+fi
 case "${platform}-${arch}" in
-  darwin-arm64 | linux-x64 | linux-arm64) ;;
-  *) fail "unsupported target ${platform}-${arch}; supported targets: darwin-arm64, linux-x64, linux-arm64" ;;
+  darwin-arm64 | darwin-x64 | linux-x64 | linux-arm64) ;;
+  *) fail "unsupported target ${platform}-${arch}; supported targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64" ;;
 esac
 command -v tar >/dev/null 2>&1 || fail "tar is required"
 if command -v sha256sum >/dev/null 2>&1; then
@@ -159,13 +164,13 @@ else
   fail "sha256sum or shasum is required"
 fi
 
-channel="${T3CODE_CHANNEL:-stable}"
-version="${T3CODE_VERSION:-}"
+channel="${IGLO_CODE_CHANNEL:-stable}"
+version="${IGLO_CODE_VERSION:-}"
 if [ -z "$version" ]; then
   case "$channel" in
     stable) tag_pattern='v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)' ;;
     nightly | preview) tag_pattern="v\([0-9][^\"]*-${channel}\.[0-9]*\.[0-9]*\)" ;;
-    *) fail "T3CODE_CHANNEL must be stable, nightly, or preview" ;;
+    *) fail "IGLO_CODE_CHANNEL must be stable, nightly, or preview" ;;
   esac
   tmp_index="$(mktemp)"
   if [ "$channel" = stable ]; then
@@ -183,22 +188,22 @@ if [ -z "$version" ]; then
     done
   fi
   rm -f "$tmp_index"
-  [ -n "$version" ] || fail "could not find a ${channel} release; set T3CODE_VERSION"
+  [ -n "$version" ] || fail "could not find a ${channel} release; set IGLO_CODE_VERSION"
 fi
 case "$version" in
   *-preview.*)
     printf '%s\n' \
-      "t3 ${version} is a preview build." \
+      "iglo.code ${version} is a preview build." \
       "  Preview builds are cut by maintainers from unreleased branches to exercise the release" \
       "  pipeline. They can be broken, receive no fixes, and are never offered as updates." \
-      "  Set T3CODE_CHANNEL=stable (the default) for a supported build." >&2
-    if [ "$channel" != "preview" ] && [ -z "${T3CODE_VERSION:-}" ]; then
+      "  Set IGLO_CODE_CHANNEL=stable (the default) for a supported build." >&2
+    if [ "$channel" != "preview" ] && [ -z "${IGLO_CODE_VERSION:-}" ]; then
       fail "refusing a preview build that was not explicitly requested"
     fi
     ;;
 esac
 
-stem="t3-${version}-${platform}-${arch}"
+stem="iglo.code-${version}-${platform}-${arch}"
 archive="${stem}.tar.gz"
 versions_dir="${t3_home}/runtime/versions"
 target_dir="${versions_dir}/${version}"
@@ -224,7 +229,7 @@ else
     fail "could not download the release checksums"
   fi
   expected="$(grep " \*\{0,1\}${archive}\$" "${staging}/SHA256SUMS" | cut -d' ' -f1)"
-  [ -n "$expected" ] || fail "t3 ${version} has no release archive for ${platform}-${arch}"
+  [ -n "$expected" ] || fail "iglo.code ${version} has no release archive for ${platform}-${arch}"
   download "${base_url}/v${version}/${archive}" "${staging}/${archive}"
 
   step "Verifying the download..."
@@ -234,7 +239,7 @@ else
   step "Extracting T3 Code..."
   tar -xzf "${staging}/${archive}" -C "$staging" --strip-components=1
   rm -f "${staging}/${archive}" "${staging}/SHA256SUMS"
-  "${staging}/t3" --version >/dev/null || fail "the downloaded executable does not run"
+  "${staging}/iglo.code" --version >/dev/null || fail "the downloaded executable does not run"
   printf '%s\n' "$version" > "${staging}/.install-complete"
 
   rm -rf "$target_dir"
@@ -242,21 +247,21 @@ else
   trap - EXIT
 fi
 
-step "Setting up the t3 command..."
+step "Setting up the iglo.code command..."
 mkdir -p "$bin_dir"
-# Replace only this home's own t3 links: into its versions, or the desktop app's launcher.
+# Replace only this home's own iglo.code links: into its versions, or the desktop app's launcher.
 # Anything that is not a symlink (a script, a copied binary) belongs to someone else.
-# Exactly <versions>/<version>/t3 ($1 under $2), never another program inside a version.
+# Exactly <versions>/<version>/iglo.code ($1 under $2), never another program inside a version.
 version_t3() {
   case "$1" in "$2"/*) ;; *) return 1 ;; esac
-  case "${1#"$2"/}" in */*/*) return 1 ;; */t3) return 0 ;; *) return 1 ;; esac
+  case "${1#"$2"/}" in */*/*) return 1 ;; */iglo.code) return 0 ;; *) return 1 ;; esac
 }
 slot_empty=true
-if [ -e "${bin_dir}/t3" ] || [ -L "${bin_dir}/t3" ]; then
+if [ -e "${bin_dir}/iglo.code" ] || [ -L "${bin_dir}/iglo.code" ]; then
   slot_empty=false
   owned=false
-  if [ -L "${bin_dir}/t3" ]; then
-    existing="$(readlink "${bin_dir}/t3" 2>/dev/null || true)"
+  if [ -L "${bin_dir}/iglo.code" ]; then
+    existing="$(readlink "${bin_dir}/iglo.code" 2>/dev/null || true)"
     case "$existing" in /*) ;; *) existing="${bin_dir}/${existing}" ;; esac
     real_versions_dir="$(CDPATH='' cd -P -- "$versions_dir" && pwd)"
     # Through a symlinked T3 home the link text names the alias; resolve its folder to compare.
@@ -266,24 +271,24 @@ if [ -e "${bin_dir}/t3" ] || [ -L "${bin_dir}/t3" ]; then
       */./* | */../* | */. | */..) ;;
       *)
         if version_t3 "$existing" "$versions_dir" || version_t3 "$existing" "$real_versions_dir" ||
-          [ "$existing" = "${t3_home}/bin/t3" ]; then owned=true; fi
+          [ "$existing" = "${t3_home}/bin/iglo.code" ]; then owned=true; fi
         ;;
     esac
     if [ -n "$existing_dir" ] && version_t3 "${existing_dir}/${existing##*/}" "$real_versions_dir"; then
       owned=true
     fi
   fi
-  "$owned" || fail "another t3 is already at ${bin_dir}/t3. Remove it and run this again, or run ${target_dir}/t3 directly."
+  "$owned" || fail "another iglo.code is already at ${bin_dir}/iglo.code. Remove it and run this again, or run ${target_dir}/iglo.code directly."
 fi
 # An empty spot is linked without -f, so a file that appears after the check above is kept.
 if "$slot_empty"; then
-  ln -s "${target_dir}/t3" "${bin_dir}/t3" || fail "could not link ${bin_dir}/t3; something else was created there."
+  ln -s "${target_dir}/iglo.code" "${bin_dir}/iglo.code" || fail "could not link ${bin_dir}/iglo.code; something else was created there."
 else
   # Known race, accepted: a file written here after the ownership check above is overwritten.
-  ln -sfn "${target_dir}/t3" "${bin_dir}/t3"
+  ln -sfn "${target_dir}/iglo.code" "${bin_dir}/iglo.code"
 fi
 # Pruning keeps what this launcher points at; a background service cannot see bin_dir otherwise.
-launcher="$(CDPATH='' cd -P -- "$bin_dir" && pwd)/t3"
+launcher="$(CDPATH='' cd -P -- "$bin_dir" && pwd)/iglo.code"
 launchers="${t3_home}/runtime/launchers"
 grep -qxF "$launcher" "$launchers" 2>/dev/null || printf '%s\n' "$launcher" >> "$launchers"
 if "$interactive"; then printf '\r\033[2K' >&2; fi
@@ -296,7 +301,7 @@ read_from() {
     /*) case "$1" in *[!A-Za-z0-9_./-]*) ;; *) printf '%s' "$1" ;; esac ;;
   esac
 }
-# A command to paste for zsh, Linux bash, or fish, like `t3 install` prints. macOS bash reads only
+# A command to paste for zsh, Linux bash, or fish, like `iglo.code install` prints. macOS bash reads only
 # one of several startup files, so no single file is safe to change there.
 path_command=
 path_rest="$bin_dir"
@@ -304,7 +309,7 @@ path_prefix=
 case "$bin_dir" in "$HOME"/*) path_rest="${bin_dir#"$HOME"}" path_prefix='$HOME' ;; esac
 case "$path_rest" in *[!A-Za-z0-9_./-]*) path_rest= ;; esac
 if [ -n "$path_rest" ]; then
-  # Last on PATH, so it never shadows another t3.
+  # Last on PATH, so it never shadows another iglo.code.
   path_line="export PATH=\"\$PATH:${path_prefix}${path_rest}\""
   shell_name="${SHELL:-}"
   case "${shell_name##*/}" in
@@ -320,20 +325,20 @@ if [ -n "$path_rest" ]; then
       [ -z "$config_dir" ] || path_command="mkdir -p ${fish_dir} && printf '\\n%s\\n' 'fish_add_path --append --path ${path_prefix}${path_rest}' >> ${fish_dir}/config.fish" ;;
   esac
 fi
-# A t3 earlier on PATH runs instead; the PATH command adds this folder last.
-# A PATH entry with a trailing slash gives `dir//t3`.
-first_t3="$(command -v t3 2>/dev/null | tr -s / || true)"
-case "$first_t3" in "" | "${bin_dir}/t3") first_t3= ;; esac
+# An iglo.code earlier on PATH runs instead; the PATH command adds this folder last.
+# A PATH entry with a trailing slash gives `dir//iglo.code`.
+first_t3="$(command -v iglo.code 2>/dev/null | tr -s / || true)"
+case "$first_t3" in "" | "${bin_dir}/iglo.code") first_t3= ;; esac
 if [ -n "$first_t3" ]; then
-  printf '  Another t3 at %s runs first, so run %s%s/t3%s to use this one.\n\n' "$first_t3" "$bold" "$bin_dir" "$reset"
+  printf '  Another iglo.code at %s runs first, so run %s%s/iglo.code%s to use this one.\n\n' "$first_t3" "$bold" "$bin_dir" "$reset"
 else
   case ":${PATH}:" in
-    *":${bin_dir}:"* | *":${bin_dir}/:"*) printf '  Run %st3%s to use T3 Code here, or %st3 up%s to use it from your other devices.\n\n' "$bold" "$reset" "$bold" "$reset" ;;
+    *":${bin_dir}:"* | *":${bin_dir}/:"*) printf '  Run %siglo.code%s to use T3 Code here, or %siglo.code up%s to use it from your other devices.\n\n' "$bold" "$reset" "$bold" "$reset" ;;
     *)
       if [ -n "$path_command" ]; then
-        printf '  %s is not on your PATH yet. Add it with:\n\n    %s\n\n  Then open a new terminal and run %st3%s.\n\n' "$bin_dir" "$path_command" "$bold" "$reset"
+        printf '  %s is not on your PATH yet. Add it with:\n\n    %s\n\n  Then open a new terminal and run %siglo.code%s.\n\n' "$bin_dir" "$path_command" "$bold" "$reset"
       else
-        printf '  Add %s to your PATH, then run %st3%s.\n\n' "$bin_dir" "$bold" "$reset"
+        printf '  Add %s to your PATH, then run %siglo.code%s.\n\n' "$bin_dir" "$bold" "$reset"
       fi
       ;;
   esac

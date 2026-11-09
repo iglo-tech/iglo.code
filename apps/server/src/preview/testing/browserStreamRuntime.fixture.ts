@@ -45,7 +45,7 @@ await Effect.runPromise(
             Effect.fail(
               new ServerBrowser.ServerBrowserLaunchError({
                 cause: new PreviewBrowserHost.PreviewBrowserSandboxError({
-                  setupCommand: "sudo t3 browser setup",
+                  setupCommand: "sudo iglo.code browser setup",
                 }),
               }),
             ),
@@ -149,7 +149,10 @@ await Effect.runPromise(
     );
     const result = yield* Effect.promise(() => closed.promise);
     NodeAssert.strict.equal(result.code, PREVIEW_STREAM_HOST_SETUP_CLOSE_CODE);
-    NodeAssert.strict.equal(result.reason, '{"need":"sandbox","command":"sudo t3 browser setup"}');
+    NodeAssert.strict.equal(
+      result.reason,
+      '{"need":"sandbox","command":"sudo iglo.code browser setup"}',
+    );
     process.stdout.write("Browser stream sends a valid host-setup WebSocket close under Bun.\n");
   }).pipe(Effect.scoped),
 );

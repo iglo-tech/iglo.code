@@ -41,7 +41,7 @@ it.live.each(["99-runnable", "100-runnable", "100-duplicate", "100-unavailable-p
         const host = Host.of({ ...test.core, lifecycle: () => Stream.never });
         const targets = Context.get(test.context, ScheduleTargets.ScheduleTargets);
         let runtime = yield* test.boot(host, selected, targets);
-        const directory = `${test.config.baseDir}/.t3code/workflows`;
+        const directory = `${test.config.baseDir}/.iglo-code/workflows`;
         yield* fs.makeDirectory(directory, { recursive: true });
         const count = mode.startsWith("99") ? 99 : 100;
         const runnable = mode.endsWith("runnable");

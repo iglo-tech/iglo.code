@@ -29,7 +29,7 @@ const importAll =
 
 describe("importPastedComposerText", () => {
   it("pastes a copied thread link back as the chip it was copied from", () => {
-    const target = threadChipCopyTarget(thread, "Fix the login flow");
+    const target = threadChipCopyTarget(thread, "Fix the login flow", "https://app.t3.codes");
     const imported: Array<ComposerContextClipboardFragment> = [];
     const text = importPastedComposerText(
       clipboard({

@@ -88,7 +88,7 @@ export function cliArchivePlatformKey(platform: BuildPlatform, arch: BuildArch):
 }
 
 export function cliArchiveStem(version: string, platform: BuildPlatform, arch: BuildArch): string {
-  return `t3-${version}-${cliArchivePlatformKey(platform, arch)}`;
+  return `iglo.code-${version}-${cliArchivePlatformKey(platform, arch)}`;
 }
 
 export function cliArchiveFileName(version: string, platform: BuildPlatform, arch: BuildArch) {
@@ -248,7 +248,7 @@ const stageWebClient = Effect.fn("stageWebClient")(function* (source: string, ta
 });
 
 const MacSigningConfig = Config.all({
-  identity: Config.String("T3CODE_CLI_MAC_SIGN_IDENTITY").pipe(Config.option),
+  identity: Config.String("IGLO_CODE_CLI_MAC_SIGN_IDENTITY").pipe(Config.option),
   appleApiKey: Config.String("APPLE_API_KEY").pipe(Config.option),
   appleApiKeyId: Config.String("APPLE_API_KEY_ID").pipe(Config.option),
   appleApiIssuer: Config.String("APPLE_API_ISSUER").pipe(Config.option),
@@ -355,7 +355,7 @@ export const signMacArchiveContents = Effect.fn("signMacArchiveContents")(functi
         entry.endsWith(".node") ||
         entry.endsWith(".dylib") ||
         entry.endsWith("spawn-helper") ||
-        entry.endsWith("t3-resource-monitor"),
+        entry.endsWith("iglo-code-resource-monitor"),
     )
     .map((entry) => path.join(input.contentDir, entry));
 
@@ -379,7 +379,7 @@ export const signMacArchiveContents = Effect.fn("signMacArchiveContents")(functi
     );
   }
   if (identity === "-") {
-    yield* Effect.log("[cli-archive] Signed ad hoc (no T3CODE_CLI_MAC_SIGN_IDENTITY).");
+    yield* Effect.log("[cli-archive] Signed ad hoc (no IGLO_CODE_CLI_MAC_SIGN_IDENTITY).");
     return;
   }
   if (Option.isNone(credentials)) {
@@ -405,7 +405,7 @@ export const signMacArchiveContents = Effect.fn("signMacArchiveContents")(functi
   // The ticket lives with Apple, not in the archive, so the archive bytes are final before approval.
   yield* fs.writeFileString(deferred, submission.id);
   yield* Effect.log(
-    `[cli-archive] Submitted t3 for notarization (${submission.id}). Run await-notarization before publishing.`,
+    `[cli-archive] Submitted iglo.code for notarization (${submission.id}). Run await-notarization before publishing.`,
   );
 });
 
@@ -419,7 +419,7 @@ export const awaitCliNotarization = Effect.fn("awaitCliNotarization")(function* 
   if (Option.isNone(credentials)) {
     if (submitted) {
       return yield* new CliArchiveInputMissingError({
-        inputPath: "T3CODE_CLI_MAC_SIGN_IDENTITY and APPLE_API_KEY*",
+        inputPath: "IGLO_CODE_CLI_MAC_SIGN_IDENTITY and APPLE_API_KEY*",
         hint: `${submissionFile} names a submission, but its credentials are not set.`,
       });
     }
@@ -448,13 +448,13 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   const path = yield* Path.Path;
   const repoRoot = yield* RepoRoot;
   const serverDir = path.join(repoRoot, "apps/server");
-  const executableName = "t3";
+  const executableName = "iglo.code";
   const targetKey = cliArchivePlatformKey(input.platform, input.arch);
   const hostKey = `${yield* HostProcess.Platform}-${yield* HostProcess.Architecture}`;
-  if (targetKey !== hostKey || targetKey === "darwin-x64") {
+  if (targetKey !== hostKey) {
     return yield* new CliArchiveInputMissingError({
       inputPath: targetKey,
-      hint: "Build native archives on the corresponding supported host: darwin-arm64, linux-x64, or linux-arm64.",
+      hint: "Build native archives on the corresponding supported host: darwin-arm64, darwin-x64, linux-x64, or linux-arm64.",
     });
   }
   if (process.versions.bun !== BUN_VERSION) {
@@ -558,7 +558,7 @@ const command = Command.make(
   },
   (input) => buildCliArchive(input).pipe(Effect.scoped),
 ).pipe(
-  Command.withDescription("Package the t3 single-executable into a per-platform archive."),
+  Command.withDescription("Package the iglo.code single-executable into a per-platform archive."),
   Command.withSubcommands([
     Command.make(
       "await-notarization",

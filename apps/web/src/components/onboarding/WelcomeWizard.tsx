@@ -539,7 +539,7 @@ function ConnectAccountOption({
             <p className="text-sm text-muted-foreground">
               Run this on each computer you want to connect.
             </p>
-            <InstallT3Commands command="t3 connect" className="mt-3" />
+            <InstallT3Commands command="iglo.code connect" className="mt-3" />
             <p className="mt-3 text-xs text-muted-foreground">
               Keep {APP_BASE_NAME} running. Select the computers you want to set up above.
             </p>
@@ -647,11 +647,11 @@ function PairingForm({
           </div>
           <CollapsiblePanel>
             <p className="pt-3 text-sm text-muted-foreground">On the computer with your code:</p>
-            <InstallT3Commands command="t3 pair" className="mt-2" />
+            <InstallT3Commands command="iglo.code pair" className="mt-2" />
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Start T3 Code or run <code className="font-mono">t3 serve</code> there before{" "}
-              <code className="font-mono">t3 pair</code>. On a tailnet, run{" "}
-              <code className="font-mono">t3 pair --tailscale</code> instead.
+              Start T3 Code or run <code className="font-mono">iglo.code serve</code> there before{" "}
+              <code className="font-mono">iglo.code pair</code>. On a tailnet, run{" "}
+              <code className="font-mono">iglo.code pair --tailscale</code> instead.
             </p>
           </CollapsiblePanel>
         </Collapsible>
@@ -1793,7 +1793,7 @@ function ImportRowMeta({
   );
 }
 
-/** The desktop app links `t3` on a fresh install; this puts its folder on PATH when it is not. */
+/** The desktop app links `iglo.code` on a fresh install; this puts its folder on PATH when it is not. */
 function CliPathSetup() {
   const { state, busy, run } = useDesktopCliCommand();
   const setup = state?.pathSetup;

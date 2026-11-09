@@ -7,12 +7,12 @@ import { act, render, stubGlobal } from "../../../test/render";
 import { desktopCliCommandStateAtom } from "../../state/desktopCliCommand";
 import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
 
-it("blocks installation behind another t3 without blocking removal of our installation", async () => {
+it("blocks installation behind another iglo.code without blocking removal of our installation", async () => {
   const state: DesktopCliCommandState = {
     supported: true,
     installedPath: null,
     onPath: false,
-    launcherPath: "/home/test/.t3/bin/t3",
+    launcherPath: "/home/test/.iglo.code/bin/t3",
   };
   const getState = vi.fn(async (): Promise<DesktopCliCommandState> => ({
     ...state,

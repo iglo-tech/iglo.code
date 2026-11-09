@@ -1,8 +1,9 @@
 # Environment authentication
 
-The environment issues its own sessions and enforces their capabilities. Cloud
-identity and relay credentials belong to a separate trust boundary, described in
-[T3 Connect](./t3-connect.md). A relay token is never an environment login.
+The environment issues its own sessions and enforces their capabilities. Upstream's
+cloud identity and relay credentials belong to a separate trust boundary, described in
+[T3 Connect](./t3-connect.md), which this fork disables. A relay token is never an
+environment login.
 
 ## Authority survives transport changes
 
@@ -10,7 +11,7 @@ Pairing delegates a set of scopes. Exchanging a bootstrap credential can narrow
 that grant but cannot widen it. The default grant includes access and relay
 management: `terminal:operate` is a shell as the server's user and
 `orchestration:operate` can start a full-access agent, and either can mint a
-session with every scope through `t3 auth session issue`, so withholding
+session with every scope through `iglo.code auth session issue`, so withholding
 management from the default would not be a boundary. A narrower client gets
 explicit scopes. Creating another pairing link requires both `access:write` and
 every scope being delegated. The
@@ -29,19 +30,20 @@ vocabulary gives these grants a familiar meaning.
 
 ### Guest links are not sessions
 
-A [guest link](../user/guest-links.md) gives one browser read access to one
-thread and a way to propose messages. Its tokens are HMACs of the thread and
+Upstream's guest link gives one browser read access to one thread and a way to
+propose messages. It depends on T3 Connect, so this fork serves no guest links. Its tokens are HMACs of the thread and
 share id under a server key ([GuestShareService](../../apps/server/src/guest/GuestShareService.ts)),
 so nothing secret is stored. The share in the thread projection is the only
 state: replacing, closing, or archiving it revokes every token, and the
 orchestrator's serial commands make redeeming and sending happen once. Guest
 tokens never enter `SessionStore`, so no RPC, WebSocket, or MCP path can accept
-one. Guest routes also require T3 Connect to still serve the link's hostname;
-the request's Host header is not checked, because a LAN client can forge it.
+one. Guest routes also require T3 Connect to still serve the link's hostname
+(never true here); the request's Host header is not checked, because a LAN
+client can forge it.
 
 ### MCP clients are a separate audience
 
-Agents T3 Code did not launch sign in to `/mcp` through a narrow OAuth
+Agents the server did not launch sign in to `/mcp` through a narrow OAuth
 authorization-code server ([McpOAuth](../../apps/server/src/auth/McpOAuth.ts)).
 It accepts loopback redirect URIs for agents on the user's machine and any
 HTTPS redirect for hosted agents (ChatGPT, bots). An HTTPS redirect means a
@@ -50,7 +52,7 @@ approval page names the host access goes to and approving stays the owner's
 call. Every client is public and proves itself with PKCE; a client that asks
 for a secret is registered without one. Client registration is stateless, so an unauthenticated caller cannot grow server
 state. Approval spends a one-time pairing code, or uses a browser session with
-`access:write`; proof-bound T3 Connect codes are refused without being spent.
+`access:write`; proof-bound codes are refused without being spent.
 
 The user grants either read-only access or a runtime-mode ceiling, not a
 scope list: MCP tools are all orchestration, and `orchestration:operate`
@@ -66,8 +68,8 @@ parameters only pick targets; see
 [threadAccess](../../apps/server/src/mcp/threadAccess.ts).
 
 Issuer and resource URLs come from the request's Host and
-`X-Forwarded-Proto`, so one server answers over loopback, Tailscale Serve and a
-T3 Connect tunnel. A proxy that rewrites Host or drops the protocol header
+`X-Forwarded-Proto`, so one server answers over loopback, the LAN, and Tailscale
+Serve. A proxy that rewrites Host or drops the protocol header
 breaks sign-in.
 
 Bearer and DPoP clients obtain short-lived WebSocket tickets through authenticated
@@ -98,8 +100,9 @@ authorization. Permission errors likewise retain a legacy `requiredScope` and
 add the exact `requiredPermission`, so a denied RPC stays decodable by old clients.
 Unknown response permissions are ignored; grant inputs stay strict.
 
-Desktop restarts forget the previous local bearer token, so its reusable
-bootstrap grant replaces earlier sessions for the same subject and method.
+A `desktop-bootstrap` grant, which only upstream's desktop app issues, replaces
+earlier sessions for the same subject and method, because that app forgets its
+bearer token on restart.
 Revocation and insertion share a [database
 transaction](../../apps/server/src/persistence/AuthSessions.ts); a failed
 replacement must leave the old credential usable. Pairing and browser sessions
@@ -107,9 +110,9 @@ do not follow this replacement rule.
 
 ### Reusable dev credential
 
-Web development environments can accept one `T3CODE_DEV_AUTH_TOKEN` across
+Web development environments can accept one `IGLO_CODE_DEV_AUTH_TOKEN` across
 worktrees and ports on one hostname. The token and startup URLs that contain it
-grant administrative access. Desktop and non-development servers ignore it. See
+grant administrative access. Non-development servers ignore it. See
 the [development runbook](../operations/development.md#reusable-dev-credential)
 for setup.
 

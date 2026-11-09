@@ -1,6 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -46,6 +47,12 @@ import { pendingServiceUpdateExists } from "./updateHandoff.ts";
 import { managedTunnelStartupAction } from "./managedTunnelStartup.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+
+// These cover the dormant T3 Connect code as it runs in a build with its public config.
+vi.mock("./publicConfig.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./publicConfig.ts")>()),
+  hasCloudPublicConfig: true,
+}));
 
 const storeFailure = (tag: "AlreadyExists" | "PermissionDenied") =>
   new ServerSecretStore.SecretStorePersistError({

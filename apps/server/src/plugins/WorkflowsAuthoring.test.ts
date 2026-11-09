@@ -30,9 +30,9 @@ it.effect.each(["target-edit", "identity-collision"] as const)(
         const test = yield* fixture;
         const fs = yield* FileSystem.FileSystem;
         const scope = { environmentId: test.environmentId, projectId: test.projectId };
-        const source = ".t3code/workflows/kept-name.yml";
+        const source = ".iglo-code/workflows/kept-name.yml";
         const filename = `${test.directory}/${source}`;
-        yield* fs.makeDirectory(`${test.directory}/.t3code/workflows`, { recursive: true });
+        yield* fs.makeDirectory(`${test.directory}/.iglo-code/workflows`, { recursive: true });
         const original = "version: [";
         yield* fs.writeFileString(filename, original);
         const observed = yield* test
@@ -55,7 +55,7 @@ it.effect.each(["target-edit", "identity-collision"] as const)(
         const externalFile =
           scenario === "target-edit"
             ? filename
-            : `${test.directory}/.t3code/workflows/external.yaml`;
+            : `${test.directory}/.iglo-code/workflows/external.yaml`;
         yield* fs.writeFileString(externalFile, external);
         yield* test.releaseProviders;
         const result = yield* Fiber.join(pending);
@@ -73,7 +73,9 @@ it.effect.each(["target-edit", "identity-collision"] as const)(
         expect(yield* fs.readFileString(filename)).toBe(
           scenario === "target-edit" ? external : original,
         );
-        expect(yield* fs.exists(`${test.directory}/.t3code/workflows/sequence.yaml`)).toBe(false);
+        expect(yield* fs.exists(`${test.directory}/.iglo-code/workflows/sequence.yaml`)).toBe(
+          false,
+        );
       }),
     ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
@@ -84,7 +86,7 @@ it.effect("pages and searches the entire catalog beyond the display cap", () =>
       const test = yield* fixture;
       const fs = yield* FileSystem.FileSystem;
       const scope = { environmentId: test.environmentId, projectId: test.projectId };
-      const directory = `${test.directory}/.t3code/workflows`;
+      const directory = `${test.directory}/.iglo-code/workflows`;
       yield* fs.makeDirectory(directory, { recursive: true });
       for (let index = 0; index < 130; index++)
         yield* fs.writeFileString(
@@ -135,9 +137,9 @@ it.effect("pages and searches the entire catalog beyond the display cap", () =>
         .invoke("library", { ...scope, query: "zz-" })
         .pipe(Effect.flatMap(decodePage));
       expect(tail.entries.map((entry) => [entry.source, entry.runnable, entry.duplicate])).toEqual([
-        [".t3code/workflows/zz-broken.yaml", false, false],
-        [".t3code/workflows/zz-dupe.yaml", false, true],
-        [".t3code/workflows/zz-dupe2.yaml", false, true],
+        [".iglo-code/workflows/zz-broken.yaml", false, false],
+        [".iglo-code/workflows/zz-dupe.yaml", false, true],
+        [".iglo-code/workflows/zz-dupe2.yaml", false, true],
       ]);
       expect(tail.entries[0]!.reasons).toEqual(["Invalid workflow YAML."]);
       expect(tail.entries[1]!.reasons).toContain(
@@ -157,7 +159,7 @@ it.effect("repairs an invalid file only through its observed fingerprint", () =>
       const test = yield* fixture;
       const fs = yield* FileSystem.FileSystem;
       const scope = { environmentId: test.environmentId, projectId: test.projectId };
-      const directory = `${test.directory}/.t3code/workflows`;
+      const directory = `${test.directory}/.iglo-code/workflows`;
       yield* fs.makeDirectory(directory, { recursive: true });
       const broken = `${directory}/broken.yaml`;
       const unrelated = `${directory}/other.yaml`;
@@ -165,7 +167,7 @@ it.effect("repairs an invalid file only through its observed fingerprint", () =>
       const other = Yaml.stringify({ ...sequence, id: "other" });
       yield* fs.writeFileString(unrelated, other);
       const observed = yield* test
-        .invoke("read", { ...scope, source: ".t3code/workflows/broken.yaml" })
+        .invoke("read", { ...scope, source: ".iglo-code/workflows/broken.yaml" })
         .pipe(Effect.flatMap(decodeAuthoring));
       expect(observed).toMatchObject({ definition: null, runnable: false, lossless: true });
       expect(observed.reasons[0]).toMatch(/^Invalid workflow schema/);
@@ -216,7 +218,7 @@ it.effect("repairs an invalid file only through its observed fingerprint", () =>
         })
         .pipe(Effect.flatMap(decodeAuthoring));
       expect(replaced).toMatchObject({
-        source: ".t3code/workflows/broken.yaml",
+        source: ".iglo-code/workflows/broken.yaml",
         runnable: true,
         definition: { id: "broken", title: "Repaired" },
       });
@@ -332,7 +334,7 @@ it.effect("names an existing identity when a new workflow would take it over", (
       const test = yield* fixture;
       const fs = yield* FileSystem.FileSystem;
       const scope = { environmentId: test.environmentId, projectId: test.projectId };
-      const directory = `${test.directory}/.t3code/workflows`;
+      const directory = `${test.directory}/.iglo-code/workflows`;
       yield* fs.makeDirectory(directory, { recursive: true });
       const existing = Yaml.stringify({ ...sequence, title: "Original" });
       yield* fs.writeFileString(`${directory}/kept-name.yaml`, existing);
@@ -373,7 +375,7 @@ it.effect("leaves only workflow files in the catalog directory after saving", ()
       const test = yield* fixture;
       const fs = yield* FileSystem.FileSystem;
       const scope = { environmentId: test.environmentId, projectId: test.projectId };
-      const directory = `${test.directory}/.t3code/workflows`;
+      const directory = `${test.directory}/.iglo-code/workflows`;
       const saved = yield* test
         .invoke("save", { ...scope, definition: sequence, expectedRevision: null })
         .pipe(Effect.flatMap(decodeAuthoring));
@@ -402,14 +404,14 @@ it.effect("deletes an authored workflow only through its observed fingerprint", 
       const test = yield* fixture;
       const fs = yield* FileSystem.FileSystem;
       const scope = { environmentId: test.environmentId, projectId: test.projectId };
-      const directory = `${test.directory}/.t3code/workflows`;
+      const directory = `${test.directory}/.iglo-code/workflows`;
       yield* fs.makeDirectory(directory, { recursive: true });
       const doomed = `${directory}/doomed.yaml`;
       const neighbour = `${directory}/neighbour.yaml`;
       yield* fs.writeFileString(doomed, Yaml.stringify({ ...sequence, id: "doomed" }));
       const kept = Yaml.stringify({ ...sequence, id: "neighbour" });
       yield* fs.writeFileString(neighbour, kept);
-      const source = ".t3code/workflows/doomed.yaml";
+      const source = ".iglo-code/workflows/doomed.yaml";
       const observed = yield* test
         .invoke("read", { ...scope, source })
         .pipe(Effect.flatMap(decodeAuthoring));
@@ -433,7 +435,7 @@ it.effect("deletes an authored workflow only through its observed fingerprint", 
       for (const missing of [
         source,
         "packaged:implementation",
-        ".t3code/workflows/../escape.yaml",
+        ".iglo-code/workflows/../escape.yaml",
       ]) {
         const result = yield* test
           .invoke("remove", { ...scope, source: missing, fingerprint: current.fingerprint })

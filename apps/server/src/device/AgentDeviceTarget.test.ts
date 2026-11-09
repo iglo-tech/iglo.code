@@ -23,7 +23,7 @@ import {
 } from "./AgentDeviceTarget.ts";
 
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
-const bunPath = process.env.T3_BUN_EXECUTABLE ?? "bun";
+const bunPath = process.env.IGLO_CODE_BUN_EXECUTABLE ?? "bun";
 
 /** A loopback port that accepts connections until the scope closes, like T3's device connection. */
 const listeningPort = Effect.acquireRelease(

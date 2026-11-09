@@ -13,17 +13,16 @@ import {
 describe("cliRelease", () => {
   it("names supported archives by version and platform", () => {
     expect(cliArchiveFileName("1.2.3-preview.20260911.4", "linux-x64")).toBe(
-      "t3-1.2.3-preview.20260911.4-linux-x64.tar.gz",
+      "iglo.code-1.2.3-preview.20260911.4-linux-x64.tar.gz",
     );
-    expect(cliArchiveFileName("1.2.3", "darwin-arm64")).toBe("t3-1.2.3-darwin-arm64.tar.gz");
+    expect(cliArchiveFileName("1.2.3", "darwin-arm64")).toBe("iglo.code-1.2.3-darwin-arm64.tar.gz");
   });
 
   it("only maps platforms and architectures that have a release archive", () => {
     expect(cliArchivePlatformKey("darwin", "arm64")).toBe("darwin-arm64");
     expect(cliArchivePlatformKey("linux", "x64")).toBe("linux-x64");
     expect(cliArchivePlatformKey("win32", "x64")).toBeUndefined();
-    // This fork publishes only Apple Silicon macOS archives.
-    expect(cliArchivePlatformKey("darwin", "x64")).toBeUndefined();
+    expect(cliArchivePlatformKey("darwin", "x64")).toBe("darwin-x64");
     expect(cliArchivePlatformKey("linux", "arm64")).toBe("linux-arm64");
     expect(cliArchivePlatformKey("win32", "arm64")).toBeUndefined();
     expect(cliArchivePlatformKey("freebsd", "x64")).toBeUndefined();
@@ -42,14 +41,14 @@ describe("cliRelease", () => {
   it("parses sha256sum output including binary-mode markers", () => {
     const checksums = parseChecksums(
       [
-        `${"a".repeat(64)}  t3-1.2.3-linux-x64.tar.gz`,
-        `${"B".repeat(64)} *t3-1.2.3-win32-x64.zip`,
+        `${"a".repeat(64)}  iglo.code-1.2.3-linux-x64.tar.gz`,
+        `${"B".repeat(64)} *iglo.code-1.2.3-win32-x64.zip`,
         "not a checksum line",
         "",
       ].join("\n"),
     );
-    expect(checksums.get("t3-1.2.3-linux-x64.tar.gz")).toBe("a".repeat(64));
-    expect(checksums.get("t3-1.2.3-win32-x64.zip")).toBe("b".repeat(64));
+    expect(checksums.get("iglo.code-1.2.3-linux-x64.tar.gz")).toBe("a".repeat(64));
+    expect(checksums.get("iglo.code-1.2.3-win32-x64.zip")).toBe("b".repeat(64));
     expect(checksums.size).toBe(2);
   });
 

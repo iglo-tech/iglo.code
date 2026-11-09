@@ -65,7 +65,7 @@ const auth = {
   policy: "loopback-browser",
   bootstrapMethods: ["one-time-token"],
   sessionMethods: ["browser-session-cookie"],
-  sessionCookieName: "t3_session",
+  sessionCookieName: "iglo_code_session",
 };
 
 const serverConfig: ServerConfig = {
@@ -73,7 +73,7 @@ const serverConfig: ServerConfig = {
     environment: descriptor,
     auth,
     cwd: "/workspace/render",
-    keybindingsConfigPath: "/workspace/.t3/keybindings.json",
+    keybindingsConfigPath: "/workspace/.iglo.code/keybindings.json",
     keybindings: [],
     issues: [],
     providers: [
@@ -94,7 +94,7 @@ const serverConfig: ServerConfig = {
     ],
     availableEditors: [],
     observability: {
-      logsDirectoryPath: "/workspace/.t3/logs",
+      logsDirectoryPath: "/workspace/.iglo.code/logs",
       localTracingEnabled: false,
       otlpTracesEnabled: false,
       otlpMetricsEnabled: false,

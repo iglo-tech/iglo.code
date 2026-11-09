@@ -7,7 +7,7 @@ comments, replies, and review summaries.
 
 ## Choose where audio goes
 
-Transcription runs on one of your T3 Code environments.
+Transcription runs on one of your iglo.code environments.
 Nothing is sent until you choose one: open **Settings → Voice** and set
 **Transcribe with** to the environment that should transcribe for you.
 On a new device, the microphone or dictation shortcut opens that setting from the composer.
@@ -16,7 +16,7 @@ authenticated connection, transcribed there, and discarded. The choice is saved
 on this device only, so every computer and browser you use asks for it once.
 Set it back to **Off** at any time; a recording in progress is discarded.
 
-If the chosen environment goes offline, voice input waits for it. T3 Code never
+If the chosen environment goes offline, voice input waits for it. iglo.code never
 substitutes another environment.
 
 For cloud dictation, choose **OpenAI** or **Grok Voice Transcribe** via the environment
@@ -34,7 +34,7 @@ on the environment.
 speech-to-text catalog when you enable it, or later under **Manage OpenRouter**.
 The model choice is yours alone and needs no settings access, so anyone with
 dictation access can pick a different model without touching the saved key.
-OpenRouter chooses who runs the model. T3 requests zero data retention; your
+OpenRouter chooses who runs the model. iglo.code requests zero data retention; your
 OpenRouter account can also allow safety retention. If no endpoint qualifies,
 dictation fails instead of switching models.
 Vocabulary hints are not sent to OpenRouter; dictionary spellings are applied
@@ -131,5 +131,5 @@ points at the microphone. **Test model** on the selected model shows a transcrip
 same environment, language, and dictionary as the composer, but skips transcript
 cleanup even when it is on, so you see what the model heard. Browser recording
 needs HTTPS or localhost and microphone permission; for a remote server over
-plain HTTP, connect over HTTPS, for example through Tailscale or T3 Connect. If the selected microphone is missing, choose
+plain HTTP, connect over HTTPS, for example through [Tailscale HTTPS](./remote-access.md#tailscale-https). If the selected microphone is missing, choose
 another or the system default.

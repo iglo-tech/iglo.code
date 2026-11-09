@@ -229,7 +229,10 @@ const encodeHostSetup = (setup: PreviewStreamHostSetup) => {
   const reason = encodeHostSetupJson(setup);
   return Buffer.byteLength(reason) <= MAX_CLOSE_REASON_BYTES
     ? reason
-    : encodeHostSetupJson({ ...setup, command: `sudo t3 ${PreviewBrowserHost.SETUP_SUBCOMMAND}` });
+    : encodeHostSetupJson({
+        ...setup,
+        command: `sudo iglo.code ${PreviewBrowserHost.SETUP_SUBCOMMAND}`,
+      });
 };
 
 // The request span already covers this download route.

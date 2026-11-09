@@ -263,8 +263,8 @@ try {
   NodeAssert.strict.ok(address !== null && typeof address !== "string");
   const env = {
     ...process.env,
-    T3_ACP_MCP_ENDPOINT: `http://127.0.0.1:${address.port}/mcp`,
-    T3_ACP_MCP_AUTHORIZATION: "Bearer native-smoke-fixture",
+    IGLO_CODE_ACP_MCP_ENDPOINT: `http://127.0.0.1:${address.port}/mcp`,
+    IGLO_CODE_ACP_MCP_AUTHORIZATION: "Bearer native-smoke-fixture",
   };
   const bridge = await runChild(
     invocation.command,
