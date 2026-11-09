@@ -22,11 +22,11 @@ const setup = Effect.gen(function* () {
   const executable = path.join(runtimeDir, "versions", VERSION, "t3");
   yield* fs.makeDirectory(path.dirname(executable), { recursive: true });
   yield* fs.writeFileString(executable, "");
-  const npmPackage = path.join(root, ".npm/_npx/abc/node_modules/t3");
+  const npmPackage = path.join(root, ".npm/_npx/abc/node_modules/@iglo-tech/iglo-code");
   yield* fs.makeDirectory(path.join(npmPackage, "bin"), { recursive: true });
   yield* fs.writeFileString(
     path.join(npmPackage, "package.json"),
-    JSON.stringify({ name: "t3", version: VERSION }),
+    JSON.stringify({ name: "@iglo-tech/iglo-code", version: VERSION }),
   );
   const binDir = path.join(root, "bin");
   const provide = <A, E, R>(effect: Effect.Effect<A, E, R>, env: NodeJS.ProcessEnv = {}) =>
@@ -214,7 +214,7 @@ it.layer(NodeServices.layer)("t3 install", (it) => {
       assert.isFalse(yield* fs.exists(link));
 
       // A runner's own .bin on PATH is not an installed t3.
-      const npxBin = path.join(npmPackage, "../.bin");
+      const npxBin = path.join(npmPackage, "../../.bin");
       const pnpmBin = path.join(root, ".cache/pnpm/dlx/abc/node_modules/.bin");
       for (const bin of [npxBin, pnpmBin]) {
         yield* fs.makeDirectory(bin, { recursive: true });
