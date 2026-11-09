@@ -184,11 +184,15 @@ const CODE = /\.(?:[cm]?[jt]sx?|astro)$/;
 const TEST = /\.test\.[cm]?[jt]sx?$/;
 // CI runs the .github/scripts tests with `node --test`; vitest passes a failing node:test file.
 const NODE_TEST = /^\.github[/\\]scripts[/\\]/;
+// Repo-local skill helpers run on Bun before dependencies exist, so they test with bun:test.
+const BUN_TEST = /^\.agents[/\\]/;
+const SYNC_UPSTREAM = /^\.agents[/\\]skills[/\\]sync-upstream[/\\]scripts[/\\]/;
 export const splitTests = (tests: Iterable<string>) => {
   const all = [...tests];
   return {
-    vitestTests: all.filter((file) => !NODE_TEST.test(file)),
+    vitestTests: all.filter((file) => !NODE_TEST.test(file) && !BUN_TEST.test(file)),
     nodeTests: all.filter((file) => NODE_TEST.test(file)),
+    bunTests: all.filter((file) => BUN_TEST.test(file)),
   };
 };
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -329,7 +333,11 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
   }
   // It reads files other than the ones beside it, so no changed file selects it.
   if (affected.includes("t3")) tests.add("apps/server/src/provider/AgentContextBudget.test.ts");
-  const { vitestTests, nodeTests } = splitTests(tests);
+  // One test file covers every sync-upstream helper.
+  if (code.some((file) => SYNC_UPSTREAM.test(file))) {
+    tests.add(".agents/skills/sync-upstream/scripts/sync-upstream.test.ts");
+  }
+  const { vitestTests, nodeTests, bunTests } = splitTests(tests);
 
   // React Compiler coverage compiles every client source file, so run only the
   // changed files' cases, in one extra step: a -t filter in the main test step
@@ -512,6 +520,17 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
             "node",
             "--test",
             ...nodeTests,
+          ]),
+        ]
+      : []),
+    ...(bunTests.length > 0
+      ? [
+          command(`bun test (${bunTests.length} files)`, [
+            "exec",
+            "bun",
+            "test",
+            // bun test treats a bare path as a name filter and skips dot directories.
+            ...bunTests.map((file) => `./${file}`),
           ]),
         ]
       : []),

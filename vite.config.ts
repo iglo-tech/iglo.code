@@ -9,6 +9,8 @@ const TEST_EXCLUDE = [
   "**/node_modules/**",
   "**/dist/**",
   "**/.{idea,git,cache,output,temp}/**",
+  // Repo-local skill helpers test with bun test.
+  "**/.agents/**",
 ];
 
 // Directories whose tests belong to a package's own test config.

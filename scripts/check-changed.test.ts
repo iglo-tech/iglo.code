@@ -135,13 +135,14 @@ describe("check:changed", () => {
     }),
   );
 
-  it("runs the .github/scripts node:test files with node --test, not vitest", () => {
+  it("runs .github/scripts with node --test and .agents with bun test, not vitest", () => {
     assert.deepStrictEqual(
       splitTests([
         "apps/server/src/ws.test.ts",
         ".github/scripts/ci-changes.test.cjs",
         ".github\\scripts\\thread-transfer-report.test.cjs",
         "scripts/check-changed.test.ts",
+        ".agents/skills/sync-upstream/scripts/sync-upstream.test.ts",
       ]),
       {
         vitestTests: ["apps/server/src/ws.test.ts", "scripts/check-changed.test.ts"],
@@ -149,6 +150,7 @@ describe("check:changed", () => {
           ".github/scripts/ci-changes.test.cjs",
           ".github\\scripts\\thread-transfer-report.test.cjs",
         ],
+        bunTests: [".agents/skills/sync-upstream/scripts/sync-upstream.test.ts"],
       },
     );
   });

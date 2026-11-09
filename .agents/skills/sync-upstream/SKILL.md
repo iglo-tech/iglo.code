@@ -25,6 +25,10 @@ current when an authorized change replaces a decision.
   and internal code names that never leave the process (`@t3tools/*` packages,
   the `t3` workspace package, TypeScript identifiers, source file names) remain
   valid; renaming them only causes merge conflicts.
+- **TypeScript on Bun only.** Repository tooling, including these sync helpers, is
+  TypeScript run with Bun. The fork keeps no Python: imports drop upstream `.py`
+  files and the identity check fails on any tracked one. Port a needed upstream
+  script rather than restoring it.
 - **No website.** Keep upstream's `apps/marketing` (the t3.codes site) removed
   with its scripts, lockfile importer, and lint, knip, and gitignore entries.
 - **Side-by-side runtime identity.** iglo.code and an installed T3 Code must run on
@@ -144,8 +148,23 @@ Inspect the implementation of each fork difference touched by the incoming diff
 and record its pre-import behavior in temporary notes outside the worktree.
 Preserve local work and fork customizations. Fetch the configured `upstream` remote
 and use the requested revision, or its default branch when none was specified.
-Prefer an ordinary merge; desktop, mobile, and devcontainer modify/delete conflicts are resolved
-by deletion. Resolve shared-file conflicts by keeping upstream improvements and
+Merge a filtered upstream commit rather than upstream itself:
+
+```sh
+filtered=$(bun .agents/skills/sync-upstream/scripts/filter-upstream.ts upstream/main)
+git merge --no-ff -m "Merge upstream $(git rev-parse --short upstream/main)" "$filtered"
+```
+
+The filtered commit is upstream's tree minus every path in
+[fork-scope.ts](scripts/fork-scope.ts) (native apps, website, relay, check CI,
+npm launcher, Python files, and dependency patches for removed apps), with the upstream commit
+as its parent. Upstream history and later merge bases are unchanged, while
+removed paths never produce modify/delete conflicts or come back as new files.
+The script lists any other upstream edit to a file the fork deleted; decide each
+one, and add the path to `fork-scope.ts` when the removal is permanent. Do not
+list a file the fork renamed or moved: Git's rename detection carries upstream
+edits into it only while the original stays in the merge.
+Resolve shared-file conflicts by keeping upstream improvements and
 reapplying the fork's changes, rather than choosing one entire side.
 
 Git history is optional for this fork. When a snapshot import makes an update
@@ -168,10 +187,10 @@ must preserve it with `.git`. Continue fetching `upstream` explicitly for update
 From the repository root, run:
 
 ```sh
-python3 -B .agents/skills/sync-upstream/scripts/remove_native_apps.py
+bun .agents/skills/sync-upstream/scripts/remove-native-apps.ts
 ```
 
-The helper needs only Python's standard library and can run before dependency
+The helper uses only Bun and Node built-ins and can run before dependency
 installation. It removes both app trees, `apps/marketing`, the devcontainer and its guide, native tools, workflows, patches,
 dependency configuration, and known workspace hooks. It rewrites known combined
 desktop/CLI packaging integrations; apply the CI policy above to any remaining
@@ -179,6 +198,8 @@ workflows. It is safe to rerun. It drops obsolete native app lockfile importers
 so pnpm can read the remaining catalog references; the package manager regenerates
 the graph.
 
+Whole files and directories to delete live in `fork-scope.ts`, which both the
+helper and the filtered import read; the helper keeps the edits to shared files.
 Audit newly imported integrations; the helper covers the known upstream layout.
 Search for active hooks and contradictory guidance:
 
@@ -217,7 +238,7 @@ supported.
 Run the helper again and confirm it reports no changes. Run its focused tests:
 
 ```sh
-python3 -B .agents/skills/sync-upstream/scripts/test_remove_native_apps.py
+bun test ./.agents/skills/sync-upstream/scripts/sync-upstream.test.ts
 ```
 
 Run the identity check and rename every hit it reports, following the naming
@@ -225,7 +246,7 @@ table above. Explain anything you allow instead of renaming in the check's
 allowlist:
 
 ```sh
-python3 -B .agents/skills/sync-upstream/scripts/check_fork_identity.py
+bun .agents/skills/sync-upstream/scripts/check-fork-identity.ts
 ```
 
 Review the final diff against the intentional fork differences, including files
