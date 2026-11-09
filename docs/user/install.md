@@ -18,9 +18,10 @@ launch T3 Code and configure providers afterwards.
 curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | sh
 ```
 
-This installs the `t3` binary to `~/.local/bin`. If your shell reports `command not found`
-afterwards, that directory is not on your `PATH` yet; the installer prints the
-line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
+This installs the `t3` binary to `~/.local/bin`. If that folder is not on your
+`PATH` yet, the installer says so and, for zsh, bash on Linux, and fish, prints
+a command to add it. If a `t3` that the installer did not create is already
+there, it leaves that one alone and stops. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
 `T3CODE_VERSION` to pin an exact version.
 
 | Task                                             | Command                                                                 |
@@ -40,6 +41,11 @@ is accepted only if it already exists.
 If `t3` or `t3 start` reports an already running server, connect to that server
 instead. Stop it before starting a replacement, or use a different `--base-dir`
 for an independent server.
+
+To try it once without installing, run `npx @iglo-tech/iglo-code@latest`
+(needs Node.js for `npx`). It offers to install the `t3` command first. If you
+say no, it asks again at the next minor release, and
+`npx @iglo-tech/iglo-code install` installs it later.
 
 ### Install the web app
 
