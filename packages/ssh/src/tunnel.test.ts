@@ -116,7 +116,8 @@ describe("ssh tunnel scripts", () => {
   });
 
   it.each([
-    { host: "Darwin x86_64", system: "Darwin", machine: "x86_64", downloads: false },
+    { host: "FreeBSD amd64", system: "FreeBSD", machine: "amd64", downloads: false },
+    { host: "Darwin x86_64", system: "Darwin", machine: "x86_64", downloads: true },
     { host: "Darwin arm64", system: "Darwin", machine: "arm64", downloads: true },
   ])(
     "only downloads a release archive the host can run: $host",
@@ -147,7 +148,7 @@ describe("ssh tunnel scripts", () => {
           assert.include(result.stderr, "download attempt");
         } else {
           assert.notInclude(result.stderr, "download attempt");
-          assert.include(result.stderr, "has no t3 release archive.");
+          assert.include(result.stderr, "has no iglo.code release archive.");
         }
       } finally {
         NodeFS.rmSync(root, { recursive: true, force: true });

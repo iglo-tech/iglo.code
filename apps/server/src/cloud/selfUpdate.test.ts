@@ -186,7 +186,7 @@ it.layer(NodeServices.layer)("server self update", (it) => {
       });
       const error = yield* selfUpdate.update({ targetVersion: "1.1.0" }).pipe(Effect.flip);
       expect(error.reason).toBe(
-        `Could not prepare t3@1.1.0 while downloading the t3 release ${asset} (HTTP ${status} from cdn.example).`,
+        `Could not prepare iglo.code@1.1.0 while downloading the iglo.code release ${asset} (HTTP ${status} from cdn.example).`,
       );
       expect(order).toEqual([]);
       const fs = yield* FileSystem.FileSystem;
