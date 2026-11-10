@@ -14,6 +14,7 @@ export const REMOVED_PATHS = [
   "scripts/export-android-icons.*",
   "scripts/legend-list-initial-reveal.*",
   "docs/internals/mobile-*",
+  ".github/scripts/mobile-*",
   "docs/internals/images/mobile-*",
   "docs/operations/mobile-*",
   "apps/web/public/.well-known/apple-app-site-association.json",

@@ -18,6 +18,8 @@ export const relayUrlConfig: Config.Config<string> = connectUnavailable;
 
 export const hostedAppUrlConfig = Config.succeed(DEFAULT_HOSTED_APP_URL);
 
+export const agentApprovalAppUrlConfig = hostedAppUrlConfig;
+
 export interface CloudCliOAuthConfig {
   readonly tokenEndpoint: string;
   readonly deviceAuthorizationEndpoint: string;

@@ -72,6 +72,8 @@ export class PinnedRuntimeInstallError extends Schema.TaggedError<PinnedRuntimeI
     exitCode: Schema.optional(Schema.Number),
     stdoutLength: Schema.optional(Schema.Number),
     stderrLength: Schema.optional(Schema.Number),
+    httpStatus: Schema.optional(Schema.Number),
+    downloadHost: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -166,9 +168,18 @@ const fetchReleaseAsset = Effect.fn("cloud.pinned_runtime.fetch_release_asset")(
           step:
             cause._tag === "TimeoutError"
               ? `${step} (timed out)`
-              : cause.reason._tag === "StatusCodeError" && cause.reason.response.status === 404
+              : HttpClientError.isHttpClientError(cause) &&
+                  cause.reason._tag === "StatusCodeError" &&
+                  cause.reason.response.status === 404
                 ? `${step} (fork release artifact unavailable at ${new URL(url).origin}, HTTP 404)`
                 : step,
+          httpStatus:
+            HttpClientError.isHttpClientError(cause) && cause.reason._tag === "StatusCodeError"
+              ? cause.reason.response.status
+              : undefined,
+          downloadHost: URL.parse(
+            HttpClientError.isHttpClientError(cause) ? cause.request.url : url,
+          )?.host,
           cause,
         }),
     ),

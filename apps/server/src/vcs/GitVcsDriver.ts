@@ -189,6 +189,11 @@ export interface GitPushResult {
   setUpstream?: boolean | undefined;
 }
 
+export interface GitPushTarget {
+  remoteName: string;
+  branchName: string;
+}
+
 export interface GitRangeContext {
   commitSummary: string;
   diffSummary: string;
@@ -347,6 +352,11 @@ export class GitVcsDriver extends Context.Service<
       fallbackBranch: string | null,
       options?: { readonly remoteName?: string | null },
     ) => Effect.Effect<GitPushResult, GitCommandError>;
+    /** Where `pushCurrentBranch` would push the checked-out branch; null with no remote or when Git picks. */
+    readonly resolvePushTarget: (
+      cwd: string,
+      current: { readonly branch: string; readonly hasUpstream: boolean },
+    ) => Effect.Effect<GitPushTarget | null, GitCommandError>;
     readonly readRangeContext: (
       cwd: string,
       baseRef: string,
