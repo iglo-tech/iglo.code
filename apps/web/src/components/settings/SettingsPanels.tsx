@@ -574,6 +574,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Delete confirmation"]
       : []),
     ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
+    ...(settings.historySwipeNavigation !== DEFAULT_UNIFIED_SETTINGS.historySwipeNavigation
+      ? ["Swipe to go back and forward"]
+      : []),
     ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
     ...(settings.threadTitleInstructions !== DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions
       ? ["Thread title instructions"]
@@ -684,6 +687,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       confirmThreadUnpin: DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin,
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
+      historySwipeNavigation: DEFAULT_UNIFIED_SETTINGS.historySwipeNavigation,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
       threadTitleInstructions: DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions,
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
@@ -909,6 +913,42 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      {isElectron ? (
+        <SettingsSection id="navigation" title={gt("Navigation")}>
+          <SettingsRow
+            {...setting("history-swipe-navigation")}
+            description={
+              <T>
+                Two-finger horizontal swipes move through your thread history. Leave off if a mouse
+                with a horizontal wheel switches threads by accident.
+              </T>
+            }
+            resetAction={
+              settings.historySwipeNavigation !==
+              DEFAULT_UNIFIED_SETTINGS.historySwipeNavigation ? (
+                <SettingResetButton
+                  label="swipe navigation"
+                  onClick={() =>
+                    updateSettings({
+                      historySwipeNavigation: DEFAULT_UNIFIED_SETTINGS.historySwipeNavigation,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.historySwipeNavigation}
+                onCheckedChange={(checked) =>
+                  updateSettings({ historySwipeNavigation: Boolean(checked) })
+                }
+                aria-label={gt("Swipe to go back and forward")}
+              />
+            }
+          />
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection id="confirmations" title={gt("Confirmations")}>
         <SettingsRow
