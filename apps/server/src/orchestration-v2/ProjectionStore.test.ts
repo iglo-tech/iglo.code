@@ -4147,18 +4147,21 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           );
         }
         const rowReads = pageStatements.filter((statement) => !countsPositions(statement));
-        const rowReadSteps = () =>
-          rowReads.reduce((steps, [query, params]) => {
-            const statement = copy.prepare(query);
-            statement.all(...(params as ReadonlyArray<NodeSqlite.SQLInputValue>));
-            return steps + statement.stat("vmStep");
-          }, 0);
-        const fullSteps = rowReadSteps();
-        assert.isAbove(fullSteps, 0);
-        copy.exec(
-          "DELETE FROM orchestration_v2_projection_turn_items WHERE ordinal BETWEEN 2 AND 400",
-        );
-        assert.isAtMost(fullSteps, rowReadSteps() * 1.1);
+        // Bun lacks the VM step counter; the query plan check above still runs there.
+        if (typeof NodeSqlite.StatementSync.prototype.stat === "function") {
+          const rowReadSteps = () =>
+            rowReads.reduce((steps, [query, params]) => {
+              const statement = copy.prepare(query);
+              statement.all(...(params as ReadonlyArray<NodeSqlite.SQLInputValue>));
+              return steps + statement.stat("vmStep");
+            }, 0);
+          const fullSteps = rowReadSteps();
+          assert.isAbove(fullSteps, 0);
+          copy.exec(
+            "DELETE FROM orchestration_v2_projection_turn_items WHERE ordinal BETWEEN 2 AND 400",
+          );
+          assert.isAtMost(fullSteps, rowReadSteps() * 1.1);
+        }
       }
       // Rows that a rolled-back run hides below the page still shift every position above them.
       const setOldRunStatus = (status: "rolled_back" | "completed") => sql`

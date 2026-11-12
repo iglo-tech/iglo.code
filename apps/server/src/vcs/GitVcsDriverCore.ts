@@ -4572,10 +4572,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }
       const basePath = path.join(parentDir, repoName, `${prefix}-${Hex.encode(hash).slice(0, 16)}`);
       // The name is stable per branch, so a folder left by an earlier worktree must not block it.
+      // A resume reuses its own checkout at the stable name.
       worktreePath = basePath;
       for (
         let suffix = 2;
-        yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => false));
+        options?.resume !== true &&
+        (yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => false)));
         suffix++
       ) {
         worktreePath = `${basePath}-${suffix}`;
