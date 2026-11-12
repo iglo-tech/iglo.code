@@ -14,8 +14,14 @@ const withDatabase = <A, E>(
   effect: Effect.Effect<A, E, SqlClient.SqlClient>,
 ) => effect.pipe(Effect.provide(NodeSqliteClient.layer({ filename: databasePath })));
 
+const insertPeerLink = (sql: SqlClient.SqlClient) => sql`INSERT INTO peer_environment_links
+  (environment_id, secret_name, label, urls_json, access, linked_at, expires_at)
+  VALUES ('environment-box', 'peer-link-box', 'Box', '["https://box.example"]', 'auto',
+    '2026-08-01', '2027-08-01')`;
+
 const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(function* (
   baseDir: string,
+  toMigrationInclusive?: number,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -26,7 +32,7 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
     databasePath,
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive });
 
       yield* sql`INSERT INTO projection_projects
         (project_id, title, workspace_root, scripts_json, created_at, updated_at, deleted_at)
@@ -38,8 +44,33 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         '{"lineage":{"parentThreadId":"stopped-thread","relationshipToParent":"fork","rootThreadId":"stopped-thread"}}';
       const subagentPayload =
         '{"lineage":{"parentThreadId":"subagent-parent","relationshipToParent":"subagent","rootThreadId":"subagent-parent"},"forkedFrom":{"type":"node","nodeId":"node-1"}}';
+      const watchedPayload = JSON.stringify({
+        pullRequests: [
+          {
+            host: "github.com",
+            repository: "owner/repo",
+            number: 7,
+            url: "https://github.com/owner/repo/pull/7",
+            source: "agent",
+            linkedAt: "2026-08-01T00:00:00.000Z",
+            snapshot: null,
+            stack: null,
+            watch: {
+              startedAt: "2026-08-01T00:00:00.000Z",
+              headSha: null,
+              failedChecks: [],
+              passed: false,
+              passedChecks: [],
+              remarksThrough: "2026-08-01T00:00:00.000Z",
+              remarkIds: [],
+              conflicting: false,
+              wakes: 0,
+            },
+          },
+        ],
+      });
       const threads = [
-        ["stopped-thread", "project-kept", "completed", "{}", "2026-08-01"],
+        ["stopped-thread", "project-kept", "completed", watchedPayload, "2026-08-01"],
         ["fork-thread", "project-kept", "completed", forkPayload, "2026-08-02"],
         ["running-thread", "project-kept", "running", "{}", "2026-08-05"],
         ["settled-thread", "project-kept", "completed", '{"settledAt":"2026-08-01"}', "2026-08-05"],
@@ -95,10 +126,7 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         VALUES ('delivery-1', 'task-1', 'key-1', 1900000000000, '{}', '{}', '[]')`;
       yield* sql`INSERT INTO auth_sessions (session_id, subject, scopes, method, issued_at, expires_at)
         VALUES ('session-1', 'user', '[]', 'pairing', '2026-08-01', '2027-08-01')`;
-      yield* sql`INSERT INTO peer_environment_links
-        (environment_id, secret_name, label, urls_json, access, linked_at, expires_at)
-        VALUES ('environment-box', 'peer-link-box', 'Box', '["https://box.example"]', 'auto',
-          '2026-08-01', '2027-08-01')`;
+      if (toMigrationInclusive === undefined) yield* insertPeerLink(sql);
     }),
   );
   return databasePath;
@@ -129,6 +157,11 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
             SELECT stream_id FROM orchestration_events ORDER BY stream_id`;
           const sessions = yield* sql<{ provider_session_id: string }>`
             SELECT provider_session_id FROM orchestration_v2_projection_provider_sessions`;
+          const [pullRequest] = yield* sql<{ url: string | null; watch: string | null }>`
+            SELECT
+              json_extract(payload_json, '$.pullRequests[0].url') AS url,
+              json_extract(payload_json, '$.pullRequests[0].watch') AS watch
+            FROM orchestration_v2_projection_threads WHERE thread_id = 'stopped-thread'`;
           const [leftovers] = yield* sql<{
             auth: number;
             tasks: number;
@@ -143,7 +176,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
                 (SELECT COUNT(*) FROM scheduled_task_webhook_pending) AS webhooks,
               (SELECT COUNT(*) FROM orchestration_v2_projection_context_transfers) AS transfers,
               (SELECT COUNT(*) FROM peer_environment_links) AS links`;
-          return { threads, events, sessions, leftovers };
+          return { threads, events, sessions, pullRequest, leftovers };
         }),
       );
       assert.deepStrictEqual(
@@ -157,6 +190,11 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       assert.deepStrictEqual(
         kept.sessions.map((row) => row.provider_session_id),
         ["session-shared"],
+      );
+      assert.deepStrictEqual(
+        kept.pullRequest,
+        { url: "https://github.com/owner/repo/pull/7", watch: null },
+        "copied pull request links keep their history but stop being watched",
       );
       assert.deepStrictEqual(kept.leftovers, {
         auth: 0,

@@ -7,6 +7,8 @@
 import { BUN_VERSION, isSupportedBunVersion } from "@t3tools/shared/bunRuntime";
 import { isEntrypoint } from "./entrypoint.ts";
 
+function ignoreOutputError(): void {}
+
 if (
   isEntrypoint({
     moduleUrl: import.meta.url,
@@ -15,15 +17,26 @@ if (
   })
 ) {
   if (!isSupportedBunVersion(process.versions.bun)) {
-    process.stderr.write(`T3 Code requires Bun ${BUN_VERSION} or newer. Run this CLI with Bun.\n`);
+    process.stderr.write(
+      `iglo.code requires Bun ${BUN_VERSION} or newer. Run this CLI with Bun.\n`,
+    );
     process.exit(1);
   }
+  // Logs go to stdout and stderr, which may be a closed launcher pipe or a log file on a full
+  // disk. A failed write surfaces as an unhandled stream error that crashes the process and
+  // skips shutdown, so drop the line instead.
+  process.stdout.on("error", ignoreOutputError);
+  process.stderr.on("error", ignoreOutputError);
+
   const command = process.argv[2];
   // The launcher owns shutdown until its child exits, so it bypasses the Effect CLI runtime.
-  // The service unit passes no arguments; flags and help go through the full CLI.
-  if (command === "__service-launcher" && process.argv.length === 3) {
-    const { runServiceLauncherCli } = await import("./cli/serviceLauncher.ts");
-    await runServiceLauncherCli();
+  // A service unit passes nothing or the launcher's own flags; help and anything else go
+  // through the full CLI.
+  const launcher =
+    command === "__service-launcher" ? await import("./cli/serviceLauncher.ts") : undefined;
+  const launcherOptions = launcher?.parseServiceLauncherArgs(process.argv.slice(3));
+  if (launcher !== undefined && launcherOptions !== undefined) {
+    await launcher.runServiceLauncherCli(launcherOptions);
   } else {
     await runCliCommand(command);
   }

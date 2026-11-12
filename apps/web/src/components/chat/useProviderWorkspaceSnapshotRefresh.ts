@@ -26,13 +26,15 @@ const idleRefreshAtom: Atom.Atom<ProviderWorkspaceSnapshotRefreshState | undefin
  * user types, and whether the cwd's skills are still being scanned.
  */
 export function useProviderWorkspaceSnapshotRefresh(input: {
-  readonly environmentId: EnvironmentId;
+  readonly environmentId: EnvironmentId | null;
   readonly gitCwd: string | null;
   readonly instanceId: ProviderInstanceId | undefined;
-  readonly composerDraftTargetKey: string;
-  readonly workspacePickerOpen: boolean;
+  /** Omitted by the model picker, which only needs the TTL-fresh catalog. */
+  readonly composerDraftTargetKey?: string;
+  readonly workspacePickerOpen?: boolean;
 }): { readonly refresh: () => void; readonly scanning: boolean } {
-  const { environmentId, gitCwd, instanceId, composerDraftTargetKey, workspacePickerOpen } = input;
+  const { environmentId, gitCwd, instanceId, composerDraftTargetKey } = input;
+  const workspacePickerOpen = input.workspacePickerOpen ?? false;
   const [pickerOpenCount, setPickerOpenCount] = useState(0);
   const [wasPickerOpen, setWasPickerOpen] = useState(workspacePickerOpen);
   if (wasPickerOpen !== workspacePickerOpen) {
@@ -40,12 +42,14 @@ export function useProviderWorkspaceSnapshotRefresh(input: {
     if (workspacePickerOpen) setPickerOpenCount((count) => count + 1);
   }
   const atom =
-    gitCwd && instanceId
+    environmentId && gitCwd && instanceId
       ? providerWorkspaceSnapshotRefresh({
           environmentId,
           instanceId,
           cwd: gitCwd,
-          revalidation: `${composerDraftTargetKey}:${pickerOpenCount}`,
+          ...(composerDraftTargetKey === undefined
+            ? {}
+            : { revalidation: `${composerDraftTargetKey}:${pickerOpenCount}` }),
         })
       : idleRefreshAtom;
   return {

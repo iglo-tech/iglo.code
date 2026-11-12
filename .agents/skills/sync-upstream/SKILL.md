@@ -138,6 +138,9 @@ current when an authorized change replaces a decision.
   `.github/scripts/ci-changes.cjs` stays because `vp run check:changed` uses it. Upstream's
   shared Vite task cache (`infra/task-cache`, `.task-cache.json`, and its root
   `vite.config.ts` hooks) targets upstream's own Cloudflare worker; keep it removed.
+  Upstream's e2e scenarios (`scripts/scenarios`, `scripts/e2e.config.ts`,
+  `prove-scenario`, and the `e2e`/`@e2e-dev/*` dependencies) drive the iOS
+  simulator alongside the web client; they stay removed with their docs.
 
 ## Import upstream changes
 

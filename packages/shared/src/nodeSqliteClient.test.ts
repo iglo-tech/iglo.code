@@ -817,24 +817,6 @@ const checkpointWorkerReply = (worker: NodeWorkerThreads.Worker) =>
       }),
   );
 
-const waitForCheckpointMessage = (worker: NodeWorkerThreads.Worker, id: unknown) =>
-  new Promise<Record<string, unknown>>((resolve) => {
-    const onMessage = (message: unknown) => {
-      if (
-        typeof message === "object" &&
-        message !== null &&
-        "type" in message &&
-        message.type === "checkpoint" &&
-        "id" in message &&
-        message.id === id
-      ) {
-        worker.off("message", onMessage);
-        resolve(message as Record<string, unknown>);
-      }
-    };
-    worker.on("message", onMessage);
-  });
-
 const waitForTruncateCompletion = (worker: NodeWorkerThreads.Worker) =>
   new Promise<Record<string, unknown>>((resolve) => {
     const onMessage = (message: unknown) => {
@@ -973,21 +955,13 @@ const pauseCheckpointRequests = (worker: NodeWorkerThreads.Worker) => {
   };
 };
 
-const blockCheckpointBehindReader = (
-  sql: SqlClient.SqlClient,
-  filename: string,
-  worker: NodeWorkerThreads.Worker,
-) =>
+// Holds admission on a pending WAL reset: the client has taken the worker's truncate request,
+// but its acknowledgement stays queued until `checkpointRequests.release()`.
+const gateWritesOnPendingTruncate = (sql: SqlClient.SqlClient, worker: NodeWorkerThreads.Worker) =>
   Effect.gen(function* () {
     yield* sql.unsafe("PRAGMA journal_size_limit = 1").unprepared;
     yield* sql.unsafe("CREATE TABLE entries(value INTEGER PRIMARY KEY)").unprepared;
     yield* sql.unsafe("CREATE TABLE pages(payload BLOB)").unprepared;
-    const reader = yield* Effect.acquireRelease(
-      Effect.sync(() => new NodeSqlite.DatabaseSync(filename)),
-      (database) => Effect.sync(() => database.close()),
-    );
-    reader.exec("BEGIN");
-    reader.prepare("SELECT COUNT(*) AS count FROM entries").get();
 
     const checkpointRequests = pauseCheckpointRequests(worker);
     yield* Effect.addFinalizer(() => Effect.sync(checkpointRequests.release));
@@ -996,14 +970,25 @@ const blockCheckpointBehindReader = (
       INSERT INTO pages(payload) SELECT randomblob(4000) FROM n
     `).unprepared;
 
-    const request = checkpointRequests.queued[0]?.[0];
-    assert(typeof request === "object" && request !== null && "id" in request);
-    const blocked = waitForCheckpointMessage(worker, (request as { readonly id: unknown }).id);
-    checkpointRequests.sendNext();
-    const state = yield* Effect.promise(() => blocked);
-    assert.isTrue(state.blocked as boolean);
-    assert.isAbove(state.log as number, 0);
-    return { reader, checkpointRequests };
+    const truncateRequested = new Promise<void>((resolve) => {
+      const onMessage = (message: unknown) => {
+        if (
+          typeof message === "object" &&
+          message !== null &&
+          "type" in message &&
+          message.type === "truncate-request"
+        ) {
+          worker.off("message", onMessage);
+          resolve();
+        }
+      };
+      worker.on("message", onMessage);
+    });
+    assert.include(checkpointRequests.sendNext(), { type: "check" });
+    yield* Effect.promise(() => truncateRequested);
+    // The client's own listener ran first and queued the acknowledgement behind the pause.
+    assert.include(checkpointRequests.queued.at(-1)?.[0], { type: "truncate" });
+    return { checkpointRequests };
   });
 
 const readCheckpointState = (db: NodeSqlite.DatabaseSync) => {
@@ -1251,7 +1236,7 @@ const openDatabase = (filename: string) =>
   );
 
 it.effect.each([false, true])(
-  "bounds a busy truncate without gating a reset WAL (resetDuringHandoff=%s)",
+  "bounds a busy truncate and keeps writes moving (resetDuringHandoff=%s)",
   (resetDuringHandoff) =>
     withCheckpointClient((sql, filename) =>
       Effect.gen(function* () {
@@ -1305,125 +1290,27 @@ it.effect.each([false, true])(
         // oxlint-disable-next-line t3code/no-wall-clock-in-tests -- the bound on TRUNCATE returning is the property under test; SQLite's 5s busy wait is only distinguishable by elapsed time
         const elapsed = performance.now() - started;
         assert.equal(reply.log, reply.checkpointed);
-        if (resetDuringHandoff) {
-          yield* Fiber.join(write);
-          assert.deepEqual(yield* sql`SELECT COUNT(*) AS count FROM pages`, [{ count: 1202 }]);
-          assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM pages").get()?.count, 1201);
-        } else {
-          yield* eventLoopTurn;
-          assert.isUndefined(write.pollUnsafe(), "the physical size limit must still gate writes");
-          assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM pages").get()?.count, 1200);
-        }
+        // Holding writes cannot release a reader, so even a WAL left oversized does not gate them.
+        assert.isFalse(reply.blocked as boolean);
+        yield* Fiber.join(write);
+        assert.deepEqual(yield* sql`SELECT COUNT(*) AS count FROM pages`, [
+          { count: resetDuringHandoff ? 1202 : 1201 },
+        ]);
+        assert.equal(
+          reader.prepare("SELECT COUNT(*) AS count FROM pages").get()?.count,
+          resetDuringHandoff ? 1201 : 1200,
+        );
+        // Once the reader closes, the worker resets the WAL it could not truncate.
         reader.exec("ROLLBACK");
         yield* checkpointWorkerReply(worker);
-        yield* Fiber.join(write);
         yield* sql`INSERT INTO pages VALUES (x'03')`;
         assert.deepEqual(yield* sql`SELECT COUNT(*) AS count FROM pages`, [
           { count: resetDuringHandoff ? 1203 : 1202 },
         ]);
         assert.isAtMost(Number((yield* fs.stat(`${filename}-wal`)).size), limit);
-        assert.equal(reply.blocked, !resetDuringHandoff);
         // Both implementations eventually reply; only a bound distinguishes SQLite's 5s busy wait.
         assert.isBelow(elapsed, 1000, "TRUNCATE must return promptly while the reader stays open");
       }),
-    ),
-  { skip: !supportsNoopCheckpoint },
-);
-
-it.effect.each(["statement", "commit", "rollback", "partial failure", "worker failure"] as const)(
-  "bounds a real WAL backlog and resumes writes (%s)",
-  (mode) =>
-    withCheckpointClient(
-      (sql, filename) =>
-        Effect.gen(function* () {
-          const worker = startedWorkers.at(-1)!;
-          yield* sql`PRAGMA journal_size_limit = 1048576`;
-          yield* sql`CREATE TABLE pages(id INTEGER PRIMARY KEY, payload BLOB)`;
-          yield* sql`INSERT INTO pages VALUES (12001, x'00')`;
-          yield* checkpointWorkerReply(worker);
-          const reader = yield* openDatabase(filename);
-          const observer = yield* openDatabase(filename);
-          reader.exec("BEGIN");
-          reader.prepare("SELECT COUNT(*) FROM pages").get();
-          const requests = pauseCheckpointRequests(worker);
-          yield* Effect.addFinalizer(() => Effect.sync(requests.release));
-          const insert = sql.unsafe(`
-        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${mode === "partial failure" ? 12001 : 12000})
-        INSERT OR FAIL INTO pages SELECT i, zeroblob(4000) FROM n ORDER BY i
-      `).unprepared;
-          if (mode === "commit" || mode === "rollback") {
-            const result = yield* sql
-              .withTransaction(
-                Effect.gen(function* () {
-                  yield* insert;
-                  // Admission must not prevent an active transaction from finishing.
-                  yield* sql`INSERT INTO pages VALUES (12002, x'00')`;
-                  assert.deepEqual(yield* sql`SELECT COUNT(*) AS count FROM pages`, [
-                    { count: 12002 },
-                  ]);
-                  if (mode === "rollback") return yield* Effect.fail("rollback");
-                }),
-              )
-              .pipe(Effect.exit);
-            assert.equal(result._tag, mode === "rollback" ? "Failure" : "Success");
-          } else if (mode === "partial failure") {
-            const error = yield* insert.pipe(Effect.flip);
-            assert.equal(error.reason._tag, "ConstraintError");
-          } else yield* insert;
-
-          if (mode !== "rollback") {
-            assert.isAbove(
-              readCheckpointState(observer).log - readCheckpointState(observer).checkpointed,
-              10_000,
-            );
-          }
-          const finished = yield* Deferred.make<void>();
-          const write = yield* Effect.forkChild(
-            sql`INSERT INTO pages VALUES (12003, x'00')`.pipe(
-              Effect.andThen(Deferred.succeed(finished, undefined)),
-            ),
-            { startImmediately: true },
-          );
-          yield* eventLoopTurn;
-          const expected = mode === "rollback" ? 1 : mode === "commit" ? 12002 : 12001;
-          if (mode !== "rollback") {
-            assert.isFalse(yield* Deferred.isDone(finished));
-            const before = Number(
-              (yield* (yield* FileSystem.FileSystem).stat(`${filename}-wal`)).size,
-            );
-            assert.deepEqual(
-              yield* sql`SELECT COUNT(*) AS count FROM pages`.pipe(SqliteClient.readOnly),
-              [{ count: expected }],
-            );
-            yield* eventLoopTurn;
-            assert.isFalse(yield* Deferred.isDone(finished));
-            assert.equal(
-              Number((yield* (yield* FileSystem.FileSystem).stat(`${filename}-wal`)).size),
-              before,
-            );
-          }
-          if (mode === "worker failure") {
-            yield* Effect.promise(() => worker.terminate());
-            yield* Fiber.join(write);
-            assert.deepEqual(yield* sql`PRAGMA wal_autocheckpoint`, [{ wal_autocheckpoint: 1000 }]);
-            reader.exec("ROLLBACK");
-          } else {
-            reader.exec("ROLLBACK");
-            requests.release();
-            yield* Fiber.join(write);
-            yield* checkpointWorkerReply(worker);
-            if (mode !== "rollback")
-              assert.isAtMost(
-                Number((yield* (yield* FileSystem.FileSystem).stat(`${filename}-wal`)).size),
-                1048576,
-              );
-          }
-          assert.deepEqual(yield* sql`SELECT COUNT(*) AS count FROM pages`, [
-            { count: expected + 1 },
-          ]);
-          yield* sql.withTransaction(sql`INSERT INTO pages VALUES (12004, x'00')`);
-        }),
-      { readerWorker: true },
     ),
   { skip: !supportsNoopCheckpoint },
 );
@@ -1438,14 +1325,10 @@ it.effect.each([
 ] as const)(
   "hands cancellation to the next writer (reserved=$reserved, stage=$stage)",
   ({ reserved, stage }) =>
-    withCheckpointClient((sql, filename) =>
+    withCheckpointClient((sql) =>
       Effect.gen(function* () {
         const worker = startedWorkers.at(-1)!;
-        const { reader, checkpointRequests } = yield* blockCheckpointBehindReader(
-          sql,
-          filename,
-          worker,
-        );
+        const { checkpointRequests } = yield* gateWritesOnPendingTruncate(sql, worker);
         yield* Effect.scoped(
           Effect.gen(function* () {
             const connection = reserved ? yield* sql.reserve : undefined;
@@ -1467,7 +1350,6 @@ it.effect.each([
               scheduled.arm();
               const truncated = waitForTruncateCompletion(worker);
               checkpointRequests.release();
-              reader.exec("ROLLBACK");
               yield* Effect.promise(() => truncated);
               yield* Effect.promise(() => scheduled.paused);
               if (stage === "resumed") {
@@ -1478,7 +1360,6 @@ it.effect.each([
             yield* Fiber.interrupt(first);
             scheduled.resume();
             if (stage === "queued") {
-              reader.exec("ROLLBACK");
               checkpointRequests.release();
               yield* checkpointWorkerReply(worker);
             }
@@ -1500,14 +1381,10 @@ it.effect.each([
 it.effect.each([false, true])(
   "keeps masked cleanup waiting at the checkpoint gate (transaction=%s)",
   (transaction) =>
-    withCheckpointClient((sql, filename) =>
+    withCheckpointClient((sql) =>
       Effect.gen(function* () {
         const worker = startedWorkers.at(-1)!;
-        const { reader, checkpointRequests } = yield* blockCheckpointBehindReader(
-          sql,
-          filename,
-          worker,
-        );
+        const { checkpointRequests } = yield* gateWritesOnPendingTruncate(sql, worker);
         const entered = yield* Deferred.make<void>();
         const cleanupEntered = yield* Deferred.make<void>();
         const work = yield* Effect.forkChild(
@@ -1533,7 +1410,6 @@ it.effect.each([false, true])(
 
         const truncateFinished = waitForTruncateCompletion(worker);
         checkpointRequests.release();
-        reader.exec("ROLLBACK");
         yield* Effect.promise(() => truncateFinished);
         yield* Fiber.join(interrupt);
         assert.deepEqual(yield* sql.unsafe("SELECT value FROM entries").unprepared, [{ value: 1 }]);
@@ -1554,11 +1430,8 @@ it.effect.each(["PRAGMA incremental_vacuum(1)", "PRAGMA user_version = 42"])(
         yield* sql`INSERT INTO reclaim VALUES (zeroblob(8000000))`;
         yield* sql`DELETE FROM reclaim`;
         yield* checkpointWorkerReply(worker);
-        const { reader, checkpointRequests } = yield* blockCheckpointBehindReader(
-          sql,
-          filename,
-          worker,
-        );
+        const { checkpointRequests } = yield* gateWritesOnPendingTruncate(sql, worker);
+        const observer = yield* openDatabase(filename);
         const before = (yield* sql<{ freelist_count: number }>`PRAGMA freelist_count`)[0]!
           .freelist_count;
         assert.isAbove(before, 0);
@@ -1567,8 +1440,7 @@ it.effect.each(["PRAGMA incremental_vacuum(1)", "PRAGMA user_version = 42"])(
         });
         yield* eventLoopTurn;
         assert.isUndefined(mutation.pollUnsafe());
-        assert.equal(reader.prepare("PRAGMA user_version").get()?.user_version, 0);
-        reader.exec("ROLLBACK");
+        assert.equal(observer.prepare("PRAGMA user_version").get()?.user_version, 0);
         checkpointRequests.release();
         yield* Fiber.join(mutation);
         if (operation.includes("incremental_vacuum")) {
@@ -1618,14 +1490,10 @@ it.effect("keeps automatic checkpoints when mutation classification is unavailab
 it.effect.each(["successful", "failed"] as const)(
   "lets the event loop run while draining queued writes (%s)",
   (outcome) =>
-    withCheckpointClient((sql, filename) =>
+    withCheckpointClient((sql) =>
       Effect.gen(function* () {
         const worker = startedWorkers.at(-1)!;
-        const { reader, checkpointRequests } = yield* blockCheckpointBehindReader(
-          sql,
-          filename,
-          worker,
-        );
+        const { checkpointRequests } = yield* gateWritesOnPendingTruncate(sql, worker);
         let completed = 0;
         let resolveHeartbeat = (_completed: number) => {};
         const heartbeat = new Promise<number>((resolve) => {
@@ -1667,7 +1535,6 @@ it.effect.each(["successful", "failed"] as const)(
         }
         yield* eventLoopTurn;
         assert.equal(completed, 0);
-        reader.exec("ROLLBACK");
         checkpointRequests.release();
         const completedAtHeartbeat = yield* Effect.promise(() => heartbeat);
         for (const write of writes) yield* Fiber.join(write);
@@ -1714,4 +1581,113 @@ it.effect("releases the database file when a connection with cached statements c
     assert.deepEqual(rows, [{ value: "kept" }]);
     yield* Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true }));
   }),
+);
+
+const PAYLOAD = new Uint8Array(1024 * 1024).fill(7);
+const WAL_SIZE_LIMIT = 32 * 1024 * 1024;
+
+// Fails instead of hanging when admission holds the write: the worker retries a blocked
+// checkpoint on its own, so two blocked reports for one WAL generation mean a held write.
+const insertUnlessHeld = Effect.fnUntraced(function* (
+  sql: SqlClient.SqlClient,
+  worker: NodeWorkerThreads.Worker,
+  label: string,
+) {
+  const stalled = yield* Deferred.make<void>();
+  let seen: unknown;
+  const onMessage = (message: { type?: unknown; blocked?: unknown; generation?: unknown }) => {
+    if (message?.type !== "checkpoint" || message.blocked !== true) return;
+    if (message.generation === seen) Deferred.doneUnsafe(stalled, Effect.void);
+    seen = message.generation;
+  };
+  worker.on("message", onMessage);
+  const held = yield* Effect.raceFirst(
+    sql`INSERT INTO blobs VALUES (${PAYLOAD})`.pipe(Effect.as(false)),
+    Deferred.await(stalled).pipe(Effect.as(true)),
+  ).pipe(Effect.ensuring(Effect.sync(() => worker.off("message", onMessage))));
+  if (held) assert.fail(`${label} is held by admission while an outside reader pins the WAL`);
+});
+
+// `outside` stands in for `sqlite3 statev2.sqlite` or a backup script reading the database.
+const withOutsideConnection = <A, E>(
+  use: (options: {
+    readonly sql: SqlClient.SqlClient;
+    readonly worker: NodeWorkerThreads.Worker;
+    readonly outside: NodeSqlite.DatabaseSync;
+    readonly walSize: Effect.Effect<number>;
+  }) => Effect.Effect<A, E, SqlClient.SqlClient>,
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-sqlite-pinned-wal-" });
+    const filename = path.join(directory, "state.sqlite");
+    const outside = yield* Effect.acquireRelease(
+      Effect.sync(() => new NodeSqlite.DatabaseSync(filename)),
+      (db) =>
+        Effect.sync(() => {
+          if (db.isTransaction) db.exec("COMMIT");
+          db.close();
+        }),
+    );
+    outside.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA wal_autocheckpoint = 0;
+      CREATE TABLE blobs(data BLOB NOT NULL);
+    `);
+    const walSize = fs.stat(`${filename}-wal`).pipe(
+      Effect.map((info) => Number(info.size)),
+      Effect.orDie,
+    );
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.unsafe(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT}`);
+      return yield* use({ sql, worker: startedWorkers.at(-1)!, outside, walSize });
+    }).pipe(Effect.provide(SqliteClient.layer({ filename, checkpointWorker: true })));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
+
+const openReadTransaction = (db: NodeSqlite.DatabaseSync) => {
+  db.exec("BEGIN");
+  db.prepare("SELECT COUNT(*) FROM blobs").get();
+};
+
+it.effect("keeps admitting writes while an outside read transaction pins the WAL", () =>
+  withOutsideConnection(({ sql, worker, outside }) =>
+    Effect.gen(function* () {
+      yield* sql`INSERT INTO blobs VALUES (${PAYLOAD})`;
+      openReadTransaction(outside);
+      // 140 MiB passes both the 32 MiB size limit and the 32,768-frame ceiling.
+      for (let write = 1; write <= 140; write++) {
+        yield* insertUnlessHeld(sql, worker, `write ${write}`);
+      }
+      const rows = yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM blobs`;
+      assert.equal(rows[0]?.count, 141);
+    }),
+  ),
+);
+
+it.effect("keeps admitting writes while a reader stops TRUNCATE, then resets the WAL", () =>
+  withOutsideConnection(({ sql, worker, outside, walSize }) =>
+    Effect.gen(function* () {
+      const insert = outside.prepare("INSERT INTO blobs VALUES (?)");
+      for (let write = 1; write <= 40; write++) insert.run(PAYLOAD);
+      // A snapshot of an unbackfilled WAL lets PASSIVE finish but stops TRUNCATE.
+      openReadTransaction(outside);
+      const stopped = yield* Deferred.make<void>();
+      const reset = yield* Deferred.make<void>();
+      worker.on("message", (message: { type?: unknown; truncateId?: unknown; log?: unknown }) => {
+        if (message?.type !== "checkpoint" || message.truncateId === undefined) return;
+        Deferred.doneUnsafe(message.log === 0 ? reset : stopped, Effect.void);
+      });
+      // Starts a checkpoint without appending a frame past the reader's snapshot.
+      yield* sql`DELETE FROM blobs WHERE 0`;
+      yield* Deferred.await(stopped);
+      yield* insertUnlessHeld(sql, worker, "a write after the failed TRUNCATE");
+      assert.isAbove(yield* walSize, WAL_SIZE_LIMIT);
+      outside.exec("COMMIT");
+      // No further write arrives; the worker has to retry on its own.
+      yield* Deferred.await(reset);
+      assert.equal(yield* walSize, 0);
+    }),
+  ),
 );

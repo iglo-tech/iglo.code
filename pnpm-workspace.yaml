@@ -77,6 +77,7 @@ overrides:
   micromark-extension-llm-math: 3.1.0
   micromark: 4.0.2
   mdast-util-to-hast: 13.2.1
+  "@cursor/sdk": 1.2.0
   "@ff-labs/fff-node": 0.11.0
   "@legendapp/list": 3.7.2
   "@pierre/diffs": 1.7.0-beta.3
@@ -153,6 +154,8 @@ patchedDependencies:
   "@pierre/diffs@1.7.0-beta.3": patches/@pierre__diffs@1.7.0-beta.3.patch
   # Observe the owned host exit independently of descendants retaining its stdio.
   "@muse-code/sdk@1.4.6": patches/@muse-code__sdk@1.4.6.patch
+  # Local agents honor the attribution settings in the user's Cursor CLI cli-config.json.
+  "@cursor/sdk@1.2.0": patches/@cursor__sdk@1.2.0.patch
   # iOS: a feed following its end keeps the end through a size-only reflow in one pass.
   "@legendapp/list@3.7.2": patches/@legendapp__list@3.7.2.patch
 

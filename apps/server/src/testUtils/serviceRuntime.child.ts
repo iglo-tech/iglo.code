@@ -59,6 +59,10 @@ process.on("message", async (value: unknown) => {
   const message = decodeServiceLauncherParentMessage(value);
   if (!message) throw new Error("Invalid launcher IPC message");
   if (message.type === "update-rejected") throw new Error(message.reason);
+  if (message.type === "stop") {
+    db.close();
+    process.exit(0);
+  }
   if (message.type === "update-accepted") {
     await emit("accepted");
     db.close();

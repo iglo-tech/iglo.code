@@ -364,6 +364,10 @@ export async function runWebClientRegression(
       await visible(page.getByRole("button", { name: "Stop generation", exact: true }));
       await releaseProvider(dependencies);
       await visible(page.getByText("Finished from environment-a.", { exact: true }));
+      // A finished turn folds its tool rows under the "Worked for" summary.
+      const workSummary = page.getByRole("button", { name: /^Worked for / }).first();
+      await visible(workSummary);
+      if ((await workSummary.getAttribute("aria-expanded")) !== "true") await workSummary.click();
       await visible(
         page
           .getByRole("button", { name: /^(?:printf fixture-tool|Ran printf|Ran 1 command)$/ })

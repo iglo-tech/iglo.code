@@ -118,12 +118,16 @@ unverified.
 When a provider CLI is behind its latest release, its provider card shows the
 available version. **Update now** runs the installer that owns the CLI
 (Homebrew, mise, or a global npm, pnpm, Yarn, Bun, Volta, or Vite+ install), or
-the CLI's own update command when iglo.code cannot tell. iglo.code runs
-`mise upgrade` only for a tool your mise config requests as `latest` when the
-provider's binary path is a mise shim or under the tool's `installs/<tool>/latest`
-link; update a pinned version, or a path into one version's directory, through
-mise yourself. Cursor and Antigravity update with iglo.code. Homebrew installs
-compare against the version Homebrew offers, which can trail the npm release.
+the CLI's own update command when iglo.code cannot tell. Claude, Codex, and
+OpenCode installs iglo.code cannot identify stay manual: update them through the
+installer you used. iglo.code runs `mise upgrade`
+only for a tool your mise config requests as `latest` when the provider's binary
+path is a mise shim or under the tool's `installs/<tool>/latest` link; update a
+pinned version, or a path into one version's directory, through mise yourself.
+Update a CLI installed with Nix through Nix.
+Cursor and Antigravity update with iglo.code. Homebrew and Chocolatey installs
+compare against the version their package manager offers, which can trail the
+npm release; update Claude installed with Chocolatey through Chocolatey.
 
 Add another provider instance for a separate account or configuration. Each
 instance can have its own environment variables, such as API keys or a custom

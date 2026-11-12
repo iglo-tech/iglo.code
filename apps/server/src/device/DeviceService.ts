@@ -109,6 +109,11 @@ const sshProbeFailureMessage = (error: DeviceHost.DeviceHostError): string => {
   return `Connected over SSH, but the device host check failed (exit code ${cause.exitCode}).`;
 };
 
+const actionableHostFailure = (error: DeviceHost.DeviceHostError): string | undefined => {
+  if (error.step === "probe") return sshProbeFailureMessage(error);
+  return undefined;
+};
+
 export interface DeviceScreenshot {
   readonly device: DeviceSummary;
   readonly png: Uint8Array;
@@ -451,9 +456,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
             setHostStatus(host.id, {
               status: "failed",
               detail:
-                error._tag === "DeviceHostError" && error.step === "probe"
-                  ? sshProbeFailureMessage(error)
-                  : error.message,
+                (error._tag === "DeviceHostError" && actionableHostFailure(error)) || error.message,
             }),
           ),
           Effect.mapError(
@@ -464,9 +467,8 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
                 reason:
                   error._tag === "BunRuntimeUnavailableError"
                     ? bunRuntimeUnavailableMessage("Local device support")
-                    : error.step === "probe"
-                      ? sshProbeFailureMessage(error)
-                      : `Device support failed during ${error.step}.`,
+                    : (actionableHostFailure(error) ??
+                      `Device support failed during ${error.step}.`),
                 cause: error,
               }),
           ),
@@ -514,9 +516,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
             setHostStatus(host.id, {
               status: "failed",
               detail:
-                error._tag === "DeviceHostError" && error.step === "probe"
-                  ? sshProbeFailureMessage(error)
-                  : error.message,
+                (error._tag === "DeviceHostError" && actionableHostFailure(error)) || error.message,
             }),
           ),
           Effect.mapError(
@@ -531,9 +531,8 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
                       ? `Agent tools did not start within ${error.timeoutMs} ms.`
                       : error._tag === "AgentDeviceStartError"
                         ? error.message
-                        : error.step === "probe"
-                          ? sshProbeFailureMessage(error)
-                          : `Device support failed during ${error.step}.`,
+                        : (actionableHostFailure(error) ??
+                          `Device support failed during ${error.step}.`),
                 cause: error,
               }),
           ),
