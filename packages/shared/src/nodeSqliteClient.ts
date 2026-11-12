@@ -232,7 +232,7 @@ let db;
 try {
   // A read-only open cannot be undone by SQL, unlike PRAGMA query_only.
   const next = new DatabaseSync(workerData.filename, {
-    readOnly: true,
+    readOnly: workerData.readOnly,
     allowExtension: workerData.allowExtension,
   });
   next.exec("PRAGMA busy_timeout = 5000;");
@@ -331,6 +331,7 @@ const READER_POOL_SIZE = 4;
 const makeReader = Effect.fnUntraced(function* (
   options: SqliteClientConfig,
   pool: { unavailable: boolean },
+  readOnly = true,
 ) {
   let current:
     | {
@@ -346,6 +347,7 @@ const makeReader = Effect.fnUntraced(function* (
       eval: true,
       workerData: {
         filename: options.filename,
+        readOnly,
         allowExtension: false,
         prepareCacheSize: 200,
       },
@@ -389,7 +391,10 @@ const makeReader = Effect.fnUntraced(function* (
 
     const request = (input: ReaderRequest) =>
       Effect.withFiber<ReadonlyArray<any>, SqlError>((fiber) => {
-        const endsTransaction = endsReadTransaction(input.sql);
+        // A COMMIT that never reached a writer must fail; only its ROLLBACK is moot.
+        const endsTransaction = readOnly
+          ? endsReadTransaction(input.sql)
+          : /^\s*ROLLBACK\b/i.test(input.sql);
         if (stoppedMessage !== undefined) {
           return endsTransaction
             ? Effect.succeed([])
@@ -428,7 +433,7 @@ const makeReader = Effect.fnUntraced(function* (
             // A read-only connection rejects BEGIN IMMEDIATE and BEGIN EXCLUSIVE,
             // and a deferred BEGIN is all a read snapshot needs. Transaction
             // controls may arrive prepared or unprepared.
-            sql: /^\s*BEGIN\b/i.test(input.sql) ? "BEGIN" : input.sql,
+            sql: readOnly && /^\s*BEGIN\b/i.test(input.sql) ? "BEGIN" : input.sql,
             params: bindParameters(input.params),
             cached,
           };
@@ -670,18 +675,29 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
     yield* warn("Node SQLite lacks transaction-state or statement-authorizer support");
     return undefined;
   }
-  // These are the writer's first statements, before callers set their own wait.
-  writer.exec("PRAGMA busy_timeout = 5000;");
-  const version = String(writer.prepare("SELECT sqlite_version() AS version").get()?.version);
+  // These are the writer's first statements, before callers set their own wait. A file that is
+  // not a database first fails here.
+  const opened = yield* Effect.try({
+    try: () => {
+      writer.exec("PRAGMA busy_timeout = 5000;");
+      return {
+        version: String(writer.prepare("SELECT sqlite_version() AS version").get()?.version),
+        frames: writer.prepare("PRAGMA wal_checkpoint(NOOP)"),
+        sizeLimit: writer.prepare("PRAGMA journal_size_limit"),
+      };
+    },
+    catch: (cause) => failed(cause, "Failed to open database", "open"),
+  });
+  const version = opened.version;
+  // Dropped when the worker stops: under Bun a live statement keeps the closed file open.
+  let frames: NodeSqlite.StatementSync | undefined = opened.frames;
+  let sizeLimit: NodeSqlite.StatementSync | undefined = opened.sizeLimit;
   const [major = 0, minor = 0] = version.split(".").map(Number);
   // Older SQLite treats NOOP as PASSIVE, which would checkpoint on the writer.
   if (major < 3 || (major === 3 && minor < 51)) {
     yield* warn(`SQLite ${version} has no NOOP checkpoint`);
     return undefined;
   }
-  // Dropped when the worker stops: under Bun a live statement keeps the closed file open.
-  let frames: NodeSqlite.StatementSync | undefined = writer.prepare("PRAGMA wal_checkpoint(NOOP)");
-  let sizeLimit: NodeSqlite.StatementSync | undefined = writer.prepare("PRAGMA journal_size_limit");
   const started = Result.try(
     () =>
       new NodeWorkerThreads.Worker(checkpointWorkerSource, {
@@ -896,14 +912,18 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
   return { check, runWithAdmission };
 });
 
-const make = Effect.fn("makeWithDatabase")(function* (
-  options: SqliteClientConfig,
-): Effect.fn.Return<Client.SqlClient, SqlError, Scope.Scope | Reactivity.Reactivity> {
+const checkSqliteCapabilities = Effect.fn("checkSqliteCapabilities")(function* () {
   const missingCapabilities = ["columns", "setReturnArrays", "setReadBigInts"].filter(
     (name) => typeof Reflect.get(NodeSqlite.StatementSync.prototype, name) !== "function",
   );
   if (missingCapabilities.length > 0)
     return yield* Effect.die(new UnsupportedSqliteCapabilitiesError({ missingCapabilities }));
+});
+
+const make = Effect.fn("makeWithDatabase")(function* (
+  options: SqliteClientConfig,
+): Effect.fn.Return<Client.SqlClient, SqlError, Scope.Scope | Reactivity.Reactivity> {
+  yield* checkSqliteCapabilities();
 
   const compiler = Statement.makeCompilerSqlite();
   const isFileDatabase = options.filename !== ":memory:" && options.filename !== "";
@@ -1371,6 +1391,40 @@ const make = Effect.fn("makeWithDatabase")(function* (
       }),
   });
 });
+
+const makeWorker = Effect.fn("makeWorkerClient")(function* (filename: string) {
+  yield* checkSqliteCapabilities();
+  const acquire = yield* makeReader({ filename }, { unavailable: false }, false);
+  const connection = yield* acquire;
+  if (connection === undefined) {
+    return yield* failed(
+      new Error("database worker is unavailable"),
+      readerFailureMessages.open,
+      "open",
+    );
+  }
+  const { acquirer, borrower, onCommitFailure, transactionAcquirer } = Client.makeSqliteAcquirers({
+    connection: Effect.succeed(connection),
+    semaphore: yield* Semaphore.make(1),
+  });
+  return yield* Client.make({
+    driver: "node:sqlite",
+    acquirer,
+    borrower,
+    compiler: Statement.makeCompilerSqlite(),
+    transactionAcquirer,
+    onCommitFailure,
+    beginTransaction: "BEGIN IMMEDIATE",
+    spanAttributes: [[ATTR_DB_SYSTEM_NAME, "sqlite"]],
+  });
+});
+
+/**
+ * A read-write client whose one connection runs in a worker thread, so long statements such as
+ * index builds leave the event loop free. Requires a file database already in WAL mode.
+ */
+export const layerWorker = (filename: string): Layer.Layer<Client.SqlClient, SqlError> =>
+  Layer.effect(Client.SqlClient, makeWorker(filename)).pipe(Layer.provide(Reactivity.layer));
 
 export const layer = (config: SqliteClientConfig): Layer.Layer<Client.SqlClient, SqlError> =>
   Layer.effect(Client.SqlClient, make(config)).pipe(Layer.provide(Reactivity.layer));

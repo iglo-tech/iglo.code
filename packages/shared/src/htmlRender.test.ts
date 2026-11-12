@@ -167,6 +167,8 @@ describe("htmlRenderFromToolItem", () => {
       ["iglo-code.html_render", { structuredContent: result, content: [] }],
       ["iglo-code-thread_1_html_render", JSON.stringify(result)],
       ["html_render", result],
+      // OpenCode 2 Code Mode reports a script's nested html_render call as one `execute` item.
+      ["execute", JSON.stringify(result)],
     ] as const) {
       expect(htmlRenderFromToolItem({ toolName, output })).toEqual(reference);
     }
