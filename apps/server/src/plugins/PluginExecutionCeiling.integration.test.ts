@@ -225,6 +225,7 @@ it.live("plugin native actions and replay stay within the calling thread's modes
             }),
           forkSession: () => Effect.die("unused"),
           subagentLaunchToolUseId: () => Effect.succeed(null),
+          subagentModel: () => Effect.succeed(null),
           assertComplete: Effect.void,
         },
       }).pipe(Effect.provideService(McpProviderSessions.McpProviderSessions, mcpSessions));

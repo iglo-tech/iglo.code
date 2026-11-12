@@ -1,5 +1,6 @@
 import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { ProviderAdapterV2RuntimePolicy } from "./ProviderAdapter.ts";
+import type * as Effect from "effect/Effect";
 
 /**
  * Sent by MCP clients that cannot defer tools themselves. The T3 MCP server then
@@ -21,6 +22,8 @@ export interface McpProviderSessionConfig {
   /** The policy applied to the native session, including sandbox overrides. */
   readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
+  /** True while a delegated task this thread started will wake it with its result. */
+  readonly hasPendingWake?: Effect.Effect<boolean>;
 }
 
 export function withAgentDeviceEnvironment(

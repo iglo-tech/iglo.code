@@ -277,13 +277,15 @@ overrides:
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
   vite-plus: 1.4.0
   yaml: ^2.9.0
+  '@vercel/routing-utils>path-to-regexp': 6.3.0
+  '@vercel/config>zod': 4.6.7
 
 packageExtensionsChecksum: sha256-+v8ntounVLrYFu5whiqOiF5wsCM8sIM8cT3HaXVONag=
 
 pnpmfileChecksum: sha256-h8NLkl2dhhbQKbAHnoo4rQ3tYV96igLQxJ7la6dsbSc=
 
 patchedDependencies:
-  '@cursor/sdk@1.2.0': b9966f50182358ded9d1a72f39d9cd850f2e7471e7b8224d3d618bdbbe00e055
+  '@cursor/sdk@1.2.0': 57f502128bf6accd976963b126e227c86a45d815a53a8dc450461beae3bed4a4
   '@effect/vitest@4.1.2': 299510b71c36537a832a67e9d160a5f112a5f326a29e95c41cb45fc8234e47c7
   '@ff-labs/fff-node@0.11.0': cc71fcec015f4d39bc96ae2e2bf6b0ca678124c722c66a7841efce9d34b5983c
   '@legendapp/list@3.7.2': 3c68607b8bb7a531873bcbe0b197d163ef1fdb4d4cf52a4ddf9d2b3804671658
@@ -325,7 +327,7 @@ importers:
         version: 0.3.321(@anthropic-ai/sdk@0.93.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.29.0(supports-color@8.1.1)(zod@4.6.5))(zod@4.6.5)
       '@cursor/sdk':
         specifier: 1.2.0
-        version: 1.2.0(patch_hash=b9966f50182358ded9d1a72f39d9cd850f2e7471e7b8224d3d618bdbbe00e055)(zod@4.6.5)
+        version: 1.2.0(patch_hash=57f502128bf6accd976963b126e227c86a45d815a53a8dc450461beae3bed4a4)(zod@4.6.5)
       '@effect/platform-node':
         specifier: 4.1.2
         version: 4.1.2(bufferutil@4.1.0)(effect@4.1.2)(redis@6.2.1)(utf-8-validate@6.0.6)
@@ -1237,7 +1239,7 @@ importers:
     dependencies:
       '@cursor/sdk':
         specifier: 1.2.0
-        version: 1.2.0(patch_hash=b9966f50182358ded9d1a72f39d9cd850f2e7471e7b8224d3d618bdbbe00e055)(zod@4.6.7)
+        version: 1.2.0(patch_hash=57f502128bf6accd976963b126e227c86a45d815a53a8dc450461beae3bed4a4)(zod@4.6.7)
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -6049,9 +6051,6 @@ packages:
   jose@6.2.17:
     resolution: {integrity: sha512-wOuK9V1yujQFH5S0ZWmLcDZN7+IKh9bUCC2ZPCf2HDlol3WWHy+PPyNjEI75FXRLMp3vDKQcupP59xhVU95hcg==}
 
-  jose@6.2.2:
-    resolution: {integrity: sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ==}
-
   joycon@3.1.1:
     resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
     engines: {node: '>=10'}
@@ -6681,9 +6680,6 @@ packages:
 
   path-parse@1.0.7:
     resolution: {integrity: sha512-LDJzPVEEEPR+y48z93A0Ed0yXb8pAByGWo/k5YYdYgpY2/2EsOsksJrq7lOHxryrVOn1ejG6oAp8ahvOIQD8sw==}
-
-  path-to-regexp@6.1.0:
-    resolution: {integrity: sha512-h9DqehX3zZZDCEm+xbfU0ZmwCGFCAAraPJWMXJ4+v32NjZJilVg3k1TcKsRgIb8IQ/izZSaydDc1OhJCZvs2Dw==}
 
   path-to-regexp@6.3.0:
     resolution: {integrity: sha512-Yhpw4T9C6hPpgPeA28us07OJeqZ5EzQTkbfwuhsUg0c237RomFoETJgmp2sa3F/41gfLE6G5cqcYwznmeEeOlQ==}
@@ -7606,9 +7602,6 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
@@ -8049,7 +8042,7 @@ snapshots:
   '@cursor/sdk-win32-x64@1.2.0':
     optional: true
 
-  '@cursor/sdk@1.2.0(patch_hash=b9966f50182358ded9d1a72f39d9cd850f2e7471e7b8224d3d618bdbbe00e055)(zod@4.6.5)':
+  '@cursor/sdk@1.2.0(patch_hash=57f502128bf6accd976963b126e227c86a45d815a53a8dc450461beae3bed4a4)(zod@4.6.5)':
     dependencies:
       '@bufbuild/protobuf': 1.10.0
       '@connectrpc/connect': 1.7.0(@bufbuild/protobuf@1.10.0)
@@ -8063,7 +8056,7 @@ snapshots:
       '@cursor/sdk-linux-x64': 1.2.0
       '@cursor/sdk-win32-x64': 1.2.0
 
-  '@cursor/sdk@1.2.0(patch_hash=b9966f50182358ded9d1a72f39d9cd850f2e7471e7b8224d3d618bdbbe00e055)(zod@4.6.7)':
+  '@cursor/sdk@1.2.0(patch_hash=57f502128bf6accd976963b126e227c86a45d815a53a8dc450461beae3bed4a4)(zod@4.6.7)':
     dependencies:
       '@bufbuild/protobuf': 1.10.0
       '@connectrpc/connect': 1.7.0(@bufbuild/protobuf@1.10.0)
@@ -8623,7 +8616,7 @@ snapshots:
       express: 5.2.1(supports-color@8.1.1)
       express-rate-limit: 8.5.2(express@5.2.1(supports-color@8.1.1))
       hono: 4.13.7
-      jose: 6.2.2
+      jose: 6.2.17
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
@@ -9923,11 +9916,11 @@ snapshots:
     dependencies:
       '@vercel/routing-utils': 6.2.0
       pretty-cache-header: 1.0.0
-      zod: 3.25.76
+      zod: 4.6.7
 
   '@vercel/routing-utils@6.2.0':
     dependencies:
-      path-to-regexp: 6.1.0
+      path-to-regexp: 6.3.0
       path-to-regexp-updated: path-to-regexp@6.3.0
     optionalDependencies:
       ajv: 6.15.0
@@ -11253,8 +11246,6 @@ snapshots:
 
   jose@6.2.17: {}
 
-  jose@6.2.2: {}
-
   joycon@3.1.1: {}
 
   js-cookie@3.0.8: {}
@@ -12300,8 +12291,6 @@ snapshots:
   path-key@3.1.1: {}
 
   path-parse@1.0.7: {}
-
-  path-to-regexp@6.1.0: {}
 
   path-to-regexp@6.3.0: {}
 
@@ -13408,8 +13397,6 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@4.6.5):
     dependencies:
       zod: 4.6.5
-
-  zod@3.25.76: {}
 
   zod@4.4.3: {}
 
