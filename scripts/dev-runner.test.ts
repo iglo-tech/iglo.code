@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - builds real worktree layouts on disk.
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -187,6 +188,51 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(env.HOST, undefined);
       }),
     );
+
+    it.effect("drops an inherited IGLO_CODE_HOST and IGLO_CODE_LAN from a parent T3 server", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: { IGLO_CODE_PORT: "3773", IGLO_CODE_HOST: "0.0.0.0", IGLO_CODE_LAN: "true" },
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.IGLO_CODE_PORT, "13773");
+        assert.equal(env.IGLO_CODE_HOST, undefined);
+        assert.equal(env.IGLO_CODE_LAN, undefined);
+      }),
+    );
+  });
+
+  describe("cli", () => {
+    it("ignores the parent T3 server's IGLO_CODE_PORT and IGLO_CODE_HOST", () => {
+      const result = NodeChildProcess.spawnSync(
+        process.execPath,
+        ["scripts/dev-runner.ts", "dev:server", "--dry-run"],
+        {
+          cwd: NodePath.resolve(import.meta.dirname, ".."),
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            IGLO_CODE_PORT: "3773",
+            IGLO_CODE_HOST: "0.0.0.0",
+          },
+        },
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      const output = `${result.stdout}${result.stderr}`;
+      assert.match(output, /serverPort=\d+ /);
+      assert.notMatch(output, /serverPort=3773 /);
+    });
   });
 
   describe("findFirstAvailableOffset", () => {

@@ -497,7 +497,10 @@ describe("iglo.code pair", () => {
           ]);
           assert.isTrue(Exit.isFailure(exit));
           if (Exit.isFailure(exit)) {
-            assert.include(String(Cause.squash(exit.cause)), "IGLO_CODE_VERSION=0.0.45 sh");
+            assert.include(
+              String(Cause.squash(exit.cause)),
+              `IGLO_CODE_VERSION=0.0.45 sh && iglo.code pair --base-dir ${baseDir}`,
+            );
           }
         }),
       "127.0.0.1",

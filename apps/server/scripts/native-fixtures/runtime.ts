@@ -8,10 +8,12 @@ import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import { resolveSelfInvocation, selfInvocationArgs } from "@t3tools/shared/bunRuntime";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as BunPtyAdapter from "../../src/terminal/BunPtyAdapter.ts";
 import type { PtyExitEvent, PtyProcess } from "@t3tools/shared/PtyAdapter";
+import * as VcsProcess from "../../src/vcs/VcsProcess.ts";
 import * as WorkspaceSearchIndex from "../../src/workspace/WorkspaceSearchIndex.ts";
 import {
   ANTIGRAVITY_AUTH_BROWSER_MARKER,
@@ -145,7 +147,10 @@ await Effect.runPromise(
       content.matches.map(({ path, lineNumber }) => ({ path, lineNumber })),
       [{ path: "src/needle.ts", lineNumber: 1 }],
     );
-  }).pipe(Effect.scoped),
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(VcsProcess.layer.pipe(Layer.provideMerge(NodeServices.layer))),
+  ),
 );
 process.stdout.write("Pinned fff native path/content search and scoped index disposal passed.\n");
 

@@ -48,6 +48,9 @@ layer("055_OrchestrationV2", (it) => {
         [85, "CommandReadIndexes"],
         [86, "LastExecutedRunIndex"],
         [87, "TurnItemCounts"],
+        [88, "QueuedTurnInputIndex"],
+        [89, "ProjectionProjectsCustomTitle"],
+        [90, "TurnItemTypeStatusIndex"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
@@ -122,6 +125,9 @@ layer("055_OrchestrationV2", (it) => {
           [85, "CommandReadIndexes"],
           [86, "LastExecutedRunIndex"],
           [87, "TurnItemCounts"],
+          [88, "QueuedTurnInputIndex"],
+          [89, "ProjectionProjectsCustomTitle"],
+          [90, "TurnItemTypeStatusIndex"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -159,6 +165,9 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 85, name: "CommandReadIndexes" },
             { migration_id: 86, name: "LastExecutedRunIndex" },
             { migration_id: 87, name: "TurnItemCounts" },
+            { migration_id: 88, name: "QueuedTurnInputIndex" },
+            { migration_id: 89, name: "ProjectionProjectsCustomTitle" },
+            { migration_id: 90, name: "TurnItemTypeStatusIndex" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -205,6 +214,9 @@ layer("055_OrchestrationV2", (it) => {
         [85, "CommandReadIndexes"],
         [86, "LastExecutedRunIndex"],
         [87, "TurnItemCounts"],
+        [88, "QueuedTurnInputIndex"],
+        [89, "ProjectionProjectsCustomTitle"],
+        [90, "TurnItemTypeStatusIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -248,6 +260,9 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 85, name: "CommandReadIndexes" },
         { migration_id: 86, name: "LastExecutedRunIndex" },
         { migration_id: 87, name: "TurnItemCounts" },
+        { migration_id: 88, name: "QueuedTurnInputIndex" },
+        { migration_id: 89, name: "ProjectionProjectsCustomTitle" },
+        { migration_id: 90, name: "TurnItemTypeStatusIndex" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -256,7 +271,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 87 }, (_, index) => index + 1),
+        Array.from({ length: 90 }, (_, index) => index + 1),
       );
     }),
   );
@@ -302,6 +317,9 @@ layer("055_OrchestrationV2", (it) => {
         [85, "CommandReadIndexes"],
         [86, "LastExecutedRunIndex"],
         [87, "TurnItemCounts"],
+        [88, "QueuedTurnInputIndex"],
+        [89, "ProjectionProjectsCustomTitle"],
+        [90, "TurnItemTypeStatusIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -355,6 +373,9 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 85, name: "CommandReadIndexes" },
         { migration_id: 86, name: "LastExecutedRunIndex" },
         { migration_id: 87, name: "TurnItemCounts" },
+        { migration_id: 88, name: "QueuedTurnInputIndex" },
+        { migration_id: 89, name: "ProjectionProjectsCustomTitle" },
+        { migration_id: 90, name: "TurnItemTypeStatusIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

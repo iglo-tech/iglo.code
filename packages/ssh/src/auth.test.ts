@@ -87,7 +87,6 @@ describe("ssh auth", () => {
       );
     }).pipe(
       Effect.provide(Layer.merge(NodeServices.layer, Layer.succeed(HostProcess.Platform, "linux"))),
-      Effect.scoped,
     ),
   );
 
@@ -255,7 +254,6 @@ describe("ssh auth", () => {
       );
     }).pipe(
       Effect.provide(Layer.merge(NodeServices.layer, Layer.succeed(HostProcess.Platform, "linux"))),
-      Effect.scoped,
     ),
   );
 });

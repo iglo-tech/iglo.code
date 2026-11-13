@@ -48,7 +48,7 @@ it.layer(NodeServices.layer)("root CLI commands", (it) => {
           path: yield* pathWithT3,
         }),
       ).toBe('sudo env "PATH=$PATH" iglo.code browser setup');
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("keeps the arguments, so root runs setup on the same T3 home", () =>
@@ -65,7 +65,7 @@ it.layer(NodeServices.layer)("root CLI commands", (it) => {
       expect(
         yield* rootCommand({ node: "/opt/t3/t3", entry: "/opt/t3/t3", executable: true, args }),
       ).toBe("sudo /opt/t3/t3 browser setup --base-dir '/srv/t3 home'");
-    }).pipe(Effect.scoped),
+    }),
   );
 
   it.effect("names this install's launcher when iglo.code is not on PATH", () =>
@@ -117,7 +117,7 @@ it.layer(NodeServices.layer)("root CLI commands", (it) => {
       expect(
         yield* rootCommand({ ...desktop, env: { IGLO_CODE_CLI_PATH: path.join(home, "gone") } }),
       ).toBe('sudo env "PATH=$PATH" iglo.code browser setup');
-    }).pipe(Effect.scoped),
+    }),
   );
 });
 
@@ -161,6 +161,6 @@ it.layer(NodeServices.layer)("host CLI commands", (it) => {
       expect((yield* hostCommand("linux", { IGLO_CODE_CLI_PATH: shim })).command).toMatch(
         / doctor --base-dir 'C:\\Users\\Jane Doe\\\.iglo.code'$/,
       );
-    }).pipe(Effect.scoped),
+    }),
   );
 });

@@ -42,7 +42,7 @@ interface Setup {
   /** T3 Connect revoked the link; `iglo.code connect` links again. */
   readonly connectRevoked: boolean;
   readonly lan: boolean;
-  /** An installed service with no IGLO_CODE_LAN keeps the old default: on. */
+  /** An installed service with no IGLO_CODE_LAN or IGLO_CODE_HOST keeps the old default: on. */
   readonly lanFromOldDefault: boolean;
   readonly host: string | undefined;
 }
@@ -86,7 +86,7 @@ const readSetup = Effect.fn("cli.up.read_setup")(function* () {
     connect,
     connectRevoked,
     lan: Option.getOrElse(lan, () => servesThisHome),
-    lanFromOldDefault: Option.isNone(lan) && servesThisHome,
+    lanFromOldDefault: Option.isNone(lan) && servesThisHome && entries.IGLO_CODE_HOST === undefined,
     host: entries.IGLO_CODE_HOST,
   } satisfies Setup;
 });

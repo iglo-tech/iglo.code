@@ -4,7 +4,7 @@
 
 iglo.code is a personal fork of T3 Code that ships only the server and the web client the server hosts. The desktop and native mobile apps, the marketing site, the npm package, and the devcontainer are intentionally removed. It installs as the `iglo.code` command with its own home (`~/.iglo.code`), `IGLO_CODE_*` variables, and default port 4773, so it runs side by side with an installed T3 Code. Apply [sync-upstream](.agents/skills/sync-upstream/SKILL.md) when importing upstream changes to preserve this scope and naming. Shared runtime, server compatibility, remote access, and the Device panel remain supported. T3 Connect (upstream's relay, Clerk sign-in, and hosted app) is disabled: `hasCloudPublicConfig` is hard-coded false in the server and web `cloud/publicConfig.ts`, and `infra/relay` is removed.
 
-T3 Code is a minimal GUI for coding agents. A WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Kiro, Pi, and others) and serves the web client.
+T3 Code is a minimal GUI for coding agents. A WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Kiro, Pi, Muse Code, fx, and others) and serves the web client.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
 
@@ -81,7 +81,8 @@ The most common defect in this repo is a change that works on the path you teste
 - Ports derive from the worktree path and are stable across restarts, but read the real ones from the `[dev-runner]` line since occupied ports shift.
 - Sharing over the tailnet is three steps: run `vp run dev --share` in the background, wait for the `pairingUrl:` line in its output, then give that full URL to an unpaired browser. Do not wire up `tailscale serve` by hand, open the URL yourself, or consume the user's pairing link. A browser with the reusable dev cookie can use the bare origin. If a normal one-time token was consumed, mint a fresh one with `node apps/server/src/bin.ts pair`. It carries standard scopes, while the startup URL carries admin scopes needed for Connections settings.
 - To reuse web dev auth across worktrees, configure one fixed `IGLO_CODE_DEV_AUTH_TOKEN` in the main checkout's gitignored `.env`. The `iglo.code.json` setup links that file into worktrees. Never commit or publish the token or a startup URL. See [Reusable dev credential](docs/operations/development.md#reusable-dev-credential).
-- Stop what you started, by the PID you tracked. See rule 1.
+- Stop what you started, by the PID you tracked. See rule 1. `vp` does not pass SIGTERM on, so signalling the `vp run dev` PID alone leaves Vite and the server running. Stop the background task with your harness's own stop, which ends the whole tree.
+- Run dev servers and builds from your own shell so they end with your session. Do not detach them with `systemd-run`, `nohup`, `setsid`, or `tmux` unless the user asks for one that outlives the session. Detached servers ran for weeks and filled RAM and swap. The dev runner stops itself above `--memory-limit-gb` (half of RAM, at most 16 GiB) on Linux.
 - Need a second checkout? `git worktree add` it next to this worktree, not in `/tmp`. Remove it when done.
 
 ## Test data

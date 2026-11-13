@@ -158,6 +158,6 @@ it.layer(NodeServices.layer)("iglo.code install", (it) => {
         ),
       ).pipe(Effect.flip);
       assert.include(unrunnable.message, "has % or non-ASCII characters");
-    }).pipe(Effect.scoped),
+    }),
   );
 });
