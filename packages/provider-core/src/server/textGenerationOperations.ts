@@ -7,6 +7,7 @@ import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
 import type { ProviderTextGeneration } from "./textGeneration.ts";
 import {
+  buildBackgroundTaskClassificationPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -194,6 +195,18 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const classifyBackgroundTask: ProviderTextGeneration["classifyBackgroundTask"] = Effect.fn(
+    `${name}.classifyBackgroundTask`,
+  )(function* (input) {
+    const generated = yield* run({
+      operation: "classifyBackgroundTask",
+      cwd: input.cwd,
+      modelSelection: input.modelSelection,
+      ...buildBackgroundTaskClassificationPrompt(input),
+    });
+    return { wait: generated.wait };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
@@ -201,5 +214,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateThreadTitle,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
+    classifyBackgroundTask,
   } satisfies ProviderTextGeneration;
 }

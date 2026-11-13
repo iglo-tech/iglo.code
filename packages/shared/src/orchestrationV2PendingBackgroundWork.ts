@@ -1,4 +1,5 @@
 import type {
+  OrchestrationV2BackgroundWait,
   OrchestrationV2PendingBackgroundTask,
   OrchestrationV2ProviderThread,
   OrchestrationV2Run,
@@ -112,6 +113,17 @@ const PULL_REQUEST_WATCH_TASK_ID = "pull-request-watch:";
 
 export const isPullRequestWatchTask = (task: Pick<PendingBackgroundWorkTask, "taskId">) =>
   task.taskId.startsWith(PULL_REQUEST_WATCH_TASK_ID);
+
+/** A command or monitor nobody has called a wait or not yet; T3 decides while it runs. */
+export const hasUndecidedBackgroundWork = (
+  tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "taskId" | "kind" | "awaited">>,
+): boolean =>
+  tasks.some(
+    (task) =>
+      (task.kind === "command" || task.kind === "monitor") &&
+      task.awaited === undefined &&
+      !isPullRequestWatchTask(task),
+  );
 
 /**
  * A monitor wakes the agent once per line, so a progress wake run's completion waits for the
@@ -255,6 +267,7 @@ export function derivePendingBackgroundWork(input: {
   /** Excludes rolled-back runs; optional only when the caller already filtered them, as SQL shell reads do. */
   readonly runs?: ReadonlyArray<PendingBackgroundWorkRun>;
   readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
+  readonly backgroundWaits?: ReadonlyArray<OrchestrationV2BackgroundWait> | undefined;
 }): ReadonlyArray<PendingBackgroundWorkTask> {
   const hasActiveRun =
     input.hasActiveRun ??
@@ -305,6 +318,12 @@ export function derivePendingBackgroundWork(input: {
     byTaskId.set(taskId, pendingTaskFromTurnItem(taskId, item));
   }
 
+  for (const wait of input.backgroundWaits ?? []) {
+    const task = byTaskId.get(wait.taskId);
+    if (task === undefined || (task.kind !== "command" && task.kind !== "monitor")) continue;
+    byTaskId.set(wait.taskId, { ...task, awaited: wait.awaited });
+  }
+
   for (const task of pullRequestWatchTasks(input.pullRequests)) byTaskId.set(task.taskId, task);
 
   return Array.from(byTaskId.values());
@@ -331,4 +350,40 @@ function pullRequestWatchTasks(
           },
         ],
   );
+}
+
+const MAX_BACKGROUND_WAITS = 32;
+
+// The agent's decision outranks any inference, and one that saw the whole turn outranks a live one.
+const waitRank = (inferred: OrchestrationV2BackgroundWait["inferred"]) =>
+  inferred === "live" ? 0 : inferred === "settled" ? 1 : 2;
+
+/** Records a wait decision, or returns null when it changes nothing. */
+export function recordBackgroundWaits(
+  current: ReadonlyArray<OrchestrationV2BackgroundWait> | undefined,
+  input: {
+    readonly taskIds: ReadonlyArray<string>;
+    readonly awaited: boolean;
+    readonly inferred?: OrchestrationV2BackgroundWait["inferred"];
+  },
+): ReadonlyArray<OrchestrationV2BackgroundWait> | null {
+  const waits = current ?? [];
+  const decided = new Map(waits.map((wait) => [wait.taskId, wait]));
+  const rank = waitRank(input.inferred);
+  const changed = [...new Set(input.taskIds)].filter((taskId) => {
+    const existing = decided.get(taskId);
+    if (existing === undefined) return true;
+    const existingRank = waitRank(existing.inferred);
+    return rank > existingRank || (rank === 2 && existing.awaited !== input.awaited);
+  });
+  if (changed.length === 0) return null;
+  const changedIds = new Set(changed);
+  return [
+    ...waits.filter((wait) => !changedIds.has(wait.taskId)),
+    ...changed.map((taskId) => ({
+      taskId,
+      awaited: input.awaited,
+      ...(input.inferred === undefined ? {} : { inferred: input.inferred }),
+    })),
+  ].slice(-MAX_BACKGROUND_WAITS);
 }

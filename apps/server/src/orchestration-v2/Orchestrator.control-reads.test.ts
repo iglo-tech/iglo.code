@@ -602,6 +602,23 @@ it.effect(
         assert.ok(shell);
         assert.equal(shell.autoSettleDisabledAt == null, enabled);
       }
+      // The agent's decision replaces an inferred one; a later inference changes nothing.
+      for (const [index, decision] of [
+        { awaited: true, inferred: "live" as const },
+        { awaited: false },
+        { awaited: true, inferred: "settled" as const },
+      ].entries()) {
+        yield* orchestrator.dispatch({
+          type: "thread.background-wait.set",
+          commandId: CommandId.make(`background-wait-${index}`),
+          threadId,
+          taskIds: ["gates"],
+          ...decision,
+        });
+      }
+      assert.deepEqual((yield* projections.getThreadProjection(threadId)).thread.backgroundWaits, [
+        { taskId: "gates", awaited: false },
+      ]);
       yield* sql`INSERT INTO orchestration_v2_projection_messages
       (message_id, thread_id, run_id, node_id, role, streaming, created_at, updated_at, payload_json)
       VALUES ('obsolete', ${threadId}, NULL, NULL, 'assistant', 0, ${DateTime.formatIso(now)}, ${DateTime.formatIso(now)}, '{"obsolete":true}')`;

@@ -4,6 +4,7 @@ import {
   backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
   monitorHoldsWakeCompletion,
+  recordBackgroundWaits,
 } from "./orchestrationV2PendingBackgroundWork.ts";
 
 describe("backgroundWorkHoldsCompletion", () => {
@@ -361,6 +362,47 @@ describe("derivePendingBackgroundWork kinds", () => {
     ]);
   });
 
+  it("applies the thread's wait decisions to commands and monitors only", () => {
+    const tasks = derivePendingBackgroundWork({
+      latestRun: { id: "run-1" as never, ordinal: 1, status: "completed" },
+      providerThreads: [
+        {
+          id: "pt-1" as never,
+          pendingBackgroundTasks: [
+            { taskId: "gates", kind: "command" },
+            { taskId: "dev", kind: "command", awaited: true },
+            { taskId: "sub", kind: "subagent" },
+          ],
+        },
+      ],
+      turnItems: [
+        {
+          id: "item-cmd" as never,
+          type: "command_execution",
+          status: "running",
+          title: null,
+          nativeItemRef: { nativeId: "codex-wait" },
+          input: "until [ -f done ]; do sleep 10; done",
+        },
+      ],
+      backgroundWaits: [
+        { taskId: "gates", awaited: true },
+        { taskId: "dev", awaited: false },
+        { taskId: "sub", awaited: false },
+        { taskId: "codex-wait", awaited: true },
+      ],
+    });
+    expect(tasks.map((task) => [task.taskId, task.awaited])).toEqual([
+      ["gates", true],
+      ["dev", false],
+      ["sub", undefined],
+      ["codex-wait", true],
+    ]);
+    expect(backgroundWorkHoldsCompletion(tasks.filter((task) => task.kind !== "subagent"))).toBe(
+      true,
+    );
+  });
+
   describe("pull request watches", () => {
     const watch = {
       startedAt: "2026-10-05T00:00:00.000Z",
@@ -483,5 +525,24 @@ describe("derivePendingBackgroundWork kinds", () => {
         }),
       ).toEqual([]);
     });
+  });
+});
+
+describe("recordBackgroundWaits", () => {
+  const live = [{ taskId: "gates", awaited: true, inferred: "live" }] as const;
+  const settled = [{ taskId: "gates", awaited: false, inferred: "settled" }] as const;
+  const agent = [{ taskId: "gates", awaited: false }] as const;
+  it.each([
+    ["infers an undecided task", undefined, true, "live", live],
+    ["lets a settled inference replace a live one", live, false, "settled", settled],
+    ["keeps a settled inference over a later live one", settled, true, "live", null],
+    ["keeps a settled inference over another settled one", settled, true, "settled", null],
+    ["lets the agent replace any inference", settled, false, undefined, agent],
+    ["keeps the agent's decision over an inference", agent, true, "settled", null],
+    ["skips the agent repeating itself", agent, false, undefined, null],
+  ] as const)("%s", (_case, current, awaited, inferred, expected) => {
+    expect(recordBackgroundWaits(current, { taskIds: ["gates"], awaited, inferred })).toEqual(
+      expected,
+    );
   });
 });

@@ -441,7 +441,15 @@ They also report `blockedOnThreadWait` and `pendingBackgroundTasks`, the shell
 fields behind the sidebar's Waiting label, so an agent can see what a thread
 still waits on after its run completed. A subagent or `background_task` holds
 the thread. A command or monitor holds it only with `awaited: true`, since agents
-often leave a dev server running.
+often leave a dev server running. The agent sets it with `t3_background_wait`,
+which matches IDs through the adapter or, without one, the provider's own list of
+background tasks; Codex and Grok publish none, so it is unsupported there. When
+the agent never decides, the text generation model infers it from the command and
+the agent's words, on any provider: during the turn only a wait is recorded, and
+once the turn ends the whole turn's text decides again. The thread's
+`backgroundWaits` record each decision; the agent's always wins, and a task
+nobody decided yet has no `awaited`, so the web client holds its completion
+notification until a decision lands or 20 seconds pass.
 
 ### `t3_thread_update`
 

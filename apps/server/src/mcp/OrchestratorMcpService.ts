@@ -815,7 +815,7 @@ function threadBackgroundWork(
       taskId: task.taskId,
       kind: task.kind,
       ...(task.description === undefined ? {} : { description: task.description }),
-      ...(task.awaited === undefined ? {} : { awaited: task.awaited }),
+      ...(task.awaited === true ? { awaited: true as const } : {}),
       ...(task.kind === "subagent" && task.childThreadId !== undefined
         ? { childThreadId: task.childThreadId }
         : {}),

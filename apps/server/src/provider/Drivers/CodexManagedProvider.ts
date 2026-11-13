@@ -291,6 +291,8 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
         "generateTranscriptionPostProcessing",
         nativeGeneration.generateTranscriptionPostProcessing(value),
       ),
+    classifyBackgroundTask: (value) =>
+      protect("classifyBackgroundTask", nativeGeneration.classifyBackgroundTask(value)),
   };
   return {
     instanceId,

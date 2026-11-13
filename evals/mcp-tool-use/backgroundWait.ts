@@ -79,6 +79,8 @@ export const makeBackgroundWait = Effect.fn("evaluateMcpToolUse.makeBackgroundWa
                 thread: { id: threadId, deletedAt: null, activeProviderThreadId: providerThreadId },
                 providerThreads: [providerThread],
               } as unknown as OrchestrationV2ThreadProjection),
+            // Recording the decision on the thread has no visible result for the agent.
+            dispatch: () => Effect.succeed({ sequence: 1, storedEvents: [] }),
           }),
           Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
             get: () => Effect.succeedSome(runtime),

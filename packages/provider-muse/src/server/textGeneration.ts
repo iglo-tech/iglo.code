@@ -28,6 +28,7 @@ import {
   TranscriptionPostProcessingOutput,
 } from "@t3tools/provider-core/server/textGenerationOperations";
 import {
+  buildBackgroundTaskClassificationPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -359,6 +360,16 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
         modelSelection: input.modelSelection,
       });
     });
+  const classifyBackgroundTask: ProviderTextGeneration["classifyBackgroundTask"] = Effect.fn(
+    "MuseTextGeneration.classifyBackgroundTask",
+  )(function* (input) {
+    const generated = yield* runMuseJson({
+      operation: "classifyBackgroundTask",
+      ...buildBackgroundTaskClassificationPrompt(input),
+      modelSelection: input.modelSelection,
+    });
+    return { wait: generated.wait };
+  });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
   return {
@@ -368,5 +379,6 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     generateThreadTitle,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
+    classifyBackgroundTask,
   } satisfies ProviderTextGeneration;
 });
