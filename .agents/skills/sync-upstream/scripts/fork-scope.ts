@@ -60,6 +60,7 @@ export const REMOVED_PATHS = [
   "scripts/npm-launcher",
   "scripts/install.ps1",
   "scripts/prepare-server-compile-cache.*",
+  "scripts/lib/server-compile-cache.*",
   "scripts/test-cached.*",
   // Upstream's e2e scenarios drive the mobile simulator as well as the web client.
   "scripts/scenarios",

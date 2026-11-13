@@ -20,6 +20,7 @@ import {
 
 import { DEV_WEB_READY_MESSAGE } from "../../scripts/lib/environment-startup";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
+import { resolveTaggedSourceVersion } from "../../scripts/lib/tagged-source-version";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
 import { warmBundledDevPlugin } from "./vite/warmBundledDev";
@@ -39,7 +40,6 @@ const configuredHttpUrl = isSingleOriginDev ? undefined : process.env.VITE_HTTP_
 const configuredHostedAppChannel = process.env.VITE_HOSTED_APP_CHANNEL?.trim() || "";
 const configuredReleaseChannel =
   process.env.IGLO_CODE_BUILT_DEV === "1" ? "dev" : process.env.VITE_RELEASE_CHANNEL?.trim() || "";
-const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
 const configuredDesktopUpdateRepository =
   process.env.IGLO_CODE_DESKTOP_UPDATE_REPOSITORY?.trim() ||
   process.env.GITHUB_REPOSITORY?.trim() ||
@@ -312,7 +312,14 @@ const configuredAllowedHosts = (process.env.IGLO_CODE_DEV_ALLOWED_HOSTS ?? "")
   .filter((entry) => entry.length > 0);
 const allowedHosts = [".ts.net", ...configuredAllowedHosts];
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
+  // `vp dev` and `--built` dev pair this client with a server run from source, which reports the
+  // manifest version. Only a production build is paired with a packed server.
+  const configuredAppVersion =
+    process.env.APP_VERSION?.trim() ||
+    (command === "build" && !builtDev
+      ? resolveTaggedSourceVersion(`${import.meta.dirname}/../..`, pkg.version)
+      : pkg.version);
   return {
     run: {
       tasks: {
