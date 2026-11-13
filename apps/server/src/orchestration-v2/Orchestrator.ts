@@ -12235,7 +12235,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         turnItemRunIds: [runId],
       })
       .pipe(
-        Effect.map(({ turnItems }) => turnItems.length > 0),
+        // An idle stop ends leftover work; nobody stopped the run.
+        Effect.map(({ turnItems }) =>
+          turnItems.some(
+            (item) => item.type === "run_interrupt_request" && item.idleStop === undefined,
+          ),
+        ),
         mapDispatchError(command),
       );
 

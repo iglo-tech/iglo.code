@@ -1763,7 +1763,11 @@ export function threadShellFromProjection(
     latestRunStopRequested:
       latestRun != null &&
       projection.turnItems.some(
-        (item) => item.runId === latestRun.id && item.type === "run_interrupt_request",
+        (item) =>
+          item.runId === latestRun.id &&
+          item.type === "run_interrupt_request" &&
+          // An idle stop ends leftover work; nobody stopped the run.
+          item.idleStop === undefined,
       ),
     latestRunBackgroundWake:
       latestRun != null && isBackgroundWakeRunForShell(latestRun, projection),
@@ -6356,9 +6360,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           ordinal: number;
           attempt_id: string | null;
           attempt_status: string | null;
+          idle_stop: number;
         }>`SELECT item.turn_item_id, item.run_id, item.node_id, item.parent_item_id, item.type, item.status, item.ordinal,
           ${includeAttempts ? sql`attempt.attempt_id` : sql`NULL`} AS attempt_id,
           ${includeAttempts ? sql`attempt.status` : sql`NULL`} AS attempt_status,
+          CASE WHEN item.type = 'run_interrupt_request' AND json_extract(item.payload_json, '$.idleStop') IS NOT NULL THEN 1 ELSE 0 END AS idle_stop,
           CASE WHEN item.type = 'user_message' THEN json_extract(item.payload_json, '$.inputIntent') END AS input_intent,
           CASE WHEN item.type = 'user_message' THEN json_extract(item.payload_json, '$.createdBy') END AS created_by,
           CASE WHEN item.type IN ('user_message', 'assistant_message') THEN json_extract(item.payload_json, '$.messageId') END AS message_id
@@ -6388,6 +6394,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           runStatus: row.run_id === null ? undefined : runStatuses.get(row.run_id),
           attemptId: row.attempt_id,
           attemptStatus: row.attempt_status,
+          ...(row.idle_stop === 1 ? { idleStop: true as const } : {}),
           ...(row.input_intent === null ? {} : { inputIntent: row.input_intent }),
           ...(row.created_by === null ? {} : { createdBy: row.created_by }),
           ...(row.message_id === null ? {} : { messageId: MessageId.make(row.message_id) }),
@@ -7638,8 +7645,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               presented.completed_at AS latest_run_completed_at,
               EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_turn_items stop_request
+                  INDEXED BY orchestration_v2_projection_turn_items_stop_request_idx
                 WHERE stop_request.thread_id = t.thread_id AND stop_request.run_id = presented.run_id
                   AND stop_request.type = 'run_interrupt_request'
+                  -- An idle stop ends leftover work; nobody stopped the run.
+                  AND json_extract(stop_request.payload_json, '$.idleStop') IS NULL
               ) AS latest_run_stop_requested,
               ${isBackgroundWakeShellRun("presented")} AS latest_run_background_wake,
               active.run_id AS active_run_id,
@@ -7700,8 +7710,11 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               blocked.completed_at AS blocking_run_completed_at,
               EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_turn_items stop_request
+                  INDEXED BY orchestration_v2_projection_turn_items_stop_request_idx
                 WHERE stop_request.thread_id = t.thread_id AND stop_request.run_id = blocked.run_id
                   AND stop_request.type = 'run_interrupt_request'
+                  -- An idle stop ends leftover work; nobody stopped the run.
+                  AND json_extract(stop_request.payload_json, '$.idleStop') IS NULL
               ) AS blocking_run_stop_requested,
               ${isBackgroundWakeShellRun("blocked")} AS blocking_run_background_wake,
               (
