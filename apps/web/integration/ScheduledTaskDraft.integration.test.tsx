@@ -75,6 +75,15 @@ const binding = await vi.hoisted(async () => {
     url: "http://localhost:3000",
     pretendToBeVisual: true,
   });
+  // jsdom has no matchMedia; the app's media-query hooks read it as a fine-pointer desktop.
+  dom.window.matchMedia = (media: string) =>
+    Object.assign(new dom.window.EventTarget(), {
+      media,
+      matches: false,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+    }) as MediaQueryList;
   for (const key of [
     "window",
     "document",
