@@ -46,7 +46,7 @@ const stopEarlierBackgroundWork = ({
   idleStop,
 }: {
   /** Stop as the idle sweep does, with leftover work only or with an awaited wait beside it. */
-  readonly idleStop?: "leftover" | "awaited" | "after-withdrawn-run";
+  readonly idleStop?: "leftover" | "awaited" | "inferred-wait" | "after-withdrawn-run";
   readonly wakeAfterStop?: boolean;
   readonly failedStart?: boolean;
   readonly backgroundWorkAfterStop?: "running" | "unknown";
@@ -513,6 +513,17 @@ const stopEarlierBackgroundWork = ({
             ],
           });
         }
+        if (idleStop === "inferred-wait") {
+          // T3 decided on its own that the agent waits on this command.
+          yield* orchestrator.dispatch({
+            type: "thread.background-wait.set",
+            commandId: CommandId.make("infer-wait"),
+            threadId,
+            taskIds: [devServerId],
+            awaited: true,
+            inferred: "settled",
+          });
+        }
         if (idleStop === "after-withdrawn-run") {
           // A message queued for a fresh session and withdrawn leaves a later run that never ran.
           const ran = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
@@ -547,12 +558,13 @@ const stopEarlierBackgroundWork = ({
           reason: "Stopped after 1 hour without activity",
           idleStopAfterMinutes: 60,
         });
-        yield* idleStop === "awaited" ? worker.drain() : drainUnconfirmedStop;
+        const kept = idleStop === "awaited" || idleStop === "inferred-wait";
+        yield* kept ? worker.drain() : drainUnconfirmedStop;
         const after = yield* orchestrator.getThreadProjection(threadId);
         // An idle stop is not the user's Stop: the pull request watch stays on.
         assert.isDefined(after.thread.pullRequests?.[0]?.watch);
         const request = after.turnItems.find((item) => item.type === "run_interrupt_request");
-        if (idleStop === "awaited") {
+        if (kept) {
           assert.isUndefined(request);
           assert.isEmpty(interrupts);
           return;
@@ -1151,7 +1163,7 @@ it.effect.each(["missing-session-terminal", "returned-interrupt", "superseded-at
   (stalledRun) => stopEarlierBackgroundWork({ stalledRun }),
 );
 
-it.effect.each(["leftover", "awaited", "after-withdrawn-run"] as const)(
+it.effect.each(["leftover", "awaited", "inferred-wait", "after-withdrawn-run"] as const)(
   "an idle stop ends %s work without ending the thread's pull request watch",
   (idleStop) => stopEarlierBackgroundWork({ idleStop }),
 );

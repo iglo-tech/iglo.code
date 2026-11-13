@@ -12843,6 +12843,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             turnItems: projection.turnItems,
             activeProviderThreadId: projection.thread.activeProviderThreadId,
             runs: projection.runs,
+            // An inferred wait keeps the work from an idle stop as a declared one does.
+            backgroundWaits: projection.thread.backgroundWaits,
           })
         : [];
     const hasBackgroundWork = pendingBackgroundWork.length > 0;
