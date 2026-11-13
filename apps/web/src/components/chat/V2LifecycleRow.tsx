@@ -76,7 +76,10 @@ export function V2LifecycleRow(props: {
   readonly runs: ReadonlyArray<HandoffTimelineRun>;
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly onRunShellCommand?:
-    | ((command: string, options?: { readonly cwd?: string | undefined }) => void)
+    | ((
+        command: string,
+        options?: { readonly cwd?: string | undefined },
+      ) => Promise<boolean> | void)
     | undefined;
 }) {
   const { item } = props;
@@ -185,7 +188,10 @@ function idleDurationLabel(minutes: number): string {
 function IdleBackgroundWorkStopRow(props: {
   readonly stop: OrchestrationV2IdleBackgroundWorkStop;
   readonly onRun:
-    | ((command: string, options?: { readonly cwd?: string | undefined }) => void)
+    | ((
+        command: string,
+        options?: { readonly cwd?: string | undefined },
+      ) => Promise<boolean> | void)
     | undefined;
 }) {
   const [started, setStarted] = useState<ReadonlySet<string>>(() => new Set());
@@ -198,35 +204,44 @@ function IdleBackgroundWorkStopRow(props: {
         icon={CircleStopIcon}
         wrapDetail
       />
-      {props.stop.commands.map((entry) => (
-        <WorkLogRow
-          key={entry.command}
-          icon={<SquareTerminalIcon className="size-4 text-icon-muted" aria-hidden />}
-          label={
-            <span>
-              <code>{entry.command}</code>
-              {entry.label === undefined ? null : (
-                <span className="text-muted-foreground"> · {entry.label}</span>
-              )}
-            </span>
-          }
-          trailing={
-            onRun === undefined ? null : started.has(entry.command) ? (
-              <span className="text-xs text-muted-foreground">Running in terminal</span>
-            ) : (
-              <InlineButton
-                aria-label={`Turn ${entry.command} back on`}
-                onClick={() => {
-                  onRun(entry.command, { cwd: entry.cwd });
-                  setStarted((current) => new Set(current).add(entry.command));
-                }}
-              >
-                Turn it back on
-              </InlineButton>
-            )
-          }
-        />
-      ))}
+      {props.stop.commands.map((entry) => {
+        // The same command can run in two directories.
+        const key = `${entry.cwd ?? ""}\u0000${entry.command}`;
+        return (
+          <WorkLogRow
+            key={key}
+            icon={<SquareTerminalIcon className="size-4 text-icon-muted" aria-hidden />}
+            label={
+              // The agent's description reads better than a long command line, which truncates first.
+              entry.label === undefined ? (
+                <code>{entry.command}</code>
+              ) : (
+                <span>
+                  {entry.label}
+                  <code className="text-muted-foreground"> · {entry.command}</code>
+                </span>
+              )
+            }
+            trailing={
+              onRun === undefined ? null : started.has(key) ? (
+                // Past tense: the row does not follow the terminal after it starts.
+                <span className="text-xs text-muted-foreground">Started in terminal</span>
+              ) : (
+                <InlineButton
+                  aria-label={`Turn ${entry.label ?? entry.command} back on`}
+                  onClick={() => {
+                    void Promise.resolve(onRun(entry.command, { cwd: entry.cwd })).then((ok) => {
+                      if (ok !== false) setStarted((current) => new Set(current).add(key));
+                    });
+                  }}
+                >
+                  Turn it back on
+                </InlineButton>
+              )
+            }
+          />
+        );
+      })}
     </div>
   );
 }

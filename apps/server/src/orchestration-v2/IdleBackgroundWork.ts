@@ -58,9 +58,10 @@ export function idleStoppedCommands(
 ): OrchestrationV2IdleBackgroundWorkStop["commands"] {
   return tasks.flatMap((task) => {
     if (task.kind !== "command" && task.kind !== "monitor") return [];
+    const nativeId = task.nativeItemId ?? task.taskId;
     const item = turnItems.findLast((candidate) =>
       task.itemId === undefined
-        ? (candidate.nativeItemRef?.nativeId || candidate.id) === task.taskId
+        ? (candidate.nativeItemRef?.nativeId || candidate.id) === nativeId
         : candidate.id === task.itemId,
     );
     const commandItem = item?.type === "command_execution" ? item : undefined;

@@ -46,6 +46,7 @@ export interface SettlementPullRequest {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
+const IDLE_STOP_RETRY_MS = 5 * 60 * 1_000;
 
 function formatIdleDuration(minutes: number): string {
   if (minutes < 60) return `${minutes} minutes`;
@@ -325,8 +326,9 @@ export const make = Effect.gen(function* () {
   const projectScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   // Repeated thread.settled retains settledAt; run the action only once per settlement.
   const settleActionRunAt = new Map<ThreadId, number>();
-  // The stop lands after its interrupt effect runs, so later sweeps must not send it again.
-  const idleStoppedRunIds = new Map<ThreadId, string>();
+  // The stop lands after its interrupt effect runs, so later sweeps must not send it again;
+  // a dispatch that failed is sent again once its retry time passes.
+  const idleStops = new Map<ThreadId, { readonly runId: string; readonly retryAtMs?: number }>();
 
   const stopIdleBackgroundWork = Effect.fn("ThreadSettlementServiceV2.stopIdleBackgroundWork")(
     function* (
@@ -341,12 +343,18 @@ export const make = Effect.gen(function* () {
           if (
             afterMinutes === null ||
             runId === null ||
-            idleStoppedRunIds.get(thread.id) === runId ||
             !isIdleBackgroundWorkStopDue(thread, nowMs, afterMinutes)
           ) {
             return Effect.void;
           }
-          idleStoppedRunIds.set(thread.id, runId);
+          const previous = idleStops.get(thread.id);
+          if (
+            previous?.runId === runId &&
+            (previous.retryAtMs === undefined || nowMs < previous.retryAtMs)
+          ) {
+            return Effect.void;
+          }
+          idleStops.set(thread.id, { runId });
           return Effect.gen(function* () {
             const uuid = yield* random.uuidV4();
             yield* orchestrator.dispatch({
@@ -362,10 +370,16 @@ export const make = Effect.gen(function* () {
             Effect.catchCauseIf(
               (cause) => !Cause.hasInterruptsOnly(cause),
               (cause) =>
-                Effect.logWarning("stopping idle background work failed", {
-                  threadId: thread.id,
-                  cause: Cause.pretty(cause),
-                }),
+                Effect.sync(() =>
+                  idleStops.set(thread.id, { runId, retryAtMs: nowMs + IDLE_STOP_RETRY_MS }),
+                ).pipe(
+                  Effect.andThen(
+                    Effect.logWarning("stopping idle background work failed", {
+                      threadId: thread.id,
+                      cause: Cause.pretty(cause),
+                    }),
+                  ),
+                ),
             ),
           );
         },

@@ -584,6 +584,7 @@ interface HarnessOptions {
   readonly existingWorktreePaths?: ReadonlyArray<string>;
   readonly unreadablePaths?: ReadonlyArray<string>;
   readonly onDispatch?: (command: AutoSettleCommand) => Effect.Effect<void>;
+  readonly onInterrupt?: () => Effect.Effect<void>;
   readonly onScriptRun?: (
     input: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput,
   ) => Effect.Effect<void>;
@@ -663,6 +664,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const dispatch: Orchestrator.OrchestratorV2Shape["dispatch"] = (command) => {
     if (command.type === "run.interrupt") {
       return Ref.update(interrupts, (recorded) => [...recorded, command]).pipe(
+        Effect.andThen(options.onInterrupt?.() ?? Effect.void),
         Effect.as({ sequence: 1, storedEvents: [] }),
       );
     }
@@ -928,6 +930,47 @@ describe("ThreadSettlementServiceV2 worker", () => {
             idleStopAfterMinutes: 60,
           },
         ]);
+      }).pipe(Effect.provide(fixture.layer));
+    }),
+  );
+
+  it.effect("sends a failed idle stop again only after its retry delay", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse(NOW));
+      const idleSince = DateTime.makeUnsafe(Date.parse(NOW) - 2 * 60 * 60 * 1_000);
+      const failures = yield* Ref.make(1);
+      const fixture = yield* makeHarness({
+        snapshot: makeSnapshot([
+          makeThread("idle", {
+            latestRunId: RunId.make("run:idle"),
+            latestRunCompletedAt: idleSince,
+            latestUserMessageAt: idleSince,
+            pendingBackgroundTasks: [{ taskId: "dev", kind: "command", command: "bun run dev" }],
+          }),
+        ]),
+        settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: null },
+        onInterrupt: () =>
+          Ref.getAndUpdate(failures, (count) => count - 1).pipe(
+            Effect.flatMap((count) =>
+              count > 0 ? Effect.die("projection write failed") : Effect.void,
+            ),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+        yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+        const sweepAfter = (duration: Parameters<typeof TestClock.adjust>[0]) =>
+          Effect.gen(function* () {
+            yield* TestClock.adjust(duration);
+            yield* Queue.take(fixture.snapshotReads);
+            yield* service.drain;
+            return (yield* Ref.get(fixture.interrupts)).length;
+          });
+        assert.equal((yield* Ref.get(fixture.interrupts)).length, 1);
+        assert.equal(yield* sweepAfter("1 minute"), 1);
+        assert.equal(yield* sweepAfter("4 minutes"), 2);
+        // Delivered: later sweeps leave it alone.
+        assert.equal(yield* sweepAfter("10 minutes"), 2);
       }).pipe(Effect.provide(fixture.layer));
     }),
   );

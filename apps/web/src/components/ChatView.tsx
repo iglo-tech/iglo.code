@@ -2819,7 +2819,7 @@ export default function ChatView(props: ChatViewProps) {
   const runSideChatShellCommandStable = useStableCallback(
     (command: string, options?: { readonly cwd?: string | undefined }) => {
       if (activeThreadRef) useRightPanelStore.getState().setMaximized(activeThreadRef, false);
-      runShellCommandStable(command, options);
+      return runShellCommandStable(command, options);
     },
   );
   // Main-thread surfaces show this reason; `/side` sent anyway gets it as a toast.

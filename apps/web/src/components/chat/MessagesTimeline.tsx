@@ -292,7 +292,10 @@ interface MessagesTimelineProps {
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   onSendAppMessage?: (text: string) => Promise<void>;
-  onRunShellCommand?: (command: string, options?: { readonly cwd?: string | undefined }) => void;
+  onRunShellCommand?: (
+    command: string,
+    options?: { readonly cwd?: string | undefined },
+  ) => Promise<boolean> | void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onFileOpen?: (attachment: ChatFileAttachment) => void;

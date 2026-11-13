@@ -9,7 +9,7 @@ import {
 import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 
-import { idleStoppedCommands } from "./IdleBackgroundWork.ts";
+import { idleStoppedCommands, isIdleBackgroundWorkStopDue } from "./IdleBackgroundWork.ts";
 
 const commandItem = (
   id: string,
@@ -65,5 +65,43 @@ describe("idleStoppedCommands", () => {
       { command: "bun run dev", label: "Start the dev server", cwd: "/repo/apps/web" },
       { command: "tail -f log" },
     ]);
+  });
+});
+
+describe("isIdleBackgroundWorkStopDue", () => {
+  const at = (minutesAgo: number) =>
+    DateTime.makeUnsafe(Date.parse("2026-11-13T12:00:00.000Z") - minutesAgo * 60_000);
+  const nowMs = Date.parse("2026-11-13T12:00:00.000Z");
+  const thread = (overrides: Partial<Parameters<typeof isIdleBackgroundWorkStopDue>[0]> = {}) => ({
+    createdAt: at(600),
+    latestRunId: RunId.make("run"),
+    latestRunRequestedAt: at(61),
+    latestRunStartedAt: at(61),
+    latestRunCompletedAt: at(60),
+    latestUserMessageAt: at(61),
+    activityRunStatus: null,
+    pendingRuntimeRequest: null,
+    pendingGuestMessageCount: 0,
+    pendingBackgroundTasks: [{ taskId: "dev", kind: "command" as const }],
+    ...overrides,
+  });
+
+  it("is due once the thread has been quiet for the whole delay, and never when turned off", () => {
+    expect(isIdleBackgroundWorkStopDue(thread(), nowMs, 60)).toBe(true);
+    expect(isIdleBackgroundWorkStopDue(thread({ latestRunCompletedAt: at(59) }), nowMs, 60)).toBe(
+      false,
+    );
+    expect(isIdleBackgroundWorkStopDue(thread(), nowMs, null)).toBe(false);
+    expect(
+      isIdleBackgroundWorkStopDue(
+        thread({
+          pendingBackgroundTasks: [
+            { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor" },
+          ],
+        }),
+        nowMs,
+        60,
+      ),
+    ).toBe(false);
   });
 });

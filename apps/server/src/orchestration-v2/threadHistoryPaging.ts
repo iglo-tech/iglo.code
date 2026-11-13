@@ -70,6 +70,7 @@ type HistoryRow = Pick<
     readonly attemptStatus?: string | null | undefined;
     readonly persistentOutput?: boolean;
     readonly deferredWork?: OrchestrationV2TurnItem["deferredWork"];
+    readonly idleStop?: unknown;
   };
 };
 /** What a caller that passes only the newest part of a history knows about the rows it left out. */
@@ -225,7 +226,8 @@ export function deferWorkHistoryRows<Row extends HistoryRow>(items: ReadonlyArra
   const blocked = new Set(
     items.flatMap(({ item }) =>
       item.runId != null &&
-      (item.type === "run_interrupt_request" ||
+      // An idle stop ends leftover work after the turn finished; the turn still folds.
+      ((item.type === "run_interrupt_request" && item.idleStop === undefined) ||
         item.type === "run_interrupt_result" ||
         (item.type === "error" && item.status === "failed" && item.parentItemId == null))
         ? [item.runId]

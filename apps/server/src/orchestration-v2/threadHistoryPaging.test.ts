@@ -236,6 +236,15 @@ describe("threadHistoryPaging", () => {
       item: { ...compaction.item, type: "run_interrupt_result" as const },
     };
     expect(deferWorkHistoryRows([...work, interrupted])).toHaveLength(152);
+    const idleStopped = {
+      ...compaction,
+      item: {
+        ...compaction.item,
+        type: "run_interrupt_request" as const,
+        idleStop: { afterMinutes: 60, commands: [] },
+      },
+    };
+    expect(deferWorkHistoryRows([...work, idleStopped])).toHaveLength(2);
     const failed = {
       ...compaction,
       item: {

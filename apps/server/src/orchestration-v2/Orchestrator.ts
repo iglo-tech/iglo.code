@@ -12781,7 +12781,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         omitSettledLeafNodes: true,
       },
     );
-    const run = projection.runs.find((candidate) => candidate.id === command.runId);
+    const idleStop = command.idleStopAfterMinutes !== undefined;
+    // An idle compaction can become the latest run after the sweep read the thread; leftover
+    // work belongs to whichever run is latest, as it does for the composer's Stop.
+    const run = idleStop
+      ? projection.runs.findLast((candidate) => candidate.status !== "queued")
+      : projection.runs.find((candidate) => candidate.id === command.runId);
     const rootNode =
       run?.rootNodeId === null
         ? undefined
@@ -12802,10 +12807,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         : [];
     const hasBackgroundWork = pendingBackgroundWork.length > 0;
     // The sweep decided on a snapshot; activity or an awaited wait since then keeps the work.
-    if (
-      command.idleStopAfterMinutes !== undefined &&
-      (!hasBackgroundWork || backgroundWorkHoldsCompletion(pendingBackgroundWork))
-    ) {
+    if (idleStop && (!hasBackgroundWork || backgroundWorkHoldsCompletion(pendingBackgroundWork))) {
       return undefined;
     }
     // A failed start has no provider turn. Background work still belongs
@@ -12821,6 +12823,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             (candidate) => candidate.providerThreadId === run?.providerThreadId,
           )
         : undefined);
+    if (
+      idleStop &&
+      (run === undefined ||
+        rootNode === undefined ||
+        providerThread === undefined ||
+        providerTurn === undefined)
+    ) {
+      return undefined;
+    }
     if (run === undefined || rootNode === undefined || providerThread === undefined) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
@@ -12833,30 +12844,34 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       (candidate) => candidate.id === run.userMessageId,
     );
     const completionCohortRunId = completionMessage?.delegatedCompletion?.parentRunId ?? run.id;
+    // An idle stop only ends processes; it is not the user stopping the thread, so queued
+    // messages, pull request watches, and usage-limit auto-resume stay as they are.
     const stopRemainingWork = () =>
-      command.holdQueue === true
-        ? holdStoppedThread({
-            command,
-            events,
-            projection,
-            cohortRunIds: [completionCohortRunId],
-            now,
-          })
-        : Effect.gen(function* () {
-            for (const parentRunId of new Set([completionCohortRunId, run.id])) {
-              yield* disposeDelegatedCompletionCohort({
-                command,
-                events,
-                projection: yield* getProjectionWithPendingEvents(command.threadId, events),
-                parentRunId,
-                disposition: "stopped",
-                now,
-                ...(parentRunId !== run.id && completionMessage?.delegatedCompletion !== undefined
-                  ? { interruptedWakeTaskIds: completionMessage.delegatedCompletion.taskIds }
-                  : {}),
-              });
-            }
-          });
+      idleStop
+        ? Effect.void
+        : command.holdQueue === true
+          ? holdStoppedThread({
+              command,
+              events,
+              projection,
+              cohortRunIds: [completionCohortRunId],
+              now,
+            })
+          : Effect.gen(function* () {
+              for (const parentRunId of new Set([completionCohortRunId, run.id])) {
+                yield* disposeDelegatedCompletionCohort({
+                  command,
+                  events,
+                  projection: yield* getProjectionWithPendingEvents(command.threadId, events),
+                  parentRunId,
+                  disposition: "stopped",
+                  now,
+                  ...(parentRunId !== run.id && completionMessage?.delegatedCompletion !== undefined
+                    ? { interruptedWakeTaskIds: completionMessage.delegatedCompletion.taskIds }
+                    : {}),
+                });
+              }
+            });
 
     const emitEvent = emit(events, command);
     const interruptRequestItem: OrchestrationV2TurnItem = {
@@ -13115,6 +13130,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 }),
             ),
           );
+    // Without a live session there is no process left to end; recovery or the release did that.
+    if (Option.isNone(sessionOption) && idleStop) return undefined;
     if (Option.isNone(sessionOption)) {
       yield* emitEvent({
         type: "turn-item.updated",
@@ -15067,6 +15084,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "thread.interrupt.unresponsive" ||
           command.type === "thread.stop" ||
           command.type === "subagent.stop" ||
+          // The idle sweep decided on a snapshot; work that ended or became awaited is not an error.
+          (command.type === "run.interrupt" && command.idleStopAfterMinutes !== undefined) ||
           // Closing a share again, or after it ended, is not an error.
           command.type === "thread.guest-share.close" ||
           (command.type === "thread.delete" && command.onlyIfUnused === true),

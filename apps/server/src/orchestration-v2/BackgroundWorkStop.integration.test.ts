@@ -43,7 +43,10 @@ const stopEarlierBackgroundWork = ({
   backgroundWorkAfterStop,
   stalledRun,
   workflowMember = false,
+  idleStop,
 }: {
+  /** Stop as the idle sweep does, with leftover work only or with an awaited wait beside it. */
+  readonly idleStop?: "leftover" | "awaited";
   readonly wakeAfterStop?: boolean;
   readonly failedStart?: boolean;
   readonly backgroundWorkAfterStop?: "running" | "unknown";
@@ -471,6 +474,71 @@ const stopEarlierBackgroundWork = ({
       });
       yield* Fiber.join(settled);
       yield* worker.drain();
+
+      if (idleStop !== undefined) {
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request.watch",
+          commandId: CommandId.make("watch"),
+          threadId,
+          host: "github.com",
+          repository: "pingdotgg/t3code",
+          number: 1,
+          watching: true,
+          link: { url: "https://github.com/pingdotgg/t3code/pull/1", source: "agent" },
+        });
+        if (idleStop === "awaited") {
+          const providerThread = (yield* orchestrator.getThreadProjection(threadId))
+            .providerThreads[0]!;
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make("awaited-wait"),
+                type: "provider-thread.updated",
+                threadId,
+                driver,
+                providerInstanceId: instanceId,
+                occurredAt: now,
+                payload: {
+                  ...providerThread,
+                  pendingBackgroundTasks: [
+                    {
+                      taskId: "wait",
+                      kind: "command",
+                      command: "gh pr checks --watch",
+                      awaited: true,
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+        }
+        yield* orchestrator.dispatch({
+          type: "run.interrupt",
+          commandId: CommandId.make("idle-stop"),
+          threadId,
+          runId: first.runId,
+          holdQueue: true,
+          reason: "Stopped after 1 hour without activity",
+          idleStopAfterMinutes: 60,
+        });
+        yield* idleStop === "awaited" ? worker.drain() : drainUnconfirmedStop;
+        const after = yield* orchestrator.getThreadProjection(threadId);
+        // An idle stop is not the user's Stop: the pull request watch stays on.
+        assert.isDefined(after.thread.pullRequests?.[0]?.watch);
+        const request = after.turnItems.find((item) => item.type === "run_interrupt_request");
+        if (idleStop === "awaited") {
+          assert.isUndefined(request);
+          assert.isEmpty(interrupts);
+          return;
+        }
+        assert.deepEqual(request?.type === "run_interrupt_request" ? request.idleStop : undefined, {
+          afterMinutes: 60,
+          commands: [{ command: "vp run dev --share" }],
+        });
+        assert.lengthOf(interrupts, 1);
+        return;
+      }
 
       const codexProviderThread = (yield* orchestrator.getThreadProjection(threadId))
         .providerThreads[0]!;
@@ -1056,6 +1124,11 @@ it.effect.each(["thread.stop", "run.interrupt"] as const)(
 it.effect.each(["missing-session-terminal", "returned-interrupt", "superseded-attempt"] as const)(
   "Stop recovers a stalled run after %s without changing a newer attempt",
   (stalledRun) => stopEarlierBackgroundWork({ stalledRun }),
+);
+
+it.effect.each(["leftover", "awaited"] as const)(
+  "an idle stop ends %s work without ending the thread's pull request watch",
+  (idleStop) => stopEarlierBackgroundWork({ idleStop }),
 );
 
 it.effect("Stop holds a provider wake that queues before the stopped turn ends", () =>

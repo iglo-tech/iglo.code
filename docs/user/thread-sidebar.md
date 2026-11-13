@@ -162,8 +162,8 @@ that action so iglo.code can stop its terminal and child processes. Commands sta
 agent's own shell tools are managed by the provider.
 
 A dev server or other command an agent left running stops after an hour without chat activity, to
-free memory. Commands the agent is waiting on, pinned threads, and threads with automatic
-settlement turned off are left alone. The chat notes what stopped, and **Turn it back on** runs the
+free memory. Commands the agent is waiting on, pinned threads, threads with automatic
+settlement turned off, and a subagent's thread while its parent is still open are left alone. The chat notes what stopped, and **Turn it back on** runs the
 command again in a new terminal. Change the delay or turn this off with **Stop idle background
 processes** in Settings > Threads.
 

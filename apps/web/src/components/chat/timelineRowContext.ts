@@ -68,7 +68,10 @@ export interface TimelineRowSharedState {
   onSendAppMessage: ((text: string) => Promise<void>) | undefined;
   onAppFullscreenChange: (rowId: string, fullscreen: boolean) => void;
   onRunShellCommand:
-    | ((command: string, options?: { readonly cwd?: string | undefined }) => void)
+    | ((
+        command: string,
+        options?: { readonly cwd?: string | undefined },
+      ) => Promise<boolean> | void)
     | undefined;
   findActive: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
