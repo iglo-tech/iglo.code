@@ -674,6 +674,20 @@ export const OrchestrationV2RestartCancelledBackgroundWork = Schema.Struct({
 export type OrchestrationV2RestartCancelledBackgroundWork =
   typeof OrchestrationV2RestartCancelledBackgroundWork.Type;
 
+/** Background work stopped after the thread sat idle, with the commands a person can start again. */
+export const OrchestrationV2IdleBackgroundWorkStop = Schema.Struct({
+  afterMinutes: PositiveInt,
+  commands: Schema.Array(
+    Schema.Struct({
+      command: TrimmedNonEmptyString,
+      label: Schema.optional(TrimmedNonEmptyString),
+      cwd: Schema.optional(Schema.String),
+    }),
+  ),
+});
+export type OrchestrationV2IdleBackgroundWorkStop =
+  typeof OrchestrationV2IdleBackgroundWorkStop.Type;
+
 export const OrchestrationV2RunBackgroundWorkCancelled = Schema.Struct({
   runId: RunId,
   restartCancelledBackgroundWork: Schema.Array(OrchestrationV2RestartCancelledBackgroundWork),
@@ -1749,6 +1763,8 @@ export const OrchestrationV2TurnItem = Schema.Union([
     monitor: Schema.optional(Schema.Boolean),
     /** The provider wakes the agent when this command finishes after its turn. */
     completionWake: Schema.optional(Schema.Literal("always")),
+    /** Working directory the provider reported for the command, when it reports one. */
+    cwd: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -1787,6 +1803,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("run_interrupt_request"),
     message: Schema.String,
+    idleStop: Schema.optional(OrchestrationV2IdleBackgroundWorkStop),
     /** Set when the provider did not confirm the stop in time; clients then offer Force stop. */
     unresponsiveAt: Schema.optionalKey(Schema.DateTimeUtc),
   }),
@@ -2623,6 +2640,8 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     monitor: Schema.optional(Schema.Boolean),
     /** The provider wakes the agent when this command finishes after its turn. */
     completionWake: Schema.optional(Schema.Literal("always")),
+    /** Working directory the provider reported for the command, when it reports one. */
+    cwd: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
@@ -2658,6 +2677,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("run_interrupt_request"),
     message: Schema.String,
+    idleStop: Schema.optional(OrchestrationV2IdleBackgroundWorkStop),
     unresponsiveAt: Schema.optionalKey(Schema.DateTimeUtcFromString),
   }),
   Schema.Struct({
@@ -3362,6 +3382,8 @@ export const OrchestrationV2Command = Schema.Union([
     runId: RunId,
     reason: Schema.optional(Schema.String),
     holdQueue: Schema.optional(Schema.Boolean),
+    /** Stops only leftover work no one awaits, as the idle sweep does; otherwise a no-op. */
+    idleStopAfterMinutes: Schema.optional(PositiveInt),
   }),
   Schema.Struct({
     type: Schema.Literal("queued-message.promote-to-steer"),

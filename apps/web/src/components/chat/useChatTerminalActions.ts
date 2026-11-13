@@ -314,7 +314,7 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
   };
   const runProjectScriptStable = useStableCallback(runProjectScript);
 
-  const runShellCommand = (command: string) => {
+  const runShellCommand = (command: string, options?: { readonly cwd?: string | undefined }) => {
     void runProjectScript(
       {
         id: "chat-code-block",
@@ -323,7 +323,17 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
         icon: "play",
         runOnWorktreeCreate: false,
       },
-      { rememberAsLastInvoked: false, shellHistory: "preserve" },
+      {
+        rememberAsLastInvoked: false,
+        shellHistory: "preserve",
+        // Restarting stopped work gets its own terminal so it cannot type into a busy one.
+        ...(options === undefined
+          ? {}
+          : {
+              preferNewTerminal: true,
+              ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+            }),
+      },
     );
   };
   const runShellCommandStable = useStableCallback(runShellCommand);

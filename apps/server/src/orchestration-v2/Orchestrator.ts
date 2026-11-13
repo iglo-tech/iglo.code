@@ -83,6 +83,7 @@ import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { modelSwitchSince } from "./modelSwitch.ts";
 import { combinePullRequestWatchWakes, type PullRequestWatchWake } from "./pullRequestWatch.ts";
 import { recordThreadOpen } from "@t3tools/shared/paletteSearch";
+import { idleStoppedCommands } from "./IdleBackgroundWork.ts";
 import {
   backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
@@ -12789,15 +12790,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       run?.providerThreadId === null
         ? undefined
         : projection.providerThreads.find((candidate) => candidate.id === run?.providerThreadId);
-    const hasBackgroundWork =
-      run?.id === projection.runs.findLast((candidate) => candidate.status !== "queued")?.id &&
-      derivePendingBackgroundWork({
-        latestRun: run,
-        providerThreads: projection.providerThreads,
-        turnItems: projection.turnItems,
-        activeProviderThreadId: projection.thread.activeProviderThreadId,
-        runs: projection.runs,
-      }).length > 0;
+    const pendingBackgroundWork =
+      run?.id === projection.runs.findLast((candidate) => candidate.status !== "queued")?.id
+        ? derivePendingBackgroundWork({
+            latestRun: run,
+            providerThreads: projection.providerThreads,
+            turnItems: projection.turnItems,
+            activeProviderThreadId: projection.thread.activeProviderThreadId,
+            runs: projection.runs,
+          })
+        : [];
+    const hasBackgroundWork = pendingBackgroundWork.length > 0;
+    // The sweep decided on a snapshot; activity or an awaited wait since then keeps the work.
+    if (
+      command.idleStopAfterMinutes !== undefined &&
+      (!hasBackgroundWork || backgroundWorkHoldsCompletion(pendingBackgroundWork))
+    ) {
+      return undefined;
+    }
     // A failed start has no provider turn. Background work still belongs
     // to the provider thread, so Stop reaches its latest accepted turn.
     const providerTurn =
@@ -12869,6 +12879,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       updatedAt: now,
       type: "run_interrupt_request",
       message: command.reason ?? RunExecutionService.USER_STOP_REASON,
+      ...(command.idleStopAfterMinutes === undefined
+        ? {}
+        : {
+            idleStop: {
+              afterMinutes: command.idleStopAfterMinutes,
+              commands: idleStoppedCommands(pendingBackgroundWork, projection.turnItems),
+            },
+          }),
     };
 
     const otherProviderInterrupts: Array<PendingOrchestrationEffectV2> = [];

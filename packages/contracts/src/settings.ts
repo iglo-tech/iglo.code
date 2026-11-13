@@ -95,6 +95,12 @@ export const SidebarAutoSettleAfterDays = Schema.Number.check(
 );
 export type SidebarAutoSettleAfterDays = typeof SidebarAutoSettleAfterDays.Type;
 const DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS: SidebarAutoSettleAfterDays = 7;
+export const IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES = [15, 30, 60, 120, 240, 480, 1440] as const;
+export const IdleBackgroundWorkStopAfterMinutes = Schema.Literals(
+  IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES,
+);
+export type IdleBackgroundWorkStopAfterMinutes = typeof IdleBackgroundWorkStopAfterMinutes.Type;
+const DEFAULT_IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES: IdleBackgroundWorkStopAfterMinutes = 60;
 
 export const MAX_SNOOZE_PRESET_MINUTES = 30 * 24 * 60;
 export const MAX_SNOOZE_PRESETS = 8;
@@ -1438,6 +1444,10 @@ export const ServerSettings = Schema.Struct({
   sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
   ),
+  /** Stops background work no one awaits, such as a dev server, after this long without thread activity. */
+  idleBackgroundWorkStopAfterMinutes: Schema.NullOr(IdleBackgroundWorkStopAfterMinutes).pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES)),
+  ),
   compactIdleThreads: LegacyCompactIdleThreads.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
@@ -1879,6 +1889,9 @@ export const ServerSettingsPatch = Schema.Struct({
   simlockDeviceHosts: Schema.optionalKey(SimlockDeviceHostConfigs),
   simlockDeviceHostsEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
+  idleBackgroundWorkStopAfterMinutes: Schema.optionalKey(
+    Schema.NullOr(IdleBackgroundWorkStopAfterMinutes),
+  ),
   compactIdleThreads: Schema.optionalKey(LegacyCompactIdleThreads),
   idleCompaction: Schema.optionalKey(IdleCompactionMode),
   sidebarAutoSettleKeepPullRequests: Schema.optionalKey(Schema.Boolean),

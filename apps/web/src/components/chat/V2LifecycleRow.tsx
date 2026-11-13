@@ -1,7 +1,7 @@
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { AgentElapsed } from "./AgentElapsed";
 import { projectedSubagentsToRuntime } from "@t3tools/client-runtime/state/subagentRuntime";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useThreadShell, useProject } from "../../state/entities";
 import { useEnvironment } from "../../state/environments";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -24,6 +24,7 @@ import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subage
 import {
   ProviderDriverKind,
   type ModelSelection,
+  type OrchestrationV2IdleBackgroundWorkStop,
   type OrchestrationV2ModelSwitch,
   type OrchestrationV2Notification,
   type OrchestrationV2TurnItem,
@@ -46,6 +47,7 @@ import {
   EraserIcon,
   GitForkIcon,
   MessageSquareIcon,
+  SquareTerminalIcon,
 } from "lucide-react";
 
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
@@ -73,8 +75,14 @@ export function V2LifecycleRow(props: {
   readonly resourceSummary?: boolean | undefined;
   readonly runs: ReadonlyArray<HandoffTimelineRun>;
   readonly onOpenThread: (threadId: ThreadId) => void;
+  readonly onRunShellCommand?:
+    | ((command: string, options?: { readonly cwd?: string | undefined }) => void)
+    | undefined;
 }) {
   const { item } = props;
+  if (item.type === "run_interrupt_request" && item.idleStop !== undefined) {
+    return <IdleBackgroundWorkStopRow stop={item.idleStop} onRun={props.onRunShellCommand} />;
+  }
   if (item.type === "run_interrupt_result") {
     return (
       <TimelineSystemDivider
@@ -166,6 +174,61 @@ export function V2LifecycleRow(props: {
     );
   }
   return null;
+}
+
+function idleDurationLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = minutes / 60;
+  return hours === 1 ? "1 hour" : `${hours} hours`;
+}
+
+function IdleBackgroundWorkStopRow(props: {
+  readonly stop: OrchestrationV2IdleBackgroundWorkStop;
+  readonly onRun:
+    | ((command: string, options?: { readonly cwd?: string | undefined }) => void)
+    | undefined;
+}) {
+  const [started, setStarted] = useState<ReadonlySet<string>>(() => new Set());
+  const { onRun } = props;
+  return (
+    <div data-v2-item-type="run_interrupt_request">
+      <TimelineSystemDivider
+        label="Stopped idle background work"
+        detail={`after ${idleDurationLabel(props.stop.afterMinutes)} without activity, to free memory`}
+        icon={CircleStopIcon}
+        wrapDetail
+      />
+      {props.stop.commands.map((entry) => (
+        <WorkLogRow
+          key={entry.command}
+          icon={<SquareTerminalIcon className="size-4 text-icon-muted" aria-hidden />}
+          label={
+            <span>
+              <code>{entry.command}</code>
+              {entry.label === undefined ? null : (
+                <span className="text-muted-foreground"> · {entry.label}</span>
+              )}
+            </span>
+          }
+          trailing={
+            onRun === undefined ? null : started.has(entry.command) ? (
+              <span className="text-xs text-muted-foreground">Running in terminal</span>
+            ) : (
+              <InlineButton
+                aria-label={`Turn ${entry.command} back on`}
+                onClick={() => {
+                  onRun(entry.command, { cwd: entry.cwd });
+                  setStarted((current) => new Set(current).add(entry.command));
+                }}
+              >
+                Turn it back on
+              </InlineButton>
+            )
+          }
+        />
+      ))}
+    </div>
+  );
 }
 
 const STATUS_VISUALS: Record<

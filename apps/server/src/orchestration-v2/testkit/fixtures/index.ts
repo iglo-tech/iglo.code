@@ -208,8 +208,12 @@ import { assertToolCallReadOnlyOnRequestFxOutput } from "./tool_call_read_only_o
 import {
   stopBackgroundWorkAfterFailedTurnInput,
   stopBackgroundWorkAfterReleaseInput,
+  idleStopBackgroundWorkInput,
 } from "./stop_background_work_after_failed_turn/input.ts";
-import { assertStopBackgroundWorkAfterFailedTurnOutput } from "./stop_background_work_after_failed_turn/output.ts";
+import {
+  assertIdleStopBackgroundWorkOutput,
+  assertStopBackgroundWorkAfterFailedTurnOutput,
+} from "./stop_background_work_after_failed_turn/output.ts";
 import { assertToolCallRestrictedGranularClaudeOutput } from "./tool_call_restricted_granular/claude_output.ts";
 import { assertToolCallRestrictedGranularOutput } from "./tool_call_restricted_granular/codex_output.ts";
 import { toolCallRestrictedGranularInput } from "./tool_call_restricted_granular/input.ts";
@@ -2071,6 +2075,22 @@ export const ORCHESTRATOR_REPLAY_FIXTURES: ReadonlyArray<OrchestratorReplayFixtu
         ),
         modelSelection: ACP_REGISTRY_MODEL_SELECTION,
         assertOutput: assertStopBackgroundWorkAfterFailedTurnOutput,
+      },
+    ],
+  },
+  {
+    name: "idle_stop_background_work",
+    buildInput: idleStopBackgroundWorkInput,
+    providers: [
+      {
+        driver: ProviderDriverKind.make("acpRegistry"),
+        transcriptFile: new URL(
+          "./stop_background_work_after_failed_turn/registry_transcript.ndjson",
+          import.meta.url,
+        ),
+        recordedScenario: "stop_background_work_after_failed_turn",
+        modelSelection: ACP_REGISTRY_MODEL_SELECTION,
+        assertOutput: assertIdleStopBackgroundWorkOutput,
       },
     ],
   },

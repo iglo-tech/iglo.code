@@ -3958,6 +3958,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             ...(item.exitCode === null || item.exitCode === undefined
               ? {}
               : { exitCode: item.exitCode }),
+            ...(item.cwd.length === 0 ? {} : { cwd: item.cwd }),
             // Matches the continuation offered when it completes after the turn.
             ...(context.subagent === null && continuationRequests !== undefined
               ? { completionWake: "always" as const }
