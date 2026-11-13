@@ -215,6 +215,7 @@ import * as CodexUsageHistory from "./usage/CodexUsageHistory.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
+import * as BackgroundWaitInference from "./orchestration-v2/BackgroundWaitInference.ts";
 import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementService.ts";
 import * as IdleCompactionService from "./orchestration-v2/IdleCompactionService.ts";
 import * as ThreadPullRequestService from "./orchestration-v2/ThreadPullRequestService.ts";
@@ -603,6 +604,10 @@ const layerIdleCompactionWorker = Layer.effectDiscard(
   IdleCompactionService.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(ProjectionStoreV2.layer));
 
+const layerBackgroundWaitInferenceWorker = Layer.effectDiscard(
+  BackgroundWaitInference.make.pipe(Effect.flatMap((service) => service.start())),
+);
+
 const layerThreadPullRequestWorker = Layer.effectDiscard(
   ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(layerPullRequestService));
@@ -668,6 +673,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(layerServerRestart),
   ),
   layerThreadPullRequestWorker,
+  layerBackgroundWaitInferenceWorker,
   KeepAwake.layer,
   DelegatedTaskAnalytics.layer,
   Layer.effectDiscard(

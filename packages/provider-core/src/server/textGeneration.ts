@@ -114,7 +114,26 @@ export interface TranscriptionPostProcessingResult {
   transcription: string;
 }
 
+export interface BackgroundTaskClassificationInput {
+  cwd: string;
+  projectId?: ProjectId | null | undefined;
+  command: string;
+  description?: string | undefined;
+  /** What the agent wrote around starting the task, oldest first. */
+  agentText: string;
+  modelSelection: ModelSelection;
+}
+
+export interface BackgroundTaskClassificationResult {
+  /** The agent resumes when the task ends. */
+  wait: boolean;
+}
+
 export interface ProviderTextGeneration {
+  readonly classifyBackgroundTask: (
+    input: BackgroundTaskClassificationInput,
+  ) => Effect.Effect<BackgroundTaskClassificationResult, TextGenerationError>;
+
   readonly generateTranscriptionPostProcessing: (
     input: TranscriptionPostProcessingInput,
   ) => Effect.Effect<TranscriptionPostProcessingResult, TextGenerationError>;

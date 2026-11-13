@@ -102,6 +102,7 @@ function shouldPublishAgentAwarenessEvent(
     case "run.created":
     case "run.updated":
     case "runtime-request.updated":
+    case "thread.background-waits-updated":
     case "subagent.updated":
     case "provider-thread.updated":
       return true;

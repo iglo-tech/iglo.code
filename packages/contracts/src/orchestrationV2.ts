@@ -463,6 +463,21 @@ const OrchestrationV2LastTitleRegeneration = Schema.Struct({
   completedAt: Schema.DateTimeUtc,
 });
 
+/** A live inference saw only the text before the command; a settled one saw the whole turn. */
+export const OrchestrationV2BackgroundWaitInference = Schema.Literals(["live", "settled"]);
+
+/**
+ * Whether the agent resumes when a background command or monitor ends. The agent decides with
+ * t3_background_wait; otherwise T3 infers it from the command and the agent's words.
+ */
+export const OrchestrationV2BackgroundWait = Schema.Struct({
+  taskId: TrimmedNonEmptyString,
+  awaited: Schema.Boolean,
+  /** Absent for the agent's own decision, which no inference replaces. */
+  inferred: Schema.optional(OrchestrationV2BackgroundWaitInference),
+});
+export type OrchestrationV2BackgroundWait = typeof OrchestrationV2BackgroundWait.Type;
+
 export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -527,6 +542,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
     ),
   ),
   lastTitleRegeneration: Schema.optional(Schema.NullOr(OrchestrationV2LastTitleRegeneration)),
+  /** Wait decisions for background commands, newest last; absent means none were made. */
+  backgroundWaits: Schema.optional(Schema.Array(OrchestrationV2BackgroundWait)),
   rollbackRequestId: Schema.optional(CommandId),
   rollbackFailure: Schema.optional(
     Schema.NullOr(
@@ -1057,10 +1074,11 @@ const PendingBackgroundTaskFields = {
   /** Native id of the turn item that started this work, when it is not `taskId`. */
   nativeItemId: Schema.optional(TrimmedNonEmptyString),
   /**
-   * The agent declared it resumes when this work ends, so the thread holds like it does for a
-   * subagent. Only the agent knows whether a command is a wait or a dev server it left running.
+   * The agent resumes when this work ends, so the thread holds like it does for a subagent. The
+   * agent declares it, or the thread's `backgroundWaits` infer it from the agent's words.
+   * False when that decision is "not a wait"; absent while nobody decided.
    */
-  awaited: Schema.optional(Schema.Literal(true)),
+  awaited: Schema.optional(Schema.Boolean),
 };
 
 export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
@@ -1984,6 +2002,7 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.model-selection-updated",
       "thread.provider-switched",
       "thread.guest-share-updated",
+      "thread.background-waits-updated",
     ]),
     payload: OrchestrationV2AppThread,
   }),
@@ -2920,6 +2939,7 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.model-selection-updated",
       "thread.provider-switched",
       "thread.guest-share-updated",
+      "thread.background-waits-updated",
     ]),
     payload: OrchestrationV2AppThreadJson,
   }),
@@ -3682,6 +3702,15 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     providerThreadId: ProviderThreadId,
     providerTurnId: ProviderTurnId,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.background-wait.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    taskIds: Schema.Array(TrimmedNonEmptyString),
+    awaited: Schema.Boolean,
+    /** An inference replaces only an earlier, less informed inference. */
+    inferred: Schema.optional(OrchestrationV2BackgroundWaitInference),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.background-work.settle"),

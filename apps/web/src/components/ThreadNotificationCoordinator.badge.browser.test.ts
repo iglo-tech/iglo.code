@@ -305,7 +305,7 @@ it.each([false, true])(
       turnState: string,
       completedAt: string | null,
       latestRunBackgroundWake: boolean,
-      pendingBackgroundTasks: ReadonlyArray<{ taskId: string; kind: "monitor" }>,
+      pendingBackgroundTasks: ReadonlyArray<{ taskId: string; kind: "monitor"; awaited?: boolean }>,
     ) => ({
       status: "live",
       snapshot: Option.some({
@@ -321,7 +321,8 @@ it.each([false, true])(
         ],
       }),
     });
-    const monitor = [{ taskId: "watch", kind: "monitor" as const }];
+    // Decided as no wait, so it never holds the completion.
+    const monitor = [{ taskId: "watch", kind: "monitor" as const, awaited: false }];
     const titles = () => TestNotification.sent.map(({ title }) => title);
     state.shells.set(
       "one",

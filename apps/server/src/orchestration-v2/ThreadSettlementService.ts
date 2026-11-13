@@ -765,6 +765,7 @@ export const make = Effect.gen(function* () {
       case "thread.pull-request-link-updated":
       case "thread.pull-request-synced":
       case "provider-session.detached":
+      case "thread.background-waits-updated":
       case "run.background-work-cancelled":
         return enqueueThread(event.threadId);
       // Sweep only when the work can have ended: progress updates cannot settle anything.

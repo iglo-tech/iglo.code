@@ -220,6 +220,7 @@ const make = Effect.gen(function* () {
       turnItems: records.turnItems,
       activeProviderThreadId: records.thread.activeProviderThreadId,
       pullRequests: records.thread.pullRequests,
+      backgroundWaits: records.thread.backgroundWaits,
     });
     const preparation = yield* setup.get(target.threadId);
     const preparationId =

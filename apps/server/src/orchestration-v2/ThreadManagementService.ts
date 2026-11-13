@@ -339,7 +339,7 @@ export class ThreadManagementBackgroundWaitError extends Schema.TaggedError<Thre
   override get message(): string {
     switch (this.reason) {
       case "unsupported":
-        return "This provider cannot mark background work as awaited.";
+        return "This provider reports no background work T3 can mark, so this request registers no wait. The thread still shows Waiting when your words say you are waiting on the command.";
       case "unavailable":
         return "This thread has no live provider session.";
       case "failed":
@@ -1511,30 +1511,65 @@ const make = Effect.gen(function* () {
     if (Option.isNone(runtime)) {
       return yield* unavailable();
     }
-    if (runtime.value.awaitBackgroundTasks === undefined) {
+    // Without its own method, a provider that lists its background work is matched by that list.
+    const roster = providerThread.pendingBackgroundTasks ?? [];
+    const adapterAwait = runtime.value.awaitBackgroundTasks;
+    if (adapterAwait === undefined && roster.length === 0) {
       return yield* new ThreadManagementBackgroundWaitError({
         threadId: input.threadId,
         reason: "unsupported",
       });
     }
-    const { matched } = yield* runtime.value
-      .awaitBackgroundTasks({ providerThread, taskIds: input.taskIds, awaited: input.awaited })
-      .pipe(
-        Effect.timeout("15 seconds"),
-        Effect.mapError(
-          (cause) =>
-            new ThreadManagementBackgroundWaitError({
-              threadId: input.threadId,
-              reason: "failed",
-              cause,
-            }),
-        ),
-      );
+    const { matched } = yield* (
+      adapterAwait === undefined
+        ? Effect.succeed({
+            matched: [...new Set(input.taskIds)].filter((taskId) =>
+              roster.some(
+                (task) =>
+                  task.taskId === taskId && (task.kind === "command" || task.kind === "monitor"),
+              ),
+            ),
+          })
+        : adapterAwait({ providerThread, taskIds: input.taskIds, awaited: input.awaited })
+    ).pipe(
+      Effect.timeout("15 seconds"),
+      Effect.mapError(
+        (cause) =>
+          new ThreadManagementBackgroundWaitError({
+            threadId: input.threadId,
+            reason: "failed",
+            cause,
+          }),
+      ),
+    );
     if (input.awaited && matched.length === 0) {
       return yield* new ThreadManagementBackgroundWaitError({
         threadId: input.threadId,
         reason: "unmatched",
       });
+    }
+    // Recorded on the thread too, so an inferred decision never overrides the agent's.
+    if (matched.length > 0) {
+      yield* orchestrator
+        .dispatch({
+          type: "thread.background-wait.set",
+          commandId: CommandId.make(
+            `server:background-wait:${input.threadId}:${input.awaited}:${matched.join(",")}:${yield* Clock.currentTimeMillis}`,
+          ),
+          threadId: input.threadId,
+          taskIds: matched,
+          awaited: input.awaited,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new ThreadManagementBackgroundWaitError({
+                threadId: input.threadId,
+                reason: "failed",
+                cause,
+              }),
+          ),
+        );
     }
     const matchedIds = new Set(matched);
     return { matched, unmatched: input.taskIds.filter((taskId) => !matchedIds.has(taskId)) };

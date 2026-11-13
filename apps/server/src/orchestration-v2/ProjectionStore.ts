@@ -916,6 +916,7 @@ export function applyToProjection(
       };
     // Reordering and PR refreshes preserve the orchestrator's activity timestamp.
     case "thread.active-reordered":
+    case "thread.background-waits-updated":
     case "thread.tags-updated":
     case "thread.pull-request-synced":
       return {
@@ -1721,6 +1722,7 @@ export function threadShellFromProjection(
     activeProviderThreadId: projection.thread.activeProviderThreadId,
     runs,
     pullRequests: projection.thread.pullRequests,
+    backgroundWaits: projection.thread.backgroundWaits,
   });
   return {
     createdBy: projection.thread.createdBy,
@@ -2271,6 +2273,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             case "thread.interaction-mode-updated":
             case "thread.model-selection-updated":
             case "thread.provider-switched":
+            case "thread.background-waits-updated":
             case "thread.guest-share-updated": {
               const payloadJson = yield* encodeThreadPayload(event.payload);
               const payload = parseEncodedPayload(payloadJson);
@@ -3089,7 +3092,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             event.type !== "thread.interaction-mode-updated" &&
             event.type !== "thread.model-selection-updated" &&
             event.type !== "thread.provider-switched" &&
-            event.type !== "thread.guest-share-updated"
+            event.type !== "thread.guest-share-updated" &&
+            event.type !== "thread.background-waits-updated"
           ) {
             const updatedAt = yield* encodeThreadUpdatedAt(event.occurredAt);
             yield* sql`
@@ -8174,6 +8178,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                     activeProviderThreadId: thread.activeProviderThreadId,
                     hasActiveRun: false,
                     pullRequests: thread.pullRequests,
+                    backgroundWaits: thread.backgroundWaits,
                   }),
                 } satisfies ProjectionSettlementCandidate;
               }),
@@ -8386,6 +8391,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             activeProviderThreadId: thread.activeProviderThreadId,
             hasActiveRun: row.active_run_id !== null,
             pullRequests: thread.pullRequests,
+            backgroundWaits: thread.backgroundWaits,
           }),
         ];
         return {

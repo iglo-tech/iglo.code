@@ -502,3 +502,36 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
 
   return { prompt, outputSchema };
 }
+
+export interface BackgroundTaskClassificationPromptInput {
+  readonly command: string;
+  readonly description?: string | undefined;
+  readonly agentText: string;
+}
+
+const BACKGROUND_TASK_COMMAND_LIMIT = 2_000;
+const BACKGROUND_TASK_AGENT_TEXT_LIMIT = 4_000;
+
+export function buildBackgroundTaskClassificationPrompt(
+  input: BackgroundTaskClassificationPromptInput,
+) {
+  const agentText = input.agentText.trim().slice(-BACKGROUND_TASK_AGENT_TEXT_LIMIT);
+  const prompt = [
+    "A coding agent started a command in the background and may end its turn while it runs.",
+    "Decide whether the agent is waiting for this command: it will act on the result or keep working when the command ends.",
+    "",
+    'Answer wait=true when the command exists to wait for something and report back: a loop until a file, status, or condition appears; a build, test, or CI run whose result the agent said it will check; a sleep before continuing. The agent\'s words such as "I\'ll wait for", "once it finishes, I will" count strongly.',
+    'Answer wait=false for anything left running for the user or for later: a dev server, a watcher, a preview, a tunnel, a log tail, or anything the agent hands off ("the server is on localhost:3000", "tell me when to stop it").',
+    "When unsure, answer wait=false.",
+    "",
+    "Command:",
+    input.command.slice(0, BACKGROUND_TASK_COMMAND_LIMIT),
+    ...(input.description === undefined ? [] : ["", "Description:", input.description]),
+    "",
+    "Agent text around starting it:",
+    agentText.length > 0 ? agentText : "(none)",
+    "",
+    'Reply with JSON only: {"wait": true} or {"wait": false}.',
+  ].join("\n");
+  return { prompt, outputSchema: Schema.Struct({ wait: Schema.Boolean }) };
+}

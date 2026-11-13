@@ -4,6 +4,7 @@ import {
   createThreadNotificationGate,
   RELEASED_COMPLETION_GRACE_MS,
   type ThreadNotificationObservation,
+  UNDECIDED_WORK_GRACE_MS,
 } from "./ThreadNotificationCoordinator.logic";
 
 const working: ThreadNotificationObservation = {
@@ -140,6 +141,27 @@ describe("createThreadNotificationGate", () => {
       expect(notify.mock.calls).toEqual([["thread", "completion"]]);
     }
   });
+
+  it.each([
+    ["T3 decides it is a wait", "waiting", 0],
+    ["T3 decides it is no wait", "done", 1],
+    ["no decision arrives", "timeout", 1],
+  ] as const)(
+    "holds a completion with undecided background work until %s",
+    (_case, outcome, notifications) => {
+      using _timers = fakeTimers();
+      const { notify, observe } = harness();
+      observe(working);
+      observe({ ...completed(1), undecidedWork: true });
+      vi.advanceTimersByTime(UNDECIDED_WORK_GRACE_MS - 1);
+      expect(notify).not.toHaveBeenCalled();
+      if (outcome === "waiting") observe(working);
+      if (outcome === "done") observe(completed(1));
+      if (outcome === "done") expect(notify).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(UNDECIDED_WORK_GRACE_MS);
+      expect(notify).toHaveBeenCalledTimes(notifications);
+    },
+  );
 
   it("waits out the grace before notifying a wake's completion, and a final wake replaces it", () => {
     using _timers = fakeTimers();

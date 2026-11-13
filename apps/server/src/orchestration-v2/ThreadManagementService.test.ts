@@ -467,7 +467,8 @@ it.effect.each([
   "no-match",
   "no-match-clear",
   "no-session",
-  "unsupported-runtime",
+  "roster-runtime",
+  "no-roster-runtime",
 ] as const)(
   "marks background work awaited on the thread's active provider thread with state %s",
   (state) =>
@@ -491,17 +492,19 @@ it.effect.each([
         lastRunOrdinal: 1,
         handoffIds: [],
         forkedFrom: null,
-        pendingBackgroundTasks: [{ taskId: "tests", kind: "command" }],
+        pendingBackgroundTasks:
+          state === "no-roster-runtime" ? [] : [{ taskId: "tests", kind: "command" }],
         contextUsage: null,
         nativeMetadata: null,
         createdAt: now,
         updatedAt: now,
       };
       const calls: Array<{ providerThreadId: ProviderThreadId; awaited: boolean }> = [];
+      const recorded: Array<unknown> = [];
       const runtime = {
         driver,
         providerSessionId,
-        ...(state === "unsupported-runtime"
+        ...(state.endsWith("-runtime")
           ? {}
           : {
               awaitBackgroundTasks: (input: {
@@ -531,6 +534,11 @@ it.effect.each([
                   },
                   providerThreads: [providerThread],
                 } as unknown as OrchestrationV2ThreadProjection),
+              dispatch: (command) =>
+                Effect.sync(() => {
+                  recorded.push(command);
+                  return { sequence: 1, storedEvents: [] };
+                }),
             }),
             Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
               get: () =>
@@ -552,11 +560,14 @@ it.effect.each([
           .pipe(Effect.result);
       }).pipe(Effect.provide(Layer.merge(layerTest, ThreadCommandExecutor.layer)));
 
-      if (state === "live") {
+      if (state === "live" || state === "roster-runtime") {
         expect(result).toMatchObject({
           success: { matched: ["tests"], unmatched: ["finished"] },
         });
-        expect(calls).toEqual([{ providerThreadId, awaited: true }]);
+        expect(calls).toEqual(state === "live" ? [{ providerThreadId, awaited: true }] : []);
+        expect(recorded).toMatchObject([
+          { type: "thread.background-wait.set", threadId, taskIds: ["tests"], awaited: true },
+        ]);
       } else if (state === "no-match") {
         expect(result).toMatchObject({
           failure: { _tag: "ThreadManagementBackgroundWaitError", reason: "unmatched" },
@@ -574,6 +585,7 @@ it.effect.each([
         });
         expect(calls).toEqual([]);
       }
+      if (state !== "live" && state !== "roster-runtime") expect(recorded).toEqual([]);
     }),
 );
 
