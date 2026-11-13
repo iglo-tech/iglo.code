@@ -4464,6 +4464,15 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           event.turnItem.input === "pwd",
       );
       const terminalIndex = harness.events.findIndex((event) => event.type === "turn.terminal");
+      const resumedCommand = harness.events[resumedCommandIndex];
+      // The idle stop restarts a command where Codex ran it.
+      assert.equal(
+        resumedCommand?.type === "turn_item.updated" &&
+          resumedCommand.turnItem.type === "command_execution"
+          ? resumedCommand.turnItem.cwd
+          : undefined,
+        "/workspace",
+      );
       assert.isAtLeast(recoveredIndex, 0);
       assert.isAbove(resumedCommandIndex, recoveredIndex);
       assert.isAbove(terminalIndex, resumedCommandIndex);

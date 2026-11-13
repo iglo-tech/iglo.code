@@ -952,6 +952,61 @@ it.effect.each([false, true])(
     }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("an idle stop does not read as a person stopping the run", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:idle-stop-shell");
+    yield* createWatchingThread(threadId, 8);
+    yield* send(threadId, "dev server", "start_immediately");
+    const run = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
+    const now = yield* DateTime.now;
+    yield* projections.apply({
+      id: EventId.make("event:idle-stop-shell:completed"),
+      type: "run.updated",
+      threadId,
+      occurredAt: now,
+      payload: { ...run, status: "completed", startedAt: now, completedAt: now },
+    });
+    yield* projections.apply({
+      id: EventId.make("event:idle-stop-shell:request"),
+      type: "turn-item.updated",
+      threadId,
+      runId: run.id,
+      occurredAt: now,
+      payload: {
+        id: TurnItemId.make("turn-item:idle-stop-shell:request"),
+        threadId,
+        runId: run.id,
+        nodeId: run.rootNodeId,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 1_000,
+        status: "completed",
+        title: "Interrupt requested",
+        startedAt: now,
+        completedAt: now,
+        updatedAt: now,
+        type: "run_interrupt_request",
+        message: "Stopped after 1 hour without activity",
+        idleStop: { afterMinutes: 60, commands: [] },
+      },
+    });
+    const shell = yield* projections.getThreadShell(threadId);
+    const snapshot = (yield* projections.getShellSnapshot()).threads.find(
+      (thread) => thread.id === threadId,
+    );
+    const memoryShell = ProjectionStore.threadShellFromProjection(
+      yield* orchestrator.getThreadProjection(threadId),
+    );
+    for (const result of [shell, snapshot, memoryShell]) {
+      assert.isFalse(result?.latestRunStopRequested);
+    }
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("a run Stop reached cannot delegate or start a watch, even after it ends", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

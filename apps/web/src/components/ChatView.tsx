@@ -2816,10 +2816,12 @@ export default function ChatView(props: ChatViewProps) {
     },
   });
   // A maximized panel covers the terminal drawer the command runs in.
-  const runSideChatShellCommandStable = useStableCallback((command: string) => {
-    if (activeThreadRef) useRightPanelStore.getState().setMaximized(activeThreadRef, false);
-    runShellCommandStable(command);
-  });
+  const runSideChatShellCommandStable = useStableCallback(
+    (command: string, options?: { readonly cwd?: string | undefined }) => {
+      if (activeThreadRef) useRightPanelStore.getState().setMaximized(activeThreadRef, false);
+      return runShellCommandStable(command, options);
+    },
+  );
   // Main-thread surfaces show this reason; `/side` sent anyway gets it as a toast.
   const sideChatDisabledReason =
     activeThread?.lineage.sideChat === true

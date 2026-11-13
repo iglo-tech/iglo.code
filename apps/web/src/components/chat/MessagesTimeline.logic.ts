@@ -1039,7 +1039,9 @@ function deriveTurnFolds(input: {
     if (
       entry.kind === "event" &&
       entry.projectedItem.item.runId !== null &&
-      (entry.projectedItem.item.type === "run_interrupt_request" ||
+      // An idle stop ends leftover work after the turn finished; the turn still folds.
+      ((entry.projectedItem.item.type === "run_interrupt_request" &&
+        entry.projectedItem.item.idleStop === undefined) ||
         entry.projectedItem.item.type === "run_interrupt_result")
     ) {
       interruptedRunIds.add(entry.projectedItem.item.runId);
@@ -1855,7 +1857,8 @@ export function deriveMessagesTimelineRows(input: {
     // A stopped compaction's own divider already says it stopped.
     if (
       timelineEntry.kind === "event" &&
-      (timelineEntry.projectedItem.item.type === "run_interrupt_request" ||
+      ((timelineEntry.projectedItem.item.type === "run_interrupt_request" &&
+        timelineEntry.projectedItem.item.idleStop === undefined) ||
         (timelineEntry.projectedItem.item.type === "run_interrupt_result" &&
           timelineEntry.projectedItem.item.runId !== null &&
           compactionRuns.has(timelineEntry.projectedItem.item.runId) &&

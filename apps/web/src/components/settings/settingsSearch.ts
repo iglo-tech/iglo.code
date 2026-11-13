@@ -647,6 +647,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "project-defaults",
   },
   {
+    id: "stop-idle-background-processes",
+    title: "Stop idle background processes",
+    to: "/settings/threads",
+    searchTerms: ["dev server memory ram background command shell kill inactivity minutes hours"],
+    requiresThreadAutoSettlement: true,
+    scope: "environment-defaults",
+  },
+  {
     id: "compact-idle-threads",
     title: "Compact idle threads",
     to: "/settings/providers",

@@ -242,6 +242,8 @@ export type OrchestratorFixtureInputStep =
   | {
       readonly type: "stop_background_work";
       readonly targetRunIndex: number;
+      /** Stop as the idle sweep does instead of the composer's Stop. */
+      readonly idleStopAfterMinutes?: number;
     }
   | {
       readonly type: "release_replay_gate_after_waiting";
@@ -871,6 +873,9 @@ export function materializeFixtureInput(input: {
               threadId: ids.threadId,
               runId: runIdFor(step.targetRunIndex),
               holdQueue: true,
+              ...(step.idleStopAfterMinutes === undefined
+                ? {}
+                : { idleStopAfterMinutes: step.idleStopAfterMinutes }),
             },
             { advanceClockAfter: false },
           );

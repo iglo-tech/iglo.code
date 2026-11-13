@@ -18,6 +18,7 @@ import {
 import {
   DEFAULT_UNIFIED_SETTINGS,
   type DiffLayout,
+  IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   type ResponseStreamingMode,
@@ -496,6 +497,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests
       ? ["Keep threads with a PR"]
       : []),
+    ...(settings.idleBackgroundWorkStopAfterMinutes !==
+    DEFAULT_UNIFIED_SETTINGS.idleBackgroundWorkStopAfterMinutes
+      ? ["Stop idle background processes"]
+      : []),
     ...(settings.sidebarAutoSettleOnMerge !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge
       ? ["Auto-settle merged threads"]
       : []),
@@ -675,6 +680,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
+      idleBackgroundWorkStopAfterMinutes:
+        DEFAULT_UNIFIED_SETTINGS.idleBackgroundWorkStopAfterMinutes,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
       autoResumeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads,
       snoozeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads,
@@ -729,6 +736,15 @@ export function useSettingsRestore(onRestored?: () => void) {
 }
 
 const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ?? 7;
+
+const IDLE_BACKGROUND_WORK_STOP_OFF = "off";
+
+function idleBackgroundWorkStopLabel(minutes: number | null): string {
+  if (minutes === null) return "Never";
+  if (minutes < 60) return `After ${minutes} minutes`;
+  const hours = minutes / 60;
+  return hours === 1 ? "After 1 hour" : `After ${hours} hours`;
+}
 
 function AutoSettleDaysInput({
   value,
@@ -2003,6 +2019,65 @@ export function ThreadsSettingsPanel() {
               }
             />
           ) : null}
+          <SettingsRow
+            serverScoped
+            settingKeys={["idleBackgroundWorkStopAfterMinutes"]}
+            {...searchableSetting("stop-idle-background-processes")}
+            description="Stop dev servers an agent left running after this long without chat activity. Commands it waits on, pinned threads, and threads with auto-settle off are kept. Restart from the chat."
+            resetAction={
+              settings.idleBackgroundWorkStopAfterMinutes !==
+              DEFAULT_UNIFIED_SETTINGS.idleBackgroundWorkStopAfterMinutes ? (
+                <SettingResetButton
+                  label="stop idle background processes"
+                  onClick={() =>
+                    updateSettings({
+                      idleBackgroundWorkStopAfterMinutes:
+                        DEFAULT_UNIFIED_SETTINGS.idleBackgroundWorkStopAfterMinutes,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={String(
+                  settings.idleBackgroundWorkStopAfterMinutes ?? IDLE_BACKGROUND_WORK_STOP_OFF,
+                )}
+                onValueChange={(value) => {
+                  if (value === IDLE_BACKGROUND_WORK_STOP_OFF) {
+                    updateSettings({ idleBackgroundWorkStopAfterMinutes: null });
+                    return;
+                  }
+                  const minutes = IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES.find(
+                    (candidate) => String(candidate) === value,
+                  );
+                  if (minutes !== undefined) {
+                    updateSettings({ idleBackgroundWorkStopAfterMinutes: minutes });
+                  }
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full sm:w-40"
+                  aria-label="Stop idle background processes"
+                >
+                  <SelectValue>
+                    {idleBackgroundWorkStopLabel(settings.idleBackgroundWorkStopAfterMinutes)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES.map((minutes) => (
+                    <SelectItem hideIndicator key={minutes} value={String(minutes)}>
+                      {idleBackgroundWorkStopLabel(minutes)}
+                    </SelectItem>
+                  ))}
+                  <SelectItem hideIndicator value={IDLE_BACKGROUND_WORK_STOP_OFF}>
+                    {idleBackgroundWorkStopLabel(null)}
+                  </SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
         </SettingsSection>
       ) : null}
 

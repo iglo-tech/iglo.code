@@ -39,3 +39,16 @@ export function assertStopBackgroundWorkAfterFailedTurnOutput(
   );
   assert.equal(projection.runs[0]?.status, "failed");
 }
+
+export function assertIdleStopBackgroundWorkOutput(
+  result: OrchestratorV2ScenarioResult,
+  transcript: ProviderReplayTranscript,
+) {
+  assertStopBackgroundWorkAfterFailedTurnOutput(result, transcript);
+  const projection = projectionFor(result, transcript.scenario);
+  const request = projection.turnItems.find((item) => item.type === "run_interrupt_request");
+  assert.deepEqual(request?.type === "run_interrupt_request" ? request.idleStop : undefined, {
+    afterMinutes: 60,
+    commands: [{ command: "bun run dev" }],
+  });
+}

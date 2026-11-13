@@ -161,6 +161,12 @@ when the thread settles** enabled in Settings > Projects > Actions. You can also
 that action so iglo.code can stop its terminal and child processes. Commands started through an
 agent's own shell tools are managed by the provider.
 
+A dev server or other command an agent left running stops after an hour without chat activity, to
+free memory. Commands the agent is waiting on, pinned threads, threads with automatic
+settlement turned off, and a subagent's thread while its parent is still open are left alone. The chat notes what stopped, and **Turn it back on** runs the
+command again in a new terminal. Change the delay or turn this off with **Stop idle background
+processes** in Settings > Threads.
+
 To reclaim disk space from settled work, turn on **Run in the thread's worktree when the
 thread settles** for one of the project's actions, or set `"runOnSettle": true` on a
 `iglo.code.json` script, for example `cargo clean`. It runs each time a thread in its own

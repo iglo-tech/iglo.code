@@ -584,6 +584,7 @@ interface HarnessOptions {
   readonly existingWorktreePaths?: ReadonlyArray<string>;
   readonly unreadablePaths?: ReadonlyArray<string>;
   readonly onDispatch?: (command: AutoSettleCommand) => Effect.Effect<void>;
+  readonly onInterrupt?: () => Effect.Effect<void>;
   readonly onScriptRun?: (
     input: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput,
   ) => Effect.Effect<void>;
@@ -603,6 +604,9 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const settingsChanges = yield* PubSub.unbounded<ContractServerSettings>();
   const mergedPullRequests = yield* PubSub.unbounded<PullRequestService.PullRequestMergeEvent>();
   const commands = yield* Ref.make<ReadonlyArray<AutoSettleCommand>>([]);
+  const interrupts = yield* Ref.make<
+    ReadonlyArray<Extract<OrchestrationV2Command, { readonly type: "run.interrupt" }>>
+  >([]);
   const branchCalls = yield* Ref.make<
     ReadonlyArray<{ readonly cwd: string; readonly branch: string }>
   >([]);
@@ -658,6 +662,12 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     });
 
   const dispatch: Orchestrator.OrchestratorV2Shape["dispatch"] = (command) => {
+    if (command.type === "run.interrupt") {
+      return Ref.update(interrupts, (recorded) => [...recorded, command]).pipe(
+        Effect.andThen(options.onInterrupt?.() ?? Effect.void),
+        Effect.as({ sequence: 1, storedEvents: [] }),
+      );
+    }
     if (command.type !== "thread.auto-settle") {
       return Effect.die(new Error(`Unexpected command: ${command.type}`));
     }
@@ -766,6 +776,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     snapshotReads,
     candidateReads,
     commands,
+    interrupts,
     branchCalls,
     summaryCalls,
     summaryRecovery,
@@ -871,6 +882,99 @@ describe("ThreadSettlementServiceV2 worker", () => {
       }).pipe(Effect.provide(fixture.layer));
     }),
   );
+  it.effect("stops a thread's idle leftover work once, and never work the agent awaits", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse(NOW));
+      const idleSince = DateTime.makeUnsafe(Date.parse(NOW) - 61 * 60 * 1_000);
+      const leftover = (id: string, awaited?: true) =>
+        makeThread(id, {
+          latestRunId: RunId.make(`run:${id}`),
+          latestRunCompletedAt: idleSince,
+          latestUserMessageAt: idleSince,
+          pendingBackgroundTasks: [
+            {
+              taskId: `dev:${id}`,
+              kind: "command",
+              command: "bun run dev",
+              ...(awaited ? { awaited } : {}),
+            },
+            { taskId: "pull-request-watch:github.com/acme/app#1", kind: "monitor", awaited: true },
+          ],
+        });
+      const recent = makeThread("recent", {
+        ...leftover("recent"),
+        latestRunCompletedAt: DateTime.makeUnsafe(Date.parse(NOW) - 30 * 60 * 1_000),
+      });
+      const fixture = yield* makeHarness({
+        snapshot: makeSnapshot([leftover("idle"), leftover("awaited", true), recent]),
+        settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: null },
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+        yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+        // The stop lands later, so the next sweep still sees the same work.
+        yield* TestClock.adjust("1 minute");
+        yield* Queue.take(fixture.snapshotReads);
+        yield* service.drain;
+        const stopped = yield* Ref.get(fixture.interrupts);
+        expect(
+          stopped.map(({ threadId, runId, idleStopAfterMinutes }) => ({
+            threadId,
+            runId,
+            idleStopAfterMinutes,
+          })),
+        ).toEqual([
+          {
+            threadId: ThreadId.make("idle"),
+            runId: RunId.make("run:idle"),
+            idleStopAfterMinutes: 60,
+          },
+        ]);
+      }).pipe(Effect.provide(fixture.layer));
+    }),
+  );
+
+  it.effect("sends a failed idle stop again only after its retry delay", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse(NOW));
+      const idleSince = DateTime.makeUnsafe(Date.parse(NOW) - 2 * 60 * 60 * 1_000);
+      const failures = yield* Ref.make(1);
+      const fixture = yield* makeHarness({
+        snapshot: makeSnapshot([
+          makeThread("idle", {
+            latestRunId: RunId.make("run:idle"),
+            latestRunCompletedAt: idleSince,
+            latestUserMessageAt: idleSince,
+            pendingBackgroundTasks: [{ taskId: "dev", kind: "command", command: "bun run dev" }],
+          }),
+        ]),
+        settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: null },
+        onInterrupt: () =>
+          Ref.getAndUpdate(failures, (count) => count - 1).pipe(
+            Effect.flatMap((count) =>
+              count > 0 ? Effect.die("projection write failed") : Effect.void,
+            ),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+        yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+        const sweepAfter = (duration: Parameters<typeof TestClock.adjust>[0]) =>
+          Effect.gen(function* () {
+            yield* TestClock.adjust(duration);
+            yield* Queue.take(fixture.snapshotReads);
+            yield* service.drain;
+            return (yield* Ref.get(fixture.interrupts)).length;
+          });
+        assert.equal((yield* Ref.get(fixture.interrupts)).length, 1);
+        assert.equal(yield* sweepAfter("1 minute"), 1);
+        assert.equal(yield* sweepAfter("4 minutes"), 2);
+        // Delivered: later sweeps leave it alone.
+        assert.equal(yield* sweepAfter("10 minutes"), 2);
+      }).pipe(Effect.provide(fixture.layer));
+    }),
+  );
+
   it.effect("settles a merged pull request stored only in the thread links", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(Date.parse(NOW));

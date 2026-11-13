@@ -4363,6 +4363,48 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         assert.lengthOf(payloadScans, 1);
         assert.include(payloadScans[0], "item.run_id IS json_extract(wanted.value, '$.id')");
       }
+      // A jump reads the full index: a user's Stop on the run keeps its work inline, an idle
+      // stop does not.
+      {
+        const [stopItem] = yield* sql<{ readonly type: string; readonly payload_json: string }>`
+          SELECT type, payload_json FROM orchestration_v2_projection_turn_items
+          WHERE thread_id = ${threadId} AND ordinal = 500`;
+        const jumpFolds = (stop: "none" | "user" | "idle") =>
+          Effect.gen(function* () {
+            yield* sql`UPDATE orchestration_v2_projection_turn_items
+              SET type = ${stop === "none" ? stopItem!.type : "run_interrupt_request"},
+                payload_json = ${
+                  stop === "none"
+                    ? stopItem!.payload_json
+                    : JSON.stringify({
+                        ...JSON.parse(stopItem!.payload_json),
+                        type: "run_interrupt_request",
+                        message: "Stopped",
+                        ...(stop === "idle"
+                          ? { idleStop: { afterMinutes: 60, commands: [] } }
+                          : {}),
+                      })
+                }
+              WHERE thread_id = ${threadId} AND ordinal = 500`;
+            const page = yield* historyPage(
+              threadId,
+              encodeThreadHistoryCursor({
+                snapshotSequence: 0,
+                sourceThreadId: threadId,
+                sourceItemId: "turn-item:bounded-sql-history:1000",
+                position: 1000,
+              }),
+              "turn-item:bounded-sql-history:2",
+              false,
+              "deferred",
+            );
+            return page.items.some((row) => row.item.deferredWork !== undefined);
+          });
+        assert.isTrue(yield* jumpFolds("none"));
+        assert.isFalse(yield* jumpFolds("user"));
+        assert.isTrue(yield* jumpFolds("idle"));
+        yield* jumpFolds("none");
+      }
       // Until its run is scanned, a cursor on inline output is hidden inside a work group.
       yield* sql`UPDATE orchestration_v2_projection_turn_items SET type = 'dynamic_tool',
         payload_json = json_set(payload_json, '$.type', 'dynamic_tool', '$.toolName', 't3-code.delegate_task')
@@ -4528,6 +4570,40 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           (row) => row.item.deferredWork?.itemCount === 151,
         ),
       );
+      // A user's Stop on the run keeps its work inline; an idle stop ends leftover work after
+      // the turn, so the turn still folds.
+      const [latestItem] = yield* sql<{ readonly type: string; readonly payload_json: string }>`
+        SELECT type, payload_json FROM orchestration_v2_projection_turn_items
+        WHERE thread_id = ${threadId} AND ordinal = 900`;
+      // The stop replaces one of the group's items, so one older item joins to keep 151.
+      const moveIntoRun = (runId: string | null) => sql`
+        UPDATE orchestration_v2_projection_turn_items SET run_id = ${runId},
+          payload_json = json_set(payload_json, '$.runId', ${runId})
+        WHERE thread_id = ${threadId} AND ordinal = 849`;
+      yield* moveIntoRun(sharedRunId);
+      const stopWindow = (idleStop: boolean) =>
+        Effect.gen(function* () {
+          yield* sql`UPDATE orchestration_v2_projection_turn_items
+            SET type = 'run_interrupt_request', payload_json = ${JSON.stringify({
+              ...JSON.parse(latestItem!.payload_json),
+              type: "run_interrupt_request",
+              message: "Stopped",
+              ...(idleStop ? { idleStop: { afterMinutes: 60, commands: [] } } : {}),
+            })}
+            WHERE thread_id = ${threadId} AND ordinal = 900`;
+          const window = yield* projectionStore.getThreadSnapshotWindow(threadId, {
+            rowLimit: sqlPageLimit,
+            userTurnLimit: 10,
+            deferWork: true,
+          });
+          return window.projection.visibleTurnItems.some((row) => row.item.deferredWork);
+        });
+      assert.isFalse(yield* stopWindow(false));
+      assert.isTrue(yield* stopWindow(true));
+      yield* sql`UPDATE orchestration_v2_projection_turn_items
+        SET type = ${latestItem!.type}, payload_json = ${latestItem!.payload_json}
+        WHERE thread_id = ${threadId} AND ordinal = 900`;
+      yield* moveIntoRun(null);
       yield* sql`UPDATE orchestration_v2_projection_turn_items
         SET run_id = 'run:bounded-sql-history:1',
           payload_json = json_set(payload_json, '$.runId', 'run:bounded-sql-history:1')

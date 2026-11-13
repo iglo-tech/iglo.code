@@ -35,6 +35,7 @@ import * as TerminalManager from "../terminal/Manager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
+import { isIdleBackgroundWorkStopDue } from "./IdleBackgroundWork.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
@@ -45,6 +46,13 @@ export interface SettlementPullRequest {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
+const IDLE_STOP_RETRY_MS = 5 * 60 * 1_000;
+
+function formatIdleDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = minutes / 60;
+  return hours === 1 ? "1 hour" : `${hours} hours`;
+}
 const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
 
 function toMillis(value: DateTime.Utc | null | undefined): number | null {
@@ -318,6 +326,67 @@ export const make = Effect.gen(function* () {
   const projectScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   // Repeated thread.settled retains settledAt; run the action only once per settlement.
   const settleActionRunAt = new Map<ThreadId, number>();
+  // The stop lands after its interrupt effect runs, so later sweeps must not send it again;
+  // a dispatch that failed is sent again once its retry time passes.
+  const idleStops = new Map<ThreadId, { readonly runId: string; readonly retryAtMs?: number }>();
+
+  const stopIdleBackgroundWork = Effect.fn("ThreadSettlementServiceV2.stopIdleBackgroundWork")(
+    function* (
+      threads: ReadonlyArray<ProjectionStore.ProjectionSettlementCandidate>,
+      afterMinutes: number | null,
+      nowMs: number,
+    ) {
+      yield* Effect.forEach(
+        threads,
+        (thread) => {
+          const runId = thread.latestRunId;
+          if (
+            afterMinutes === null ||
+            runId === null ||
+            !isIdleBackgroundWorkStopDue(thread, nowMs, afterMinutes)
+          ) {
+            return Effect.void;
+          }
+          const previous = idleStops.get(thread.id);
+          if (
+            previous?.runId === runId &&
+            (previous.retryAtMs === undefined || nowMs < previous.retryAtMs)
+          ) {
+            return Effect.void;
+          }
+          idleStops.set(thread.id, { runId });
+          return Effect.gen(function* () {
+            const uuid = yield* random.uuidV4();
+            yield* orchestrator.dispatch({
+              type: "run.interrupt",
+              commandId: CommandId.make(`server:idle-background-stop:${thread.id}:${uuid}`),
+              threadId: thread.id,
+              runId,
+              holdQueue: true,
+              reason: `Stopped after ${formatIdleDuration(afterMinutes)} without activity`,
+              idleStopAfterMinutes: afterMinutes,
+            });
+          }).pipe(
+            Effect.catchCauseIf(
+              (cause) => !Cause.hasInterruptsOnly(cause),
+              (cause) =>
+                Effect.sync(() =>
+                  idleStops.set(thread.id, { runId, retryAtMs: nowMs + IDLE_STOP_RETRY_MS }),
+                ).pipe(
+                  Effect.andThen(
+                    Effect.logWarning("stopping idle background work failed", {
+                      threadId: thread.id,
+                      cause: Cause.pretty(cause),
+                    }),
+                  ),
+                ),
+            ),
+          );
+        },
+        { concurrency: 8, discard: true },
+      );
+    },
+  );
 
   const sweep = Effect.fn("ThreadSettlementServiceV2.sweep")(function* (
     mergedPullRequest: PullRequestService.PullRequestMergeEvent | null,
@@ -327,8 +396,9 @@ export const make = Effect.gen(function* () {
     const automaticSettlementEnabled = autoSettlementConfigured(settings);
     const threads = yield* projections.getSettlementCandidates(threadId);
     if (threads.length === 0) return;
-    const projectShells = yield* projectStore.listShells();
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+    yield* stopIdleBackgroundWork(threads, settings.idleBackgroundWorkStopAfterMinutes, nowMs);
+    const projectShells = yield* projectStore.listShells();
     const projects = new Map(projectShells.map((project) => [project.id, project]));
     // Merge events resweep all candidates because unlinked threads settle through branch lookup.
     const candidates = threads.filter(

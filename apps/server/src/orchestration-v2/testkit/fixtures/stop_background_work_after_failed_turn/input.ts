@@ -12,6 +12,15 @@ export function stopBackgroundWorkAfterFailedTurnInput(): OrchestratorFixtureInp
   };
 }
 
+export function idleStopBackgroundWorkInput(): OrchestratorFixtureInput {
+  return {
+    steps: [
+      { type: "message", text: STOP_BACKGROUND_WORK_AFTER_FAILED_TURN_PROMPT },
+      { type: "stop_background_work", targetRunIndex: 1, idleStopAfterMinutes: 60 },
+    ],
+  };
+}
+
 export function stopBackgroundWorkAfterReleaseInput(): OrchestratorFixtureInput {
   return {
     steps: [
