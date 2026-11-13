@@ -784,7 +784,7 @@ process.exit(0);
               `const db = new (require("node:sqlite").DatabaseSync)(${JSON.stringify(ownerPath)});`,
               `try { db.exec("PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE;"); }`,
               `catch { process.exit(${SERVER_EXIT_CODE_STATE_DIR_OWNED}); }`,
-              "const context = JSON.parse(process.env.T3_SERVICE_LAUNCHER_CONTEXT);",
+              "const context = JSON.parse(process.env.IGLO_CODE_SERVICE_LAUNCHER_CONTEXT);",
               `require("node:fs").appendFileSync(${JSON.stringify(startsPath)}, context.childVersion + "\\n");`,
               'if (context.update?.status === "pending") {',
               `  require("node:fs").writeFileSync(${JSON.stringify(databasePath)}, "migrated by failed trial");`,

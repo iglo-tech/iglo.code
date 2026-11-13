@@ -185,7 +185,7 @@ await Effect.runPromise(Command.runWith(sshHelperCommand, { version: "1.2.3" })(
 `,
       );
       NodeFS.writeFileSync(
-        NodePath.join(version, "t3"),
+        NodePath.join(version, "iglo.code"),
         `#!/bin/sh
 set -eu
 if [ "$1" = --version ]; then printf 1.2.3; exit; fi

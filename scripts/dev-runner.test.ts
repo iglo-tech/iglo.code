@@ -189,11 +189,11 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
-    it.effect("drops an inherited IGLO_CODE_HOST and IGLO_CODE_LAN from a parent T3 server", () =>
+    it.effect("drops an inherited IGLO_CODE_HOST and IGLO_CODE_LAN from a parent server", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
-          baseEnv: { IGLO_CODE_PORT: "3773", IGLO_CODE_HOST: "0.0.0.0", IGLO_CODE_LAN: "true" },
+          baseEnv: { IGLO_CODE_PORT: "4773", IGLO_CODE_HOST: "0.0.0.0", IGLO_CODE_LAN: "true" },
           serverOffset: 0,
           webOffset: 0,
           t3Home: undefined,
@@ -205,7 +205,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.IGLO_CODE_PORT, "13773");
+        assert.equal(env.IGLO_CODE_PORT, "23773");
         assert.equal(env.IGLO_CODE_HOST, undefined);
         assert.equal(env.IGLO_CODE_LAN, undefined);
       }),
@@ -213,7 +213,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("cli", () => {
-    it("ignores the parent T3 server's IGLO_CODE_PORT and IGLO_CODE_HOST", () => {
+    it("ignores the parent server's IGLO_CODE_PORT and IGLO_CODE_HOST", () => {
       const result = NodeChildProcess.spawnSync(
         process.execPath,
         ["scripts/dev-runner.ts", "dev:server", "--dry-run"],
@@ -222,7 +222,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           encoding: "utf8",
           env: {
             ...process.env,
-            IGLO_CODE_PORT: "3773",
+            IGLO_CODE_PORT: "4773",
             IGLO_CODE_HOST: "0.0.0.0",
           },
         },
@@ -231,7 +231,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       assert.equal(result.status, 0, result.stderr);
       const output = `${result.stdout}${result.stderr}`;
       assert.match(output, /serverPort=\d+ /);
-      assert.notMatch(output, /serverPort=3773 /);
+      assert.notMatch(output, /serverPort=4773 /);
     });
   });
 

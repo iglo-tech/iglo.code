@@ -219,7 +219,7 @@ it.effect("releases the forward of a bootstrap interrupted before its hub answer
         const output = forwarding
           ? ""
           : JSON.stringify({
-              nodePath: "/node",
+              bunPath: "/bun",
               platforms: [{ platform: "ios", available: true }],
               hubPort: 1234,
               helpers: { serveSimAxSettings: null, serveSimCli: null },

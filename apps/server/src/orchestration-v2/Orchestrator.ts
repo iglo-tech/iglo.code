@@ -7211,7 +7211,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ? undefined
             : projection.runs.find((run) => run.status === "queued" && run.queueHeld === true)) ??
           worktreeMissingRun)
-        : undefined);
+        : worktreeMissingRun);
     const pendingMergeBackTransfers = pendingMergeBackTransfersForThread(projection);
     const startsOrQueuesRun =
       dispatchMode.type === "defer_start" ||
