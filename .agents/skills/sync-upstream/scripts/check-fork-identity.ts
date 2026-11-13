@@ -145,7 +145,7 @@ if (import.meta.main) {
     console.log(`${path}:${line}: [${label}] ${text}`);
   if (hits.length > 0) {
     console.error(
-      `\n${hits.length} upstream identity hit(s). Rename them per the sync-upstream naming table, or add a justified ALLOW entry.`,
+      `\n${hits.length} upstream identity hit(s). Rename them per the naming table in sync-upstream's fork-differences.md, or add a justified ALLOW entry.`,
     );
     process.exit(1);
   }
