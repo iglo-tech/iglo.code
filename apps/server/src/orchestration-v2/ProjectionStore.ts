@@ -3400,7 +3400,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                       WHERE ordinal >= ${workStart} AND run_id IS NOT NULL
                         AND (run_status = 'completed' OR attempt_status = 'superseded')
                     )
-                    AND (type IN ('run_interrupt_request', 'run_interrupt_result')
+                    -- An idle stop ends leftover work after the turn finished; the turn still folds.
+                    AND ((type = 'run_interrupt_request'
+                        AND json_extract(payload_json, '$.idleStop') IS NULL)
+                      OR type = 'run_interrupt_result'
                       OR (type = 'error' AND status = 'failed' AND parent_item_id IS NULL))
                 ), work_segments AS (
                   SELECT item_rowid, ordinal, turn_item_id, run_id, type, attempt_id,

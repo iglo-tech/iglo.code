@@ -95,7 +95,9 @@ export const SidebarAutoSettleAfterDays = Schema.Number.check(
 );
 export type SidebarAutoSettleAfterDays = typeof SidebarAutoSettleAfterDays.Type;
 const DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS: SidebarAutoSettleAfterDays = 7;
-export const IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES = [15, 30, 60, 120, 240, 480, 1440] as const;
+// The server releases a session holding background work after about four idle hours,
+// which ends that work anyway, so longer choices would never fire.
+export const IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES = [15, 30, 60, 120, 240] as const;
 export const IdleBackgroundWorkStopAfterMinutes = Schema.Literals(
   IDLE_BACKGROUND_WORK_STOP_AFTER_MINUTES,
 );

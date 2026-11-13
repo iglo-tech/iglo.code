@@ -46,7 +46,7 @@ const stopEarlierBackgroundWork = ({
   idleStop,
 }: {
   /** Stop as the idle sweep does, with leftover work only or with an awaited wait beside it. */
-  readonly idleStop?: "leftover" | "awaited";
+  readonly idleStop?: "leftover" | "awaited" | "after-withdrawn-run";
   readonly wakeAfterStop?: boolean;
   readonly failedStart?: boolean;
   readonly backgroundWorkAfterStop?: "running" | "unknown";
@@ -508,6 +508,31 @@ const stopEarlierBackgroundWork = ({
                       awaited: true,
                     },
                   ],
+                },
+              },
+            ],
+          });
+        }
+        if (idleStop === "after-withdrawn-run") {
+          // A message queued for a fresh session and withdrawn leaves a later run that never ran.
+          const ran = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make("withdrawn-run"),
+                type: "run.updated",
+                threadId,
+                runId: RunId.make("run:withdrawn"),
+                occurredAt: now,
+                payload: {
+                  ...ran,
+                  id: RunId.make("run:withdrawn"),
+                  ordinal: ran.ordinal + 1,
+                  status: "cancelled",
+                  startedAt: null,
+                  completedAt: now,
+                  activeAttemptId: null,
+                  providerThreadId: ProviderThreadId.make("pending:run:withdrawn"),
                 },
               },
             ],
@@ -1126,7 +1151,7 @@ it.effect.each(["missing-session-terminal", "returned-interrupt", "superseded-at
   (stalledRun) => stopEarlierBackgroundWork({ stalledRun }),
 );
 
-it.effect.each(["leftover", "awaited"] as const)(
+it.effect.each(["leftover", "awaited", "after-withdrawn-run"] as const)(
   "an idle stop ends %s work without ending the thread's pull request watch",
   (idleStop) => stopEarlierBackgroundWork({ idleStop }),
 );

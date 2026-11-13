@@ -12782,10 +12782,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       },
     );
     const idleStop = command.idleStopAfterMinutes !== undefined;
-    // An idle compaction can become the latest run after the sweep read the thread; leftover
-    // work belongs to whichever run is latest, as it does for the composer's Stop.
+    // An idle compaction can become the latest run after the sweep read the thread, so an idle
+    // stop targets the latest run that executed; a withdrawn message's run never started.
     const run = idleStop
-      ? projection.runs.findLast((candidate) => candidate.status !== "queued")
+      ? (latestExecutedRun(projection.runs) ?? undefined)
       : projection.runs.find((candidate) => candidate.id === command.runId);
     const rootNode =
       run?.rootNodeId === null
@@ -12796,7 +12796,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ? undefined
         : projection.providerThreads.find((candidate) => candidate.id === run?.providerThreadId);
     const pendingBackgroundWork =
-      run?.id === projection.runs.findLast((candidate) => candidate.status !== "queued")?.id
+      run !== undefined &&
+      (idleStop ||
+        run.id === projection.runs.findLast((candidate) => candidate.status !== "queued")?.id)
         ? derivePendingBackgroundWork({
             latestRun: run,
             providerThreads: projection.providerThreads,
@@ -12808,6 +12810,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const hasBackgroundWork = pendingBackgroundWork.length > 0;
     // The sweep decided on a snapshot; activity or an awaited wait since then keeps the work.
     if (idleStop && (!hasBackgroundWork || backgroundWorkHoldsCompletion(pendingBackgroundWork))) {
+      return undefined;
+    }
+    // A Stop already recorded on this run keeps its own row; the request id is per run.
+    if (
+      idleStop &&
+      run !== undefined &&
+      (yield* runInterruptReason(command, events, run.id)) !== undefined
+    ) {
       return undefined;
     }
     // A failed start has no provider turn. Background work still belongs
