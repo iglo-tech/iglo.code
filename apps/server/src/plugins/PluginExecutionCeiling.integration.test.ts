@@ -213,6 +213,7 @@ it.live("plugin native actions and replay stay within the calling thread's modes
                 setModel: () => Effect.void,
                 applyFlagSettings: () => Effect.void,
                 setPermissionMode: () => Effect.void,
+                renameSession: () => Effect.void,
                 stopTask: () => Effect.void,
                 backgroundTasks: () => Effect.succeed(false),
                 mcpServerStatus: Effect.succeed([]),

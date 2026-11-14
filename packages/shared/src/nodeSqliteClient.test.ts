@@ -23,7 +23,6 @@ import * as SqlError from "effect/sql/SqlError";
 import * as Statement from "effect/sql/Statement";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as Stream from "effect/Stream";
-import * as TestClock from "effect/testing/TestClock";
 import type * as Tracer from "effect/Tracer";
 import { vi } from "vite-plus/test";
 

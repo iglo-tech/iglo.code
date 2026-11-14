@@ -58,6 +58,11 @@ const SKIP_PREFIXES = [
 // Reviewed exceptions: [path prefix, rule label, why]. Keep each one justified.
 const ALLOW: [string, string, string][] = [
   [
+    "packages/client-runtime/src/state/filesystem.test.ts",
+    "~/.t3 or worktree .t3 path",
+    "folder-name fixture for add-project search; never read as a T3 home",
+  ],
+  [
     "apps/server/src/cloud/publicConfig.test.ts",
     "env var T3CODE_*",
     "proves upstream's T3 Connect env vars have no effect on iglo.code",

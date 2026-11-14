@@ -105,7 +105,7 @@ it.layer(NodeServices.layer)("iglo.code uninstall launcher", (it) => {
       assert.isUndefined(yield* findOwnedLauncher({ launchedAs: undefined, versionsDir }));
       // A script launcher execs by absolute path, so argv0 names the executable.
       const scriptDir = path.join(root, "script-bin");
-      const script = path.join(scriptDir, "t3");
+      const script = path.join(scriptDir, "iglo.code");
       yield* fs.makeDirectory(scriptDir);
       yield* fs.writeFileString(script, posixLauncherScript(exe), { mode: 0o755 });
       assert.equal(
@@ -114,7 +114,7 @@ it.layer(NodeServices.layer)("iglo.code uninstall launcher", (it) => {
         ),
         script,
       );
-      const editedScript = path.join(scriptDir, "t3-edited");
+      const editedScript = path.join(scriptDir, "iglo.code-edited");
       yield* fs.writeFileString(editedScript, `${posixLauncherScript(exe)}# mine\n`);
 
       // On Windows, only the shim exactly as written is ours; a user's wrapper stays.

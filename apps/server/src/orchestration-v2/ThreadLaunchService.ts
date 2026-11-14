@@ -1298,9 +1298,9 @@ const make = Effect.gen(function* () {
                 ...(input.initialMessage.context ? { context: input.initialMessage.context } : {}),
                 ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
               };
-        const messageWorkspaceStrategy =
+        const messageWorkspaceStrategy: ThreadLaunchWorkspaceStrategy =
           workspaceStrategy.type === "worktree"
-            ? { ...workspaceStrategy, requiresOwnership: true }
+            ? { ...workspaceStrategy, requiresOwnership: true as const }
             : workspaceStrategy;
         const claimDispatch =
           input.reuseExistingThread === true
@@ -1332,7 +1332,12 @@ const make = Effect.gen(function* () {
                 creationSource: input.creationSource,
                 ...(initialMessage === undefined
                   ? {}
-                  : { initialMessage: { ...initialMessage, workspaceStrategy: messageWorkspaceStrategy } }),
+                  : {
+                      initialMessage: {
+                        ...initialMessage,
+                        workspaceStrategy: messageWorkspaceStrategy,
+                      },
+                    }),
               });
         const claimed = yield* claimDispatch.pipe(
           Effect.mapError(

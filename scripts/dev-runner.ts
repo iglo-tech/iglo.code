@@ -654,7 +654,9 @@ const prepareFirstStart = Effect.fn("dev-runner.prepareFirstStart")(function* (i
   if (input.mode !== "dev:web") {
     const crate = path.join(repoRoot, "native/resource-monitor");
     const binary =
-      (yield* HostProcess.Platform) === "win32" ? "iglo-code-resource-monitor.exe" : "iglo-code-resource-monitor";
+      (yield* HostProcess.Platform) === "win32"
+        ? "iglo-code-resource-monitor.exe"
+        : "iglo-code-resource-monitor";
     if (
       !(yield* exists(path.join(crate, "target/release", binary))) &&
       !(yield* exists(path.join(crate, "target/debug", binary)))

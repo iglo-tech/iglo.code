@@ -430,14 +430,16 @@ async function installOver(input: {
   return { code: result.status, output: `${result.stdout}${result.stderr}`, target };
 }
 
-describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install.sh iglo.code command", () => {
-  it("replaces only this home's own launchers and prints a PATH command", async () => {
-    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-link-"));
-    try {
-      const home = NodePath.join(root, "home");
-      const binDir = NodePath.join(root, "bin");
-      const link = NodePath.join(binDir, "t3");
-      await NodeFSP.mkdir(binDir, { recursive: true });
+describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")(
+  "install.sh iglo.code command",
+  () => {
+    it("replaces only this home's own launchers and prints a PATH command", async () => {
+      const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-link-"));
+      try {
+        const home = NodePath.join(root, "home");
+        const binDir = NodePath.join(root, "bin");
+        const link = NodePath.join(binDir, "t3");
+        await NodeFSP.mkdir(binDir, { recursive: true });
 
         await NodeFSP.writeFile(link, "#!/bin/sh\necho mine\n");
         const foreign = await installOver({ script: "install.sh", home, binDir });
@@ -472,23 +474,23 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install.sh igl
           NodePath.join(home, "runtime/versions/1.0.0/helper"),
         );
 
-      // An upgrade over an older version's link, written through a symlinked T3 home.
-      await NodeFSP.rm(link);
-      await NodeFSP.symlink(NodePath.join(home, "runtime/versions/1.0.0/t3"), link);
-      await NodeFSP.symlink(home, NodePath.join(root, "alias"));
-      const upgrade = await installOver({
-        script: "install.sh",
-        home: NodePath.join(root, "alias"),
-        binDir,
-        env: { HOME: root, SHELL: "/bin/zsh", PATH: "/usr/bin:/bin" },
-      });
-      expect(upgrade.code, upgrade.output).toBe(0);
-      expect(await NodeFSP.readFile(link, "utf8")).toBe(
-        launcherScript(NodePath.join(root, "alias/runtime/versions/1.2.3/t3")),
-      );
-      expect(upgrade.output).toContain(
-        `printf '\\n%s\\n' 'export PATH="$PATH:$HOME/bin"' >> ~/.zshrc`,
-      );
+        // An upgrade over an older version's link, written through a symlinked T3 home.
+        await NodeFSP.rm(link);
+        await NodeFSP.symlink(NodePath.join(home, "runtime/versions/1.0.0/t3"), link);
+        await NodeFSP.symlink(home, NodePath.join(root, "alias"));
+        const upgrade = await installOver({
+          script: "install.sh",
+          home: NodePath.join(root, "alias"),
+          binDir,
+          env: { HOME: root, SHELL: "/bin/zsh", PATH: "/usr/bin:/bin" },
+        });
+        expect(upgrade.code, upgrade.output).toBe(0);
+        expect(await NodeFSP.readFile(link, "utf8")).toBe(
+          launcherScript(NodePath.join(root, "alias/runtime/versions/1.2.3/t3")),
+        );
+        expect(upgrade.output).toContain(
+          `printf '\\n%s\\n' 'export PATH="$PATH:$HOME/bin"' >> ~/.zshrc`,
+        );
 
         // Containers and CI often have no SHELL; `set -u` must not stop the installer there.
         const noShell = await installOver({
@@ -521,29 +523,30 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("install.sh igl
         expect(relative.code, relative.output).toBe(0);
         expect(relative.output).toContain(`'export PATH="$PATH:$HOME/bin"'`);
 
-      // A launcher script someone edited is theirs now.
-      const edited = `${launcherScript(NodePath.join(home, "runtime/versions/1.2.3/t3"))}# mine\n`;
-      await NodeFSP.writeFile(link, edited);
-      const overEdited = await installOver({ script: "install.sh", home, binDir });
-      expect(overEdited.code).not.toBe(0);
-      expect(await NodeFSP.readFile(link, "utf8")).toBe(edited);
+        // A launcher script someone edited is theirs now.
+        const edited = `${launcherScript(NodePath.join(home, "runtime/versions/1.2.3/t3"))}# mine\n`;
+        await NodeFSP.writeFile(link, edited);
+        const overEdited = await installOver({ script: "install.sh", home, binDir });
+        expect(overEdited.code).not.toBe(0);
+        expect(await NodeFSP.readFile(link, "utf8")).toBe(edited);
 
-      await NodeFSP.rm(link);
-      await NodeFSP.symlink(NodePath.join(home, "bin/t3"), link);
-      const overDesktop = await installOver({
-        script: "install.sh",
-        home: `${home}//`,
-        binDir: `${binDir}/`,
-      });
-      expect(overDesktop.code, overDesktop.output).toBe(0);
-      expect(await NodeFSP.readFile(link, "utf8")).toBe(
-        launcherScript(NodePath.join(home, "runtime/versions/1.2.3/t3")),
-      );
-    } finally {
-      await NodeFSP.rm(root, { recursive: true, force: true });
-    }
-  });
-});
+        await NodeFSP.rm(link);
+        await NodeFSP.symlink(NodePath.join(home, "bin/t3"), link);
+        const overDesktop = await installOver({
+          script: "install.sh",
+          home: `${home}//`,
+          binDir: `${binDir}/`,
+        });
+        expect(overDesktop.code, overDesktop.output).toBe(0);
+        expect(await NodeFSP.readFile(link, "utf8")).toBe(
+          launcherScript(NodePath.join(home, "runtime/versions/1.2.3/t3")),
+        );
+      } finally {
+        await NodeFSP.rm(root, { recursive: true, force: true });
+      }
+    });
+  },
+);
 
 describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer checksum", () => {
   it.each(
