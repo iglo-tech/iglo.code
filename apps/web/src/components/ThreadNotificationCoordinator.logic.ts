@@ -1,3 +1,8 @@
+import {
+  effectiveSnoozed,
+  type ThreadSnoozeShell,
+} from "@t3tools/client-runtime/state/thread-settled";
+
 export type ThreadNotificationKind = "input" | "completion";
 
 export interface ThreadNotificationObservation {
@@ -19,6 +24,21 @@ export interface ThreadNotificationObservation {
 export const RELEASED_COMPLETION_GRACE_MS = 5_000;
 /** How long a completion waits for T3 to decide whether the agent waits on its background work. */
 export const UNDECIDED_WORK_GRACE_MS = 20_000;
+
+/**
+ * Whether completion notifications are suppressed by snooze. A completion that landed
+ * during the snooze stays suppressed even when its update is processed after the wake.
+ */
+export function isSnoozedForNotification(
+  thread: ThreadSnoozeShell,
+  completedAt: number | null,
+  now: number,
+): boolean {
+  if (effectiveSnoozed(thread, { now: new Date(now).toISOString() })) return true;
+  if (completedAt === null) return false;
+  if (thread.snoozedAt != null && completedAt < Date.parse(thread.snoozedAt)) return false;
+  return effectiveSnoozed(thread, { now: new Date(completedAt).toISOString() });
+}
 
 export function createThreadNotificationGate<Key>(
   notify: (key: Key, kind: ThreadNotificationKind) => void,
@@ -78,11 +98,12 @@ export function createThreadNotificationGate<Key>(
       key: Key,
       prior: ThreadNotificationObservation | undefined,
       next: ThreadNotificationObservation,
-      options: { readonly archived: boolean; readonly quiet: boolean },
+      options: { readonly archived: boolean; readonly quiet: boolean; readonly snoozed: boolean },
     ): void {
       // The grace survives updates that keep the wake's completion; anything else cancels it.
       const pending = releases.get(key);
-      if (pending?.at === next.completedAt && !options.archived && !options.quiet) {
+      const silenced = options.archived || options.quiet || options.snoozed;
+      if (pending?.at === next.completedAt && !silenced) {
         // Decided as no wait: the run really completed, so say so now.
         if (pending.undecided && next.undecidedWork !== true && !next.backgroundWake) {
           cancel(key);
@@ -93,8 +114,8 @@ export function createThreadNotificationGate<Key>(
         return;
       }
       cancel(key);
-      // The first sighting, archived threads, and stopped or silent runs never notify completion.
-      if (!prior || options.archived || options.quiet) skip(key, next.completedAt);
+      // The first sighting, archived or snoozed threads, and stopped or silent runs never notify completion.
+      if (!prior || silenced) skip(key, next.completedAt);
       const fresh = attend(key, prior, next);
       if (!prior || options.archived) return;
       if (fresh) {
