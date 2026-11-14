@@ -182,6 +182,13 @@ const makeOrchestrationCommandReceiptRepository = Effect.gen(function* () {
               AND instructed.aggregate_kind = 'thread' AND instructed.aggregate_id = launch.aggregate_id
               AND instructed.command_type = 'message.dispatch' AND instructed.status = 'accepted'
           )
+          -- A launch can carry its first message, which then starts a run under the launch's own id.
+          AND NOT EXISTS (
+            SELECT 1 FROM orchestration_events created
+            WHERE created.command_id = launch.command_id
+              AND created.aggregate_kind = 'thread' AND created.stream_id = launch.aggregate_id
+              AND created.application_event_version = 2 AND created.event_type = 'run.created'
+          )
         UNION ALL
         SELECT 1 AS pending FROM orchestration_v2_projection_runs preparation
         WHERE preparation.thread_id = ${threadId}
