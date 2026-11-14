@@ -386,8 +386,7 @@ export async function runWebClientRegression(
       const row = page.getByTestId("sidebar-row-card").filter({ hasText: "Thread environment-a" });
       // Settle is offered as soon as Stop is requested, but the server refuses it until the run
       // has stopped, so a click right after Stop is retried until the row leaves the active list.
-      const settleDeadline = Date.now() + 30_000;
-      for (;;) {
+      for (let attempt = 1; ; attempt++) {
         await row.hover();
         await row.getByRole("button", { name: "Settle thread", exact: true }).click();
         const settled = await row.waitFor({ state: "detached", timeout: 1_000 }).then(
@@ -395,7 +394,7 @@ export async function runWebClientRegression(
           () => false,
         );
         if (settled) break;
-        if (Date.now() > settleDeadline) throw new Error("The stopped thread never settled.");
+        if (attempt === 30) throw new Error("The stopped thread never settled.");
       }
       const settledShelf = page.getByTestId("sidebar-settled-shelf-toggle");
       await visible(settledShelf);
