@@ -384,8 +384,19 @@ export async function runWebClientRegression(
         .getByRole("button", { name: "Stop generation", exact: true })
         .waitFor({ state: "hidden" });
       const row = page.getByTestId("sidebar-row-card").filter({ hasText: "Thread environment-a" });
-      await row.hover();
-      await row.getByRole("button", { name: "Settle thread", exact: true }).click();
+      // Settle is offered as soon as Stop is requested, but the server refuses it until the run
+      // has stopped, so a click right after Stop is retried until the row leaves the active list.
+      const settleDeadline = Date.now() + 30_000;
+      for (;;) {
+        await row.hover();
+        await row.getByRole("button", { name: "Settle thread", exact: true }).click();
+        const settled = await row.waitFor({ state: "detached", timeout: 1_000 }).then(
+          () => true,
+          () => false,
+        );
+        if (settled) break;
+        if (Date.now() > settleDeadline) throw new Error("The stopped thread never settled.");
+      }
       const settledShelf = page.getByTestId("sidebar-settled-shelf-toggle");
       await visible(settledShelf);
       if ((await settledShelf.getAttribute("aria-expanded")) === "false")
