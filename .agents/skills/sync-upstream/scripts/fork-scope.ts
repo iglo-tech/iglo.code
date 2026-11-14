@@ -38,6 +38,7 @@ export const REMOVED_PATHS = [
   "scripts/lib/windows-tar.*",
   "scripts/build-desktop-artifact.*",
   "scripts/merge-update-manifests.*",
+  "scripts/merge-release-update-manifests.*",
   "scripts/mock-update-server.*",
   "scripts/sign-macos.*",
   "scripts/verify-windows-desktop-artifact.*",
