@@ -22,29 +22,32 @@ const node = (script: string, args: ReadonlyArray<string> = [], options = {}) =>
   ChildProcess.make(process.execPath, ["-e", script, ...args], options);
 
 describe("SpawnWorker", () => {
-  it.live("runs the server's Windows children on a launcher thread, not the server thread", () =>
-    Effect.gen(function* () {
-      for (const [platform, onServerThread] of [
-        ["win32", false],
-        ["linux", true],
-      ] as const) {
-        const launched = Effect.gen(function* () {
-          const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-          const child = yield* spawner.spawn(
-            node("process.stdout.write('ready');process.stdin.resume()"),
+  // Bun reports no ProcessWrap resources, and iglo.code ships no Windows build that uses the workers.
+  it.live.skipIf("Bun" in globalThis)(
+    "runs the server's Windows children on a launcher thread, not the server thread",
+    () =>
+      Effect.gen(function* () {
+        for (const [platform, onServerThread] of [
+          ["win32", false],
+          ["linux", true],
+        ] as const) {
+          const launched = Effect.gen(function* () {
+            const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+            const child = yield* spawner.spawn(
+              node("process.stdout.write('ready');process.stdin.resume()"),
+            );
+            expect(yield* child.stdout.pipe(Stream.take(1), text)).toBe("ready");
+            // The thread that called spawn owns the native process handle.
+            expect(process.getActiveResourcesInfo().includes("ProcessWrap")).toBe(onServerThread);
+            expect(yield* child.isRunning).toBe(true);
+          });
+          yield* launched.pipe(
+            Effect.scoped,
+            Effect.provide(SpawnWorker.layerServer.pipe(Layer.provide(NodeServices.layer))),
+            Effect.provideService(HostProcess.Platform, platform),
           );
-          expect(yield* child.stdout.pipe(Stream.take(1), text)).toBe("ready");
-          // The thread that called spawn owns the native process handle.
-          expect(process.getActiveResourcesInfo().includes("ProcessWrap")).toBe(onServerThread);
-          expect(yield* child.isRunning).toBe(true);
-        });
-        yield* launched.pipe(
-          Effect.scoped,
-          Effect.provide(SpawnWorker.layerServer.pipe(Layer.provide(NodeServices.layer))),
-          Effect.provideService(HostProcess.Platform, platform),
-        );
-      }
-    }),
+        }
+      }),
   );
 
   it.live("preserves stdin, large output, env, cwd, literal args and additional descriptors", () =>
