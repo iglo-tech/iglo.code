@@ -3319,13 +3319,14 @@ it.layer(
       const fileSystem = yield* FileSystem.FileSystem;
       const blockedFileSystem: FileSystem.FileSystem = {
         ...fileSystem,
-        writeFileString: (filePath, contents, options) =>
-          filePath.includes("new-provider.json")
+        // Atomic saves stage to a neutral temp name, so hold the rename onto the cache file.
+        rename: (oldPath, newPath) =>
+          newPath.includes("new-provider.json")
             ? Deferred.succeed(persistenceStarted, undefined).pipe(
                 Effect.andThen(Deferred.await(releasePersistence)),
-                Effect.andThen(fileSystem.writeFileString(filePath, contents, options)),
+                Effect.andThen(fileSystem.rename(oldPath, newPath)),
               )
-            : fileSystem.writeFileString(filePath, contents, options),
+            : fileSystem.rename(oldPath, newPath),
       };
       const services = yield* Layer.build(
         ProviderRegistry.layer.pipe(
