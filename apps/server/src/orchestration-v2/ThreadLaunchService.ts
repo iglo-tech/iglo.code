@@ -358,37 +358,54 @@ const make = Effect.gen(function* () {
     "ThreadLaunchService.checkWorktreeBase",
   )(function* (input) {
     const strategy = input.workspaceStrategy;
-    // launch() turns a Scratch worktree request into a root launch.
-    if (strategy.type !== "worktree" || (yield* managedFolders.isScratchProject(input.projectId)))
-      return;
-    if (input.commandId !== undefined) {
-      const receipt = yield* receipts
-        .getByCommandId(input.commandId)
-        .pipe(Effect.orElseSucceed(() => Option.none()));
-      if (Option.isSome(receipt) && receipt.value.status === "accepted") return;
-    }
-    const project = Option.getOrUndefined(
-      yield* projects.getById(input.projectId).pipe(Effect.orElseSucceed(() => Option.none())),
+    if (strategy.type !== "worktree") return;
+    const commandId = input.commandId;
+    const [isScratch, receipt, projectOption] = yield* Effect.all(
+      [
+        managedFolders.isScratchProject(input.projectId),
+        commandId === undefined
+          ? Effect.succeedNone
+          : receipts.getByCommandId(commandId).pipe(Effect.orElseSucceed(() => Option.none())),
+        projects.getById(input.projectId).pipe(Effect.orElseSucceed(() => Option.none())),
+      ],
+      { concurrency: "unbounded" },
     );
+    // launch() turns a Scratch worktree request into a root launch.
+    if (isScratch) return;
+    if (Option.isSome(receipt) && receipt.value.status === "accepted") return;
+    const project = Option.getOrUndefined(projectOption);
     if (project === undefined) return;
     const cwd = project.workspaceRoot;
-    const repositoryRoot = yield* git
-      .repositoryRoot(cwd)
-      .pipe(Effect.orElseSucceed(() => undefined));
+    const { baseRef, branch } = strategy;
+    const checksBranch = branch !== undefined && !isTemporaryWorktreeBranch(branch);
+    // Errors keep their order below: missing repository, then base ref, then branch conflict.
+    const [repositoryRoot, hasBaseCommit, localBranches] = yield* Effect.all(
+      [
+        git.repositoryRoot(cwd).pipe(Effect.orElseSucceed(() => undefined)),
+        // `:/text` is a commit search, which cannot be asked for a commit type.
+        baseRef.startsWith(":")
+          ? Effect.succeed(true)
+          : // `git worktree add` reads `-` as the previous checkout.
+            git
+              .hasCommit({ cwd, refName: baseRef === "-" ? "@{-1}" : baseRef })
+              .pipe(Effect.orElseSucceed(() => true)),
+        checksBranch
+          ? git
+              .listLocalBranchNames(cwd)
+              .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []))
+          : Effect.succeed<ReadonlyArray<string>>([]),
+      ],
+      { concurrency: "unbounded" },
+    );
     if (repositoryRoot === null)
       return yield* new ThreadLaunchNotRepositoryError({
         projectId: project.id,
         projectTitle: project.title,
         workspaceRoot: cwd,
       });
-    const { baseRef, branch } = strategy;
     const baseResolves =
-      // `:/text` is a commit search, which cannot be asked for a commit type.
-      baseRef.startsWith(":") ||
+      hasBaseCommit ||
       (yield* Effect.gen(function* () {
-        // `git worktree add` reads `-` as the previous checkout.
-        if (yield* git.hasCommit({ cwd, refName: baseRef === "-" ? "@{-1}" : baseRef }))
-          return true;
         if (strategy.startFromOrigin === true) {
           const remote = yield* git.resolveWorktreeBaseRemote({ cwd, refName: baseRef });
           // The remote may have deleted the branch; ask it rather than trusting the name.
@@ -410,10 +427,8 @@ const make = Effect.gen(function* () {
         baseRef,
       });
     // Provisioning flattens temporary names that collide, so only explicit names are refused.
-    if (branch === undefined || isTemporaryWorktreeBranch(branch)) return;
-    const conflictingBranch = (yield* git
-      .listLocalBranchNames(cwd)
-      .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []))).find(
+    if (!checksBranch) return;
+    const conflictingBranch = localBranches.find(
       (existing) => existing.startsWith(`${branch}/`) || branch.startsWith(`${existing}/`),
     );
     if (conflictingBranch !== undefined)
@@ -1104,7 +1119,7 @@ const make = Effect.gen(function* () {
         return yield* prepare;
       }
       const afterSequence = yield* threads.getThreadEventSequence(threadId);
-      const projection = yield* threads.getThreadRecords(threadId, ["runs"]);
+      const projection = yield* threads.getThreadRecords(threadId, ["runs"], { runIds: [runId] });
       if (projection.runs.find((run) => run.id === runId)?.status !== "preparing") return;
       const interruption = threads
         .streamStoredEventsFrom({ threadId, afterSequence, eventType: "run.updated" })
@@ -1340,12 +1355,13 @@ const make = Effect.gen(function* () {
           }
         }
 
-        const projection = yield* threads
-          .getThreadProjection(threadId)
+        // Fork preparation before the full projection read; it is only part of the reply.
+        const { thread: launchThread, runs: launchRuns } = yield* threads
+          .getThreadRecords(threadId, ["runs"], { runIds: runId === null ? [] : [runId] })
           .pipe(Effect.mapError(mapError(input, "create-thread", threadId)));
-        const runIsPreparing =
-          runId !== null &&
-          projection.runs.some((run) => run.id === runId && run.status === "preparing");
+        const runIsPreparing = launchRuns.some(
+          (run) => run.id === runId && run.status === "preparing",
+        );
         const readyReceipt =
           runId === null
             ? yield* readReceipt(input, CommandId.make(`${input.commandId}:workspace-ready`))
@@ -1358,11 +1374,11 @@ const make = Effect.gen(function* () {
         const shouldSchedule =
           runId === null
             ? !workspaceReady ||
-              (workspaceStrategy.type === "worktree" && projection.thread.worktreePath === null)
+              (workspaceStrategy.type === "worktree" && launchThread.worktreePath === null)
             : runIsPreparing;
         // A retried root launch prepares the folder its first attempt bound, so
         // a Scratch thread keeps its own. Other root launches bind no folder.
-        const boundWorktreePath = projection.thread.worktreePath;
+        const boundWorktreePath = launchThread.worktreePath;
         // Setup can leave tracked edits in its recorded checkout. Reuse those;
         // adoption checks still protect unrecorded recovery candidates.
         const reusedWorktree =
@@ -1383,7 +1399,7 @@ const make = Effect.gen(function* () {
             ? {
                 type: "existing_worktree",
                 worktreePath: boundWorktreePath,
-                branch: projection.thread.branch ?? workspaceStrategy.branch,
+                branch: launchThread.branch ?? workspaceStrategy.branch,
               }
             : workspaceStrategy;
         if (shouldSchedule) {
@@ -1416,6 +1432,9 @@ const make = Effect.gen(function* () {
             }).pipe(Effect.onError(() => releasePreparation(input.commandId)));
           }
         }
+        const projection = yield* threads
+          .getThreadProjection(threadId)
+          .pipe(Effect.mapError(mapError(input, "create-thread", threadId)));
 
         return {
           threadId,

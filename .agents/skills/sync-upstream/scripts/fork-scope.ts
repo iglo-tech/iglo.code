@@ -71,6 +71,7 @@ export const REMOVED_PATHS = [
   "apps/marketing",
   "infra/relay",
   "infra/task-cache",
+  "docs/user/t3-connect-troubleshooting.md",
   ".cursor/rules/cursor-cloud.mdc",
 ];
 

@@ -63,6 +63,7 @@ import { pendingServiceUpdateExists } from "./updateHandoff.ts";
 import { managedTunnelStartupAction } from "./managedTunnelStartup.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as ServerSettings from "../serverSettings.ts";
 
 // These cover the dormant T3 Connect code as it runs in a build with its public config.
 vi.mock("./publicConfig.ts", async (importOriginal) => ({
@@ -190,6 +191,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
           CloudLink.layer.pipe(
             Layer.provide(EnvironmentKeys.layer),
             Layer.provide(ManagedPolicy.layerTest()),
+            Layer.provide(ServerSettings.ServerSettingsService.layerTest()),
           ),
         ),
         Effect.provideService(
@@ -1199,6 +1201,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
           pid: 123,
           readyConnections: 0,
           hostname: "prod-abc.t3coderelay.com",
+          origin: null,
           protocol: null,
         },
       }),

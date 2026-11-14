@@ -44,6 +44,31 @@ Choose **Create theme** to adjust a palette, or import an iglo.code or VS Code
 theme. The theme editor's color picker lets you select an area of the app to find the color to
 change. Export your theme as JSON to share it.
 
+### Custom CSS
+
+For a change that colors cannot make, open **Custom CSS** in the theme editor. The CSS is saved with
+the theme, applies after iglo.code's own styles, and is included in exports. Use
+`.dark` or `:root:not(.dark)` to target one appearance.
+
+Custom CSS cannot load files. `@import`, `image-set()`, and `url()` are ignored, except `url()`
+with a `data:` address or an `#id`. This keeps an imported theme from sending what is on your screen
+to another site.
+
+Class names in the app change between releases. For rules that keep working, target `data-slot`
+and other `data-` attributes, such as `[data-chat-header]` or `[data-slot="button"]`.
+
+If a rule hides something you need, run `iglo.code theme set t3-chat` on the server to switch to a
+built-in theme, or press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to pick
+another theme.
+
+### Ask an agent
+
+An agent on the same machine as the server can restyle iglo.code for you. Ask it to change the look,
+for example "make iglo.code's chat header taller" or "give iglo.code a solarized theme". It publishes
+an [environment theme](#environment-themes) with colors and CSS, and web clients of that
+server switch to it. It can also switch them to light, dark, or system mode. The thread must run
+in Full access. Ask the agent to set a built-in theme to undo it.
+
 ## Environment themes
 
 Environment themes and defaults come from the server serving your web app. Other environments
@@ -91,7 +116,7 @@ For an integration that generates a palette, this shorter format also works:
 
 Set `appearance` to `light` or `dark` and supply hex colors for `canvas` and `accent`. iglo.code
 generates the rest. The optional `colors` overrides use the names in the theme editor's advanced
-view.
+view. An optional `css` string adds [custom CSS](#custom-css).
 
 Write updates to a temporary file and rename it into place so clients never read a partial theme.
 Invalid files are not published.

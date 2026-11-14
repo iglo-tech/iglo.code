@@ -40,6 +40,7 @@ import * as ConnectHttp from "./http.ts";
 import * as ConnectReachability from "./ConnectReachability.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as ServerSettings from "../serverSettings.ts";
 
 // These cover the dormant T3 Connect code as it runs in a build with its public config.
 vi.mock("./publicConfig.ts", async (importOriginal) => ({
@@ -86,6 +87,7 @@ const layerLinkProofRoutes = HttpApiBuilder.layer(LinkProofTestApi).pipe(
   Layer.provide([AuthHttp.layer, ConnectHttp.layer]),
   Layer.provide(AuthHttp.layerAuthenticatedAuth),
   Layer.provide(CloudLink.layer),
+  Layer.provide(ServerSettings.ServerSettingsService.layerTest()),
   Layer.provide(EnvironmentKeys.layer),
   Layer.provide(
     Layer.mock(ConnectReachability.ConnectReachability)({ latest: Effect.succeedNone }),

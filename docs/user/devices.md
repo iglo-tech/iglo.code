@@ -103,12 +103,15 @@ not supported.
 anything, with a result for each selected environment. Targets that resolve to
 the environment’s own machine are skipped, since its devices are already local.
 The first device listing installs pinned device tools on the host.
-SSH device hosts need macOS or Linux.
+SSH device hosts currently need macOS or Linux. To use devices on a Windows
+machine, run iglo.code on that machine and connect to its environment.
 Bun 1.4.4 or newer must be available to non-interactive SSH commands.
 Local installed environments use their packaged Bun interpreter; device tools
 install automatically with Bun.
 iglo.code checks common Homebrew and Android SDK locations; custom installations need
-the appropriate PATH and ANDROID_HOME on the host. Android emulator video needs
+the appropriate PATH and `ANDROID_HOME` or `ANDROID_SDK_ROOT` on the host.
+Android on an SSH host needs the same SDK tools as a local environment; adb on
+the PATH alone does not enable it. Android emulator video needs
 `ffmpeg` with libx264 on that host; physical Android devices use scrcpy and do
 not need ffmpeg.
 
