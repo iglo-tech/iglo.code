@@ -75,6 +75,8 @@ export const REMOVED_PATHS = [
   "infra/task-cache",
   "docs/user/t3-connect-troubleshooting.md",
   ".cursor/rules/cursor-cloud.mdc",
+  // Old project filter combobox row replaced by Discord project switcher rail.
+  "apps/web/src/components/ProjectComboboxRow.tsx",
 ];
 
 export const mobileDependency = (name: string) =>

@@ -127,3 +127,13 @@ current when an authorized change replaces a decision.
   Upstream's e2e scenarios (`scripts/scenarios`, `scripts/e2e.config.ts`,
   `prove-scenario`, and the `e2e`/`@e2e-dev/*` dependencies) drive the iOS
   simulator alongside the web client; they stay removed with their docs.
+- **Discord-like project switcher rail.** iglo.code replaces the old project
+  filter combobox in the sidebar header with a permanent 56px (`w-14`)
+  Discord-style left rail (`SidebarProjectSwitcher.tsx`). It features single-click
+  project switching, Shift-click multi-selection, right-click context menu, live
+  status dots (`FOLDER_DOT_CLASS_NAME` without infinite pulse), and remote
+  environment badges from `project.remoteEnvironmentLabels`. Upstream project
+  combobox/filter components (`ProjectComboboxRow.tsx`,
+  `filterSidebarProjectScopeItems`, `reduceSidebarProjectScopeMenuState`) are
+  removed, and `SidebarThreadHeader.tsx` omits the filter combobox dropdown.
+  Upstream merges must not restore the combobox dropdown or remove the left rail.
