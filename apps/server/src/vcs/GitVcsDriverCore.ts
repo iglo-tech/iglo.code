@@ -5243,7 +5243,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         const commit = (yield* runGitStdout("GitVcsDriver.createWorktree.ownership", input.cwd, [
           "rev-parse",
           "--verify",
-          `${input.refName}^{commit}`,
+          // `:/text` searches commits; an appended `^{commit}` would join the pattern.
+          input.refName.startsWith(":") ? input.refName : `${input.refName}^{commit}`,
         ])).trim();
         const symbolicRef = (yield* runGitStdout(
           "GitVcsDriver.createWorktree.ownership",

@@ -2089,53 +2089,56 @@ it.effect("starts and finishes a delegated task without reading the parent's his
       ["completed", "claimed", "completed", "completed", [task.id]],
     );
 
-    // Start and finish read the task's own records, so their VM steps, which are deterministic,
-    // must stay flat on a copy with a long parent history. Left out: the counts that number the
-    // task and its wake, which walk one index.
-    const copyPath = "file:/delegated-task-reads?vfs=memdb";
-    using copy = new NodeSqlite.DatabaseSync(copyPath);
-    yield* sql`VACUUM INTO ${copyPath}`;
-    const reads = statements.filter(
-      ([query]) => /^\s*(SELECT|WITH)\b/.test(query) && !query.includes("COUNT(*)"),
-    );
-    const readSteps = () =>
-      reads.reduce((steps, [query, params]) => {
-        const statement = copy.prepare(query);
-        statement.all(...(params as ReadonlyArray<NodeSqlite.SQLInputValue>));
-        return steps + statement.stat("vmStep");
-      }, 0);
-    const shortSteps = readSteps();
-    assert.isAbove(shortSteps, 0);
-    const addHistory = (table: string, key: string, renamed: ReadonlyArray<string> = []) => {
-      const name = `orchestration_v2_projection_${table}`;
-      const columns = copy
-        .prepare(`SELECT name FROM pragma_table_info('${name}')`)
-        .all()
-        .map((column) => String(column.name));
-      const values = columns.map((column) =>
-        column === key || renamed.includes(column)
-          ? `CASE WHEN ${column} = '${parentThreadId}' THEN ${column} ELSE ${column} || ':history:' || history.n END`
-          : column === "ordinal"
-            ? "ordinal + history.n"
-            : column,
+    // StatementSync.stat is Node 26+; Bun and older Node have no VM step counter.
+    if (typeof NodeSqlite.StatementSync.prototype.stat === "function") {
+      // Start and finish read the task's own records, so their VM steps, which are deterministic,
+      // must stay flat on a copy with a long parent history. Left out: the counts that number the
+      // task and its wake, which walk one index.
+      const copyPath = "file:/delegated-task-reads?vfs=memdb";
+      using copy = new NodeSqlite.DatabaseSync(copyPath);
+      yield* sql`VACUUM INTO ${copyPath}`;
+      const reads = statements.filter(
+        ([query]) => /^\s*(SELECT|WITH)\b/.test(query) && !query.includes("COUNT(*)"),
       );
-      copy.exec(`WITH RECURSIVE history(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM history WHERE n < 300)
+      const readSteps = () =>
+        reads.reduce((steps, [query, params]) => {
+          const statement = copy.prepare(query);
+          statement.all(...(params as ReadonlyArray<NodeSqlite.SQLInputValue>));
+          return steps + statement.stat("vmStep");
+        }, 0);
+      const shortSteps = readSteps();
+      assert.isAbove(shortSteps, 0);
+      const addHistory = (table: string, key: string, renamed: ReadonlyArray<string> = []) => {
+        const name = `orchestration_v2_projection_${table}`;
+        const columns = copy
+          .prepare(`SELECT name FROM pragma_table_info('${name}')`)
+          .all()
+          .map((column) => String(column.name));
+        const values = columns.map((column) =>
+          column === key || renamed.includes(column)
+            ? `CASE WHEN ${column} = '${parentThreadId}' THEN ${column} ELSE ${column} || ':history:' || history.n END`
+            : column === "ordinal"
+              ? "ordinal + history.n"
+              : column,
+        );
+        copy.exec(`WITH RECURSIVE history(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM history WHERE n < 300)
         INSERT INTO ${name} (${columns.join(", ")})
         SELECT ${values.join(", ")} FROM ${name}, history
         WHERE '${parentThreadId}' IN (${columns.filter((column) => column.endsWith("thread_id")).join(", ")})`);
-    };
-    addHistory("nodes", "node_id");
-    addHistory("turn_items", "turn_item_id", ["node_id"]);
-    addHistory("subagents", "subagent_id", ["child_thread_id"]);
-    addHistory("context_transfers", "context_transfer_id", [
-      "source_thread_id",
-      "target_thread_id",
-    ]);
-    addHistory("runs", "run_id");
-    addHistory("run_attempts", "attempt_id", ["run_id"]);
-    addHistory("messages", "message_id");
-    addHistory("provider_turns", "provider_turn_id", ["run_attempt_id"]);
-    assert.isAtMost(readSteps(), shortSteps * 1.1);
+      };
+      addHistory("nodes", "node_id");
+      addHistory("turn_items", "turn_item_id", ["node_id"]);
+      addHistory("subagents", "subagent_id", ["child_thread_id"]);
+      addHistory("context_transfers", "context_transfer_id", [
+        "source_thread_id",
+        "target_thread_id",
+      ]);
+      addHistory("runs", "run_id");
+      addHistory("run_attempts", "attempt_id", ["run_id"]);
+      addHistory("messages", "message_id");
+      addHistory("provider_turns", "provider_turn_id", ["run_attempt_id"]);
+      assert.isAtMost(readSteps(), shortSteps * 1.1);
+    }
   }).pipe(Effect.provide(layerTest)),
 );
 
