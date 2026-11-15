@@ -135,6 +135,7 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
             }),
         lastRunStatus: task.lastRunStatus,
         ...(task.lastDelivery === undefined ? {} : { lastDelivery: task.lastDelivery }),
+        lastRunError: task.lastRunError,
         runCount: task.runCount,
         nextRunAt: task.nextRunAt,
       };
