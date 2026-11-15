@@ -139,7 +139,7 @@ cannot drag or move threads within it. Your saved order returns when you turn it
 
 The left rail of the sidebar lets you switch between projects quickly.
 Click any project icon to switch the sidebar to that project, or click the top **All projects** icon to show
-threads across all projects. **Shift-click** a project icon to toggle multi-project selection. Right-click a project
+threads across all projects. **Shift-click** a project icon or press **Shift-Enter** on a focused project to toggle multi-project selection. Right-click a project
 icon to pin it, open its settings, or copy its path. Status dots on project icons show when background work
 is running, finished unread, or needs your input.
 

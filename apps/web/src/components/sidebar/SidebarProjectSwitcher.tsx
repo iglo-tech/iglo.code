@@ -123,11 +123,6 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
             })),
           );
 
-          const remoteLabels = project.memberProjects
-            .map((member) => member.environmentLabel)
-            .filter((label): label is string => Boolean(label))
-            .filter((label, index, all) => all.indexOf(label) === index);
-
           return (
             <div
               key={project.projectKey}
@@ -201,15 +196,17 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                   <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium">{project.displayName}</span>
-                      {remoteLabels.length > 0 ? (
+                      {project.remoteEnvironmentLabels.length > 0 ? (
                         <span className="rounded-xs bg-muted px-1 text-2xs text-muted-foreground">
-                          {remoteLabels.join(", ")}
+                          {project.remoteEnvironmentLabels.join(", ")}
                         </span>
                       ) : null}
                     </div>
                     <span className="text-2xs text-muted-foreground">
                       {project.pinned ? "Pinned • " : ""}
-                      {dot ? `${FOLDER_DOT_LABEL[dot].replace(/^, /, "")} • ` : ""}
+                      {dot
+                        ? `${FOLDER_DOT_LABEL[dot].replace(/^, /, "").replace(/^./, (c) => c.toUpperCase())} • `
+                        : ""}
                       Click to switch • Shift+click to toggle
                     </span>
                   </div>
