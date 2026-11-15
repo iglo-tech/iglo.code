@@ -20,7 +20,6 @@ import * as Logger from "effect/Logger";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as SqlClient from "effect/sql/SqlClient";
-import * as Logger from "effect/Logger";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlError from "effect/sql/SqlError";
 import * as Statement from "effect/sql/Statement";

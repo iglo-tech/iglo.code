@@ -32,7 +32,6 @@ import type {
   ProjectSearchContentsResult,
   ProjectSearchEntriesResult,
 } from "@t3tools/contracts";
-import * as HostProcess from "@t3tools/shared/HostProcess";
 import { PROJECT_FAVICON_EXTENSIONS, isProjectFaviconPath } from "@t3tools/shared/projectFavicon";
 import { scoreSubsequenceMatch } from "@t3tools/shared/searchRanking";
 
