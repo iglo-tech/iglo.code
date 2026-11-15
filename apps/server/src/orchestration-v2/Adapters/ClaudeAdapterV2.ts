@@ -356,6 +356,9 @@ function mergeClaudeStreamUsage(
   };
 }
 export const CLAUDE_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(CLAUDE_PROVIDER);
+// The Claude CLI takes the next token as this flag's value even when it starts with `--`.
+const claudeLaunchArgParseOptions = { valueFlags: ["append-system-prompt"] };
+
 const CLAUDE_SCRIPT_EXTENSIONS = [".js", ".mjs", ".tsx", ".ts", ".jsx"];
 // The SDK has no control-request deadline; the CLI waits up to 30 s per MCP server.
 const CLAUDE_MCP_REGISTRATION_TIMEOUT = "90 seconds";
@@ -1353,6 +1356,26 @@ const forkClaudeSessionInWorker = Effect.fn("forkClaudeSessionInWorker")(functio
   );
 });
 
+const CLAUDE_CAN_USE_TOOL_SHADOWED_WARNING = "CLAUDE_SDK_CAN_USE_TOOL_SHADOWED";
+
+// query() warns when canUseTool meets bypassPermissions or bare allowedTools. T3 installs
+// canUseTool in every mode on purpose (AskUserQuestion, ask rules), so it is per-session noise.
+export function withoutClaudeCanUseToolShadowedWarning<A>(run: () => A): A {
+  const emitWarning = process.emitWarning;
+  process.emitWarning = function (this: NodeJS.Process, ...args: Parameters<typeof emitWarning>) {
+    const [, options] = args;
+    if (typeof options === "object" && options.code === CLAUDE_CAN_USE_TOOL_SHADOWED_WARNING) {
+      return;
+    }
+    return Reflect.apply(emitWarning, this, args);
+  } as typeof emitWarning;
+  try {
+    return run();
+  } finally {
+    process.emitWarning = emitWarning;
+  }
+}
+
 export const layerQueryRunner: Layer.Layer<
   ClaudeAgentSdkQueryRunner,
   never,
@@ -1561,10 +1584,12 @@ export const layerQueryRunner: Layer.Layer<
           const queryRuntime = yield* Effect.uninterruptibleMask((restore) =>
             Effect.try({
               try: () =>
-                query({
-                  prompt,
-                  options: { ...options, spawnClaudeCodeProcess },
-                }),
+                withoutClaudeCanUseToolShadowedWarning(() =>
+                  query({
+                    prompt,
+                    options: { ...options, spawnClaudeCodeProcess },
+                  }),
+                ),
               catch: (cause) => queryRunnerError(cause, "query"),
             }).pipe(
               Effect.tap((queryRuntime) =>
@@ -2133,6 +2158,7 @@ export function makeClaudeQueryOptions(input: {
   readonly canUseTool?: CanUseTool;
   readonly onUserDialog?: ClaudeQueryOptions["onUserDialog"];
   readonly onElicitation?: ClaudeQueryOptions["onElicitation"];
+  readonly onStop?: HookCallback;
   readonly supportedDialogKinds?: ClaudeQueryOptions["supportedDialogKinds"];
   readonly allowDangerouslySkipPermissions?: boolean;
   readonly appendSystemPromptFileText?: string;
@@ -2150,7 +2176,9 @@ export function makeClaudeQueryOptions(input: {
     // The SDK replaces this flag with options.settings, so it arrives read as sdkSettings.
     settings: _launchArgSettings,
     ...extraArgs
-  } = input.settings === undefined ? {} : parseCliArgs(input.settings.launchArgs).flags;
+  } = input.settings === undefined
+    ? {}
+    : parseCliArgs(input.settings.launchArgs, claudeLaunchArgParseOptions).flags;
   // Claude Code overwrites its CLI append text with the SDK's initialize
   // appendSystemPrompt, so launch-argument text has to travel in that value.
   // The CLI puts file text before inline text and trims one trailing newline.
@@ -2285,8 +2313,15 @@ export function makeClaudeQueryOptions(input: {
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
-    ...(deviceInstructions
-      ? { hooks: { SubagentStart: [{ hooks: [subagentDeviceInstructions] }] } }
+    ...(deviceInstructions || input.onStop !== undefined
+      ? {
+          hooks: {
+            ...(deviceInstructions
+              ? { SubagentStart: [{ hooks: [subagentDeviceInstructions] }] }
+              : {}),
+            ...(input.onStop === undefined ? {} : { Stop: [{ hooks: [input.onStop] }] }),
+          },
+        }
       : {}),
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
@@ -2313,7 +2348,7 @@ const readClaudeAppendSystemPromptFile = Effect.fnUntraced(function* (input: {
   readonly path: Path.Path;
 }) {
   if (input.settings === undefined) return undefined;
-  const flags = parseCliArgs(input.settings.launchArgs).flags;
+  const flags = parseCliArgs(input.settings.launchArgs, claudeLaunchArgParseOptions).flags;
   // parseCliArgs gives null for a flag with no following value. An explicit
   // `--append-system-prompt ""` is a value the CLI accepts, so it stays.
   if (flags["append-system-prompt"] === null) {
@@ -2350,7 +2385,7 @@ const decodeClaudeLaunchArgSettings = Schema.decodeUnknownEffect(
  * relative to the thread's cwd (the project or its worktree).
  * makeClaudeQueryOptions merges the result beneath T3's own settings.
  */
-const readClaudeLaunchArgSettings = Effect.fn("ClaudeAdapterV2.readLaunchArgSettings")(
+export const readClaudeLaunchArgSettings = Effect.fn("ClaudeAdapterV2.readLaunchArgSettings")(
   function* (input: {
     readonly settings: ClaudeSettings | undefined;
     readonly cwd: string | null;
@@ -2358,7 +2393,8 @@ const readClaudeLaunchArgSettings = Effect.fn("ClaudeAdapterV2.readLaunchArgSett
     readonly path: Path.Path;
   }) {
     if (input.settings === undefined) return undefined;
-    const value = parseCliArgs(input.settings.launchArgs).flags.settings;
+    const value = parseCliArgs(input.settings.launchArgs, claudeLaunchArgParseOptions).flags
+      .settings;
     if (value === undefined) return undefined;
     const trimmed = value?.trim() ?? "";
     if (trimmed.length === 0) return yield* new ClaudeSettingsLaunchArgError({});
@@ -4269,13 +4305,14 @@ export function permissionResultFromDecision(input: {
     };
   }
 
+  const feedback = input.feedback?.trim();
   return {
     behavior: "deny",
-    message:
-      input.feedback?.trim() ||
-      (input.decision === "cancel"
+    message: feedback
+      ? `The user declined this tool call and said:\n${feedback}`
+      : input.decision === "cancel"
         ? "User cancelled tool execution."
-        : "User declined tool execution."),
+        : "User declined tool execution.",
     toolUseID: input.toolUseID,
     decisionClassification: "user_reject",
     ...(input.decision === "cancel" ? { interrupt: true } : {}),
@@ -6637,11 +6674,23 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             nativeThreadId: string,
             task: OrchestrationV2PendingBackgroundTask,
           ) {
-            yield* Ref.update(pendingBackgroundTasksByNativeThread, (current) => {
-              const roster = new Map(rosterForNativeThread(current, nativeThreadId));
-              roster.set(task.taskId, task);
-              return new Map(current).set(nativeThreadId, roster);
-            });
+            const startedMonitor = yield* Ref.modify(
+              pendingBackgroundTasksByNativeThread,
+              (current) => {
+                const roster = new Map(rosterForNativeThread(current, nativeThreadId));
+                const startedMonitor =
+                  task.kind === "monitor" && roster.get(task.taskId)?.kind !== "monitor";
+                roster.set(task.taskId, task);
+                return [startedMonitor, new Map(current).set(nativeThreadId, roster)] as const;
+              },
+            );
+            if (startedMonitor) {
+              yield* addTaskIdsToNativeThreadSet(
+                awaitedBackgroundTasksByNativeThread,
+                nativeThreadId,
+                [task.taskId],
+              );
+            }
             yield* rememberOpaqueTasks([task]);
             yield* markWakeEligibleOpaqueBackgroundTasks(nativeThreadId, [task.taskId]);
           });
@@ -10124,7 +10173,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 ? undefined
                 : findToolCall(input.activeContext, message.tool_use_id);
             const command =
-              launch?.classification.itemType === "command_execution"
+              launch?.classification.itemType === "command_execution" ||
+              launch?.toolName === "Monitor"
                 ? firstStringInputField(launch.input, ["command"])
                 : undefined;
             yield* upsertPendingBackgroundTask(input.nativeThreadId, {
@@ -12215,14 +12265,17 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const context = yield* Ref.get(activeTurn);
           if (acceptance === undefined || context === null) {
             yield* Effect.logWarning(
-              "Declined an MCP elicitation the approval card cannot answer.",
+              "Cancelled an MCP elicitation the approval card cannot answer.",
               {
                 serverName: request.serverName,
                 mode: request.mode,
                 activeTurn: context !== null,
               },
             );
-            return { action: "decline" } satisfies ElicitationResult;
+            // No card was shown, so the user made no choice. MCP reserves
+            // "decline" for an explicit no; "cancel" tells the server the
+            // request was dismissed and may be asked another way.
+            return { action: "cancel" } satisfies ElicitationResult;
           }
           const grantKey = `${request.serverName}\u0000${request.message}`;
           if ((yield* Ref.get(mcpElicitationSessionGrants)).has(grantKey)) {
@@ -12490,6 +12543,16 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const credential = yield* mcpSessions.read(turnInput.threadId);
           const policyOwner =
             credential?.providerInstanceId === adapterOptions.instanceId ? credential : undefined;
+          // Claude Code defers its goal Stop hook only for its own background tasks, so a goal
+          // re-prompts in a loop while T3 work that will wake this thread is still running.
+          const onStop: HookCallback = () =>
+            runPromise(
+              Effect.gen(function* () {
+                if (goalsByNativeThread.get(nativeThreadId)?.status !== "active") return {};
+                const pendingWake = (yield* mcpSessions.read(turnInput.threadId))?.hasPendingWake;
+                return pendingWake !== undefined && (yield* pendingWake) ? { continue: false } : {};
+              }),
+            );
           const mcpOverrides = claudeMcpQueryOverrides({
             mcpSession: credential,
             supervised: queryPolicy.installPermissionCallback,
@@ -12667,6 +12730,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             canUseTool,
             onUserDialog,
             onElicitation,
+            onStop,
             supportedDialogKinds: ["resume_return"],
             ...(appendSystemPromptFileText === undefined ? {} : { appendSystemPromptFileText }),
             ...(toolSearchOverride === undefined ? {} : { toolSearchOverride }),

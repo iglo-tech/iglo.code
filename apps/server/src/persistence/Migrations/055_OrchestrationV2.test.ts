@@ -55,6 +55,9 @@ layer("055_OrchestrationV2", (it) => {
         [92, "AuthConnectDevices"],
         [93, "AuthConnectDeniedRequests"],
         [94, "QueuedTurnInputIndexJsonValid"],
+        [95, "ProviderTurnAttemptIndex"],
+        [96, "TurnItemMessageOrdinalIndex"],
+        [97, "TurnItemInlineWorkOutput"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
@@ -136,6 +139,9 @@ layer("055_OrchestrationV2", (it) => {
           [92, "AuthConnectDevices"],
           [93, "AuthConnectDeniedRequests"],
           [94, "QueuedTurnInputIndexJsonValid"],
+          [95, "ProviderTurnAttemptIndex"],
+          [96, "TurnItemMessageOrdinalIndex"],
+          [97, "TurnItemInlineWorkOutput"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -180,6 +186,9 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 92, name: "AuthConnectDevices" },
             { migration_id: 93, name: "AuthConnectDeniedRequests" },
             { migration_id: 94, name: "QueuedTurnInputIndexJsonValid" },
+            { migration_id: 95, name: "ProviderTurnAttemptIndex" },
+            { migration_id: 96, name: "TurnItemMessageOrdinalIndex" },
+            { migration_id: 97, name: "TurnItemInlineWorkOutput" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -233,6 +242,9 @@ layer("055_OrchestrationV2", (it) => {
         [92, "AuthConnectDevices"],
         [93, "AuthConnectDeniedRequests"],
         [94, "QueuedTurnInputIndexJsonValid"],
+        [95, "ProviderTurnAttemptIndex"],
+        [96, "TurnItemMessageOrdinalIndex"],
+        [97, "TurnItemInlineWorkOutput"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -283,6 +295,9 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 92, name: "AuthConnectDevices" },
         { migration_id: 93, name: "AuthConnectDeniedRequests" },
         { migration_id: 94, name: "QueuedTurnInputIndexJsonValid" },
+        { migration_id: 95, name: "ProviderTurnAttemptIndex" },
+        { migration_id: 96, name: "TurnItemMessageOrdinalIndex" },
+        { migration_id: 97, name: "TurnItemInlineWorkOutput" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -291,7 +306,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 94 }, (_, index) => index + 1),
+        Array.from({ length: 97 }, (_, index) => index + 1),
       );
     }),
   );
@@ -344,6 +359,9 @@ layer("055_OrchestrationV2", (it) => {
         [92, "AuthConnectDevices"],
         [93, "AuthConnectDeniedRequests"],
         [94, "QueuedTurnInputIndexJsonValid"],
+        [95, "ProviderTurnAttemptIndex"],
+        [96, "TurnItemMessageOrdinalIndex"],
+        [97, "TurnItemInlineWorkOutput"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -404,6 +422,9 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 92, name: "AuthConnectDevices" },
         { migration_id: 93, name: "AuthConnectDeniedRequests" },
         { migration_id: 94, name: "QueuedTurnInputIndexJsonValid" },
+        { migration_id: 95, name: "ProviderTurnAttemptIndex" },
+        { migration_id: 96, name: "TurnItemMessageOrdinalIndex" },
+        { migration_id: 97, name: "TurnItemInlineWorkOutput" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

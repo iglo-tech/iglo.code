@@ -105,7 +105,16 @@ unavailable or all eligible machines are full, choose a machine manually to cont
 
 ### Tailscale HTTPS
 
-Join both devices to the same tailnet. To start a server with Tailscale HTTPS:
+Join both devices to the same tailnet.
+
+Your tailnet needs MagicDNS and HTTPS certificates enabled; see
+[Tailscale's HTTPS setup](https://tailscale.com/docs/how-to/set-up-https-certificates).
+On Linux, iglo.code also needs permission to manage Tailscale; see
+[operator permission](https://tailscale.com/docs/reference/troubleshooting/linux/linux-operator-permission)
+for non-root users. If any of these is missing, iglo.code still starts but can't
+add the HTTPS route.
+
+To start a server with Tailscale HTTPS:
 
 ```bash
 iglo.code serve --tailscale-serve

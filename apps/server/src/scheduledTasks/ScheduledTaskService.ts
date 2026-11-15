@@ -58,6 +58,8 @@ import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import { OrchestratorDispatchError } from "../orchestration-v2/Orchestrator.ts";
+import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as DueHint from "../scheduling/DueHint.ts";
@@ -85,6 +87,7 @@ import { constantTimeEquals, verifyWebhookSignature } from "./webhookVerificatio
 
 export const WEBHOOK_ROUTE_PREFIX = "/api/hooks";
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
+const isOrchestratorDispatchError = Schema.is(OrchestratorDispatchError);
 const PROMPT_TOO_LONG = "The filled-in prompt is too long.";
 const WEBHOOK_DELIVERY_RETENTION = 50;
 const WEBHOOK_DEDUPE_DELIVERY_RETENTION = 20;
@@ -391,6 +394,14 @@ function requireFutureOnce(
 function errorMessage(error: unknown): string {
   const failure = Cause.isCause(error) ? Cause.squash(error) : error;
   return failure instanceof Error ? failure.message : String(failure);
+}
+
+function dispatchErrorMessage(cause: Cause.Cause<unknown>): string {
+  const failure = Cause.squash(cause);
+  // Direct orchestration refusals are user-facing; nested defects can contain private data.
+  return isOrchestratorDispatchError(failure) && typeof failure.cause === "string"
+    ? (userFacingDispatchErrorMessage(failure.cause) ?? errorMessage(failure))
+    : errorMessage(failure);
 }
 
 function webhookPath(taskId: string, token: string): string {
@@ -1299,7 +1310,7 @@ export const layer = Layer.effect(
               : "delivery" in result.value && result.value.delivery === "queued"
                 ? "queued"
                 : "dispatched";
-          const lastRunError = runSucceeded ? null : errorMessage(result.cause);
+          const lastRunError = runSucceeded ? null : dispatchErrorMessage(result.cause);
           const threadId = result._tag === "Success" ? result.value.threadId : null;
           // One transaction, so an edit cannot land between reading the schedule and
           // writing the next run computed from it. The origin is read first: it reads

@@ -3,6 +3,7 @@ import * as NodeHttp from "node:http";
 
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { assert, it } from "@effect/vitest";
@@ -22,6 +23,7 @@ import {
   persistServerRuntimeState,
 } from "../serverRuntimeState.ts";
 import { acquireRelayClientForLink } from "./connect.ts";
+import { resolveHostCliCommand } from "./invocation.ts";
 
 const managedExecutable = {
   status: "available",
@@ -57,6 +59,44 @@ it.effect("does not install the relay client when the user declines the managed 
     assert.isTrue(Option.isNone(result));
     assert.equal(installCalls, 0);
   }),
+);
+
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))(
+  "iglo.code connect next steps",
+  (it) => {
+    it.effect.each([
+      { subcommand: "status", hint: "connect link" },
+      { subcommand: "publish", hint: "connect login" },
+    ])(
+      "iglo.code connect $subcommand names `iglo.code $hint` with --base-dir",
+      ({ subcommand, hint }) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const baseDir = yield* fs.makeTempDirectoryScoped({
+            prefix: "iglo-code-connect-hint-test-",
+          });
+
+          yield* Command.runWith(makeCli({ cloudEnabled: true }), { version: "0.0.0" })([
+            "connect",
+            subcommand,
+            "--base-dir",
+            baseDir,
+          ]);
+
+          const { command } = yield* resolveHostCliCommand(hint, ["--base-dir", baseDir]);
+          assert.include((yield* TestConsole.logLines).join("\n"), `\`${command}\``);
+        }).pipe(
+          Effect.scoped,
+          Effect.provideService(HostProcess.Environment, {}),
+          Effect.provide(
+            Layer.mergeAll(
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+              Layer.fresh(TestConsole.layer),
+            ),
+          ),
+        ),
+    );
+  },
 );
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))(

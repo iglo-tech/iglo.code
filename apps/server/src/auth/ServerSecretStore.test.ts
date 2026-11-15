@@ -136,6 +136,36 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ServerSecretStor
     }).pipe(Effect.provide(layerServerSecretStore())),
   );
 
+  it.effect("replaces an empty persisted secret with a fresh random one", () =>
+    Effect.gen(function* () {
+      const secretStore = yield* ServerSecretStore.ServerSecretStore;
+      yield* secretStore.set("session-signing-key", new Uint8Array());
+
+      const secret = yield* secretStore.getOrCreateRandom("session-signing-key", 32);
+      const persisted = yield* secretStore.get("session-signing-key");
+
+      assert.equal(secret.byteLength, 32);
+      assert.deepEqual(Array.from(Option.getOrThrow(persisted)), Array.from(secret));
+    }).pipe(Effect.provide(layerServerSecretStore())),
+  );
+
+  // The per-name lock serializes callers, so the second sees the first's repaired key.
+  it.effect("keeps the repaired secret when concurrent callers find it empty", () =>
+    Effect.gen(function* () {
+      const secretStore = yield* ServerSecretStore.ServerSecretStore;
+      yield* secretStore.set("session-signing-key", new Uint8Array());
+      const getOrCreate = secretStore.getOrCreateRandom("session-signing-key", 32);
+
+      const [first, second] = yield* Effect.all([getOrCreate, getOrCreate], {
+        concurrency: "unbounded",
+      });
+      const persisted = Option.getOrThrow(yield* secretStore.get("session-signing-key"));
+
+      assert.deepEqual(Array.from(first), Array.from(persisted));
+      assert.deepEqual(Array.from(second), Array.from(persisted));
+    }).pipe(Effect.provide(layerServerSecretStore())),
+  );
+
   it.effect("returns and caches the persisted secret when another creator wins", () =>
     Effect.gen(function* () {
       const store = yield* ServerSecretStore.ServerSecretStore;

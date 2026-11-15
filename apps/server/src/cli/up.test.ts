@@ -168,7 +168,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
       readonly reportStatus?: boolean;
       /** Runs as if in a terminal, answering each question with this text. */
       readonly answer?: string;
-      readonly prints?: string;
+      /** Lines the run prints, with `<baseDir>` standing for the test's home. */
+      readonly prints?: ReadonlyArray<string>;
       readonly omits?: string;
       readonly json?: object;
       readonly env: string;
@@ -188,7 +189,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
       },
       {
         label: "the local network opens",
-        prints: "Run `iglo.code pair --base-dir <baseDir>`.",
+        prints: ["Run `iglo.code pair --base-dir <baseDir>`."],
         installed: true,
         env: "IGLO_CODE_LAN=false\n",
         args: ["--lan"],
@@ -207,6 +208,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
       },
       {
         label: "a route turns off with no service to run",
+        prints: ["Run `iglo.code --base-dir <baseDir>` to use T3 Code here."],
         installed: false,
         env: "IGLO_CODE_LAN=true\n",
         args: ["--no-lan"],
@@ -227,7 +229,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
       {
         label: "a failed update keeps service.env matching the old service",
         // The old service still runs, so no foreground server is offered.
-        prints: "Fix that, then run `iglo.code up --base-dir <baseDir>` again.",
+        prints: ["Fix that, then run `iglo.code up --base-dir <baseDir>` again."],
         installed: true,
         status: { current: false },
         installFails: true,
@@ -286,11 +288,25 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
         envAfter: "",
       },
       {
+        label: "status hints keep the caller's --base-dir",
+        installed: true,
+        reportStatus: true,
+        prints: [
+          "Turn it off: `iglo.code up --base-dir <baseDir> --no-lan`.",
+          "Change access: `iglo.code up --base-dir <baseDir>`.",
+        ],
+        env: "",
+        args: [],
+        installs: 0,
+        restarts: 0,
+        envAfter: "",
+      },
+      {
         label: "a host override gets no --no-lan hint it would ignore",
         installed: true,
         reportStatus: true,
-        prints: "overridden · IGLO_CODE_HOST=0.0.0.0",
-        omits: "iglo.code up --no-lan",
+        prints: ["overridden · IGLO_CODE_HOST=0.0.0.0"],
+        omits: "--no-lan",
         env: "IGLO_CODE_HOST=0.0.0.0\n",
         args: [],
         installs: 0,
@@ -390,8 +406,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
             ),
           ),
         );
-        if (input.prints !== undefined) {
-          expect(lines.join("\n")).toContain(input.prints.replace("<baseDir>", baseDir));
+        for (const line of input.prints ?? []) {
+          expect(lines.join("\n")).toContain(line.replace("<baseDir>", baseDir));
         }
         if (input.omits !== undefined) {
           expect(lines.join("\n")).not.toContain(input.omits);
