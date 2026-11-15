@@ -135,11 +135,19 @@ choice.
 While this is on, the active list is ordered by when each thread last came back to you, so you
 cannot drag or move threads within it. Your saved order returns when you turn it off.
 
+### Switch projects
+
+The left rail of the sidebar lets you switch between projects quickly.
+Click any project icon to switch the sidebar to that project, or click the top **All projects** icon to show
+threads across all projects. **Shift-click** a project icon to toggle multi-project selection. Right-click a project
+icon to pin it, open its settings, or copy its path. Status dots on project icons show when background work
+is running, finished unread, or needs your input.
+
 ### Group threads by project (beta)
 
 Turn on **Settings → Labs → Boring sidebar (group by project)** to put active
 threads in a folder for each project. Pinned projects come first. A project with no active
-threads has no folder unless it is pinned or you pick it in the project filter. An archived
+threads has no folder unless it is pinned or you pick it in the project switcher. An archived
 project's folder comes last and shows only while it has active threads. Click a folder to open or
 close it. A closed folder shows how many threads it holds, and a dot when one of them
 needs you. Use the pen button on a folder, or right-click it, to start a thread in that project.
