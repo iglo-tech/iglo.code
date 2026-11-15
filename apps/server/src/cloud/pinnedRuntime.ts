@@ -676,8 +676,10 @@ const shellLauncherTargets = Effect.fn("cloud.pinned_runtime.shell_launcher_targ
     if (
       platform !== "win32" &&
       scriptTarget === undefined &&
-      (parent === versionsDir || parent === realVersionsDir) &&
-      target === path.join(realVersionsDir, path.basename(entryDir), path.basename(launcher))
+      target === path.join(realVersionsDir, path.basename(entryDir), path.basename(launcher)) &&
+      (parent === versionsDir ||
+        parent === realVersionsDir ||
+        (yield* fs.realPath(parent).pipe(Effect.orElseSucceed(() => parent))) === realVersionsDir)
     ) {
       continue;
     }
