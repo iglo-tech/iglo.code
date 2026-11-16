@@ -148,11 +148,12 @@ current when an authorized change replaces a decision.
     Buttons are tinted with the project icon's colour, not a grey fill. Upstream's
     combobox pieces (`ProjectComboboxRow.tsx`, `filterSidebarProjectScopeItems`,
     `reduceSidebarProjectScopeMenuState`) stay removed.
-  - **New thread.** The header is a full-width primary **New thread** button above
-    search, with no Add project or filter buttons (adding lives in the rail). A
+  - **New thread.** The header is the search field with a ghost pencil icon beside
+    it, with no Add project or filter buttons (adding lives in the rail). A
     one-project rail scope starts the thread there, preferring the open thread's
-    environment member; otherwise upstream's picker rule applies. The button and
-    the `chat.new` shortcut share `resolveNewThreadTarget`.
+    environment member; All projects always opens the picker, even with one open
+    project (upstream starts in that project). The button and the `chat.new`
+    shortcut share `resolveNewThreadTarget`.
   - **Needs attention.** Plugin attention renders as a collapsible section at the
     top of the thread list, not in the sidebar footer
     ([PluginSlots.tsx](../../../apps/web/src/plugins/PluginSlots.tsx)).
