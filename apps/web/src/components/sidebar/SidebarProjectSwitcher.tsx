@@ -6,9 +6,8 @@ import { memo } from "react";
 import { cn } from "~/lib/utils";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useUiStateStore } from "../../uiStateStore";
-import { resolveSidebarFolderDot, resolveThreadLastVisitedAt } from "../Sidebar.logic";
+import { resolveSidebarProjectActivity, resolveThreadLastVisitedAt } from "../Sidebar.logic";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { FOLDER_DOT_CLASS_NAME, FOLDER_DOT_LABEL } from "./SidebarProjectFolderHeader";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface SidebarProjectSwitcherProps {
@@ -70,10 +69,8 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
         <span
           aria-hidden="true"
           className={cn(
-            "absolute left-0 w-1 rounded-r-full bg-foreground transition-[height,opacity] duration-200",
-            isAllSelected
-              ? "h-10 opacity-100"
-              : "h-0 opacity-0 group-hover/item:h-5 group-hover/item:opacity-100",
+            "absolute left-0 w-1 rounded-r-full bg-sidebar-foreground transition-[height] duration-200",
+            isAllSelected ? "h-10" : "h-0 group-hover/item:h-5",
           )}
         />
         <Tooltip>
@@ -87,7 +84,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                 className={cn(
                   "relative flex size-10 items-center justify-center transition-[border-radius,background-color,color,box-shadow] duration-200 outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   isAllSelected
-                    ? "rounded-2xl bg-sidebar-row-selected text-sidebar-foreground ring-2 ring-primary ring-inset shadow-xs font-medium"
+                    ? "rounded-2xl bg-primary text-primary-foreground"
                     : "rounded-3xl bg-sidebar-control-surface text-sidebar-foreground/80 hover:rounded-2xl hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
                 )}
               >
@@ -109,9 +106,8 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
         {projectGroups.map((project) => {
           const isSelected = selectedProjectKeys.includes(project.projectKey);
 
-          // Status dot calculation
           const projectThreads = threadsByProjectKey.get(project.projectKey) ?? [];
-          const dot = resolveSidebarFolderDot(
+          const activity = resolveSidebarProjectActivity(
             projectThreads.map((thread) => ({
               ...thread,
               lastVisitedAt: resolveThreadLastVisitedAt(
@@ -122,6 +118,15 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
               ),
             })),
           );
+          const activityStatus =
+            activity.needsYouCount > 0
+              ? `${activity.needsYouCount} need${activity.needsYouCount === 1 ? "s" : ""} you`
+              : activity.unread
+                ? "Done"
+                : activity.working
+                  ? "Working"
+                  : null;
+          const activityLabel = activityStatus ? `, ${activityStatus.toLowerCase()}` : "";
 
           return (
             <div
@@ -132,10 +137,12 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
               <span
                 aria-hidden="true"
                 className={cn(
-                  "absolute left-0 w-1 rounded-r-full bg-foreground transition-[height,opacity] duration-200",
+                  "absolute left-0 w-1 rounded-r-full bg-sidebar-foreground transition-[height] duration-200",
                   isSelected
-                    ? "h-10 opacity-100"
-                    : "h-0 opacity-0 group-hover/item:h-5 group-hover/item:opacity-100",
+                    ? "h-10"
+                    : activity.unread
+                      ? "h-2 group-hover/item:h-5"
+                      : "h-0 group-hover/item:h-5",
                 )}
               />
               <Tooltip>
@@ -143,7 +150,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                   render={
                     <button
                       type="button"
-                      aria-label={`${project.displayName}${dot ? FOLDER_DOT_LABEL[dot] : ""}`}
+                      aria-label={`${project.displayName}${activityLabel}`}
                       aria-pressed={isSelected}
                       onClick={(event) => {
                         if (event.shiftKey) {
@@ -167,7 +174,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                       className={cn(
                         "relative flex size-10 items-center justify-center transition-[border-radius,background-color,color,box-shadow] duration-200 outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                         isSelected
-                          ? "rounded-2xl bg-sidebar-row-selected text-sidebar-foreground ring-2 ring-primary ring-inset shadow-xs"
+                          ? "rounded-2xl bg-sidebar-row-selected text-sidebar-foreground"
                           : "rounded-3xl bg-sidebar-control-surface text-sidebar-foreground hover:rounded-2xl hover:bg-sidebar-row-hover",
                       )}
                     >
@@ -180,13 +187,17 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                         </span>
                       ) : null}
 
-                      {/* Status notification dot */}
-                      {dot ? (
+                      {activity.needsYouCount > 0 ? (
                         <span
-                          className={cn(
-                            "pointer-events-none absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-sidebar",
-                            FOLDER_DOT_CLASS_NAME[dot],
-                          )}
+                          aria-hidden="true"
+                          className="pointer-events-none absolute -right-1 -bottom-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-3xs leading-none font-semibold text-white tabular-nums ring-2 ring-sidebar"
+                        >
+                          {activity.needsYouCount > 9 ? "9+" : activity.needsYouCount}
+                        </span>
+                      ) : activity.working ? (
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-info ring-2 ring-sidebar"
                         />
                       ) : null}
                     </button>
@@ -204,9 +215,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                     </div>
                     <span className="text-2xs text-muted-foreground">
                       {project.pinned ? "Pinned • " : ""}
-                      {dot
-                        ? `${FOLDER_DOT_LABEL[dot].replace(/^, /, "").replace(/^./, (c) => c.toUpperCase())} • `
-                        : ""}
+                      {activityStatus ? `${activityStatus} • ` : ""}
                       Click to switch • Shift+click to toggle
                     </span>
                   </div>

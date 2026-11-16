@@ -7,6 +7,8 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
+  resolveNewThreadTarget,
+  resolveSidebarProjectActivity,
   shouldCreateNewThreadInCurrentProject,
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
@@ -1670,6 +1672,20 @@ describe("resolveSidebarFolderDot", () => {
     expect(resolveSidebarFolderDot([idle, working])).toBe("working");
     expect(resolveSidebarFolderDot([working, unread])).toBe("unread");
     expect(resolveSidebarFolderDot([unread, limited])).toBe("attention");
+    expect(
+      resolveSidebarProjectActivity([
+        idle,
+        working,
+        unread,
+        limited,
+        { ...idle, hasPendingApprovals: true },
+      ]),
+    ).toEqual({ needsYouCount: 2, unread: true, working: true });
+    expect(resolveSidebarProjectActivity([idle])).toEqual({
+      needsYouCount: 0,
+      unread: false,
+      working: false,
+    });
   });
 });
 
@@ -1680,5 +1696,45 @@ describe("shouldCreateNewThreadInCurrentProject", () => {
     expect(shouldCreateNewThreadInCurrentProject(false, 1, 3)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(false, 0, 0)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(true, 2, 2)).toBe(true);
+  });
+});
+
+describe("resolveNewThreadTarget", () => {
+  const env = EnvironmentId.make("env-a");
+  const other = EnvironmentId.make("env-b");
+  const group = {
+    environmentId: env,
+    id: ProjectId.make("p1"),
+    memberProjectRefs: [
+      { environmentId: env, projectId: ProjectId.make("p1") },
+      { environmentId: other, projectId: ProjectId.make("p1-remote") },
+    ],
+  };
+  const base = { activeProjectRef: null, openProjectGroupCount: 3, projectGroupCount: 3 };
+
+  it("starts in a one-project scope, asks under all projects, and Shift keeps the current project", () => {
+    expect(resolveNewThreadTarget({ ...base, shiftKey: false, scopedGroups: [group] })).toEqual({
+      kind: "project",
+      projectRef: { environmentId: env, projectId: ProjectId.make("p1") },
+    });
+    expect(
+      resolveNewThreadTarget({
+        ...base,
+        shiftKey: false,
+        scopedGroups: [group],
+        activeProjectRef: group.memberProjectRefs[1]!,
+      }),
+    ).toEqual({ kind: "project", projectRef: group.memberProjectRefs[1] });
+    expect(resolveNewThreadTarget({ ...base, shiftKey: false, scopedGroups: [] })).toEqual({
+      kind: "pick",
+    });
+    expect(
+      resolveNewThreadTarget({ ...base, shiftKey: false, scopedGroups: [group, group] }),
+    ).toEqual({
+      kind: "pick",
+    });
+    expect(resolveNewThreadTarget({ ...base, shiftKey: true, scopedGroups: [group] })).toEqual({
+      kind: "current",
+    });
   });
 });

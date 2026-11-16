@@ -7,7 +7,7 @@ import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { dispatchPreviewAction, type PreviewAction } from "../components/preview/previewActionBus";
 import { isAppModalPage } from "../components/sidebar/mainAppLocation";
-import { shouldCreateNewThreadInCurrentProject } from "../components/Sidebar.logic";
+import { resolveNewThreadTarget } from "../components/Sidebar.logic";
 import {
   createNewThreadHandler,
   readLastUsedProjectKey,
@@ -15,11 +15,14 @@ import {
 } from "../hooks/useHandleNewThread";
 import { createScratchProjectActions } from "../hooks/useScratchProject";
 import { getClientSettings } from "../hooks/useSettings";
-import { startNewThreadFromContext } from "../lib/chatThreadActions";
+import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { selectProjectGroupingSettings } from "@t3tools/client-runtime/state/project-grouping";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
+import {
+  buildSidebarProjectSnapshots,
+  resolveSidebarProjectScopeKeys,
+} from "../sidebarProjectGrouping";
 import { readProjects, readThreadShell } from "../state/entities";
 import { defaultProjectFallbackReadyAtom } from "../state/projects";
 import { environmentPresentations } from "../state/presentation";
@@ -139,13 +142,29 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
       },
       "chat.new": (event) => {
         const groups = readProjectGroups();
-        if (
-          !shouldCreateNewThreadInCurrentProject(
-            false,
-            groups.filter((group) => !group.archived).length,
-            groups.length,
-          )
-        ) {
+        const openGroups = groups.filter((group) => !group.archived);
+        const scopeKeys = resolveSidebarProjectScopeKeys({
+          groups,
+          keys: useUiStateStore.getState().sidebarProjectScopeKeys,
+          settings: selectProjectGroupingSettings(getClientSettings()),
+        });
+        const threadContext = readThreadContext();
+        const target = resolveNewThreadTarget({
+          shiftKey: false,
+          scopedGroups: openGroups.filter((group) => scopeKeys.includes(group.projectKey)),
+          activeProjectRef: resolveThreadActionProjectRef({
+            ...threadContext,
+            defaultProjectRef: null,
+          }),
+          openProjectGroupCount: openGroups.length,
+          projectGroupCount: groups.length,
+        });
+        if (target.kind === "project") {
+          claim(event);
+          void threadContext.handleNewThread(target.projectRef);
+          return;
+        }
+        if (target.kind === "pick") {
           claim(event);
           openCommandPalette({ open: "new-thread-in" });
           return;

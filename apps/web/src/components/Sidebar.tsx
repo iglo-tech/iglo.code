@@ -122,7 +122,7 @@ import { useProjectPin } from "../hooks/useProjectGroupUpdate";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
-import { startNewThreadFromContext } from "../lib/chatThreadActions";
+import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
@@ -185,6 +185,7 @@ import {
   resolveSidebarThreadSection,
   resolveSidebarReorderableThreadKeys,
   searchSidebarThreads,
+  resolveNewThreadTarget,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   sidebarListItemId,
@@ -2830,26 +2831,34 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const showJumpHints = useThreadJumpHintsVisible(keybindings, routeThreadRef);
 
   const handleNewThreadClick = (event?: ReactMouseEvent) => {
-    if (
-      shouldCreateNewThreadInCurrentProject(
-        event?.shiftKey ?? false,
-        scopeGroups.length,
-        projectGroups.length,
-      )
-    ) {
-      if (isMobile) setOpenMobile(false);
+    const threadContext = {
+      activeDraftThread: newThreadContext.activeDraftThread,
+      activeThread: newThreadContext.activeThread ?? undefined,
+      defaultProjectRef: newThreadContext.defaultProjectRef,
+      handleNewThread,
+    };
+    const target = resolveNewThreadTarget({
+      shiftKey: event?.shiftKey ?? false,
+      scopedGroups: scopedProjectGroups,
+      activeProjectRef: resolveThreadActionProjectRef({
+        ...threadContext,
+        defaultProjectRef: null,
+      }),
+      openProjectGroupCount: scopeGroups.length,
+      projectGroupCount: projectGroups.length,
+    });
+    if (isMobile) setOpenMobile(false);
+    if (target.kind === "project") {
+      void handleNewThread(target.projectRef);
+      return;
+    }
+    if (target.kind === "current") {
       // With no current or open project, such as when every project is archived, pick one.
-      void startNewThreadFromContext({
-        activeDraftThread: newThreadContext.activeDraftThread,
-        activeThread: newThreadContext.activeThread ?? undefined,
-        defaultProjectRef: newThreadContext.defaultProjectRef,
-        handleNewThread,
-      }).then((started) => {
+      void startNewThreadFromContext(threadContext).then((started) => {
         if (!started) openCommandPalette({ open: "new-thread-in" });
       });
       return;
     }
-    if (isMobile) setOpenMobile(false);
     openCommandPalette({ open: "new-thread-in" });
   };
 
@@ -2882,13 +2891,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             fixedHeader={
               <SidebarGroup className="z-[1]">
                 <SidebarThreadHeader
-                  hasProjects={projectGroups.length > 0}
-                  onNewProject={openAddProjectCommandPalette}
                   onNewThread={handleNewThreadClick}
                   newThreadDisabled={projects.length === 0}
+                  newThreadProjectName={
+                    scopedProjectGroups.length === 1 ? scopedProjectGroups[0]!.displayName : null
+                  }
                   newThreadShortcutLabel={newThreadShortcutLabel}
                   newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}
                   showNewThreadInProjectHint={
+                    scopedProjectGroups.length !== 1 &&
                     !shouldCreateNewThreadInCurrentProject(
                       false,
                       scopeGroups.length,
