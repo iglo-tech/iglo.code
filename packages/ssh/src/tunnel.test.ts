@@ -351,65 +351,76 @@ describe("ssh tunnel scripts", () => {
     NodeChildProcess.spawnSync("sh", ["-c", 'command -v "$1"', "sh", "shasum"]).status === 0
       ? ["sha256sum", "shasum"]
       : ["sha256sum"];
-  it.each(checksumTools)("names missing gzip after verifying with %s", (checksum) => {
-    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-ssh-runner-"));
-    try {
-      const bin = NodePath.join(root, "bin");
-      const release = NodePath.join(root, "release");
-      const home = NodePath.join(root, "home\ncache");
-      const archive = `t3-${ARCHIVE.archiveVersion}-linux-x64.tar.gz`;
-      NodeFS.mkdirSync(bin);
-      NodeFS.mkdirSync(home);
-      NodeFS.mkdirSync(NodePath.join(release, "t3"), { recursive: true });
-      NodeFS.writeFileSync(NodePath.join(release, "t3", "t3"), "#!/bin/sh\necho ok\n", {
-        mode: 0o755,
-      });
-      NodeChildProcess.execFileSync("tar", ["-czf", archive, "t3"], { cwd: release });
-      NodeChildProcess.execFileSync("sh", ["-c", `sha256sum ${archive} > SHA256SUMS`], {
-        cwd: release,
-      });
-      for (const tool of [
-        "sh",
-        "mkdir",
-        "mktemp",
-        "cat",
-        "rm",
-        "grep",
-        "cut",
-        checksum,
-        "tar",
-        "mv",
-      ]) {
-        NodeFS.symlinkSync(
-          NodeChildProcess.execFileSync("sh", ["-c", `command -v ${tool}`], {
-            encoding: "utf8",
-          }).trim(),
-          NodePath.join(bin, tool),
+  // bsdtar (macOS) and BusyBox unpack gzip without the gzip binary; only GNU tar needs it.
+  const tarNeedsGzip = /GNU tar/.test(
+    NodeChildProcess.spawnSync("tar", ["--version"], { encoding: "utf8" }).stdout ?? "",
+  );
+  it.skipIf(!tarNeedsGzip).each(checksumTools)(
+    "names missing gzip after verifying with %s",
+    (checksum) => {
+      const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-ssh-runner-"));
+      try {
+        const bin = NodePath.join(root, "bin");
+        const release = NodePath.join(root, "release");
+        const home = NodePath.join(root, "home\ncache");
+        const archive = `iglo.code-${ARCHIVE.archiveVersion}-linux-x64.tar.gz`;
+        NodeFS.mkdirSync(bin);
+        NodeFS.mkdirSync(home);
+        NodeFS.mkdirSync(NodePath.join(release, "iglo.code"), { recursive: true });
+        NodeFS.writeFileSync(
+          NodePath.join(release, "iglo.code", "iglo.code"),
+          "#!/bin/sh\necho ok\n",
+          {
+            mode: 0o755,
+          },
         );
+        NodeChildProcess.execFileSync("tar", ["-czf", archive, "iglo.code"], { cwd: release });
+        NodeChildProcess.execFileSync("sh", ["-c", `sha256sum ${archive} > SHA256SUMS`], {
+          cwd: release,
+        });
+        for (const tool of [
+          "sh",
+          "mkdir",
+          "mktemp",
+          "cat",
+          "rm",
+          "grep",
+          "cut",
+          checksum,
+          "tar",
+          "mv",
+        ]) {
+          NodeFS.symlinkSync(
+            NodeChildProcess.execFileSync("sh", ["-c", `command -v ${tool}`], {
+              encoding: "utf8",
+            }).trim(),
+            NodePath.join(bin, tool),
+          );
+        }
+        NodeFS.writeFileSync(
+          NodePath.join(bin, "uname"),
+          '#!/bin/sh\ncase "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac\n',
+          { mode: 0o755 },
+        );
+        NodeFS.writeFileSync(
+          NodePath.join(bin, "curl"),
+          `#!/bin/sh\nfor last; do :; done\nfor a; do case "$a" in http*) src="${release}/\${a##*/}" ;; esac; done\nexec cat "$src" > "$last"\n`,
+          { mode: 0o755 },
+        );
+        const runner = NodePath.join(root, "run-t3.sh");
+        NodeFS.writeFileSync(runner, SshTunnel.buildRemoteT3RunnerScript(ARCHIVE));
+        const result = NodeChildProcess.spawnSync(NodePath.join(bin, "sh"), [runner, "--version"], {
+          encoding: "utf8",
+          env: { HOME: home, PATH: bin },
+        });
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, /(missing|needs) gzip/);
+        assert.notInclude(result.stderr, "Cannot exec");
+      } finally {
+        NodeFS.rmSync(root, { recursive: true, force: true });
       }
-      NodeFS.writeFileSync(
-        NodePath.join(bin, "uname"),
-        '#!/bin/sh\ncase "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac\n',
-        { mode: 0o755 },
-      );
-      NodeFS.writeFileSync(
-        NodePath.join(bin, "curl"),
-        `#!/bin/sh\nfor last; do :; done\nfor a; do case "$a" in http*) src="${release}/\${a##*/}" ;; esac; done\nexec cat "$src" > "$last"\n`,
-        { mode: 0o755 },
-      );
-      const runner = NodePath.join(root, "run-t3.sh");
-      NodeFS.writeFileSync(runner, SshTunnel.buildRemoteT3RunnerScript(ARCHIVE));
-      const result = NodeChildProcess.spawnSync(NodePath.join(bin, "sh"), [runner, "--version"], {
-        encoding: "utf8",
-        env: { HOME: home, PATH: bin },
-      });
-      assert.notEqual(result.status, 0);
-      assert.match(result.stderr, /(missing|needs) gzip/);
-      assert.notInclude(result.stderr, "Cannot exec");
-    } finally {
-      NodeFS.rmSync(root, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 
   it.effect("accepts launch JSON after remote shell startup noise", () => {
     const target = {
