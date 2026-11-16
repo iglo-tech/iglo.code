@@ -105,6 +105,7 @@ import Migration0094 from "./Migrations/094_QueuedTurnInputIndexJsonValid.ts";
 import Migration0095 from "./Migrations/095_ProviderTurnAttemptIndex.ts";
 import Migration0096 from "./Migrations/096_TurnItemMessageOrdinalIndex.ts";
 import Migration0097 from "./Migrations/097_TurnItemInlineWorkOutput.ts";
+import Migration0098 from "./Migrations/098_RepairStaleTitleRegeneration.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -205,6 +206,7 @@ export const migrationEntries = [
   [95, "ProviderTurnAttemptIndex", Migration0095],
   [96, "TurnItemMessageOrdinalIndex", Migration0096],
   [97, "TurnItemInlineWorkOutput", Migration0097],
+  [98, "RepairStaleTitleRegeneration", Migration0098],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -351,13 +353,15 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
   // The desktop waits past its readiness budget until the finished line follows this one.
-  if (yield* hasPendingMigrations()) yield* Effect.log(DATABASE_MIGRATIONS_STARTED_MESSAGE);
+  const hasPending = yield* hasPendingMigrations();
+  if (hasPending) yield* Effect.log(DATABASE_MIGRATIONS_STARTED_MESSAGE);
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
-  const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
+  // The reconcile takes the write lock; CLI startup must not contend with the server for a no-op.
+  const previewMigrations = includesV2 && hasPending ? yield* reconcileV2PreviewMigration() : [];
   // Reconcile the plugin ledger first so its legacy ids do not fail the V2 check.
   const scheduleDispatchMigrations =
-    toMigrationInclusive === undefined || toMigrationInclusive >= 60
+    hasPending && (toMigrationInclusive === undefined || toMigrationInclusive >= 60)
       ? yield* reconcileScheduleDispatchMigration()
       : [];
   if (includesV2) {
