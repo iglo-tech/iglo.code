@@ -821,7 +821,7 @@ export function shouldCreateNewThreadInCurrentProject(
 
 /**
  * Where the New thread button and shortcut start a thread. A one-project sidebar scope starts
- * there, preferring the open thread's own member; otherwise the earlier rule decides.
+ * there, preferring the open thread's own member; any wider scope asks, even with one project.
  */
 export function resolveNewThreadTarget(input: {
   readonly shiftKey: boolean;
@@ -832,7 +832,6 @@ export function resolveNewThreadTarget(input: {
   }>;
   readonly activeProjectRef: ScopedProjectRef | null;
   readonly openProjectGroupCount: number;
-  readonly projectGroupCount: number;
 }):
   | { readonly kind: "current" }
   | { readonly kind: "pick" }
@@ -851,13 +850,7 @@ export function resolveNewThreadTarget(input: {
       projectRef: member ?? { environmentId: group.environmentId, projectId: group.id },
     };
   }
-  return shouldCreateNewThreadInCurrentProject(
-    false,
-    input.openProjectGroupCount,
-    input.projectGroupCount,
-  )
-    ? { kind: "current" }
-    : { kind: "pick" };
+  return input.openProjectGroupCount === 0 ? { kind: "current" } : { kind: "pick" };
 }
 
 export function orderItemsByPreferredIds<TItem, TId>(input: {

@@ -54,36 +54,8 @@ export function SidebarThreadHeader({
     : newThreadTitle;
 
   return (
-    <div className="flex flex-col gap-2">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              className="w-full"
-              aria-label={newThreadTitle}
-              disabled={newThreadDisabled}
-              onClick={onNewThread}
-            />
-          }
-        >
-          <SquarePenIcon />
-          New thread
-        </TooltipTrigger>
-        <TooltipPopup side="bottom">
-          {showNewThreadInProjectHint ? (
-            <span className="flex flex-col gap-0.5">
-              <span>{newThreadLabel}</span>
-              <span className="text-muted-foreground">
-                New thread in current project: Shift+click
-                {newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ""}
-              </span>
-            </span>
-          ) : (
-            newThreadLabel
-          )}
-        </TooltipPopup>
-      </Tooltip>
-      <div className="flex h-8 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-within:bg-sidebar-row-hover focus-within:text-sidebar-foreground focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/70">
+    <div className="flex items-center gap-1">
+      <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-within:bg-sidebar-row-hover focus-within:text-sidebar-foreground focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/70">
         <SearchIcon className="size-4 shrink-0 text-(--sidebar-icon-color)" />
         <SidebarInput
           ref={searchInputRef}
@@ -121,6 +93,34 @@ export function SidebarThreadHeader({
           </Button>
         ) : null}
       </div>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={newThreadTitle}
+              disabled={newThreadDisabled}
+              onClick={onNewThread}
+            />
+          }
+        >
+          <SquarePenIcon />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">
+          {showNewThreadInProjectHint ? (
+            <span className="flex flex-col gap-0.5">
+              <span>{newThreadLabel}</span>
+              <span className="text-muted-foreground">
+                New thread in current project: Shift+click
+                {newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ""}
+              </span>
+            </span>
+          ) : (
+            newThreadLabel
+          )}
+        </TooltipPopup>
+      </Tooltip>
     </div>
   );
 }
