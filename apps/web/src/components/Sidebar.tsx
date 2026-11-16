@@ -2845,7 +2845,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         defaultProjectRef: null,
       }),
       openProjectGroupCount: scopeGroups.length,
-      projectGroupCount: projectGroups.length,
     });
     if (isMobile) setOpenMobile(false);
     if (target.kind === "project") {

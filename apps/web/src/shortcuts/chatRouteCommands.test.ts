@@ -34,7 +34,7 @@ describe("new thread commands", () => {
   it.each([
     { mode: "normal", count: 2, command: "chat.new", picker: true },
     { mode: "boring", count: 2, command: "chat.new", picker: true },
-    { mode: "boring", count: 1, command: "chat.new", picker: false },
+    { mode: "boring", count: 1, command: "chat.new", picker: true },
     { mode: "boring", count: 2, command: "chat.newLocal", picker: false },
   ] as const)("$mode sidebar, $count projects, $command: picker=$picker", (scenario) => {
     using _settings = vi.spyOn(settings, "getClientSettings").mockReturnValue({
@@ -71,7 +71,7 @@ describe("new thread commands", () => {
       expect(startLocal).toHaveBeenCalledOnce();
       expect(startLocal.mock.calls[0]![0].defaultProjectRef).toEqual({
         environmentId: "local",
-        projectId: scenario.count === 1 ? "active" : "idle",
+        projectId: "idle",
       });
     }
   });

@@ -5,9 +5,8 @@ need a separate branch and working directory.
 
 ## Start a thread
 
-**New thread**, at the top of the sidebar, starts in the project you picked in the
-project rail. Under **All projects** it opens the project picker when you have more than one
-open project. Archived projects don't count. **Shift-click** to start in
+**New thread**, the pencil next to the sidebar search, starts in the project you picked in the
+project rail. Under **All projects** it always asks which project to use. **Shift-click** to start in
 the current project, or use a project's own new-thread action. A new thread carries
 your model and mode selections, unless the destination project has its own model default.
 Its branch and workspace mode come from your configured defaults. To continue in

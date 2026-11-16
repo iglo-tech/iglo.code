@@ -157,7 +157,6 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
             defaultProjectRef: null,
           }),
           openProjectGroupCount: openGroups.length,
-          projectGroupCount: groups.length,
         });
         if (target.kind === "project") {
           claim(event);

@@ -1710,7 +1710,7 @@ describe("resolveNewThreadTarget", () => {
       { environmentId: other, projectId: ProjectId.make("p1-remote") },
     ],
   };
-  const base = { activeProjectRef: null, openProjectGroupCount: 3, projectGroupCount: 3 };
+  const base = { activeProjectRef: null, openProjectGroupCount: 3 };
 
   it("starts in a one-project scope, asks under all projects, and Shift keeps the current project", () => {
     expect(resolveNewThreadTarget({ ...base, shiftKey: false, scopedGroups: [group] })).toEqual({
