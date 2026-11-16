@@ -3,11 +3,15 @@ import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environ
 import { LayersIcon, PinIcon, PlusIcon } from "lucide-react";
 import { memo } from "react";
 
+import type { ProjectIconColor } from "@t3tools/contracts";
 import { cn } from "~/lib/utils";
+import { projectIconColorClassName } from "../../projectIconColors";
+import { deriveProjectIdentity } from "../../projectIdentity";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useUiStateStore } from "../../uiStateStore";
 import { resolveSidebarProjectActivity, resolveThreadLastVisitedAt } from "../Sidebar.logic";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { SidebarTrigger } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface SidebarProjectSwitcherProps {
@@ -22,6 +26,14 @@ export interface SidebarProjectSwitcherProps {
     position: { x: number; y: number },
   ) => void;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+}
+
+/** The colour a project's monogram or icon uses; emoji projects have none. */
+function projectTintColor(project: SidebarProjectSnapshot): ProjectIconColor | null {
+  const icon = project.projectIcon;
+  if (icon?.kind === "monogram" || icon?.kind === "lucide") return icon.color;
+  if (icon?.kind === "emoji") return null;
+  return deriveProjectIdentity(project.title).color;
 }
 
 export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
@@ -63,6 +75,10 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
       aria-label="Projects"
       className="relative flex h-full w-14 shrink-0 flex-col items-center border-r border-sidebar-border bg-sidebar/70 py-2 select-none [-webkit-app-region:no-drag]"
     >
+      {/* The phone sheet's only close control, where the chat header's toggle sits. */}
+      <div className="flex w-full items-center justify-center pb-2 md:hidden">
+        <SidebarTrigger aria-label="Close sidebar" />
+      </div>
       {/* Top: All Projects button (Discord Home / DM style) */}
       <div className="group/item relative flex w-full items-center justify-center py-0.5">
         {/* Discord left indicator pill */}
@@ -102,10 +118,11 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
       <div className="my-1.5 h-0.5 w-8 shrink-0 rounded-full bg-sidebar-border" />
 
       {/* Projects list */}
-      <div className="scrollbar-gutter-both flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto py-1">
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {projectGroups.map((project) => {
           const isSelected = selectedProjectKeys.includes(project.projectKey);
 
+          const tint = projectTintColor(project);
           const projectThreads = threadsByProjectKey.get(project.projectKey) ?? [];
           const activity = resolveSidebarProjectActivity(
             projectThreads.map((thread) => ({
@@ -173,10 +190,24 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                       }}
                       className={cn(
                         "relative flex size-10 items-center justify-center transition-[border-radius,background-color,color,box-shadow] duration-200 outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                        isSelected
-                          ? "rounded-2xl bg-sidebar-row-selected text-sidebar-foreground"
-                          : "rounded-3xl bg-sidebar-control-surface text-sidebar-foreground hover:rounded-2xl hover:bg-sidebar-row-hover",
+                        isSelected ? "rounded-2xl" : "rounded-3xl hover:rounded-2xl",
+                        tint
+                          ? // The button carries the monogram's tint, so its own inner tile goes clear.
+                            cn(
+                              projectIconColorClassName(tint),
+                              "[&_[data-slot=project-monogram]_svg]:bg-transparent!",
+                            )
+                          : isSelected
+                            ? "bg-sidebar-row-selected text-sidebar-foreground"
+                            : "bg-sidebar-control-surface text-sidebar-foreground hover:bg-sidebar-row-hover",
                       )}
+                      style={
+                        tint
+                          ? {
+                              backgroundColor: `color-mix(in srgb, currentColor ${isSelected ? 24 : 14}%, var(--sidebar))`,
+                            }
+                          : undefined
+                      }
                     >
                       <ProjectFavicon project={project} className="size-5 shrink-0" />
 
