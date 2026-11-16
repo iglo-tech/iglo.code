@@ -1140,7 +1140,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const openScheduledTask = useStableCallback(
     (environmentId: EnvironmentId, taskId: ScheduledTaskId) => {
       if (isMobile) setOpenMobile(false);
-      void router.navigate({ to: "/settings/scheduled-tasks", search: { environmentId, taskId } });
+      void router.navigate({
+        to: "/scheduled/$environmentId/$taskId",
+        params: { environmentId, taskId },
+      });
     },
   );
   const threadSearch = useThreadSearch(

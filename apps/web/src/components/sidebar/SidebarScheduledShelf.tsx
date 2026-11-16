@@ -2,6 +2,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ScheduledTask, ScheduledTaskId } from "@t3tools/contracts";
 import { CalendarClockIcon } from "lucide-react";
 import { memo } from "react";
+import { useLocation } from "@tanstack/react-router";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { cn } from "~/lib/utils";
@@ -27,6 +28,7 @@ const SidebarScheduledRow = memo(function SidebarScheduledRow(props: {
   project: EnvironmentProject | null;
   projectDisplayName: string | null;
   status: string;
+  isActive: boolean;
   onOpen: (environmentId: EnvironmentId, taskId: ScheduledTaskId) => void;
 }) {
   const { environmentId, task } = props.entry;
@@ -38,9 +40,13 @@ const SidebarScheduledRow = memo(function SidebarScheduledRow(props: {
         data-sidebar-row={`scheduled:${environmentId}:${task.id}`}
         data-sidebar-parent="shelf:scheduled"
         data-testid="sidebar-scheduled-row"
+        aria-current={props.isActive ? "page" : undefined}
         aria-label={`${task.title}, scheduled task${props.projectDisplayName ? ` in ${props.projectDisplayName}` : ""}, ${props.status}${failed ? ", last run failed" : ""}`}
         onClick={() => props.onOpen(environmentId, task.id)}
-        className="w-full cursor-pointer rounded-md px-(--sidebar-row-content-inset) py-(--sidebar-content-inset) text-left text-sidebar-foreground outline-none select-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className={cn(
+          "w-full cursor-pointer rounded-md px-(--sidebar-row-content-inset) py-(--sidebar-content-inset) text-left text-sidebar-foreground outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          props.isActive ? "bg-sidebar-row-active" : "hover:bg-sidebar-row-hover",
+        )}
       >
         <span className="flex h-5 min-w-0 items-center gap-1.5">
           <CalendarClockIcon
@@ -92,6 +98,7 @@ export const SidebarScheduledShelf = memo(function SidebarScheduledShelf(props: 
 }) {
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}:00.000Z`);
+  const pathname = useLocation({ select: (location) => location.pathname });
   return (
     <SortableSidebarMarker
       marker="scheduled-header"
@@ -121,6 +128,10 @@ export const SidebarScheduledShelf = memo(function SidebarScheduledShelf(props: 
                 project={props.projectByKey.get(projectKey) ?? null}
                 projectDisplayName={props.projectDisplayNameByKey.get(projectKey) ?? null}
                 status={taskStatus(entry.task, nowMs)}
+                isActive={
+                  pathname ===
+                  `/scheduled/${encodeURIComponent(entry.environmentId)}/${encodeURIComponent(entry.task.id)}`
+                }
                 onOpen={props.onOpen}
               />
             );

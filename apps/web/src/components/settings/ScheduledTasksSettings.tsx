@@ -90,7 +90,11 @@ import { resolvePastedPath } from "@t3tools/shared/path";
 import { useManagedPolicy } from "~/state/managedPolicy";
 import { ManagedNotice } from "../ManagedPolicy";
 import { readEnvironmentScope } from "~/state/session";
-import { useSettingsScope } from "./SettingsScopeContext";
+import { SettingsScopeProvider, useSettingsScope } from "./SettingsScopeContext";
+import { SidebarInset } from "../ui/sidebar";
+import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { WorkspacePageContainer } from "../WorkspacePageContainer";
+import { isElectron } from "../../env";
 import { usePluginScheduleTargets } from "../../plugins/ScheduleTargets";
 import {
   type PluginSchedulePayload,
@@ -1423,12 +1427,16 @@ function ScheduledTaskEditorForm({
   saving,
   onSavingChange: setSaving,
   onClose,
+  layout = "dialog",
 }: {
   readonly initialEnvironmentId: EnvironmentId;
   readonly task: ScheduledTask | null;
   readonly saving: boolean;
   readonly onSavingChange: (saving: boolean) => void;
+  /** Runs after a save, and on Cancel in the dialog. */
   readonly onClose: () => void;
+  /** "page" renders inline in the task page, with no dialog chrome or Cancel. */
+  readonly layout?: "dialog" | "page";
 }) {
   const { scope, connectedEnvironments } = useSettingsScope();
   const [environmentId, setEnvironmentId] = useState(initialEnvironmentId);
@@ -1721,17 +1729,23 @@ function ScheduledTaskEditorForm({
     </Field>
   );
 
+  const page = layout === "page";
+  const Header = page ? "div" : DialogHeader;
+  const Panel = page ? "div" : DialogPanel;
+  const Footer = page ? "div" : DialogFooter;
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>{draft.editingId ? "Edit task" : "New task"}</DialogTitle>
-        <DialogDescription>
-          Run a prompt, or an action a plugin offers, automatically: on an interval, at a fixed
-          time, once at a set date, or when a webhook is called.
-        </DialogDescription>
-      </DialogHeader>
+      {page ? null : (
+        <Header>
+          <DialogTitle>{draft.editingId ? "Edit task" : "New task"}</DialogTitle>
+          <DialogDescription>
+            Run a prompt, or an action a plugin offers, automatically: on an interval, at a fixed
+            time, once at a set date, or when a webhook is called.
+          </DialogDescription>
+        </Header>
+      )}
 
-      <DialogPanel>
+      <Panel>
         {/* Fieldsets default to min-width: min-content, which lets one wide control widen the form past the dialog. */}
         <fieldset disabled={saving} className="min-w-0 space-y-5">
           {!connected ? (
@@ -2341,12 +2355,14 @@ function ScheduledTaskEditorForm({
             />
           </div>
         </fieldset>
-      </DialogPanel>
+      </Panel>
 
-      <DialogFooter>
-        <DialogClose render={<Button variant="outline" size="sm" disabled={saving} />}>
-          Cancel
-        </DialogClose>
+      <Footer {...(page ? { className: "flex justify-end gap-2 pt-6" } : {})}>
+        {page ? null : (
+          <DialogClose render={<Button variant="outline" size="sm" disabled={saving} />}>
+            Cancel
+          </DialogClose>
+        )}
         <Button
           size="sm"
           disabled={
@@ -2364,7 +2380,83 @@ function ScheduledTaskEditorForm({
         >
           {draft.editingId ? "Save task" : "Create task"}
         </Button>
-      </DialogFooter>
+      </Footer>
     </>
+  );
+}
+
+const ALL_PROJECTS_SCOPE = {};
+
+/** A task opened from the sidebar: the main pane, like a thread, with its controls and editor. */
+export function ScheduledTaskPage({
+  environmentId,
+  taskId,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly taskId: ScheduledTaskId;
+}) {
+  const environment = useEnvironment(environmentId);
+  const connected =
+    environment?.connection.phase === "connected" && environment.serverConfig !== null;
+  const tasksQuery = useEnvironmentQuery(
+    connected ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} }) : null,
+  );
+  const task = tasksQuery.data?.tasks.find((candidate) => candidate.id === taskId) ?? null;
+  const scheduleTargets = usePluginScheduleTargets(environmentId);
+  const [saving, setSaving] = useState(false);
+  // A save remounts the form so its draft and submit lock restart from the saved task.
+  const [savedCount, setSavedCount] = useState(0);
+  const status = !connected
+    ? `Reconnect ${environment?.label ?? "this environment"} to view this task.`
+    : tasksQuery.error
+      ? tasksQuery.error
+      : !tasksQuery.data
+        ? "Loading scheduled task…"
+        : task === null
+          ? "This task was deleted."
+          : null;
+  return (
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden">
+      <WorkspacePageHeader electron={isElectron}>
+        <span className="min-w-0 truncate text-sm font-medium">
+          {task?.title ?? "Scheduled task"}
+        </span>
+      </WorkspacePageHeader>
+      <main className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
+        <WorkspacePageContainer>
+          {status !== null || task === null ? (
+            <p role="status" className="text-sm text-muted-foreground">
+              {status}
+            </p>
+          ) : (
+            <SettingsScopeProvider search={ALL_PROJECTS_SCOPE} onChange={() => {}}>
+              <SettingsSection title="Status" hideTitle>
+                <ScheduledTaskRow
+                  environmentId={environmentId}
+                  task={task}
+                  scheduleTargets={scheduleTargets}
+                  timeZone={tasksQuery.data?.timeZone}
+                  onEdit={() => document.getElementById("scheduled-task-title")?.focus()}
+                />
+              </SettingsSection>
+              <div>
+                <ScheduledTaskEditorForm
+                  key={`${task.id}:${savedCount}`}
+                  layout="page"
+                  initialEnvironmentId={environmentId}
+                  task={task}
+                  saving={saving}
+                  onSavingChange={setSaving}
+                  onClose={() => {
+                    setSavedCount((count) => count + 1);
+                    toastManager.add(stackedThreadToast({ type: "success", title: "Task saved" }));
+                  }}
+                />
+              </div>
+            </SettingsScopeProvider>
+          )}
+        </WorkspacePageContainer>
+      </main>
+    </SidebarInset>
   );
 }
