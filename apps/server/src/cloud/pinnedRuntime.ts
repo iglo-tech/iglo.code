@@ -676,8 +676,10 @@ const shellLauncherTargets = Effect.fn("cloud.pinned_runtime.shell_launcher_targ
     if (
       platform !== "win32" &&
       scriptTarget === undefined &&
-      (parent === versionsDir || parent === realVersionsDir) &&
-      target === path.join(realVersionsDir, path.basename(entryDir), path.basename(launcher))
+      target === path.join(realVersionsDir, path.basename(entryDir), path.basename(launcher)) &&
+      (parent === versionsDir ||
+        parent === realVersionsDir ||
+        (yield* fs.realPath(parent).pipe(Effect.orElseSucceed(() => parent))) === realVersionsDir)
     ) {
       continue;
     }
@@ -725,7 +727,7 @@ const runningExecutables = Effect.fn("cloud.pinned_runtime.running_executables")
               "-NoProfile",
               "-NonInteractive",
               "-Command",
-              "Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine",
+              "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine",
             ],
           }
         : { command: "lsof", args: ["-nP", "-w", "-d", "txt", "-F", "n"] }),

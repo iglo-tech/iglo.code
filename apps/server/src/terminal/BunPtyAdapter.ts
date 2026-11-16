@@ -7,7 +7,7 @@ import * as Layer from "effect/Layer";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 
 interface BunTerminal {
-  write(data: string): number;
+  write(data: string | Uint8Array): number;
   resize(cols: number, rows: number): void;
   close(): void;
 }

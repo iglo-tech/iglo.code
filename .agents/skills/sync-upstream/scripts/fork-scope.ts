@@ -43,6 +43,7 @@ export const REMOVED_PATHS = [
   "scripts/sign-macos.*",
   "scripts/verify-windows-desktop-artifact.*",
   "scripts/linux-after-pack.*",
+  "scripts/linux-glibc.*",
   "scripts/smoke-desktop-app.*",
   "packaging/aur",
   "docs/internals/linux-snap-shot.md",
