@@ -5,8 +5,9 @@ need a separate branch and working directory.
 
 ## Start a thread
 
-**New thread** opens the project picker when you have more than one
-open project in the default or project-grouped sidebar. Archived projects don't count. **Shift-click** to start in
+**New thread**, at the top of the sidebar, starts in the project you picked in the
+project rail. Under **All projects** it opens the project picker when you have more than one
+open project. Archived projects don't count. **Shift-click** to start in
 the current project, or use a project's own new-thread action. A new thread carries
 your model and mode selections, unless the destination project has its own model default.
 Its branch and workspace mode come from your configured defaults. To continue in
@@ -135,11 +136,19 @@ choice.
 While this is on, the active list is ordered by when each thread last came back to you, so you
 cannot drag or move threads within it. Your saved order returns when you turn it off.
 
+### Switch projects
+
+The left rail of the sidebar lets you switch between projects quickly.
+Click any project icon to switch the sidebar to that project, or click the top **All projects** icon to show
+threads across all projects. **Shift-click** a project icon or press **Shift-Enter** on a focused project to toggle multi-project selection. Right-click a project
+icon to pin it, open its settings, or copy its path. A short mark beside an icon means a thread there finished
+unread, a red count shows how many threads need your input or failed, and a blue dot means work is running.
+
 ### Group threads by project (beta)
 
 Turn on **Settings → Labs → Boring sidebar (group by project)** to put active
 threads in a folder for each project. Pinned projects come first. A project with no active
-threads has no folder unless it is pinned or you pick it in the project filter. An archived
+threads has no folder unless it is pinned or you pick it in the project switcher. An archived
 project's folder comes last and shows only while it has active threads. Click a folder to open or
 close it. A closed folder shows how many threads it holds, and a dot when one of them
 needs you. Use the pen button on a folder, or right-click it, to start a thread in that project.

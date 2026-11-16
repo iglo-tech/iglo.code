@@ -19,7 +19,9 @@ import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/sh
 import {
   type ContextMenuItem,
   type EnvironmentId,
+  type ProjectId,
   type ResolvedKeybindingsConfig,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -817,6 +819,47 @@ export function shouldCreateNewThreadInCurrentProject(
   return shiftKey || openProjectGroupCount === 1 || projectGroupCount === 0;
 }
 
+/**
+ * Where the New thread button and shortcut start a thread. A one-project sidebar scope starts
+ * there, preferring the open thread's own member; otherwise the earlier rule decides.
+ */
+export function resolveNewThreadTarget(input: {
+  readonly shiftKey: boolean;
+  readonly scopedGroups: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: ProjectId;
+    readonly memberProjectRefs: ReadonlyArray<ScopedProjectRef>;
+  }>;
+  readonly activeProjectRef: ScopedProjectRef | null;
+  readonly openProjectGroupCount: number;
+  readonly projectGroupCount: number;
+}):
+  | { readonly kind: "current" }
+  | { readonly kind: "pick" }
+  | { readonly kind: "project"; readonly projectRef: ScopedProjectRef } {
+  if (input.shiftKey) return { kind: "current" };
+  const [group, ...rest] = input.scopedGroups;
+  if (group && rest.length === 0) {
+    const active = input.activeProjectRef;
+    const member = active
+      ? group.memberProjectRefs.find(
+          (ref) => ref.environmentId === active.environmentId && ref.projectId === active.projectId,
+        )
+      : undefined;
+    return {
+      kind: "project",
+      projectRef: member ?? { environmentId: group.environmentId, projectId: group.id },
+    };
+  }
+  return shouldCreateNewThreadInCurrentProject(
+    false,
+    input.openProjectGroupCount,
+    input.projectGroupCount,
+  )
+    ? { kind: "current" }
+    : { kind: "pick" };
+}
+
 export function orderItemsByPreferredIds<TItem, TId>(input: {
   items: readonly TItem[];
   preferredIds: readonly TId[];
@@ -1015,6 +1058,24 @@ export function resolveSidebarFolderDot(
   return null;
 }
 
+const NEEDS_YOU_ROW_STATUSES = new Set(["input", "approval", "request", "limited", "failed"]);
+
+/** The project rail's marks: a badge counting threads that need you, an unread pill, a working dot. */
+export function resolveSidebarProjectActivity(
+  threads: ReadonlyArray<ThreadStatusInput & SidebarThreadStatusInput>,
+): { needsYouCount: number; unread: boolean; working: boolean } {
+  let needsYouCount = 0;
+  let unread = false;
+  let working = false;
+  for (const thread of threads) {
+    const status = resolveSidebarRowStatus(thread);
+    if (NEEDS_YOU_ROW_STATUSES.has(status)) needsYouCount += 1;
+    else if (status === "ready" && hasUnseenCompletion(thread)) unread = true;
+    else if (status === "working" || status === "preparing") working = true;
+  }
+  return { needsYouCount, unread, working };
+}
+
 /**
  * Keys the old per-project sidebar saved folder open state under, most
  * specific first, for `resolveProjectExpanded`. Boring folders read and write
@@ -1145,40 +1206,6 @@ export function pullRequestMatchesSearchQuery(
   if (normalizedQuery.length === 0) return false;
   const haystack = normalizeSearchText(threadPullRequestSearchTerms(pullRequest).join(" "));
   return normalizedQuery.split(" ").every((token) => haystack.includes(token));
-}
-
-export function filterSidebarProjectScopeItems<TItem extends { readonly value: string }>(input: {
-  items: readonly TItem[];
-  query: string;
-  matches: (item: TItem, query: string) => boolean;
-}): readonly TItem[] {
-  const query = input.query.trim();
-  if (query.length === 0) return input.items;
-  return input.items.filter((item) => item.value !== "all" && input.matches(item, query));
-}
-
-interface SidebarProjectScopeMenuState {
-  readonly open: boolean;
-  readonly query: string;
-}
-
-type SidebarProjectScopeMenuAction =
-  | { readonly type: "query-changed"; readonly query: string }
-  | { readonly type: "open-changed"; readonly open: boolean }
-  | { readonly type: "project-settings-opened" };
-
-export function reduceSidebarProjectScopeMenuState(
-  state: SidebarProjectScopeMenuState,
-  action: SidebarProjectScopeMenuAction,
-): SidebarProjectScopeMenuState {
-  switch (action.type) {
-    case "query-changed":
-      return { ...state, query: action.query };
-    case "open-changed":
-      return { open: action.open, query: "" };
-    case "project-settings-opened":
-      return { open: false, query: "" };
-  }
 }
 
 export function resolveWorkingStartedAt(
