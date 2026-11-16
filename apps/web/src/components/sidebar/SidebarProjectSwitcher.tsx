@@ -3,8 +3,9 @@ import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environ
 import { LayersIcon, PinIcon, PlusIcon } from "lucide-react";
 import { memo } from "react";
 
-import type { ProjectIconColor } from "@t3tools/contracts";
+import type { ContextMenuSource, ProjectIconColor } from "@t3tools/contracts";
 import { cn } from "~/lib/utils";
+import { contextMenuSourceOf } from "../../contextMenuSource";
 import { projectIconColorClassName } from "../../projectIconColors";
 import { deriveProjectIdentity } from "../../projectIdentity";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
@@ -24,6 +25,7 @@ export interface SidebarProjectSwitcherProps {
   readonly onContextMenu?: (
     project: SidebarProjectSnapshot,
     position: { x: number; y: number },
+    source: ContextMenuSource,
   ) => void;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
 }
@@ -185,7 +187,11 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                       onContextMenu={(event) => {
                         if (onContextMenu) {
                           event.preventDefault();
-                          onContextMenu(project, { x: event.clientX, y: event.clientY });
+                          onContextMenu(
+                            project,
+                            { x: event.clientX, y: event.clientY },
+                            contextMenuSourceOf(event.nativeEvent),
+                          );
                         }
                       }}
                       className={cn(
