@@ -2,7 +2,7 @@
 
 Plugins are trusted server and web modules compiled with this fork. Changing the module set requires rebuilding and restarting the environment. There is no runtime installation or isolation from malicious code or a hung process.
 
-The public boundary is [`plugin-host-contract`](../../packages/plugin-host-contract/src/server.ts), with wire schemas in [`pluginHost.ts`](../../packages/contracts/src/pluginHost.ts) and web contributions in [`web.ts`](../../packages/plugin-host-contract/src/web.ts). Plugin packages import that boundary, their own schemas, and ordinary libraries. The lint rule in `vite.config.ts` rejects core server, provider, persistence, and client-state imports. Only `plugin-host-adapter` adapts upstream services. The Reports fixture demonstrates both entry points without depending on core implementation modules.
+The public boundary is [`plugin-host-contract`](../../packages/plugin-host-contract/src/server.ts), with wire schemas in [`pluginHost.ts`](../../packages/contracts/src/pluginHost.ts) and web contributions in [`web.ts`](../../packages/plugin-host-contract/src/web.ts). Plugin packages import that boundary, their own schemas, and ordinary libraries. The lint rule in `vite.config.ts` rejects core server, provider, persistence, and client-state imports. Only `plugin-host-adapter` adapts upstream services. The test-only Reports fixture (`plugin-fixture`) demonstrates both entry points without depending on core implementation modules; production builds compile only Workflows, and tests inject the fixture through `CompiledPlugins`.
 
 ## Registration and client compatibility
 

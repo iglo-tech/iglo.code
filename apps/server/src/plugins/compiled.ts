@@ -1,4 +1,3 @@
-import { plugin } from "@t3tools/plugin-fixture/server";
 import { plugin as workflowPlugin } from "@t3tools/plugin-workflows/server";
 import {
   rpcs as workflowRpcs,
@@ -45,10 +44,11 @@ const decodeWorkflowRun = Schema.decodeUnknownEffect(WorkflowRun);
 const decodeThreadLink = Schema.decodeUnknownEffect(Schema.NullOr(ThreadLink));
 const decodeAttentionPage = Schema.decodeUnknownEffect(AttentionPage);
 
-/** Trusted server modules explicitly included in this build. An empty list is supported. */
+/** Trusted server modules explicitly included in this build. An empty list is supported.
+ * The Reports fixture is test-only; tests inject it, so its RPCs answer "unavailable" here. */
 export class CompiledPlugins extends Context.Reference<ReadonlyArray<ServerPlugin>>(
   "t3/plugins/CompiledPlugins",
-  { defaultValue: () => [plugin, workflowPlugin] },
+  { defaultValue: () => [workflowPlugin] },
 ) {}
 export const layer = Layer.unwrap(
   Effect.gen(function* () {

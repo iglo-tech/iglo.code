@@ -110,7 +110,7 @@ export const startEnvironment = (
   plugins?: ReadonlyArray<ServerPlugin>,
 ) =>
   Effect.gen(function* () {
-    const compiledPlugins = plugins ?? (yield* Compiled.CompiledPlugins);
+    const compiledPlugins = plugins ?? [fixturePlugin, workflowPlugin];
     const ready = yield* Deferred.make<
       Context.Context<Layer.Success<typeof Server.layer>>,
       Layer.Error<typeof Server.layer>
