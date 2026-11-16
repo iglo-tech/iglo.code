@@ -306,7 +306,7 @@ it("decodes complete stable chunks before Stop and returns the ordered final tai
 });
 
 it("uses bounded offline chunks for a native streaming model without opening a session", async () => {
-  const moduleUrl = `data:text/javascript,${encodeURIComponent(`
+  const streamingModule = moduleUrl(`
     export const TranscribeModel = { load: async () => ({
       capabilities: { supportsStreaming: true, maxAudioMs: 4000 },
       supports: () => false,
@@ -316,8 +316,12 @@ it("uses bounded offline chunks for a native streaming model without opening a s
         return { text: String(pcm.length) };
       },
     }) };
-  `)}`;
-  const model = await loadNativeSpeechModel("asr.gguf", new AbortController().signal, moduleUrl);
+  `);
+  const model = await loadNativeSpeechModel(
+    "asr.gguf",
+    new AbortController().signal,
+    streamingModule,
+  );
   try {
     expect(
       await model.transcribe(new Float32Array(48002).fill(0.8), { timestamps: "none" }, false),
