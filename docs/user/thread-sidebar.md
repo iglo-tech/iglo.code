@@ -135,6 +135,14 @@ choice.
 While this is on, the active list is ordered by when each thread last came back to you, so you
 cannot drag or move threads within it. Your saved order returns when you turn it off.
 
+### See scheduled tasks
+
+The **Scheduled** section, below **Working**, lists the scheduled tasks for the projects the sidebar
+shows, soonest run first. Each row shows when it runs next, or **Listening** for webhook tasks and
+**Paused** for tasks you turned off. A red clock means the last run failed. Click a task to open it beside the sidebar, like a
+thread: turn it on or off, run it now, or edit and save it there. Create tasks in
+**Settings → Scheduled tasks**.
+
 ### Switch projects
 
 The left rail of the sidebar lets you switch between projects quickly.

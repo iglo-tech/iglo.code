@@ -32,6 +32,7 @@ import {
 import type { ProviderInstanceEntry } from "../../providerInstances";
 
 import type { ResolvedSettingsScope } from "./settingsScope";
+import { formatRelativeTime } from "../../timestampFormat";
 
 export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -441,4 +442,21 @@ export function defaultScheduledTaskProjectId<
       (scopedToProject ? scopedProjects[0] : undefined)
     )?.id ?? ""
   );
+}
+
+/** formatRelativeTime handles only the past; upcoming runs need future labels. */
+export function scheduledRunLabel(value: string | null, nowMs: number): string {
+  if (!value) return "Not scheduled";
+  const diffMs = new Date(value).getTime() - nowMs;
+  if (diffMs <= 0) {
+    const relative = formatRelativeTime(value, nowMs);
+    if (!relative) return "Not scheduled";
+    return relative.suffix ? `${relative.value} ${relative.suffix}` : relative.value;
+  }
+  const minutes = Math.ceil(diffMs / 60_000);
+  if (minutes < 2) return "in under a minute";
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `in ${hours}h`;
+  return `in ${Math.round(hours / 24)}d`;
 }

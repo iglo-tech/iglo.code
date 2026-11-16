@@ -52,6 +52,7 @@ import { Route as ChatSettingsAccessRouteImport } from './routes/_chat.settings.
 import { Route as ChatSettingsAboutRouteImport } from './routes/_chat.settings.about'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
+import { Route as ChatScheduledEnvironmentIdTaskIdRouteImport } from './routes/_chat.scheduled.$environmentId.$taskId'
 import { Route as ChatPluginsEnvironmentIdPluginIdPageIdRouteImport } from './routes/_chat.plugins.$environmentId.$pluginId.$pageId'
 
 const WelcomeRoute = WelcomeRouteImport.update({
@@ -274,6 +275,12 @@ const ChatEnvironmentIdThreadIdRoute =
     path: '/$environmentId/$threadId',
     getParentRoute: () => ChatRoute,
   } as any)
+const ChatScheduledEnvironmentIdTaskIdRoute =
+  ChatScheduledEnvironmentIdTaskIdRouteImport.update({
+    id: '/scheduled/$environmentId/$taskId',
+    path: '/scheduled/$environmentId/$taskId',
+    getParentRoute: () => ChatRoute,
+  } as any)
 const ChatPluginsEnvironmentIdPluginIdPageIdRoute =
   ChatPluginsEnvironmentIdPluginIdPageIdRouteImport.update({
     id: '/plugins/$environmentId/$pluginId/$pageId',
@@ -324,6 +331,7 @@ export interface FileRoutesByFullPath {
   '/settings/voice': typeof ChatSettingsVoiceRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
+  '/scheduled/$environmentId/$taskId': typeof ChatScheduledEnvironmentIdTaskIdRoute
   '/plugins/$environmentId/$pluginId/$pageId': typeof ChatPluginsEnvironmentIdPluginIdPageIdRoute
 }
 export interface FileRoutesByTo {
@@ -369,6 +377,7 @@ export interface FileRoutesByTo {
   '/settings/voice': typeof ChatSettingsVoiceRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
+  '/scheduled/$environmentId/$taskId': typeof ChatScheduledEnvironmentIdTaskIdRoute
   '/plugins/$environmentId/$pluginId/$pageId': typeof ChatPluginsEnvironmentIdPluginIdPageIdRoute
 }
 export interface FileRoutesById {
@@ -416,6 +425,7 @@ export interface FileRoutesById {
   '/_chat/settings/voice': typeof ChatSettingsVoiceRoute
   '/_chat/settings/worktrees': typeof ChatSettingsWorktreesRoute
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
+  '/_chat/scheduled/$environmentId/$taskId': typeof ChatScheduledEnvironmentIdTaskIdRoute
   '/_chat/plugins/$environmentId/$pluginId/$pageId': typeof ChatPluginsEnvironmentIdPluginIdPageIdRoute
 }
 export interface FileRouteTypes {
@@ -463,6 +473,7 @@ export interface FileRouteTypes {
     | '/settings/voice'
     | '/settings/worktrees'
     | '/threads/$environmentId/$threadId'
+    | '/scheduled/$environmentId/$taskId'
     | '/plugins/$environmentId/$pluginId/$pageId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -508,6 +519,7 @@ export interface FileRouteTypes {
     | '/settings/voice'
     | '/settings/worktrees'
     | '/threads/$environmentId/$threadId'
+    | '/scheduled/$environmentId/$taskId'
     | '/plugins/$environmentId/$pluginId/$pageId'
   id:
     | '__root__'
@@ -554,6 +566,7 @@ export interface FileRouteTypes {
     | '/_chat/settings/voice'
     | '/_chat/settings/worktrees'
     | '/threads/$environmentId/$threadId'
+    | '/_chat/scheduled/$environmentId/$taskId'
     | '/_chat/plugins/$environmentId/$pluginId/$pageId'
   fileRoutesById: FileRoutesById
 }
@@ -872,6 +885,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/scheduled/$environmentId/$taskId': {
+      id: '/_chat/scheduled/$environmentId/$taskId'
+      path: '/scheduled/$environmentId/$taskId'
+      fullPath: '/scheduled/$environmentId/$taskId'
+      preLoaderRoute: typeof ChatScheduledEnvironmentIdTaskIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/plugins/$environmentId/$pluginId/$pageId': {
       id: '/_chat/plugins/$environmentId/$pluginId/$pageId'
       path: '/plugins/$environmentId/$pluginId/$pageId'
@@ -954,6 +974,7 @@ interface ChatRouteChildren {
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
+  ChatScheduledEnvironmentIdTaskIdRoute: typeof ChatScheduledEnvironmentIdTaskIdRoute
   ChatPluginsEnvironmentIdPluginIdPageIdRoute: typeof ChatPluginsEnvironmentIdPluginIdPageIdRoute
 }
 
@@ -965,6 +986,7 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
+  ChatScheduledEnvironmentIdTaskIdRoute: ChatScheduledEnvironmentIdTaskIdRoute,
   ChatPluginsEnvironmentIdPluginIdPageIdRoute:
     ChatPluginsEnvironmentIdPluginIdPageIdRoute,
 }

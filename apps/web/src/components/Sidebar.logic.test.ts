@@ -8,6 +8,7 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   resolveNewThreadTarget,
+  orderSidebarScheduledTasks,
   resolveSidebarProjectActivity,
   shouldCreateNewThreadInCurrentProject,
   deleteSelectedThreadEntries,
@@ -1736,5 +1737,44 @@ describe("resolveNewThreadTarget", () => {
     expect(resolveNewThreadTarget({ ...base, shiftKey: true, scopedGroups: [group] })).toEqual({
       kind: "current",
     });
+  });
+});
+
+describe("orderSidebarScheduledTasks", () => {
+  it("lists upcoming runs soonest first, then webhooks, unscheduled, and paused or blocked", () => {
+    const at = { type: "interval", intervalMinutes: 60 } as const;
+    const task = (
+      title: string,
+      fields: Partial<{
+        enabled: boolean;
+        nextRunAt: string | null;
+        webhook: boolean;
+        blocked: boolean;
+      }> = {},
+    ) => ({
+      task: {
+        title,
+        enabled: fields.enabled ?? true,
+        nextRunAt: fields.nextRunAt ?? null,
+        schedule: fields.webhook ? ({ type: "webhook" } as const) : at,
+        ...(fields.blocked ? { blockedByPolicy: "Webhooks are disabled" } : {}),
+      },
+    });
+    const ordered = orderSidebarScheduledTasks([
+      task("paused", { enabled: false, nextRunAt: "2026-11-16T09:00:00.000Z" }),
+      task("blocked", { blocked: true, nextRunAt: "2026-11-16T09:00:00.000Z" }),
+      task("unscheduled"),
+      task("hook", { webhook: true }),
+      task("later", { nextRunAt: "2026-11-17T09:00:00.000Z" }),
+      task("sooner", { nextRunAt: "2026-11-16T10:00:00.000Z" }),
+    ]);
+    expect(ordered.map((entry) => entry.task.title)).toEqual([
+      "sooner",
+      "later",
+      "hook",
+      "unscheduled",
+      "blocked",
+      "paused",
+    ]);
   });
 });
