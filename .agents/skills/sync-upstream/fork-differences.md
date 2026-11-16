@@ -7,7 +7,10 @@ Change a fork decision only when the maintainer requests it. Keep this list
 current when an authorized change replaces a decision.
 
 - **Identity and repository tooling.** Keep the iglo.code name, branding, README,
-  repo-local skills, and fork-specific AGENTS.md guidance. Upstream attribution
+  repo-local skills, and fork-specific AGENTS.md guidance. The igloo icon set
+  (`assets/iglo`, `apps/web/public` favicons, 192/512 px app icons, and
+  `manifest.webmanifest`) replaces upstream's T3 icons; keep the installable web
+  app's manifest entries. Upstream attribution
   and internal code names that never leave the process (`@t3tools/*` packages,
   the `t3` workspace package, TypeScript identifiers, source file names) remain
   valid; renaming them only causes merge conflicts.
@@ -127,13 +130,38 @@ current when an authorized change replaces a decision.
   Upstream's e2e scenarios (`scripts/scenarios`, `scripts/e2e.config.ts`,
   `prove-scenario`, and the `e2e`/`@e2e-dev/*` dependencies) drive the iOS
   simulator alongside the web client; they stay removed with their docs.
-- **Discord-like project switcher rail.** iglo.code replaces the old project
-  filter combobox in the sidebar header with a permanent 56px (`w-14`)
-  Discord-style left rail (`SidebarProjectSwitcher.tsx`). It features single-click
-  project switching, Shift-click multi-selection, right-click context menu, live
-  status dots (`FOLDER_DOT_CLASS_NAME` without infinite pulse), and remote
-  environment badges from `project.remoteEnvironmentLabels`. Upstream project
-  combobox/filter components (`ProjectComboboxRow.tsx`,
-  `filterSidebarProjectScopeItems`, `reduceSidebarProjectScopeMenuState`) are
-  removed, and `SidebarThreadHeader.tsx` omits the filter combobox dropdown.
-  Upstream merges must not restore the combobox dropdown or remove the left rail.
+- **Sidebar layout.** The sidebar has no top bar: no brand name, no Electron
+  history arrows, no stage artwork, and no Version pill (the Appearance setting
+  offers artwork or None; artwork still tints the send button). The floating
+  sidebar toggle renders only while the sidebar is hidden; on phones the sheet's
+  close button sits at the top of the rail. Upstream edits to
+  `SidebarChromeHeader`, `SidebarBrandWidthProbe`, or the brand-measured minimum
+  width do not come back. The rest of the sidebar keeps these decisions:
+  - **Project rail.** A 56px (`w-14`) Discord-style rail
+    ([SidebarProjectSwitcher.tsx](../../../apps/web/src/components/sidebar/SidebarProjectSwitcher.tsx))
+    replaces upstream's project filter combobox. Click switches the scope,
+    Shift-click toggles multi-selection, right-click opens the project menu. The
+    edge pill is short for an unread finish, medium on hover, and tall when
+    selected; the list has no scrollbar gutter so pills sit flush. A red count
+    badges threads that need input or failed, and a blue dot marks running work
+    ([resolveSidebarProjectActivity](../../../apps/web/src/components/Sidebar.logic.ts)).
+    Buttons are tinted with the project icon's colour, not a grey fill. Upstream's
+    combobox pieces (`ProjectComboboxRow.tsx`, `filterSidebarProjectScopeItems`,
+    `reduceSidebarProjectScopeMenuState`) stay removed.
+  - **New thread.** The header is a full-width primary **New thread** button above
+    search, with no Add project or filter buttons (adding lives in the rail). A
+    one-project rail scope starts the thread there, preferring the open thread's
+    environment member; otherwise upstream's picker rule applies. The button and
+    the `chat.new` shortcut share `resolveNewThreadTarget`.
+  - **Needs attention.** Plugin attention renders as a collapsible section at the
+    top of the thread list, not in the sidebar footer
+    ([PluginSlots.tsx](../../../apps/web/src/plugins/PluginSlots.tsx)).
+- **Idle background work stops.** Background commands an agent left running stop
+  after a set idle time (Settings > Threads, `idleBackgroundWorkStopAfterMinutes`),
+  with inferred waits, pinned threads, and open parents exempt, and the chat
+  offers **Turn it back on**
+  ([IdleBackgroundWork.ts](../../../apps/server/src/orchestration-v2/IdleBackgroundWork.ts)).
+  Upstream has no equivalent yet (its issue 35223); reconcile if it ships one.
+- **History swipe setting.** The fork carries upstream PR 28370's
+  `historySwipeNavigation` setting (off by default). Drop the fork copy once
+  upstream merges its own.
