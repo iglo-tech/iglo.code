@@ -1124,7 +1124,7 @@ export const manifest = {
   },
   web: {
     pages: ["workflows.library", "workflows.editor", "workflows.runs", "workflows.attention"],
-    navigation: ["workflows.navigation", "workflows.attention-navigation"],
+    navigation: ["workflows.navigation"],
     projectActions: ["workflows.project", "workflows.project-run"],
     threadContext: ["workflows.thread"],
   },
