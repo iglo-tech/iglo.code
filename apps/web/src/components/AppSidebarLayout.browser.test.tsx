@@ -22,7 +22,6 @@ vi.mock(import("../state/server"), async (original) => {
 // The thread list needs live environments; the shortcut lives in the shell around it.
 vi.mock(import("./Sidebar"), () => ({ default: (() => null) as never }));
 vi.mock("./BackgroundThreadAnnouncer", () => ({ BackgroundThreadAnnouncer: () => null }));
-vi.mock("./sidebar/SidebarChrome", () => ({ SidebarBrandWidthProbe: () => null }));
 vi.mock("../localApi", () => ({
   ensureLocalApi: () => ({
     persistence: { setClientSettings: async () => undefined },

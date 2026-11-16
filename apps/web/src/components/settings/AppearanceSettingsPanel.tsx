@@ -54,7 +54,6 @@ function environmentIdentificationOptions(
     return [
       ["artwork", "Dev artwork"],
       ["nightly-artwork", "Nightly artwork"],
-      ["pill", "Version pill"],
       ["none", "None"],
     ];
   }
@@ -62,7 +61,6 @@ function environmentIdentificationOptions(
     return [
       ["artwork", "Nightly artwork"],
       ["dev-artwork", "Dev artwork"],
-      ["pill", "Version pill"],
       ["none", "None"],
     ];
   }
@@ -115,12 +113,10 @@ export function AppearanceSettingsPanel() {
       settings.environmentIdentificationMode,
     ) !== null;
   const environmentIdentificationDescription = themeHidesEnvironmentArtwork
-    ? environmentStageVariant
-      ? "Only built-in themes show artwork, so this theme shows the version pill."
-      : "Only built-in themes show artwork."
+    ? "Only built-in themes show artwork."
     : environmentStageVariant
       ? "Choose how Dev and Nightly environments are identified."
-      : "Show Dev or Nightly artwork in the sidebar header.";
+      : "Show Dev or Nightly artwork on the send button.";
   const glassOpacityRatio =
     (settings.glassOpacity - MIN_GLASS_OPACITY) / (MAX_GLASS_OPACITY - MIN_GLASS_OPACITY);
   const glassOpacitySliderStyle = {

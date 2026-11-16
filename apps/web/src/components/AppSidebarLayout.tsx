@@ -31,7 +31,7 @@ import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useClientSettings, useEnvironmentIdentificationMode } from "../hooks/useSettings";
+import { useClientSettings } from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -40,15 +40,13 @@ import {
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import ThreadSidebar from "./Sidebar";
-import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
-import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
   clampThreadSidebarWidth,
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
-  resolveThreadSidebarMinimumWidth,
+  THREAD_SIDEBAR_MIN_WIDTH,
   THREAD_MAIN_CONTENT_MIN_WIDTH,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./threadSidebarWidth";
@@ -320,8 +318,6 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
   const { toggleSidebar } = useSidebar();
   const mobileSidebarSheetMounted = useMobileSidebarSheetMounted();
   const isSidebarVisible = useSidebarVisibility();
-  const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  const stageBackdropVariant = useSidebarStageBackdropVariant(environmentIdentificationMode);
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle", {
     context: { usagePageOpen },
   });
@@ -388,16 +384,14 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
       )}
       data-sidebar-control=""
     >
-      {showSidebar ? (
+      {/* An open sidebar hides with its shortcut; the button only brings it back. */}
+      {showSidebar && !isSidebarVisible ? (
         <Tooltip>
           <TooltipTrigger
             render={
               <SidebarTrigger
-                variant={isSidebarVisible && stageBackdropVariant ? "media-navigation" : "ghost"}
-                className={cn(
-                  "pointer-events-auto",
-                  isSidebarVisible && stageBackdropVariant && "relative top-auto translate-y-0",
-                )}
+                variant="ghost"
+                className="pointer-events-auto"
                 aria-label="Toggle main sidebar"
               />
             }
@@ -433,8 +427,7 @@ export function AppSidebarLayout({
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // A clamped drag may not change width, so viewport changes need a separate subscription.
   const viewportWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
-  const [brandWidth, setBrandWidth] = useState(0);
-  const sidebarMinimumWidth = resolveThreadSidebarMinimumWidth(brandWidth);
+  const sidebarMinimumWidth = THREAD_SIDEBAR_MIN_WIDTH;
   const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth, sidebarMinimumWidth);
   const resetSidebarWidth = () => {
     try {
@@ -469,7 +462,6 @@ export function AppSidebarLayout({
       >
         {showSidebar ? (
           <>
-            <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
             <Sidebar
               side="left"
               collapsible="offcanvas"

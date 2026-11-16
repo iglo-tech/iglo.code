@@ -83,7 +83,6 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
@@ -227,7 +226,7 @@ import { titleRegenerationToast } from "./threadTitleRegenerationToast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
-import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarChromeFooter } from "./sidebar/SidebarChrome";
 import { SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { SidebarProjectSwitcher } from "./sidebar/SidebarProjectSwitcher";
 import { TooltipProvider } from "./ui/tooltip";
@@ -2871,9 +2870,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
   return (
     <SidebarFolderDrop>
-      <SidebarChromeHeader isElectron={isElectron} />
       <div className="flex flex-1 min-h-0 w-full flex-row overflow-hidden">
-        {projectGroups.length > 0 ? (
+        {projectGroups.length > 0 || isMobile ? (
           <SidebarProjectSwitcher
             projectGroups={scopeGroups}
             selectedProjectKeys={projectScopeKeys}
