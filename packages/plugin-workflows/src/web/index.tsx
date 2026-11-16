@@ -74,12 +74,6 @@ export const web: WebPlugin<WorkflowClient> = {
       icon: "workflow",
       link: { pageId: "workflows.library" },
     },
-    {
-      id: "workflows.attention-navigation",
-      title: "Workflow attention",
-      icon: "inbox",
-      link: { pageId: "workflows.attention" },
-    },
   ],
   attention: { title: "Workflows", link: { pageId: "workflows.attention" } },
   projectActions: [

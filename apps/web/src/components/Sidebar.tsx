@@ -126,6 +126,7 @@ import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { PluginSidebarAttention } from "../plugins/PluginSlots";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
   useEnvironmentIdentities,
@@ -440,7 +441,7 @@ function useSidebarThreads(input: {
   );
   const [workingShelfExpanded, setWorkingShelfExpanded] = useLocalStorage(
     WORKING_SHELF_EXPANDED_KEY,
-    false,
+    true,
     Schema.Boolean,
   );
   // Shared with the old per-project sidebar, so folders keep their open state.
@@ -2922,6 +2923,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             }
           >
             <SidebarGroup className="flex-1" role="presentation">
+              {isSearchingThreads ? null : <PluginSidebarAttention />}
               {isSearchingThreads ? (
                 threadSearchResults.length > 0 ? (
                   <TooltipProvider

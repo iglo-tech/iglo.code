@@ -54,8 +54,9 @@ and task but cannot run; you can still change its timing, pause it or delete it.
 
 ## Answer what needs you
 
-**Workflow attention** lists the runs that need a person, newest first, with a count of all
-of them; when there are more than it can show, pick a project in the breadcrumb to narrow the list. Items are
+**Needs attention**, the topmost section of the thread list, shows the newest runs that need a
+person with a count of all of them. Choose **more** to open the full list, where you can pick a
+project in the breadcrumb to narrow it. Items are
 human gates, each pending approval or question in a workflow thread, and stopped
 runs with their reason. Open a request to answer it in its thread; a thread answers its
 requests in order, so later ones wait for earlier ones. Each item clears only when its own
