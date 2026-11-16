@@ -16,6 +16,7 @@ type Layout = Parameters<SortingStrategy>[0];
 const isShelfHeader = (item: SidebarListItem | undefined) =>
   item?.kind === "marker" &&
   (item.marker === "working-header" ||
+    item.marker === "scheduled-header" ||
     item.marker === "snoozed-header" ||
     item.marker === "settled-header");
 
@@ -56,7 +57,9 @@ export function createSidebarCollisionDetection(
       if (pointer.x >= boundary.left && pointer.x <= boundary.right) {
         if (pointer.y < previousY && pointer.y <= boundary.bottom) boundarySection = "pinned";
         else if (pointer.y > previousY && pointer.y >= boundary.top) boundarySection = "active";
-        const nextHeader = (["working-header", "snoozed-header", "settled-header"] as const)
+        const nextHeader = (
+          ["working-header", "scheduled-header", "snoozed-header", "settled-header"] as const
+        )
           .map((marker) =>
             args.droppableContainers.find((container) => container.id === sidebarMarkerId(marker)),
           )
@@ -126,7 +129,8 @@ export function createSidebarSortingStrategy(input: {
     let headerScale: number | undefined;
     for (const [index, item] of items.entries()) {
       if (item.kind === "marker") {
-        if (isShelfHeader(item)) {
+        // The Scheduled block holds its rows, so only plain headers give the 32px scale.
+        if (isShelfHeader(item) && item.marker !== "scheduled-header") {
           const height = rects[index]?.height;
           if (height) headerScale ??= height / 32;
         }
@@ -179,6 +183,9 @@ export function createSidebarSortingStrategy(input: {
     if (items.some((item) => item.kind === "marker" && item.marker === "working-header")) {
       marker("working-header");
       projected.push(...groups.working);
+    }
+    if (items.some((item) => item.kind === "marker" && item.marker === "scheduled-header")) {
+      marker("scheduled-header");
     }
     if (
       groups.snoozed.length > 0 ||

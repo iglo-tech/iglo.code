@@ -157,6 +157,11 @@ current when an authorized change replaces a decision.
   - **Needs attention.** Plugin attention renders as a collapsible section at the
     top of the thread list, not in the sidebar footer
     ([PluginSlots.tsx](../../../apps/web/src/plugins/PluginSlots.tsx)).
+  - **Scheduled.** A collapsible Scheduled section below Working lists the scoped
+    projects' scheduled tasks, soonest first; a row opens the task's editor in
+    Settings. It is one `scheduled-header` marker block that holds its own rows, so
+    upstream changes to the sidebar markers or drag projection must keep it
+    ([SidebarScheduledShelf.tsx](../../../apps/web/src/components/sidebar/SidebarScheduledShelf.tsx)).
 - **Idle background work stops.** Background commands an agent left running stop
   after a set idle time (Settings > Threads, `idleBackgroundWorkStopAfterMinutes`),
   with inferred waits, pinned threads, and open parents exempt, and the chat

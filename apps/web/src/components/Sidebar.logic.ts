@@ -21,6 +21,7 @@ import {
   type EnvironmentId,
   type ProjectId,
   type ResolvedKeybindingsConfig,
+  type ScheduledTask,
   type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
@@ -212,6 +213,7 @@ export type SidebarListMarker =
   | "settled-placeholder"
   | "pinned-divider"
   | "working-header"
+  | "scheduled-header"
   | "snoozed-header"
   | "settled-header";
 
@@ -233,7 +235,8 @@ function sectionAtSidebarSlot(items: readonly SidebarListItem[], index: number):
     const item = items[i]!;
     if (item.kind !== "marker") continue;
     if (item.marker === "pinned-divider") section = "active";
-    else if (item.marker === "working-header") section = "working";
+    else if (item.marker === "working-header" || item.marker === "scheduled-header")
+      section = "working";
     else if (item.marker === "snoozed-header") section = "snoozed";
     else if (item.marker === "settled-header") section = "settled";
   }
@@ -266,6 +269,7 @@ export function resolveSidebarDropTarget(
       if (item.marker === "pinned-divider") currentSection = "active";
       else if (
         item.marker === "working-header" ||
+        item.marker === "scheduled-header" ||
         item.marker === "snoozed-header" ||
         item.marker === "settled-header"
       )
@@ -1479,5 +1483,30 @@ export function sortScopedProjectsForSidebar<
       left.title.localeCompare(right.title) ||
       left.environmentId.localeCompare(right.environmentId) ||
       left.id.localeCompare(right.id),
+  );
+}
+
+type SidebarScheduledTaskFields = Pick<
+  ScheduledTask,
+  "title" | "enabled" | "nextRunAt" | "blockedByPolicy"
+> & { readonly schedule: { readonly type: ScheduledTask["schedule"]["type"] } };
+
+/** Upcoming runs first, soonest on top, then webhooks, unscheduled, and finally paused or blocked. */
+export function orderSidebarScheduledTasks<T extends { readonly task: SidebarScheduledTaskFields }>(
+  entries: ReadonlyArray<T>,
+): T[] {
+  const rank = ({ task }: T) =>
+    !task.enabled || task.blockedByPolicy !== undefined
+      ? 3
+      : task.schedule.type === "webhook"
+        ? 1
+        : task.nextRunAt === null
+          ? 2
+          : 0;
+  return entries.toSorted(
+    (left, right) =>
+      rank(left) - rank(right) ||
+      (rank(left) === 0 ? left.task.nextRunAt!.localeCompare(right.task.nextRunAt!) : 0) ||
+      left.task.title.localeCompare(right.task.title),
   );
 }

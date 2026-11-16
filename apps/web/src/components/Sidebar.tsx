@@ -1,5 +1,9 @@
 import { attachSidebarTree } from "../lib/sidebarTree";
-import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type ScheduledTaskId,
+  type ScopedProjectRef,
+} from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import {
   dropThreadContext,
@@ -12,6 +16,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
 import * as Schema from "effect/Schema";
+import { AsyncResult } from "effect/reactivity";
 import {
   DndContext,
   useSensor,
@@ -125,6 +130,9 @@ import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { SidebarScheduledShelf, type SidebarScheduledEntry } from "./sidebar/SidebarScheduledShelf";
+import { scheduledTasksListAtom } from "../state/scheduledTasks";
+import { environmentIdsKey } from "../state/environmentAtomList";
 import { PluginSidebarAttention } from "../plugins/PluginSlots";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
@@ -186,6 +194,7 @@ import {
   resolveSidebarReorderableThreadKeys,
   searchSidebarThreads,
   resolveNewThreadTarget,
+  orderSidebarScheduledTasks,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   sidebarListItemId,
@@ -311,6 +320,7 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
+const SCHEDULED_SHELF_EXPANDED_KEY = "t3code:sidebar:scheduled-expanded";
 
 const inboxReturns = createInboxReturnTracker();
 
@@ -1106,6 +1116,33 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
   const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  const [scheduledShelfExpanded, setScheduledShelfExpanded] = useLocalStorage(
+    SCHEDULED_SHELF_EXPANDED_KEY,
+    true,
+    Schema.Boolean,
+  );
+  const scheduledTaskLists = useAtomValue(
+    scheduledTasksListAtom(environmentIdsKey(connectedEnvironmentIds)),
+  );
+  const scheduledEntries = orderSidebarScheduledTasks(
+    scheduledTaskLists.flatMap((list, index): SidebarScheduledEntry[] => {
+      const environmentId = connectedEnvironmentIds[index]!;
+      const tasks = AsyncResult.getOrElse(list, () => null)?.tasks ?? [];
+      return tasks
+        .filter(
+          (task) =>
+            scopedProjectKeys === null ||
+            scopedProjectKeys.has(`${environmentId}:${task.projectId}`),
+        )
+        .map((task) => ({ environmentId, task }));
+    }),
+  );
+  const openScheduledTask = useStableCallback(
+    (environmentId: EnvironmentId, taskId: ScheduledTaskId) => {
+      if (isMobile) setOpenMobile(false);
+      void router.navigate({ to: "/settings/scheduled-tasks", search: { environmentId, taskId } });
+    },
+  );
   const threadSearch = useThreadSearch(
     connectedEnvironmentIds,
     threadSearchQuery,
@@ -1852,6 +1889,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       pinnedThreads.length +
         activeThreads.length +
         workingThreads.length +
+        scheduledEntries.length +
         snoozedThreads.length +
         settledCount ===
         0
@@ -1868,6 +1906,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (workingThreads.length > 0) {
       items.push({ kind: "marker", marker: "working-header" });
       items.push(...rowsOf(visibleWorkingThreads, "working"));
+    }
+    if (scheduledEntries.length > 0) {
+      items.push({ kind: "marker", marker: "scheduled-header" });
     }
     if (snoozedThreads.length > 0) {
       items.push({ kind: "marker", marker: "snoozed-header" });
@@ -1914,9 +1955,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     dragState === null && sidebarListItems.length + visibleDraftSessionCount > 0;
   // Cache on both fields so layout-key changes trigger the effect even when animate is unchanged.
   const listMotionPass = { layoutKey: listMotionLayoutKey, animate: listMotionAnimate };
-  const shelfExpansionKey = [workingShelfExpanded, snoozedShelfExpanded, settledShelfExpanded].join(
-    ":",
-  );
+  const shelfExpansionKey = [
+    workingShelfExpanded,
+    scheduledShelfExpanded,
+    snoozedShelfExpanded,
+    settledShelfExpanded,
+  ].join(":");
   const previousShelfExpansionKeyRef = useRef(shelfExpansionKey);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records moved rows and updates list motion after each layout-affecting commit
   useLayoutEffect(() => {
@@ -3305,12 +3349,29 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   />,
                                 );
                                 break;
+                              case "scheduled-header":
+                                items.push(
+                                  <SidebarScheduledShelf
+                                    key="scheduled-shelf"
+                                    className={cn(workingThreads.length === 0 && "mt-auto")}
+                                    entries={scheduledEntries}
+                                    expanded={scheduledShelfExpanded}
+                                    onToggle={() => setScheduledShelfExpanded((value) => !value)}
+                                    projectByKey={projectByKey}
+                                    projectDisplayNameByKey={projectDisplayNameByKey}
+                                    onOpen={openScheduledTask}
+                                  />,
+                                );
+                                break;
                               case "snoozed-header":
                                 items.push(
                                   <SidebarSectionHeader
                                     key="snoozed-shelf-header"
                                     marker="snoozed-header"
-                                    className={cn(workingThreads.length === 0 && "mt-auto")}
+                                    className={cn(
+                                      workingThreads.length + scheduledEntries.length === 0 &&
+                                        "mt-auto",
+                                    )}
                                     label="Snoozed"
                                     count={snoozedThreads.length}
                                     toggle={{
@@ -3326,8 +3387,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                     key="settled-shelf-header"
                                     marker="settled-header"
                                     className={cn(
-                                      workingThreads.length + snoozedThreads.length === 0 &&
-                                        "mt-auto",
+                                      workingThreads.length +
+                                        scheduledEntries.length +
+                                        snoozedThreads.length ===
+                                        0 && "mt-auto",
                                     )}
                                     label="Settled"
                                     count={settledCount}
