@@ -12,6 +12,7 @@
     "start": "vp run --filter t3 start",
     "icons:export": "bun scripts/export-brand-icons.ts",
     "icons:check": "bun scripts/export-brand-icons.ts --check",
+    "i18n:check": "bun scripts/i18n-check.ts",
     "licenses:sync": "bun scripts/sync-third-party-license-notices.ts",
     "build": "vp run --filter './apps/*' build",
     "build:resource-monitor": "cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml",

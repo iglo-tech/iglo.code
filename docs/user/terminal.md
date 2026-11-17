@@ -1,4 +1,22 @@
-# Terminal history
+# Terminal
+
+## Choose a shell
+
+Set `IGLO_CODE_TERMINAL_SHELL` in the environment that launches the iglo.code server
+to choose the executable used for new terminals. Use an executable name or its
+full path, without surrounding quotes or command-line arguments. An unset or
+blank value keeps the platform default. If the executable cannot be started,
+iglo.code tries its usual fallback shells.
+
+A shell export applies when you launch iglo.code from that shell; the background service reads
+[`service.env`](./background-service.md#configure-the-service-environment). Restart iglo.code,
+then create a new terminal.
+
+This setting belongs to the machine hosting the server, including when you
+connect from another device. It does not change provider-run commands or the
+shell used by automatic project setup and settle scripts.
+
+## Terminal history
 
 Each terminal keeps up to 5,000 lines and 8 MiB of scrollback on its environment
 server. iglo.code removes the oldest output when either limit is reached. A long

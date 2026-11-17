@@ -175,7 +175,7 @@ than** on the task.
 ## Defaults and inheritance
 
 Threads contains the model and workspace for new threads. Browser controls agent browser
-access. Source control contains automatic pull, the default pull request merge method and text
+access. Source control & issues contains automatic pull, the default pull request merge method and text
 generation. The same rows edit environment defaults or project overrides depending on the
 project crumb.
 
@@ -196,6 +196,15 @@ selected to override it there) to **Top level only** to stop at the ones the rep
 itself, or **Skip** to leave them for a setup script. It resolves in the same order as the
 workspace default: a `"worktreeSubmodules"` value in the `iglo.code.json` of the branch being checked out
 applies when the project and environment are both on **Inherit**.
+
+New worktrees check out every file. For a large repository, set `"worktreeSparsePatternsPath"` in
+`iglo.code.json` to a repository-relative file of git sparse-checkout patterns in non-cone syntax. New
+worktrees then check out only the matching files, before any other file is written. Both files are
+read from the branch being checked out, so the patterns can leave out `iglo.code.json` and `.gitmodules`.
+If the pattern file is missing, creating the worktree fails instead of checking out everything.
+Submodules still follow **Submodules** above, also under excluded paths; set it to **Skip** to leave
+them empty. The first sparse worktree turns on Git's `extensions.worktreeConfig` for the repository.
+This needs Git 2.35 or newer.
 
 ## Worktree location
 
@@ -278,7 +287,7 @@ from the icon palette, derived from the saved project name. For example, `Nebula
 
 ## Keep the default branch current
 
-In Source control, enable **Automatically pull** to keep the default-branch checkout up to date
+In Source control & issues, enable **Automatically pull** to keep the default-branch checkout up to date
 with its configured upstream. Choose an environment to set the default or a project to override it.
 
 iglo.code only pulls when it can fast-forward and the checkout has no changed files, untracked files,

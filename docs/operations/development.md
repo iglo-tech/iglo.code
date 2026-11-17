@@ -203,6 +203,7 @@ This fork has no CI. Before pushing to `main`, run the checks locally:
 ```sh
 vp fmt --check
 vp run lint
+vp run i18n:check
 vp run --parallel --filter 't3...' --concurrency-limit 2 typecheck
 vp test run packages/contracts/src/orchestrationV2.test.ts \
   packages/client-runtime/src/state/threadHistoryMerge.test.ts \

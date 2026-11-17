@@ -16,6 +16,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpMiddleware, HttpRouter, HttpServer } from "effect/http";
 import * as EnvironmentAuth from "../../auth/EnvironmentAuth.ts";
+import * as SessionStore from "../../auth/SessionStore.ts";
 import * as PreviewBrowserHost from "../PreviewBrowserHost.ts";
 import * as ServerBrowser from "../ServerBrowser.ts";
 import { routeLayer } from "../ServerBrowserStream.ts";
@@ -62,6 +63,11 @@ await Effect.runPromise(
           scopes: [AuthOrchestrationReadScope],
         }),
     });
+    const sessions = Layer.mock(SessionStore.SessionStore, {
+      cookieName: "test",
+      legacyCookieName: undefined,
+      awaitInvalidation: () => Effect.never,
+    });
     const platform = NodeHttpPlatform.layer.pipe(Layer.provideMerge(NodeServices.layer));
     const services = yield* Layer.build(
       HttpRouter.serve(
@@ -79,7 +85,7 @@ await Effect.runPromise(
             websocket: { perMessageDeflate: true },
           }),
         ),
-        Layer.provide(auth),
+        Layer.provide(Layer.merge(auth, sessions)),
       ),
     );
     const server = Context.get(services, HttpServer.HttpServer);

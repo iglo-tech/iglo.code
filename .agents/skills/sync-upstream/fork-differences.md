@@ -119,7 +119,7 @@ current when an authorized change replaces a decision.
   publishes release archives; it runs no checks. The pruning helper deletes every
   other file in `.github/workflows` on each import, including upstream's
   `release.yml` and `ci.yml`. Checks run locally before pushing:
-  `vp fmt --check`, `vp run lint`,
+  `vp fmt --check`, `vp run lint`, `vp run i18n:check`,
   `vp run --parallel --filter 't3...' --concurrency-limit 2 typecheck`, the smoke tests in
   [development checks](../../../docs/operations/development.md#checks), and
   `vp run --filter t3 build`. Importing upstream is not a request to restore check CI.

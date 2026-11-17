@@ -5021,6 +5021,50 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  // A new worktree has no files yet, so iglo.code.json and its pattern file come from the ref itself.
+  const readWorktreeSparsePatterns = Effect.fn("readWorktreeSparsePatterns")(function* (
+    cwd: string,
+    refName: string,
+  ) {
+    // `git show` does not read a lone - as the previous checkout either.
+    const ref = refName === "-" ? "@{-1}" : refName;
+    const projectFile = yield* executeGit(
+      "GitVcsDriver.createWorktree.readProjectFile",
+      cwd,
+      ["show", `${ref}:${T3_PROJECT_FILE_NAME}`],
+      { allowNonZeroExit: true },
+    );
+    if (projectFile.exitCode !== 0) return null;
+    const file = parseT3ProjectFile(projectFile.stdout);
+    if (file === null) {
+      yield* Effect.logWarning("iglo.code.json is invalid; checking out the full worktree", {
+        cwd,
+        ref,
+      });
+      return null;
+    }
+    if (file.worktreeSparsePatternsPath === undefined) return null;
+    // Git reads <ref>:./path from the working directory, so keep the path repository-relative.
+    const patternsPath = file.worktreeSparsePatternsPath.replace(/^(?:\.\/)+/, "");
+    const patterns = patternsPath.split("/").includes("..")
+      ? null
+      : yield* executeGit(
+          "GitVcsDriver.createWorktree.readSparsePatterns",
+          cwd,
+          ["cat-file", "blob", `${ref}:${patternsPath}`],
+          { allowNonZeroExit: true },
+        );
+    if (patterns === null || patterns.exitCode !== 0) {
+      return yield* new GitCommandError({
+        operation: "GitVcsDriver.createWorktree",
+        command: "git worktree add",
+        cwd,
+        detail: `iglo.code.json names the sparse-checkout pattern file "${file.worktreeSparsePatternsPath}", which is not a file in ${refName}.`,
+      });
+    }
+    return patterns.stdout;
+  });
+
   // A checkout stamps most files in the second it writes the index, and Git re-reads every file
   // stamped in the index's own second or later ("racily clean") on each status, diff and add.
   // T3's own git calls never rewrite a worktree's index, so refresh it once.
@@ -5146,6 +5190,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         worktreePath = `${basePath}-${suffix}`;
       }
     }
+    // Later steps run git inside the worktree, so resolve a relative path the way worktree add does.
+    worktreePath = path.resolve(input.cwd, worktreePath);
     let createBranch = input.newRefName !== undefined;
     let checkoutExists = false;
     let ownedBaseCommit: string | undefined;
@@ -5535,6 +5581,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ])).trim(),
       ]);
     }
+    // Read before the branch exists, so a missing pattern file leaves nothing behind.
+    const sparsePatterns = checkoutExists
+      ? null
+      : yield* readWorktreeSparsePatterns(input.cwd, input.refName);
     // Older Git still creates worktrees normally, but cannot prove ownership for cancellation.
     const addHelp = createBranch
       ? yield* executeGit(
@@ -5561,6 +5611,19 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const checkoutRef = createBranch ? input.newRefName! : targetBranch;
     const progress = options?.progress;
     const onCheckoutProgress = progress?.onCheckoutProgress;
+    const checkoutProgressOptions: ExecuteGitOptions = onCheckoutProgress
+      ? {
+          // Git only prints checkout progress when stderr is a tty or the
+          // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
+          env: { GIT_PROGRESS_DELAY: "0" },
+          progress: {
+            onStderrLine: (line) => {
+              const parsed = parseGitCheckoutProgressLine(line);
+              return parsed ? onCheckoutProgress(parsed) : Effect.void;
+            },
+          },
+        }
+      : {};
 
     // Both reads leave the repository alone, so they share one round trip before the checkout.
     const [configuredCheckoutWorkers, base] = yield* Effect.all(
@@ -5573,8 +5636,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       { concurrency: "unbounded" },
     );
     const checkoutWorkers = configuredCheckoutWorkers ?? "0";
+    // The cache clones a full checkout, so a sparse worktree uses Git's own checkout.
     const fastCheckout =
-      !checkoutExists && checkoutCache !== undefined && options?.fastCheckout === true;
+      !checkoutExists &&
+      checkoutCache !== undefined &&
+      options?.fastCheckout === true &&
+      sparsePatterns === null;
     const cacheGeneration = fastCheckout ? yield* checkoutCache.currentGeneration : 0;
     const stockCheckout = executeGitWithStableDiagnostics(
       "GitVcsDriver.createWorktree",
@@ -5584,6 +5651,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         `checkout.workers=${checkoutWorkers}`,
         "worktree",
         "add",
+        ...(sparsePatterns === null ? [] : ["--no-checkout"]),
         ...(lockReason ? ["--lock", "--reason", lockReason] : []),
         "--",
         worktreePath,
@@ -5597,21 +5665,42 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         // Hooks and filter drivers may print without bound; only progress lines are read.
         appendTruncationMarker: true,
         keepLineCallbacksAfterTruncation: true,
-        ...(onCheckoutProgress
-          ? {
-              // Git only prints checkout progress when stderr is a tty or the
-              // delay elapsed. GIT_PROGRESS_DELAY=0 forces it through the pipe.
-              env: { GIT_PROGRESS_DELAY: "0" },
-              progress: {
-                onStderrLine: (line) => {
-                  const parsed = parseGitCheckoutProgressLine(line);
-                  return parsed ? onCheckoutProgress(parsed) : Effect.void;
-                },
-              },
-            }
-          : {}),
+        ...(sparsePatterns === null ? checkoutProgressOptions : {}),
       },
     );
+    const sparseCheckout =
+      sparsePatterns === null
+        ? Effect.void
+        : Effect.gen(function* () {
+            // The first sparse-checkout in a repository enables extensions.worktreeConfig.
+            yield* runGit(
+              "GitVcsDriver.createWorktree.sparseCheckout",
+              worktreePath,
+              ["sparse-checkout", "set", "--no-cone", "--stdin"],
+              { stdin: sparsePatterns, writesSharedConfig: true },
+            );
+            yield* executeGitWithStableDiagnostics(
+              "GitVcsDriver.createWorktree.checkout",
+              worktreePath,
+              ["-c", `checkout.workers=${checkoutWorkers}`, "checkout"],
+              {
+                fallbackErrorDetail: "git checkout failed",
+                timeoutMs: null,
+                appendTruncationMarker: true,
+                keepLineCallbacksAfterTruncation: true,
+                ...checkoutProgressOptions,
+              },
+            );
+          }).pipe(
+            // A worktree without its files is no use. removeWorktree refuses a locked worktree,
+            // so one that carries the lock reason is unlocked first.
+            Effect.onError(() =>
+              (lockReason
+                ? releaseWorktreeRegistration(input.cwd, lockReason, true)
+                : removeWorktree({ cwd: input.cwd, path: worktreePath, force: true })
+              ).pipe(Effect.ignore),
+            ),
+          );
     // Set inside the claim's uninterruptible region: a pending cancel still surfaces as it ends.
     let claimed = false;
     const onWorktreeClaimed = progress?.onWorktreeClaimed;
@@ -5630,6 +5719,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               .pipe(Effect.flatMap((cloned) => (cloned ? Effect.void : stockCheckout)))
           : stockCheckout
       ).pipe(
+        Effect.andThen(sparseCheckout),
         Effect.andThen(
           fastCheckout ? checkoutCache.schedule(worktreePath, cacheGeneration) : Effect.void,
         ),
@@ -5676,9 +5766,15 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       );
 
     // worktree add leaves submodules empty, potentially omitting project skills, tools or source.
-    const hasSubmodules = yield* fileSystem
-      .exists(path.join(worktreePath, ".gitmodules"))
-      .pipe(Effect.orElseSucceed(() => false));
+    // Ask HEAD, because sparse patterns can leave .gitmodules out of the working tree.
+    const hasSubmodules = yield* runGit(
+      "GitVcsDriver.createWorktree.findSubmodules",
+      worktreePath,
+      ["cat-file", "-e", "HEAD:.gitmodules"],
+    ).pipe(
+      Effect.as(true),
+      Effect.orElseSucceed(() => false),
+    );
     const submoduleMode = !hasSubmodules
       ? { value: "none" as const, source: "environment" as const }
       : resolveProjectFileBackedSetting(
@@ -5686,9 +5782,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           options?.submodules ?? null,
           options?.submodules != null
             ? null
-            : yield* fileSystem.readFileString(path.join(worktreePath, T3_PROJECT_FILE_NAME)).pipe(
-                Effect.flatMap((contents) => {
-                  const file = parseT3ProjectFile(contents);
+            : // Read HEAD for the same reason: sparse patterns can leave iglo.code.json out too.
+              yield* executeGit(
+                "GitVcsDriver.createWorktree.readProjectFile",
+                worktreePath,
+                ["show", `HEAD:${T3_PROJECT_FILE_NAME}`],
+                { allowNonZeroExit: true },
+              ).pipe(
+                Effect.flatMap((result) => {
+                  if (result.exitCode !== 0) return Effect.succeed(null);
+                  const file = parseT3ProjectFile(result.stdout);
                   return file === null
                     ? Effect.logWarning(
                         "iglo.code.json is invalid; initializing submodules recursively",
@@ -5747,8 +5850,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           yield* runGitStdout("GitVcsDriver.createWorktree.listSubmodules", worktreePath, [
             "config",
             "-z",
-            "--file",
-            ".gitmodules",
+            // HEAD, not the working tree: sparse patterns can leave .gitmodules out.
+            "--blob",
+            "HEAD:.gitmodules",
             "--get-regexp",
             "^submodule\\..*\\.path$",
           ]),
