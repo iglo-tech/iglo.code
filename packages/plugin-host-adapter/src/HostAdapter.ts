@@ -228,20 +228,21 @@ const make = Effect.gen(function* () {
       !preparation.stages.some((stage) => stage.id === "agent" && stage.status !== "pending")
         ? preparation.preparationId
         : undefined;
-    // Aggregate readiness uses the same live-work view as the normalized roster.
-    const progress = delegatedTaskProgress({
-      ...records,
-      runs: runs.filter((run) => !inactiveRuns.has(run.id)),
-      subagents: records.subagents.filter(
-        (task) => task.runId === null || !inactiveRuns.has(task.runId),
-      ),
-      providerThreads: [{ pendingBackgroundTasks: background }],
-    });
     const monitorRuns = new Set(
       records.messages
         .filter((message) => message.notification?.source.kind === "monitor")
         .map((message) => message.runId),
     );
+    // Aggregate readiness uses the same live-work view as the normalized roster. A workflow
+    // result never comes from a monitor run, even one that answers a completed monitor.
+    const progress = delegatedTaskProgress({
+      ...records,
+      runs: runs.filter((run) => !inactiveRuns.has(run.id) && !monitorRuns.has(run.id)),
+      subagents: records.subagents.filter(
+        (task) => task.runId === null || !inactiveRuns.has(task.runId),
+      ),
+      providerThreads: [{ pendingBackgroundTasks: background }],
+    });
     // A stopped follow-up or rollback still invalidates an earlier result.
     const failedFollowUp = records.runs
       .filter(
