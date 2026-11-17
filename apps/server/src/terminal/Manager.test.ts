@@ -2245,7 +2245,8 @@ it.layer(
   );
 
   // POSIX exec failures are asynchronous in the PTY adapter; ConPTY has a separate readiness protocol.
-  it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
+  // The real adapter is Bun.spawn's terminal, so a plain Node run has none.
+  it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32" || !("Bun" in globalThis))(
     "resolves configured shells and falls back from invalid paths with the real PTY adapter",
     () =>
       Effect.gen(function* () {

@@ -75,8 +75,8 @@ it.layer(NodeServices.layer)("iglo.code install", (it) => {
       assert.isFalse(shadowed.onPath);
       assert.equal(shadowed.shadowedBy, path.join(otherBin, "iglo.code"));
       assert.isUndefined(shadowed.pathCommand);
-      yield* fs.remove(path.join(otherBin, "t3"));
-      yield* fs.makeDirectory(path.join(otherBin, "t3"));
+      yield* fs.remove(path.join(otherBin, "iglo.code"));
+      yield* fs.makeDirectory(path.join(otherBin, "iglo.code"));
       const directory = yield* provide(installCli(), {
         PATH: `${otherBin}:${path.join(root, "bin")}`,
       });

@@ -22,6 +22,7 @@
         "apply-web-brand-assets.ts",
         "build-cli-archive.ts",
         "export-brand-icons.ts",
+        "i18n-check.ts",
         "release-smoke.ts",
         "resolve-nightly-release.ts",
         "smoke-cli-archive.ts",
