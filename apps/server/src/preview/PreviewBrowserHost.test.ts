@@ -7,7 +7,7 @@ import { ChildProcessSpawner } from "effect/process";
 
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 
-// What `ldd` printed for the pinned headless shell in a bare debian:trixie-slim container.
+// What `ldd` printed for the pinned Chrome in a bare debian:trixie-slim container.
 const LDD_IN_BARE_DEBIAN = `\tlinux-vdso.so.1 (0x00007ffd2d1f8000)
 \tlibdl.so.2 => /lib/x86_64-linux-gnu/libdl.so.2 (0x00007f0c1b6a1000)
 \tlibglib-2.0.so.0 => not found
@@ -19,7 +19,7 @@ const LDD_IN_BARE_DEBIAN = `\tlinux-vdso.so.1 (0x00007ffd2d1f8000)
 // Chrome's own abort on Ubuntu 26.04 with unprivileged user namespaces restricted.
 
 const LOADER_ERROR =
-  "chrome-headless-shell: error while loading shared libraries: libglib-2.0.so.0: cannot open shared object file: No such file or directory";
+  "chrome: error while loading shared libraries: libglib-2.0.so.0: cannot open shared object file: No such file or directory";
 
 const hostReporting = (output: { readonly version: string; readonly ldd: string }) => {
   const commands: Array<string> = [];
@@ -60,7 +60,7 @@ const diagnose = (input: {
     version: input.version ?? LOADER_ERROR,
   });
   return PreviewBrowserHost.diagnoseLaunchFailure({
-    executable: "/home/me/.iglo.code/tools/chrome-headless-shell/linux64/154/chrome-headless-shell",
+    executable: "/home/me/.iglo.code/tools/chrome/linux64/158/chrome",
     output: input.output,
     setupCommand: "sudo iglo.code browser setup",
   }).pipe(
@@ -124,9 +124,57 @@ describe("diagnoseLaunchFailure", () => {
         platform: "linux",
         output: "crashed",
         ldd: LDD_IN_BARE_DEBIAN,
-        version: "Google Chrome for Testing 154.0.8037.92\n",
+        version: "Google Chrome for Testing 158.0.8127.36\n",
       });
       expect(error).toBeUndefined();
     }),
   );
+});
+
+describe("browserDisplayPlan", () => {
+  it.each([
+    {
+      label: "macOS needs no display",
+      platform: "darwin" as const,
+      env: {},
+      xvfbInstalled: false,
+      kind: "host",
+    },
+    {
+      label: "an inherited X display serves the window",
+      platform: "linux" as const,
+      env: { DISPLAY: ":0" },
+      xvfbInstalled: false,
+      kind: "host",
+    },
+    {
+      label: "an inherited Wayland display serves the window",
+      platform: "linux" as const,
+      env: { WAYLAND_DISPLAY: "wayland-0" },
+      xvfbInstalled: false,
+      kind: "host",
+    },
+    {
+      label: "a displayless Linux host runs Xvfb when installed",
+      platform: "linux" as const,
+      env: {},
+      xvfbInstalled: true,
+      kind: "xvfb",
+    },
+    {
+      label: "a displayless Linux host without Xvfb needs setup",
+      platform: "linux" as const,
+      env: { DISPLAY: "" },
+      xvfbInstalled: false,
+      kind: "missing-xvfb",
+    },
+  ])("$label", (input) => {
+    expect(
+      PreviewBrowserHost.browserDisplayPlan({
+        platform: input.platform,
+        env: input.env,
+        xvfbInstalled: input.xvfbInstalled,
+      }),
+    ).toEqual({ kind: input.kind });
+  });
 });

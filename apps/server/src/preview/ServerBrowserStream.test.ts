@@ -413,6 +413,12 @@ it.effect.each([
     need: "libraries",
   },
   {
+    error: new PreviewBrowserHost.PreviewBrowserDisplayError({
+      setupCommand: "sudo iglo.code browser setup",
+    }),
+    need: "display",
+  },
+  {
     // A close reason holds at most 123 bytes, which a long install path exceeds.
     error: new PreviewBrowserHost.PreviewBrowserSandboxError({
       setupCommand: `sudo /private/var/folders/${"x".repeat(60)}/t3-0.1.2-darwin-arm64/t3 browser setup`,

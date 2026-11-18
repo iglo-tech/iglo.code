@@ -20,9 +20,9 @@ import * as PreviewBrowser from "./PreviewBrowser.ts";
 // NTFS cannot enforce POSIX modes; choose the host platform.
 const hostPlatform: NodeJS.Platform =
   HostProcess.Platform.defaultValue() === "win32" ? "win32" : "linux";
-const executableName =
-  hostPlatform === "win32" ? "chrome-headless-shell.exe" : "chrome-headless-shell";
-const ROOT = "chrome-headless-shell-fixture/";
+const RELEASE_PLATFORM = "linux64";
+const executableName = "chrome";
+const ROOT = "chrome-linux64/";
 
 const makeZip = (
   entries: ReadonlyArray<{ readonly name: string; readonly data?: string; readonly mode: number }>,
@@ -76,6 +76,7 @@ const browserArchive = makeZip([
 const makeHarness = Effect.fn("test.makePreviewBrowser")(function* (
   options: {
     readonly version?: string;
+    readonly platform?: string;
     readonly archive?: Buffer;
     readonly sha256?: string;
     readonly body?: Stream.Stream<Uint8Array>;
@@ -91,14 +92,15 @@ const makeHarness = Effect.fn("test.makePreviewBrowser")(function* (
   const sha256 =
     options.sha256 ?? Hex.encode(yield* digest.digest(Digest.sha256, archive).pipe(Effect.orDie));
   const requests: Array<string> = [];
+  const releasePlatform = options.platform ?? RELEASE_PLATFORM;
   const browser = yield* PreviewBrowser.makePreviewBrowser({
     baseDir,
     release: options.unsupported
       ? null
       : {
           version: options.version ?? "1.2.3",
-          platform: "fixture",
-          url: "https://storage.googleapis.com/chrome-headless-shell-fixture.zip",
+          platform: releasePlatform,
+          url: "https://storage.googleapis.com/chrome-fixture.zip",
           bytes: archive.byteLength,
           sha256,
         },
@@ -119,14 +121,16 @@ const makeHarness = Effect.fn("test.makePreviewBrowser")(function* (
       ),
     ),
   );
-  const installRoot = path.join(baseDir, "tools", "chrome-headless-shell", "fixture");
+  const installRoot = path.join(baseDir, "tools", "chrome", releasePlatform);
   return { browser, fs, path, baseDir, installRoot, requests };
 });
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("PreviewBrowser", (it) => {
   it.effect.each(["0.8.0", "1.2.3"])("retains another version when installing %s", (current) =>
     Effect.gen(function* () {
-      const { browser, fs, path, installRoot, requests } = yield* makeHarness({ version: current });
+      const { browser, fs, path, baseDir, installRoot, requests } = yield* makeHarness({
+        version: current,
+      });
       yield* fs.makeDirectory(path.join(installRoot, "0.9.0"), { recursive: true });
       yield* fs.makeDirectory(path.join(installRoot, "0.10.0"));
       const active = path.join(installRoot, ".install-other");
@@ -135,6 +139,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("PreviewBrowser",
       yield* fs.makeDirectory(abandoned);
       const twoHoursAgo = DateTime.toDate(DateTime.subtract(yield* DateTime.now, { hours: 2 }));
       yield* fs.utimes(abandoned, twoHoursAgo, twoHoursAgo);
+      // A leftover headless shell from before the full-Chrome switch must not survive an install.
+      const legacyRoot = path.join(baseDir, "tools", "chrome-headless-shell", "linux64", "157");
+      yield* fs.makeDirectory(legacyRoot, { recursive: true });
       expect(yield* browser.installed).toEqual(Option.none());
 
       const executable = yield* browser.executable;
@@ -152,6 +159,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("PreviewBrowser",
       expect((yield* fs.readDirectory(installRoot)).toSorted()).toEqual(
         [".install-other", "0.10.0", current].toSorted(),
       );
+      // The headless shell from before the full-Chrome switch is dead weight after an install.
+      expect(yield* fs.exists(path.join(baseDir, "tools", "chrome-headless-shell"))).toBe(false);
       expect(yield* browser.executable).toBe(executable);
       expect(yield* browser.installed).toEqual(Option.some(executable));
       expect(requests).toHaveLength(1);
@@ -172,7 +181,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("PreviewBrowser",
       const error = yield* browser.executable.pipe(Effect.flip);
 
       expect(error._tag).toBe("PreviewBrowserInstallError");
-      expect(error.message).toMatch(/^T3 could not install its headless browser: .+ Try again\.$/);
+      expect(error.message).toMatch(/^T3 could not install its browser: .+ Try again\.$/);
       expect(yield* fs.readDirectory(installRoot)).toEqual([]);
       yield* browser.executable.pipe(Effect.flip);
       expect(requests).toHaveLength(2);
@@ -180,15 +189,26 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("PreviewBrowser",
   );
 
   it.effect.each([
-    { name: "a parent-directory entry", entry: `${ROOT}../escape` },
-    { name: "an absolute entry", entry: "/escape" },
-    { name: "an entry outside the top directory", entry: "escape" },
+    { name: "a parent-directory entry", entry: `${ROOT}../escape`, mode: 0o100644 },
+    { name: "an absolute entry", entry: "/escape", mode: 0o100644 },
+    { name: "an entry outside the top directory", entry: "escape", mode: 0o100644 },
+    { name: "an absolute link target", entry: `${ROOT}evil-link`, mode: 0o120777 },
+    { name: "a link escaping the install", entry: `${ROOT}up-link`, mode: 0o120777 },
   ])("rejects an archive with $name", (testCase) =>
     Effect.gen(function* () {
       const { browser, fs, path, baseDir, installRoot } = yield* makeHarness({
         archive: makeZip([
           { name: `${ROOT}${executableName}`, data: "#!/bin/sh\n", mode: 0o100755 },
-          { name: testCase.entry, data: "escaped", mode: 0o100644 },
+          {
+            name: testCase.entry,
+            data:
+              testCase.mode === 0o120777
+                ? testCase.entry.endsWith("evil-link")
+                  ? "/etc/passwd"
+                  : "../../../etc/passwd"
+                : "escaped",
+            mode: testCase.mode,
+          },
         ]),
       });
 
@@ -199,6 +219,37 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("PreviewBrowser",
       expect(yield* fs.exists(path.join(baseDir, "tools", "chrome-headless-shell", "escape"))).toBe(
         false,
       );
+    }),
+  );
+
+  it.effect("extracts the macOS app bundle with its framework symlinks", () =>
+    Effect.gen(function* () {
+      const framework =
+        "Google Chrome for Testing.app/Contents/Frameworks/Google Chrome for Testing Framework.framework";
+      const executable = `Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+      const { browser, fs, path, baseDir } = yield* makeHarness({
+        version: "158.0.8127.36",
+        platform: "mac-arm64",
+        archive: makeZip([
+          { name: "chrome-mac-arm64/", mode: 0o40755 },
+          { name: `chrome-mac-arm64/${executable}`, data: "#!/bin/sh\n", mode: 0o100755 },
+          // The link precedes its parent directory: extraction must not rely on archive order.
+          {
+            name: `chrome-mac-arm64/${framework}/Versions/Current`,
+            data: "158.0.8127.36",
+            mode: 0o120777,
+          },
+          { name: `chrome-mac-arm64/${framework}/Versions/158.0.8127.36/`, mode: 0o40755 },
+        ]),
+      });
+
+      const installed = yield* browser.executable;
+
+      const version = path.join(baseDir, "tools", "chrome", "mac-arm64", "158.0.8127.36");
+      expect(installed).toBe(path.join(version, executable));
+      // The link resolves inside the install, which is what the bundle needs to launch.
+      const current = yield* fs.stat(path.join(version, framework, "Versions", "Current"));
+      expect(current.type).toBe("Directory");
     }),
   );
 });

@@ -16,8 +16,8 @@ import * as PreviewBrowserHost from "../preview/PreviewBrowserHost.ts";
 import { browserCommand } from "./browser.ts";
 
 const USERNS_RESTRICTION = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns";
-const BROWSER_ROOT = "/home/me/.iglo.code/tools/chrome-headless-shell";
-const BROWSER = `${BROWSER_ROOT}/linux64/154/chrome-headless-shell`;
+const BROWSER_ROOT = "/home/me/.iglo.code/tools/chrome";
+const BROWSER = `${BROWSER_ROOT}/linux64/158/chrome`;
 
 const notFound = (method: string, path: string) =>
   PlatformError.systemError({
@@ -28,17 +28,23 @@ const notFound = (method: string, path: string) =>
   });
 
 /** An Ubuntu host with the userns restriction on, the browser installed, and a system font. */
-const runSetupAsRoot = (input: { readonly profile: string | undefined }) => {
+const runSetupAsRoot = (input: {
+  readonly profile: string | undefined;
+  readonly env?: Record<string, string | undefined>;
+  readonly uid?: number;
+  readonly files?: ReadonlyArray<string>;
+}) => {
   const files = new Map([
     [USERNS_RESTRICTION, "1\n"],
     [BROWSER, ""],
+    ...(input.files ?? []).map((file) => [file, ""] as const),
   ]);
   if (input.profile !== undefined) {
     files.set(PreviewBrowserHost.APPARMOR_PROFILE_PATH, input.profile);
   }
   const directories = new Map([
     [BROWSER_ROOT, ["linux64"]],
-    [`${BROWSER_ROOT}/linux64`, ["154"]],
+    [`${BROWSER_ROOT}/linux64`, ["158"]],
   ]);
   const commands: Array<string> = [];
   const fileSystem = FileSystem.makeNoop({
@@ -94,8 +100,8 @@ const runSetupAsRoot = (input: { readonly profile: string | undefined }) => {
     };
   }).pipe(
     Effect.provideService(HostProcess.Platform, "linux"),
-    Effect.provideService(HostProcess.UserId, 0),
-    Effect.provideService(HostProcess.Environment, { SUDO_USER: "me" }),
+    Effect.provideService(HostProcess.UserId, input.uid ?? 0),
+    Effect.provideService(HostProcess.Environment, input.env ?? { SUDO_USER: "me", DISPLAY: ":0" }),
     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     Effect.provideService(FileSystem.FileSystem, fileSystem),
     Effect.provide(Layer.mergeAll(NodeServices.layer, Layer.fresh(TestConsole.layer))),
@@ -135,5 +141,30 @@ it.effect.each([
     expect(result.profile).toBe(input.written);
     expect(result.output).toContain(input.said);
     expect(result.output).toContain("This host is ready for T3's browser.");
+  }),
+);
+
+it.effect("reports a displayless host with Xvfb on PATH as ready", () =>
+  Effect.gen(function* () {
+    const result = yield* runSetupAsRoot({
+      profile: undefined,
+      env: { SUDO_USER: "me", PATH: "/usr/bin" },
+      files: ["/usr/bin/Xvfb"],
+    });
+    expect(result.output).toContain("Wrote and loaded");
+    expect(result.output).toContain("This host is ready for T3's browser.");
+  }),
+);
+
+it.effect("tells a displayless host without Xvfb to run setup as root", () =>
+  Effect.gen(function* () {
+    const result = yield* runSetupAsRoot({
+      profile: undefined,
+      env: { SUDO_USER: "me" },
+      uid: 1000,
+    });
+    expect(result.output).toContain("setup installs Xvfb");
+    expect(result.output).toContain("This needs root. Run:");
+    expect(result.loads).toEqual([]);
   }),
 );

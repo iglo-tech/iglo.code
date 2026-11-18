@@ -142,7 +142,7 @@ export type PreviewRuntime = typeof PreviewRuntime.Type;
 
 /** JSON reason for preview stream close code 4503; must fit the 123-byte close-reason limit. */
 export const PreviewStreamHostSetup = Schema.Struct({
-  need: Schema.Literals(["sandbox", "libraries"]),
+  need: Schema.Literals(["sandbox", "libraries", "display"]),
   command: Schema.String,
 });
 export type PreviewStreamHostSetup = typeof PreviewStreamHostSetup.Type;
@@ -160,7 +160,7 @@ export const PreviewSessionSnapshot = Schema.Struct({
   /** Fixed at open; Electron cannot change a webview partition after attach without losing page state. */
   profileId: Schema.optional(BrowserProfileId),
   runtime: Schema.optional(PreviewRuntime),
-  /** The server runs this tab in headless Chromium, so the desktop streams it like other clients. */
+  /** The server streams this tab instead of handing it to a desktop app's native window. */
   headless: Schema.optional(Schema.Boolean),
   automationOwner: Schema.optional(Schema.String),
   reveal: Schema.optional(Schema.Boolean),

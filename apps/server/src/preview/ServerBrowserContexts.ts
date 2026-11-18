@@ -4,9 +4,8 @@ import { INCOGNITO_BROWSER_PROFILE_ID } from "@t3tools/contracts";
 import { constVoid } from "effect/Function";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeModule from "node:module";
-import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import type { Browser, BrowserContext, CDPSession } from "playwright-core";
+import type { Browser, BrowserContext } from "playwright-core";
 
 import { sandboxDisabled } from "./PreviewBrowserHost.ts";
 
@@ -24,9 +23,9 @@ interface CdpSession {
   createChildSession(...args: ReadonlyArray<unknown>): CdpSession;
 }
 
-// The headless shell binds no BadgeService for service workers and kills the renderer of a
-// worker that calls navigator.setAppBadge. Playwright resumes each worker itself, so the stub
-// can only go in ahead of that resume through its in-process session; without it nothing is stubbed.
+// Chrome kills the renderer of a worker whose navigator.setAppBadge fails. Playwright
+// resumes each worker itself, so the stub can only go in ahead of that resume through
+// its in-process session; without it nothing is stubbed.
 const stubWorkerBadges = (client: Browser | BrowserContext) => {
   const { _connection: connection } = client as unknown as {
     readonly _connection?: {
@@ -58,6 +57,13 @@ interface Options {
   readonly profilesDir: string;
   readonly executable: () => Promise<string>;
   /**
+   * Resolved at each launch, so a display can start on demand. Falls back to the
+   * server's own environment when no resolver is given.
+   */
+  readonly env?: () => NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
+  /** The host running the server; Linux launches add display and keyring flags. */
+  readonly platform?: NodeJS.Platform;
+  /**
    * A path that starts `executable`, such as one that moves Chrome out of the server's cgroup.
    * Released after the whole launch call, since Playwright retries the same path after a glibc race.
    */
@@ -65,56 +71,10 @@ interface Options {
     executable: string,
   ) => Promise<{ readonly path: string; readonly release: () => Promise<void> } | undefined>;
   readonly diagnose?: (executable: string, cause: unknown) => Promise<unknown>;
-  readonly env?: NodeJS.ProcessEnv;
   /** Closes the shared browser once it has held no context for this long. */
   readonly idleBrowserMs?: number;
   readonly onContextClose?: (context: BrowserContext) => void;
 }
-
-const UA_PLATFORMS: Partial<Record<NodeJS.Platform, string>> = {
-  darwin: "macOS",
-  linux: "Linux",
-  win32: "Windows",
-};
-
-/** Change user agent and Sec-CH-UA together; sites block mismatches. */
-const chromeIdentity = (
-  headlessUserAgent: string,
-  host: { readonly platform: NodeJS.Platform; readonly arch: string; readonly release: string },
-) => {
-  const version = /HeadlessChrome\/((\d+)[\d.]*)/.exec(headlessUserAgent);
-  const fullVersion = version?.[1];
-  const major = version?.[2];
-  if (!version || !fullVersion || !major) return null;
-  const brands = (names: (version: string) => string) => [
-    { brand: "Chromium", version: names(major) },
-    { brand: "Google Chrome", version: names(major) },
-    { brand: "Not A(Brand", version: names("99") },
-  ];
-  return {
-    userAgent: headlessUserAgent.replace(version[0], `Chrome/${major}.0.0.0`),
-    userAgentMetadata: {
-      brands: brands((value) => value),
-      fullVersionList: brands((value) => (value === major ? fullVersion : `${value}.0.0.0`)),
-      platform: UA_PLATFORMS[host.platform] ?? "Unknown",
-      platformVersion: host.platform === "linux" ? host.release : "",
-      architecture: host.arch.startsWith("arm") ? "arm" : "x86",
-      bitness: host.arch.endsWith("64") ? "64" : "32",
-      model: "",
-      mobile: false,
-      wow64: false,
-    },
-  };
-};
-
-export const presentAsChrome = async (
-  cdp: CDPSession,
-  host: { readonly platform: NodeJS.Platform; readonly arch: string },
-) => {
-  const { userAgent } = await cdp.send("Browser.getVersion");
-  const identity = chromeIdentity(userAgent, { ...host, release: NodeOS.release() });
-  if (identity) await cdp.send("Emulation.setUserAgentOverride", identity);
-};
 
 export class ServerBrowserContexts {
   private readonly options: Options;
@@ -130,8 +90,9 @@ export class ServerBrowserContexts {
   }
 
   private async launchOptions() {
+    // A missing display fails fast, before the first-launch browser download starts.
+    const env = await (this.options.env?.() ?? process.env);
     const executable = await this.options.executable();
-    const env = this.options.env ?? process.env;
     return {
       executable,
       env,
@@ -139,9 +100,15 @@ export class ServerBrowserContexts {
         "--disable-gpu",
         "--force-device-scale-factor=2",
         "--disable-blink-features=AutomationControlled",
+        // Linux: keep the keyring off the bus and let the window open on either X11 or Wayland.
+        ...((this.options.platform ?? HostProcess.Platform.defaultValue()) === "linux"
+          ? ["--password-store=basic", "--ozone-platform-hint=auto"]
+          : []),
       ],
       ignoreDefaultArgs: ["--enable-automation"],
-      headless: true,
+      // Full Chrome with a real window: sign-in flows, such as Google's, reject
+      // headless builds, and desktop-class quality is the point of the pane.
+      headless: false,
       // Only an explicit operator opt-out disables sandboxing. Launch errors never do.
       chromiumSandbox: !sandboxDisabled(env),
     };

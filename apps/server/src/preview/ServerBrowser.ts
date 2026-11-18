@@ -93,7 +93,8 @@ import * as PreviewManager from "./Manager.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
-import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
+import { ServerBrowserContexts } from "./ServerBrowserContexts.ts";
+import { XvfbServer } from "./XvfbServer.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 import { installPdfDocumentNavigation, isPdfAssetUrl } from "./PdfDocumentNavigation.ts";
 
@@ -182,6 +183,7 @@ const isHostSetupError = Schema.is(
     PreviewBrowserHost.PreviewBrowserSandboxError,
     PreviewBrowserHost.PreviewBrowserLibrariesError,
     PreviewBrowserHost.PreviewBrowserRootError,
+    PreviewBrowserHost.PreviewBrowserDisplayError,
   ]),
 );
 
@@ -460,7 +462,7 @@ const modifiersOf = (message: Record<string, unknown>) => {
   return Number.isInteger(value) && value >= 0 && value < 16 ? value : 0;
 };
 
-// Linux/headless Chromium needs commands for Cmd editing shortcuts and Ctrl copy/cut.
+// Linux Chromium needs commands for Cmd editing shortcuts and Ctrl copy/cut.
 const editingCommand = (key: string, modifiers: number) => {
   const modifier = modifiers & 0b0111;
   if (modifier !== 2 && modifier !== 4) return null;
@@ -597,10 +599,24 @@ const make = Effect.gen(function* () {
   let hostConnectionId: string | null = null;
   let viewerResizeOrder = 0;
 
+  // The pane is headed Chrome; a Linux host without a display gets one from Xvfb.
+  const xvfb = new XvfbServer({ setupCommand });
+  const browserEnv = async (): Promise<NodeJS.ProcessEnv> => {
+    // A missing Xvfb surfaces as acquire's own error, so reachability stays its call.
+    const plan = PreviewBrowserHost.browserDisplayPlan({
+      platform: host.platform,
+      env: process.env,
+      xvfbInstalled: true,
+    });
+    return plan.kind === "xvfb" ? { ...process.env, DISPLAY: await xvfb.acquire() } : process.env;
+  };
+
   const contexts = new ServerBrowserContexts({
     profilesDir: NodePath.join(config.stateDir, "server-browser", "profiles"),
     idleBrowserMs: 5 * 60_000,
     executable: () => runPromise(previewBrowser.executable),
+    env: () => browserEnv(),
+    platform: host.platform,
     // An agent scope keeps Chrome out of the server's memory protection and OOM score.
     launcher: async (executable) => {
       const launch = await runPromise(
@@ -1131,9 +1147,6 @@ const make = Effect.gen(function* () {
     if (!desktop) opened.push(() => page.close());
     const cdp = await context.newCDPSession(page);
     await installPdfDocumentNavigation(cdp);
-    // The desktop's page is already a normal browser. A popup's first request
-    // went out before it became a tab; everything after presents as Chrome.
-    if (!desktop) await presentAsChrome(cdp, host);
     if (!desktop) await recordCopies(cdp);
     page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
@@ -1870,7 +1883,7 @@ const make = Effect.gen(function* () {
   }, Effect.uninterruptible);
 
   // Desktop browsing bypasses streamed viewers and server input tracking,
-  // so these idle signals only apply to headless tabs.
+  // so these idle signals only apply to streamed tabs.
   const closeIdleAgentTabs = () => {
     for (const tab of idleAgentTabs()) if (tab.desktop === null) dropTab(tab, true);
   };
@@ -3413,12 +3426,24 @@ const make = Effect.gen(function* () {
     Stream.runForEach(mirrorManagerEvent),
     Effect.forkScoped,
   );
+  const hostEnvironment = yield* HostProcess.Environment;
   if (
-    !PreviewBrowserHost.sandboxDisabled(yield* HostProcess.Environment) &&
+    !PreviewBrowserHost.sandboxDisabled(hostEnvironment) &&
     (yield* PreviewBrowserHost.sandboxBlocked)
   ) {
     yield* Effect.logWarning(
       `This host blocks the sandbox T3's browser runs in, so browser tabs and HTML previews will not start. Run \`${setupCommand}\` once to allow it.`,
+    );
+  }
+  // The browser opens a real window, so a displayless Linux host needs Xvfb for one.
+  const displayPlan = PreviewBrowserHost.browserDisplayPlan({
+    platform: host.platform,
+    env: hostEnvironment,
+    xvfbInstalled: (yield* PreviewBrowserHost.commandOnPath("Xvfb")) !== null,
+  });
+  if (displayPlan.kind === "missing-xvfb") {
+    yield* Effect.logWarning(
+      `This Linux host has no display for T3's browser and no Xvfb, so browser tabs will not start. Run \`${setupCommand}\` once to install it.`,
     );
   }
 
@@ -3490,6 +3515,7 @@ const make = Effect.gen(function* () {
   yield* Effect.addFinalizer(() =>
     Effect.promise(async () => {
       await contexts.close();
+      await xvfb.close();
     }),
   );
 

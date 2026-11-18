@@ -455,7 +455,7 @@ const decodeHostSetup = (reason: string): PreviewStreamHostSetup => {
   try {
     const value = JSON.parse(reason) as Partial<PreviewStreamHostSetup>;
     if (
-      (value.need === "sandbox" || value.need === "libraries") &&
+      (value.need === "sandbox" || value.need === "libraries" || value.need === "display") &&
       typeof value.command === "string"
     ) {
       return { need: value.need, command: value.command };
@@ -467,4 +467,6 @@ const decodeHostSetup = (reason: string): PreviewStreamHostSetup => {
 export const previewStreamHostSetupMessage = (setup: PreviewStreamHostSetup) =>
   setup.need === "sandbox"
     ? "This server's host blocks the sandbox its browser runs in. Run this once on the host, then try again:"
-    : "This server's host is missing libraries its browser needs. Run this once on the host, then try again:";
+    : setup.need === "display"
+      ? "This server's host has no display for its browser. Run this once on the host to install Xvfb, then try again:"
+      : "This server's host is missing libraries its browser needs. Run this once on the host, then try again:";

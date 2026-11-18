@@ -159,10 +159,12 @@ Browser tabs belong to the environment, so you and your agents see the same
 tabs from any device. The web client streams them from the host. Agents keep using them while no device is
 connected, and `localhost` addresses reach servers on the host.
 
-The first tab downloads a headless Chrome, about 120 MB, into the iglo.code home. It
+The first tab downloads a full Chrome, about 200 MB, into the iglo.code home. It
 is the same browser [HTML renders](html-renders.md) use, so a host downloads it
-only once. Some Linux hosts need [setup](#browser-host-setup) before it can
-start.
+only once. The browser runs as a real window — on the host's display, or on a
+virtual one the server starts itself — which is what lets you sign in to
+accounts such as Google and stay signed in. Some Linux hosts need
+[setup](#browser-host-setup) before it can start.
 
 Agent tabs have separate storage and share a Chromium process. Take control before
 typing into an agent's tab, then release control when you want the agent to
@@ -195,9 +197,10 @@ the background service, and restart it. Script preview URLs still appear.
 
 macOS and Linux desktops run the browser as is. Some Linux hosts need
 one-time setup: Ubuntu 23.10 and later block the sandbox the browser runs in,
-and minimal images and containers lack libraries it loads. When that happens,
-the server says so at startup, and browser tabs and HTML previews show the
-command to run on the host:
+minimal images and containers lack libraries it loads, and a host without a
+display — a VM or server — needs Xvfb for the browser's window. When that
+happens, the server says so at startup, and browser tabs and HTML previews show
+the command to run on the host:
 
 ```sh
 sudo iglo.code browser setup
@@ -207,11 +210,14 @@ The server shows the exact line for how you started it, such as
 `sudo iglo.code browser setup`, and keeps your `PATH` when Bun or iglo.code is
 installed only for your user. Where `iglo.code` is not on your `PATH`, a standalone install names its
 full executable path. It allows Chrome's sandbox with an AppArmor profile and installs
-any missing libraries and system fonts with apt; pages that load without text
+any missing libraries, system fonts, and Xvfb with apt; pages that load without text
 can mean the host has no fonts. It is safe to run again, and each run reloads
 the AppArmor profile: run it again if the browser reports a blocked sandbox on a
 host restored from an image or snapshot, where the profile can be on disk
 without being loaded. Without `sudo`, it only reports what it would change.
+
+After setup, the server starts Xvfb on demand whenever a browser tab opens; no
+display needs configuring, and an inherited desktop display is used as is.
 
 The browser runs in Chrome's sandbox by default. Chrome cannot start that sandbox
 as root. If your iglo.code server runs as root, run it as a nonroot user to keep
