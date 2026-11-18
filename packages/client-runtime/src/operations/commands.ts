@@ -1,6 +1,7 @@
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import {
   type ThreadLinkedPullRequest,
+  type ThreadPullRequestLink,
   CommandId,
   CheckpointId,
   CheckpointScopeId,
@@ -146,6 +147,7 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly worktreePath?: string | null;
   readonly regenerateTitle?: boolean;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
+  readonly pullRequests?: ReadonlyArray<ThreadPullRequestLink>;
   readonly expectedEmpty?: boolean;
 }
 
@@ -691,6 +693,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.worktreePath !== undefined ||
       input.regenerateTitle !== undefined ||
       input.linkedPullRequest !== undefined ||
+      input.pullRequests !== undefined ||
       input.limitRecovery !== undefined
     ) {
       result = yield* dispatch({

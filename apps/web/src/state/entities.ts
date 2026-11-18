@@ -385,6 +385,20 @@ export function readEnvironmentSupportsAutoSettleOptOut(environmentId: Environme
   );
 }
 
+export function readEnvironmentSupportsThreadProjectMove(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadProjectMove === true
+  );
+}
+
+export function readEnvironmentScratchWorkspaceRoot(environmentId: EnvironmentId): string | null {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.scratchWorkspaceRoot ??
+    null
+  );
+}
+
 export function readEnvironmentThreadRefs(
   environmentId: EnvironmentId,
 ): ReadonlyArray<ScopedThreadRef> {

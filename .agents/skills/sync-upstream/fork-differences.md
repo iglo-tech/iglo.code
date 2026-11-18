@@ -137,3 +137,31 @@ current when an authorized change replaces a decision.
   `filterSidebarProjectScopeItems`, `reduceSidebarProjectScopeMenuState`) are
   removed, and `SidebarThreadHeader.tsx` omits the filter combobox dropdown.
   Upstream merges must not restore the combobox dropdown or remove the left rail.
+- **Move a thread between projects.** A thread's context menu (sidebar row and
+  chat header share one builder) offers **Move to project** with a destination
+  submenu: project identity (a custom monogram icon, else the title monogram)
+  and a short path, rendered through `ContextMenuItem.monogram`. The guarded
+  `threads.moveToProject` method re-points the thread's scheduled tasks and
+  dispatches the internal `thread.project.move` command
+  ([ThreadProjectMove.ts](../../../apps/server/src/project/ThreadProjectMove.ts);
+  `dispatchThreadProjectMove` in
+  [Orchestrator.ts](../../../apps/server/src/orchestration-v2/Orchestrator.ts)).
+  A move detaches live provider sessions ("Moved to another project.") exactly
+  as a workspace change does, refuses while work or background agents run or
+  the target is archived or deleted, and clears the worktree pin plus the old
+  repository's branch and pull request links — including the `pullRequests`
+  array the UI reads first — so the thread re-homes clean at the target
+  project's root. The undo notice ("Moved") moves it back and restores a
+  worktree thread's pin, branch, and pull request links through
+  `thread.metadata.update` (which carries an optional wholesale-replace
+  `pullRequests` field for that restore)
+  ([useThreadActions.ts](../../../apps/web/src/hooks/useThreadActions.ts)).
+  The `threadProjectMove` server capability hides the item on older servers.
+  Keep the destinations builder and menu item in
+  [threadActionMenu.logic.ts](../../../apps/web/src/components/threadActionMenu.logic.ts),
+  the **Move a thread between projects** section in
+  [thread-sidebar.md](../../../docs/user/thread-sidebar.md), and the focused
+  tests beside each layer (runtimeLayer.test.ts, useThreadActions.undo.test.ts,
+  threadActionMenu.logic.test.ts, commandPermissions.test.ts). Upstream has no
+  equivalent yet; if it ships its own move, reconcile the contracts, menu, and
+  dispatch semantics rather than carrying both paths.

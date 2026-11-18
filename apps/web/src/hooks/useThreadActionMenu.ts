@@ -18,6 +18,7 @@ import { useRouter } from "@tanstack/react-router";
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
 import {
   buildThreadActionMenuItems,
+  buildThreadProjectMoveTargets,
   threadActionRequiresOperate,
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
@@ -29,8 +30,10 @@ import { threadEnvironment } from "../state/threads";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { readEnvironmentScope } from "../state/session";
 import {
+  readEnvironmentScratchWorkspaceRoot,
   readEnvironmentServerConfigLoaded,
   readEnvironmentSupportsAutoSettleOptOut,
+  readEnvironmentSupportsThreadProjectMove,
   readThreadShell,
   useProjects,
 } from "../state/entities";
@@ -88,6 +91,7 @@ export function useThreadActionMenu(input: {
     deleteThread,
     markThreadUnread,
     turnThreadIntoProject,
+    moveThreadToProject,
   } = useThreadActions();
   const regenerateThreadTitle = useOrchestrationCommand(threadEnvironment.regenerateTitle, {
     reportFailure: false,
@@ -128,6 +132,14 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+      const moveTargets = readEnvironmentSupportsThreadProjectMove(threadRef.environmentId)
+        ? buildThreadProjectMoveTargets({
+            projects,
+            environmentId: threadRef.environmentId,
+            currentProjectId: thread.projectId,
+            scratchWorkspaceRoot: readEnvironmentScratchWorkspaceRoot(threadRef.environmentId),
+          })
+        : [];
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
@@ -144,6 +156,7 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        moveTargets,
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -172,6 +185,18 @@ export function useThreadActionMenu(input: {
         const result = await snoozeThread(threadRef, preset.snoozedUntil);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           failureToast("Failed to snooze thread", squashAtomCommandFailure(result));
+        }
+        return;
+      }
+      if (action.startsWith("move-to-project:")) {
+        const target = moveTargets.find(
+          (candidate) => `move-to-project:${candidate.projectId}` === action,
+        );
+        if (target) {
+          const result = await moveThreadToProject(threadRef, target.projectId);
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            failureToast("Could not move thread", squashAtomCommandFailure(result));
+          }
         }
         return;
       }

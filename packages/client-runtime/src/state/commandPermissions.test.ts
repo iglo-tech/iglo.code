@@ -196,9 +196,11 @@ describe("command permissions", () => {
       }),
   );
 
-  it.effect.each([WS_METHODS.scheduledTasksDelete, ORCHESTRATION_V2_WS_METHODS.stopWorkflow])(
-    "uses the target grant for both availability and execution of %s",
-    (method) =>
+  it.effect.each([
+    WS_METHODS.scheduledTasksDelete,
+    ORCHESTRATION_V2_WS_METHODS.stopWorkflow,
+    WS_METHODS.threadsMoveToProject,
+  ])("uses the target grant for both availability and execution of %s", (method) =>
       Effect.gen(function* () {
         const registry = yield* setup;
         const permissions = createCommandPermissions(runtime, method);

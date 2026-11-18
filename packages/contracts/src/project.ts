@@ -553,6 +553,15 @@ export const ProjectCreateFromThreadResult = Schema.Struct({
 });
 export type ProjectCreateFromThreadResult = typeof ProjectCreateFromThreadResult.Type;
 
+export const ProjectMoveThreadInput = Schema.Struct({
+  threadId: ThreadId,
+  projectId: ProjectId,
+});
+export type ProjectMoveThreadInput = typeof ProjectMoveThreadInput.Type;
+
+export const ProjectMoveThreadResult = Schema.Struct({});
+export type ProjectMoveThreadResult = typeof ProjectMoveThreadResult.Type;
+
 export class ProjectWriteFileError extends Schema.TaggedError<ProjectWriteFileError>()(
   "ProjectWriteFileError",
   {

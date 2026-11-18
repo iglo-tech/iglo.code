@@ -13,7 +13,7 @@ import { primaryServerKeybindingsAtom } from "../state/server";
 import * as ThreadUndo from "@t3tools/client-runtime/state/thread-undo";
 
 type UndoOptions = {
-  action: "Settled" | "Snoozed" | "Unpinned" | "Archived" | "Discarded";
+  action: "Settled" | "Snoozed" | "Unpinned" | "Archived" | "Discarded" | "Moved";
   undo: () => Promise<AtomCommandResult<unknown, unknown>>;
   failureTitle: string;
   claim: ReturnType<typeof ThreadUndo.begin>;
@@ -34,6 +34,7 @@ const UNDONE_ACTION = {
   Unpinned: "unpin",
   Archived: "archive",
   Discarded: "discard",
+  Moved: "move",
 } satisfies Record<UndoOptions["action"], string>;
 
 function countLabel(action: UndoOptions["action"], count: number) {
