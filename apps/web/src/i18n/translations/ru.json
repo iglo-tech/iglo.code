@@ -11778,6 +11778,7 @@
   "1bc189242bfa159d": "{count, plural, =1 {Откреплён,} one {Откреплено: {count},} few {Откреплено: {count},} many {Откреплено: {count},} other {Откреплено: {count},}}",
   "0cb1701d57cffefc": "{count, plural, =1 {Архивирован,} one {Архивировано: {count},} few {Архивировано: {count},} many {Архивировано: {count},} other {Архивировано: {count},}}",
   "3cb98bdea58716bf": "{count, plural, =1 {Отброшен,} one {Отброшено: {count},} few {Отброшено: {count},} many {Отброшено: {count},} other {Отброшено: {count},}}",
+  "2ac6705073b13c25": "{count, plural, =1 {Перемещено,} other {Перемещено: {count},}}",
   "d941432304b69645": "перезапуск через {seconds} с",
   "f511b80e4fa895b8": "перезапуск",
   "c85d558b9b692fd1": "загрузка",

@@ -1203,7 +1203,12 @@ export const layer = Layer.effect(
               yield* rescheduleNextRun(
                 current,
                 startedAt,
-                pendingPrompt.value.runs.some((run) => run.status === "queued" && run.queueHeld === true)
+                // An outcome recorded during the lookup outranks the held notice.
+                current.lastRunStatus === active.lastRunStatus &&
+                  current.lastRunError === active.lastRunError &&
+                  pendingPrompt.value.runs.some(
+                    (run) => run.status === "queued" && run.queueHeld === true,
+                  )
                   ? HELD_OCCURRENCE_ERROR
                   : undefined,
               );
@@ -1486,16 +1491,7 @@ export const layer = Layer.effect(
           UPDATE scheduled_tasks
           SET next_run_at = ${next},
               updated_at = ${iso(now)}
-              ${
-                runError === undefined
-                  ? sql``
-                  : sql`, last_run_status = CASE
-                      WHEN last_run_status IS ${task.lastRunStatus} AND last_run_error IS ${task.lastRunError}
-                      THEN 'failed' ELSE last_run_status END,
-                    last_run_error = CASE
-                      WHEN last_run_status IS ${task.lastRunStatus} AND last_run_error IS ${task.lastRunError}
-                      THEN ${runError} ELSE last_run_error END`
-              }
+              ${runError === undefined ? sql`` : sql`, last_run_status = 'failed', last_run_error = ${runError}`}
           WHERE task_id = ${task.id}
         `;
           }),

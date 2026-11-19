@@ -11728,6 +11728,7 @@
   "1bc189242bfa159d": "{count, plural, =1 {ピン留めを解除、} other {ピン留めを解除 {count} 件、}}",
   "0cb1701d57cffefc": "{count, plural, =1 {アーカイブ済み、} other {アーカイブ済み {count} 件、}}",
   "3cb98bdea58716bf": "{count, plural, =1 {破棄、} other {破棄 {count} 件、}}",
+  "2ac6705073b13c25": "{count, plural, =1 {移動済み、} other {移動済み {count} 件、}}",
   "d941432304b69645": "{seconds} 秒後に再起動",
   "f511b80e4fa895b8": "再起動中",
   "c85d558b9b692fd1": "ダウンロード中",
