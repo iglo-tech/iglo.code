@@ -352,7 +352,7 @@ describe("ssh tunnel scripts", () => {
     { installed: ARCHIVE.archiveVersion, status: 1, reuses: false },
     { installed: "9.9.9", status: 0, reuses: false },
   ])(
-    "reuses a host t3 only at exactly the requested version: installed $installed, status $status",
+    "reuses a host iglo.code only at exactly the requested version: installed $installed, status $status",
     ({ installed, status, reuses }) => {
       const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-ssh-runner-"));
       try {
@@ -362,12 +362,12 @@ describe("ssh tunnel scripts", () => {
         // A host the release archive cannot run on, so only reuse can succeed.
         NodeFS.writeFileSync(
           NodePath.join(bin, "uname"),
-          `#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo x86_64 ;; esac\n`,
+          `#!/bin/sh\ncase "$1" in -s) echo FreeBSD ;; -m) echo amd64 ;; esac\n`,
           { mode: 0o755 },
         );
         NodeFS.writeFileSync(
-          NodePath.join(bin, "t3"),
-          `#!/bin/sh\ncase "$1" in --version) echo "t3 v${installed}"; exit ${status} ;; *) echo "host t3 $*" ;; esac\n`,
+          NodePath.join(bin, "iglo.code"),
+          `#!/bin/sh\ncase "$1" in --version) echo "iglo.code v${installed}"; exit ${status} ;; *) echo "host iglo.code $*" ;; esac\n`,
           { mode: 0o755 },
         );
         const runner = NodePath.join(root, "run-t3.sh");
@@ -378,10 +378,10 @@ describe("ssh tunnel scripts", () => {
         });
         if (reuses) {
           assert.equal(result.status, 0);
-          assert.equal(result.stdout, "host t3 serve\n");
+          assert.equal(result.stdout, "host iglo.code serve\n");
         } else {
           assert.notEqual(result.status, 0);
-          assert.include(result.stderr, "has no t3 release archive.");
+          assert.include(result.stderr, "has no iglo.code release archive.");
         }
       } finally {
         NodeFS.rmSync(root, { recursive: true, force: true });

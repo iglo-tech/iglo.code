@@ -35,6 +35,7 @@ const RULES: Rule[] = [
       /(?:^|[\s`(])t3 (?:serve|up|update|service|doctor|uninstall|pair|start|status|help|install|triage|connect|auth)\b/gm,
     scope: [...DOCS, "AGENTS.md", "apps/server/src/cli/", "scripts/install"],
   },
+  { label: "host t3 CLI lookup", pattern: /\b(?:command -v|which) t3\b/g },
   { label: "npm install path", pattern: /(?:npx|bunx|npm i(?:nstall)?(?: -g)?) @iglo-tech\//g },
   {
     label: "desktop or mobile app",
