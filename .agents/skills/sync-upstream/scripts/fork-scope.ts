@@ -75,6 +75,11 @@ export const REMOVED_PATHS = [
   "infra/relay",
   "infra/task-cache",
   "docs/user/t3-connect-troubleshooting.md",
+  "docs/user/guest-links.md",
+  "docs/operations/relay-observability.md",
+  // Mobile app pairing row and npm release lookup for removed clients and npm installs.
+  "apps/web/src/components/settings/MobileAppSettingsRow.tsx",
+  "apps/web/src/state/npmRelease.ts",
   ".cursor/rules/cursor-cloud.mdc",
   // Old project filter combobox row replaced by Discord project switcher rail.
   "apps/web/src/components/ProjectComboboxRow.tsx",

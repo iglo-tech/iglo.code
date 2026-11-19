@@ -1,10 +1,12 @@
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ScheduledTask, ScheduledTaskId } from "@t3tools/contracts";
 import { CalendarClockIcon } from "lucide-react";
+import { msg, T, useGT, useMessages } from "gt-react";
 import { memo } from "react";
 import { useLocation } from "@tanstack/react-router";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
+import { m, type MessageResolver } from "~/i18n/messages";
 import { cn } from "~/lib/utils";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { scheduledRunLabel } from "../settings/scheduledTasksSettings.logic";
@@ -16,11 +18,11 @@ export interface SidebarScheduledEntry {
   readonly task: ScheduledTask;
 }
 
-function taskStatus(task: ScheduledTask, nowMs: number): string {
-  if (task.blockedByPolicy !== undefined) return "Blocked";
-  if (!task.enabled) return "Paused";
-  if (task.schedule.type === "webhook") return "Listening";
-  return scheduledRunLabel(task.nextRunAt, nowMs);
+function taskStatus(task: ScheduledTask, nowMs: number, resolve: MessageResolver = m): string {
+  if (task.blockedByPolicy !== undefined) return resolve(msg("Blocked"));
+  if (!task.enabled) return resolve(msg("Paused"));
+  if (task.schedule.type === "webhook") return resolve(msg("Listening"));
+  return scheduledRunLabel(task.nextRunAt, nowMs, resolve);
 }
 
 const SidebarScheduledRow = memo(function SidebarScheduledRow(props: {
@@ -33,6 +35,7 @@ const SidebarScheduledRow = memo(function SidebarScheduledRow(props: {
 }) {
   const { environmentId, task } = props.entry;
   const failed = task.lastRunStatus === "failed";
+  const gt = useGT();
   return (
     <li className="list-none py-0.5">
       <button
@@ -41,7 +44,15 @@ const SidebarScheduledRow = memo(function SidebarScheduledRow(props: {
         data-sidebar-parent="shelf:scheduled"
         data-testid="sidebar-scheduled-row"
         aria-current={props.isActive ? "page" : undefined}
-        aria-label={`${task.title}, scheduled task${props.projectDisplayName ? ` in ${props.projectDisplayName}` : ""}, ${props.status}${failed ? ", last run failed" : ""}`}
+        aria-label={gt(
+          "{title}, scheduled task{project, select, none {} other { in {project}}}, {status}{failed, select, true {, last run failed} other {}}",
+          {
+            title: task.title,
+            project: props.projectDisplayName || "none",
+            status: props.status,
+            failed: failed ? "true" : "false",
+          },
+        )}
         onClick={() => props.onOpen(environmentId, task.id)}
         className={cn(
           "w-full cursor-pointer rounded-md px-(--sidebar-row-content-inset) py-(--sidebar-content-inset) text-left text-sidebar-foreground outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
@@ -96,6 +107,7 @@ export const SidebarScheduledShelf = memo(function SidebarScheduledShelf(props: 
   projectDisplayNameByKey: ReadonlyMap<string, string>;
   onOpen: (environmentId: EnvironmentId, taskId: ScheduledTaskId) => void;
 }) {
+  const m = useMessages();
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}:00.000Z`);
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -114,7 +126,7 @@ export const SidebarScheduledShelf = memo(function SidebarScheduledShelf(props: 
           data-testid="sidebar-scheduled-shelf-toggle"
           accessory={<span className="font-normal tabular-nums">{props.entries.length}</span>}
         >
-          Scheduled
+          <T>Scheduled</T>
         </CollapsibleSectionHeader>
       </div>
       {props.expanded ? (
@@ -127,7 +139,7 @@ export const SidebarScheduledShelf = memo(function SidebarScheduledShelf(props: 
                 entry={entry}
                 project={props.projectByKey.get(projectKey) ?? null}
                 projectDisplayName={props.projectDisplayNameByKey.get(projectKey) ?? null}
-                status={taskStatus(entry.task, nowMs)}
+                status={taskStatus(entry.task, nowMs, m)}
                 isActive={
                   pathname ===
                   `/scheduled/${encodeURIComponent(entry.environmentId)}/${encodeURIComponent(entry.task.id)}`

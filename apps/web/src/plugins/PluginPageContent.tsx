@@ -1,5 +1,6 @@
 import type { PluginCatalog } from "@t3tools/contracts";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
+import { useMessages, T } from "gt-react";
 import { useState } from "react";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
@@ -36,7 +37,8 @@ export function PluginPageContent({
     (item) => item.id === pageId && plugin.context.descriptor.manifest.web.pages.includes(item.id),
   );
   const descriptor = catalog?.plugins.find((item) => item.manifest.id === pluginId);
-  const missing = missingPageMessage({ status, descriptor });
+  const m = useMessages();
+  const missing = missingPageMessage({ status, descriptor }, m);
   // A page that renders its own header (PageHeader) replaces the host title bar and scrolls
   // its own content; until then (including while its module loads) the host shows the title.
   const [headers, setHeaders] = useState(0);
@@ -67,7 +69,7 @@ export function PluginPageContent({
         {missing.retry && onRetryCatalog !== undefined ? (
           <div className="mt-4">
             <Button size="sm" variant="outline" onClick={onRetryCatalog}>
-              Retry
+              <T>Retry</T>
             </Button>
           </div>
         ) : null}

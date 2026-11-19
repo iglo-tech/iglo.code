@@ -61,6 +61,7 @@ layer("055_OrchestrationV2", (it) => {
         [98, "RepairStaleTitleRegeneration"],
         [99, "IssueTrackerBindings"],
         [100, "ActiveShellIndexIndexes"],
+        [101, "BackgroundRecoveryIndexes"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
@@ -148,6 +149,7 @@ layer("055_OrchestrationV2", (it) => {
           [98, "RepairStaleTitleRegeneration"],
           [99, "IssueTrackerBindings"],
           [100, "ActiveShellIndexIndexes"],
+          [101, "BackgroundRecoveryIndexes"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -198,6 +200,7 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 98, name: "RepairStaleTitleRegeneration" },
             { migration_id: 99, name: "IssueTrackerBindings" },
             { migration_id: 100, name: "ActiveShellIndexIndexes" },
+            { migration_id: 101, name: "BackgroundRecoveryIndexes" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -257,6 +260,7 @@ layer("055_OrchestrationV2", (it) => {
         [98, "RepairStaleTitleRegeneration"],
         [99, "IssueTrackerBindings"],
         [100, "ActiveShellIndexIndexes"],
+        [101, "BackgroundRecoveryIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -313,6 +317,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 98, name: "RepairStaleTitleRegeneration" },
         { migration_id: 99, name: "IssueTrackerBindings" },
         { migration_id: 100, name: "ActiveShellIndexIndexes" },
+        { migration_id: 101, name: "BackgroundRecoveryIndexes" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -321,7 +326,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 100 }, (_, index) => index + 1),
+        Array.from({ length: 101 }, (_, index) => index + 1),
       );
     }),
   );
@@ -380,6 +385,7 @@ layer("055_OrchestrationV2", (it) => {
         [98, "RepairStaleTitleRegeneration"],
         [99, "IssueTrackerBindings"],
         [100, "ActiveShellIndexIndexes"],
+        [101, "BackgroundRecoveryIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -446,6 +452,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 98, name: "RepairStaleTitleRegeneration" },
         { migration_id: 99, name: "IssueTrackerBindings" },
         { migration_id: 100, name: "ActiveShellIndexIndexes" },
+        { migration_id: 101, name: "BackgroundRecoveryIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

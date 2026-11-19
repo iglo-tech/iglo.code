@@ -40,7 +40,10 @@ Connection settings are under **Settings → Environments**. A loopback address
 such as `127.0.0.1` reaches only the device opening the link.
 
 Pairing authorizes that device for future connections. Use a fresh one-time link
-for each new device; you do not need the original token to reconnect. Links
+for each new device; you do not need the original token to reconnect. A device
+stays signed in while you keep using it, until you revoke it in **Settings →
+Sharing & access** on the host. One unused for 30 days, or paired with a host
+older than this release, has to pair again. Links
 created in Settings can only be copied from the client that created them while
 its Sharing & access page stays open. If you leave or reload that page, create
 another link to share.
@@ -309,7 +312,7 @@ iglo.code pair --scope orchestration:read --scope terminal:read
 The selected scopes replace the default permissions. The same option works with
 `iglo.code auth pairing create` and `iglo.code auth session issue`; each command's
 `--help` lists the available scopes. Without `--scope`, pairing tokens and issued
-bearer sessions get every permission, including managing access.
+bearer sessions get the standard client permissions, including managing access.
 A terminal or a full-access agent on the host can reach those as well, so a
 client that should not manage access also needs to go without `terminal:operate`
 and `orchestration:operate`.
@@ -332,7 +335,7 @@ and the agent it runs can use Git however the environment allows.
 
 Settings changes, provider management, environment maintenance, and access
 management can each be granted separately. New
-pairings without `--scope` include all of them. Existing clients keep the
+pairings without `--scope` include the standard client permissions. Existing clients keep the
 permissions they paired with and can stay connected after an update, but newly
 separated features may require pairing again with the permissions they need.
 Older clients may show controls that the server denies. Create a fresh pairing
@@ -341,6 +344,11 @@ link to change a client's permissions.
 `filesystem:read` allows browsing host files, opening workspace files, and viewing
 local changes. Add `filesystem:write` to allow editing files or saving plans to
 the workspace. These scopes control direct file access from the client.
+
+Some permissions also give a client indirect access. With `terminal:operate`,
+a client can run commands that read or change any files the server’s OS account
+can access, even when the pairing link omits file permissions. Grant this
+permission only to clients you trust with that capability.
 
 Treat pairing URLs and authorization codes as passwords. Do not include them in
 screenshots, logs, or bug reports.

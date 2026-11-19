@@ -1,3 +1,4 @@
+import { msg } from "gt-react";
 import { createContext, useContext } from "react";
 import type { PluginPageStatus } from "./pageConnection";
 
@@ -25,13 +26,19 @@ export const pageStatusNotice: Record<
   { readonly title: string; readonly detail: string }
 > = {
   disconnected: {
-    title: "Disconnected",
-    detail: "Changes wait until this environment reconnects.",
+    title: msg("Disconnected"),
+    detail: msg("Changes wait until this environment reconnects."),
   },
-  reconciling: { title: "Reconnecting", detail: "Changes wait until this environment reconciles." },
-  unsupported: { title: "Plugins unsupported", detail: "This environment cannot run plugins." },
+  reconciling: {
+    title: msg("Reconnecting"),
+    detail: msg("Changes wait until this environment reconciles."),
+  },
+  unsupported: {
+    title: msg("Plugins unsupported"),
+    detail: msg("This environment cannot run plugins."),
+  },
   "catalog-unavailable": {
-    title: "Plugin catalog unavailable",
-    detail: "Changes wait until the catalog loads.",
+    title: msg("Plugin catalog unavailable"),
+    detail: msg("Changes wait until the catalog loads."),
   },
 };

@@ -7,9 +7,13 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-const APPS = ["apps/web"];
+const GENERATE: Record<string, readonly [string, ...string[]]> = {
+  "apps/web": ["node_modules/.bin/gt", "generate"],
+};
+const APPS = Object.keys(GENERATE);
 
-type Catalog = Record<string, string>;
+// JSX entries (`<T>`) are arrays and objects, so values compare by their JSON text.
+type Catalog = Record<string, unknown>;
 const readJson = (file: string) => JSON.parse(NodeFS.readFileSync(file, "utf8"));
 const missingFrom = (from: Catalog, catalog: Catalog) =>
   Object.keys(from).filter((key) => !Object.hasOwn(catalog, key));
@@ -17,7 +21,7 @@ const missingFrom = (from: Catalog, catalog: Catalog) =>
 const root = NodePath.resolve(import.meta.dirname, "..");
 const problems: string[] = [];
 
-for (const app of APPS) {
+for (const [app, [command, ...args]] of Object.entries(GENERATE)) {
   const appDir = NodePath.join(root, app);
   const config = readJson(NodePath.join(appDir, "gt.config.json"));
   const catalogDir = NodePath.join(appDir, NodePath.dirname(config.files.gt.output));
@@ -31,11 +35,10 @@ for (const app of APPS) {
       tmpConfig,
       JSON.stringify({ ...config, locales: [], files: { gt: { output: `${tmp}/[locale].json` } } }),
     );
-    const gt = NodeChildProcess.spawnSync(
-      NodePath.join(appDir, "node_modules/.bin/gt"),
-      ["generate", "--config", tmpConfig],
-      { cwd: appDir, encoding: "utf8" },
-    );
+    const gt = NodeChildProcess.spawnSync(command, [...args, "--config", tmpConfig], {
+      cwd: appDir,
+      encoding: "utf8",
+    });
     if (gt.status !== 0) {
       problems.push(`${app}: gt generate failed\n${gt.stdout}${gt.stderr}`);
       continue;
@@ -44,7 +47,7 @@ for (const app of APPS) {
     for (const [key, text] of Object.entries(generated)) {
       if (!Object.hasOwn(source, key)) {
         problems.push(`${app}: ${key} ${JSON.stringify(text)} is missing from en.json`);
-      } else if (source[key] !== text) {
+      } else if (JSON.stringify(source[key]) !== JSON.stringify(text)) {
         problems.push(
           `${app}: en.json has ${key} ${JSON.stringify(source[key])}, source says ${JSON.stringify(text)}`,
         );

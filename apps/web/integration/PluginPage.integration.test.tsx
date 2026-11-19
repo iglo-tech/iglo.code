@@ -30,7 +30,7 @@ import {
   RouterContextProvider,
 } from "@tanstack/react-router";
 import { act } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import { vi } from "vite-plus/test";
 import * as Projects from "../../server/src/project/ProjectService.ts";
 import * as Registry from "../../../packages/plugin-host-adapter/src/PluginRegistry.ts";
@@ -311,8 +311,10 @@ it.live(
         expect(renderer!.root.findAllByProps({ "data-slot": "sidebar-inset" })).toHaveLength(1);
         expect(renderer!.root.findAllByType("li")).toHaveLength(1);
         expect(renderer!.root.findByType("li").props["aria-current"]).toBe("true");
+        const text = (node: ReactTestInstance): string =>
+          node.children.map((child) => (typeof child === "string" ? child : text(child))).join("");
         const button = (label: string) =>
-          renderer!.root.findAllByType("button").find((item) => item.children.includes(label))!;
+          renderer!.root.findAllByType("button").find((item) => text(item) === label)!;
         yield* Effect.promise(() =>
           act(async () => {
             button("Open conversation").props.onClick();

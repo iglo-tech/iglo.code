@@ -39,6 +39,8 @@ import * as Option from "effect/Option";
 import { Atom, type AsyncResult } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
+import { msg } from "gt-react";
+import { m } from "~/i18n/messages";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { authorizePluginApi, availableCatalogAtom } from "./runtime";
 
@@ -316,7 +318,9 @@ const listen = <A>(
         onValue(result.value.value.value);
       } else if (result._tag === "Failure" && !result.waiting) {
         const error = Cause.squash(result.cause);
-        onError(error instanceof Error ? error.message : "The workflow subscription ended.");
+        onError(
+          error instanceof Error ? error.message : m(msg("The workflow subscription ended.")),
+        );
       } else if (delivered?.generation !== source.generation()) onWaiting?.();
     },
     { immediate: true },
