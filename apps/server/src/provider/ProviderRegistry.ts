@@ -1188,6 +1188,16 @@ export const layer = Layer.effect(
       const refreshMachineSnapshot = (claimedFrom: ReturnType<typeof workspaceSnapshotOf>) =>
         input.fresh
           ? (instance.invalidateCaches ?? Effect.void).pipe(
+              // Snapshot merges keep folders a native refresh omits, so drop this one to rescan it fresh.
+              Effect.andThen(
+                updateProviders((providers) =>
+                  providers.map((candidate) =>
+                    candidate.instanceId === input.instanceId && instance.commitWorkspaceSnapshot
+                      ? dropProviderWorkspaceSnapshot(candidate, input.cwd)
+                      : candidate,
+                  ),
+                ),
+              ),
               // A sync would wait on another provider's persistence and delay this scan's commit.
               Effect.andThen(refreshLiveInstance(input.instanceId)),
               Effect.andThen(Ref.get(providersRef)),
