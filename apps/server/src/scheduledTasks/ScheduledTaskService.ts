@@ -340,6 +340,8 @@ function iso(value: DateTime.DateTime): string {
 }
 
 const RUN_OUTCOME_WAIT_MS = 24 * 60 * 60 * 1_000;
+const HELD_OCCURRENCE_ERROR =
+  "A previous occurrence is held in the thread queue. Resume or remove it to run this task again.";
 const UNSUCCESSFUL_RUN_ERRORS = {
   failed: "The run failed.",
   interrupted: "The run was stopped.",
@@ -985,7 +987,9 @@ export const layer = Layer.effect(
       const updated = yield* sql`
         UPDATE scheduled_tasks
         SET last_run_status = 'failed', last_run_error = ${error}
-        WHERE task_id = ${taskId} AND last_run_at = ${startedAtIso} AND last_run_status = 'succeeded'
+        WHERE task_id = ${taskId} AND last_run_at = ${startedAtIso}
+          AND (last_run_status = 'succeeded'
+            OR (last_run_status = 'failed' AND last_run_error = ${HELD_OCCURRENCE_ERROR}))
         RETURNING task_id
       `;
       if (updated.length > 0) yield* notifyChanged;
@@ -1196,7 +1200,13 @@ export const layer = Layer.effect(
               current.projectId === active.projectId &&
               current.threadId === active.threadId
             )
-              yield* rescheduleNextRun(current, startedAt);
+              yield* rescheduleNextRun(
+                current,
+                startedAt,
+                pendingPrompt.value.runs.some((run) => run.status === "queued" && run.queueHeld === true)
+                  ? HELD_OCCURRENCE_ERROR
+                  : undefined,
+              );
             return { task: current ?? active, threadId: null, dispatchFailed: false };
           }
           if (!(yield* markRunning(active, startedAtIso, webhook?.deliveryId))) {
@@ -1476,7 +1486,16 @@ export const layer = Layer.effect(
           UPDATE scheduled_tasks
           SET next_run_at = ${next},
               updated_at = ${iso(now)}
-              ${runError === undefined ? sql`` : sql`, last_run_status = 'failed', last_run_error = ${runError}`}
+              ${
+                runError === undefined
+                  ? sql``
+                  : sql`, last_run_status = CASE
+                      WHEN last_run_status IS ${task.lastRunStatus} AND last_run_error IS ${task.lastRunError}
+                      THEN 'failed' ELSE last_run_status END,
+                    last_run_error = CASE
+                      WHEN last_run_status IS ${task.lastRunStatus} AND last_run_error IS ${task.lastRunError}
+                      THEN ${runError} ELSE last_run_error END`
+              }
           WHERE task_id = ${task.id}
         `;
           }),
