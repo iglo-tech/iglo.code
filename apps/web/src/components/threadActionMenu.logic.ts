@@ -1,5 +1,13 @@
-import type { ContextMenuItem } from "@t3tools/contracts";
+import type {
+  ContextMenuItem,
+  EnvironmentId,
+  ProjectIconColor,
+  ProjectId,
+} from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
+import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { deriveProjectIdentity } from "../projectIdentity";
+import type { Project } from "../types";
 import { msg } from "gt-react";
 
 import { m, type MessageResolver } from "../i18n/messages";
@@ -9,6 +17,8 @@ export type ThreadActionMenuId =
   | "new-thread-on-branch"
   | "filter-by-project"
   | "turn-into-project"
+  | "move-to-project"
+  | `move-to-project:${string}`
   | "project-settings"
   | "pin"
   | "unpin"
@@ -121,6 +131,63 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  /** Destination projects in the thread's environment; the item hides without any. */
+  readonly moveTargets?: ReadonlyArray<ThreadProjectMoveTarget>;
+}
+
+export interface ThreadProjectMoveTarget {
+  readonly projectId: ProjectId;
+  readonly label: string;
+  readonly detail: string;
+  readonly monogram: { readonly text: string; readonly color: ProjectIconColor };
+}
+
+/** Projects in the thread's environment it can be re-filed into; skips its own, No project, and archived. */
+export function buildThreadProjectMoveTargets(input: {
+  readonly projects: ReadonlyArray<
+    Pick<
+      Project,
+      | "environmentId"
+      | "id"
+      | "title"
+      | "workspaceRoot"
+      | "isScratch"
+      | "archivedAt"
+      | "projectIcon"
+    >
+  >;
+  readonly environmentId: EnvironmentId;
+  readonly currentProjectId: ProjectId;
+  readonly scratchWorkspaceRoot: string | null | undefined;
+}): ReadonlyArray<ThreadProjectMoveTarget> {
+  return input.projects
+    .filter(
+      (project) =>
+        project.environmentId === input.environmentId &&
+        project.id !== input.currentProjectId &&
+        !isScratchProject(project, input.scratchWorkspaceRoot) &&
+        project.archivedAt == null,
+    )
+    .map((project) => {
+      const identity = deriveProjectIdentity(project.title);
+      return {
+        projectId: project.id,
+        label: project.title,
+        // The full root shows elsewhere; the menu only needs enough to tell same-named projects apart.
+        detail: project.workspaceRoot
+          .replace(/\\/g, "/")
+          .split("/")
+          .filter(Boolean)
+          .slice(-2)
+          .join("/"),
+        // A custom monogram icon is the project's chosen identity; other icon kinds fall back to the
+        // title monogram the sidebar shows when a project has no favicon.
+        monogram:
+          project.projectIcon?.kind === "monogram"
+            ? { text: project.projectIcon.text, color: project.projectIcon.color }
+            : { text: identity.monogram, color: identity.color },
+      };
+    });
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -233,6 +300,25 @@ export function buildThreadActionMenuItems(
             label: resolve(msg("Turn into project")),
             icon: "folder-plus",
             disabled: state.isRunning,
+          },
+        ]
+      : []),
+    ...(state.moveTargets && state.moveTargets.length > 0
+      ? [
+          {
+            id: "move-to-project" as const,
+            label: resolve(msg("Move to project")),
+            icon: "folder-input",
+            disabled: state.isRunning,
+            ...(state.isRunning ? { detail: resolve(msg("Finish or stop it first")) } : {}),
+            separatorBefore: true,
+            children: state.moveTargets.map((target) => ({
+              id: `move-to-project:${target.projectId}` as const,
+              label: target.label,
+              detail: target.detail,
+              monogram: target.monogram,
+              ...(state.isRunning ? { disabled: true } : {}),
+            })),
           },
         ]
       : []),

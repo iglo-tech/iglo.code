@@ -146,6 +146,7 @@ import {
   usePrimaryEnvironmentId,
 } from "../state/environments";
 import {
+  readEnvironmentSupportsThreadProjectMove,
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
   useDelegatedUnderParent,
@@ -175,6 +176,7 @@ import { cn } from "~/lib/utils";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
+  buildThreadProjectMoveTargets,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
 import {
@@ -896,6 +898,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     confirmAndUnpinThread,
     setThreadAutoSettle,
     turnThreadIntoProject,
+    moveThreadToProject,
     reorderPinnedThread,
     reorderActiveThread,
     markThreadUnread,
@@ -2598,6 +2601,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        const moveTargets = readEnvironmentSupportsThreadProjectMove(threadRef.environmentId)
+          ? buildThreadProjectMoveTargets({
+              projects,
+              environmentId: threadRef.environmentId,
+              currentProjectId: thread.projectId,
+              scratchWorkspaceRoot: serverConfigs.get(threadRef.environmentId)
+                ?.scratchWorkspaceRoot,
+            })
+          : [];
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -2625,6 +2637,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+              moveTargets,
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,
@@ -2651,6 +2664,25 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   thread.environmentId,
                 );
           if (preset) attemptSnooze(threadRef, preset);
+          return;
+        }
+        if (clicked.value?.startsWith("move-to-project:")) {
+          const target = moveTargets.find(
+            (candidate) => `move-to-project:${candidate.projectId}` === clicked.value,
+          );
+          if (target) {
+            const result = await moveThreadToProject(threadRef, target.projectId);
+            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: gt("Could not move thread"),
+                  description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
+                }),
+              );
+            }
+          }
           return;
         }
         switch (clicked.value) {

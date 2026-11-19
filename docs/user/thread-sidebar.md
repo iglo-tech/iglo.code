@@ -50,6 +50,20 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+### Move a thread between projects
+
+Open a thread's menu — right-click its sidebar row or use the chat header's menu — and
+choose **Move to project**, then the destination, shown with its name, project color,
+and folder. The thread moves to that project's section, its scheduled tasks follow
+it, and from then on it works in the destination project's folder. Nothing is
+deleted: the conversation is unchanged, and files written in the old folder stay
+where they are. The saved branch and pull request links belonged to the old
+repository, so the thread starts fresh in the new one. The choice is unavailable
+while the thread is working, so finish or stop it first. A move can be undone for a
+few seconds from the undo notice, which also restores a worktree thread's branch
+and pull request links. For a No-project thread whose own folder should become a
+project, use **Turn into project** instead.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

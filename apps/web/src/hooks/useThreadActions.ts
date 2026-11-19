@@ -13,8 +13,11 @@ import {
   AuthSourceControlWriteScope,
   EnvironmentAuthorizationError,
   EnvironmentId,
+  type ProjectId,
   type ScopedThreadRef,
   ThreadId,
+  type ThreadLinkedPullRequest,
+  type ThreadPullRequestLink,
   sessionGrantsScope,
 } from "@t3tools/contracts";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
@@ -341,6 +344,12 @@ export function useThreadActions() {
   const createProjectFromThread = useAtomCommand(projectEnvironment.createFromThread, {
     reportFailure: false,
   });
+  const moveThreadToProjectMutation = useAtomCommand(projectEnvironment.moveThread, {
+    reportFailure: false,
+  });
+  const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
   const stopThreadSession = useOrchestrationCommand(threadEnvironment.stopSession);
   const removeWorktree = useAtomCommand(vcsEnvironment.removeWorktree, {
     reportFailure: false,
@@ -502,7 +511,7 @@ export function useThreadActions() {
           releaseComposerDraftUploads(ref);
           clearComposerDraftForThread(ref);
         }
-        expireThreadUndos(target, [...LIST_PLACEMENT_UNDO_KINDS, "archive"]);
+        expireThreadUndos(target, [...LIST_PLACEMENT_UNDO_KINDS, "archive", "move"]);
         refreshArchivedThreadsForEnvironment(target.environmentId);
         clearTerminalUiState(target);
         clearDeletedThreadPanelState(target);
@@ -634,7 +643,7 @@ export function useThreadActions() {
     if (deleteResult._tag === "Failure") {
       return deleteResult;
     }
-    expireThreadUndos(threadRef, [...LIST_PLACEMENT_UNDO_KINDS, "archive"]);
+    expireThreadUndos(threadRef, [...LIST_PLACEMENT_UNDO_KINDS, "archive", "move"]);
     refreshArchivedThreadsForEnvironment(threadRef.environmentId);
     releaseComposerDraftUploads(threadRef);
     clearComposerDraftForThread(threadRef);
@@ -1066,5 +1075,64 @@ export function useThreadActions() {
         environmentId: target.environmentId,
         input: { threadId: target.threadId },
       }),
+    moveThreadToProject: async (target: ScopedThreadRef, projectId: ProjectId) => {
+      const previous = readThreadShell(target);
+      const previousProjectId = previous?.projectId ?? null;
+      // A move clears the worktree pin, the branch, and the pull request links; undo puts them back.
+      const previousWorktreePath = previous?.worktreePath ?? null;
+      const previousBranch = previous?.branch ?? null;
+      const previousLinkedPullRequest = previous?.linkedPullRequest ?? null;
+      const previousPullRequests = previous?.pullRequests ?? null;
+      const claim = ThreadUndo.begin("move", scopedThreadKey(target));
+      const result = await moveThreadToProjectMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, projectId },
+      });
+      if (
+        result._tag === "Failure" ||
+        previousProjectId == null ||
+        previousProjectId === projectId
+      ) {
+        claim.finish();
+        return result;
+      }
+      showThreadUndoNotice({
+        action: "Moved",
+        claim,
+        undo: async () => {
+          const movedBack = await moveThreadToProjectMutation({
+            environmentId: target.environmentId,
+            input: { threadId: target.threadId, projectId: previousProjectId },
+          });
+          if (movedBack._tag === "Failure") return movedBack;
+          if (
+            previousWorktreePath == null &&
+            previousBranch == null &&
+            previousLinkedPullRequest == null &&
+            previousPullRequests == null
+          ) {
+            return movedBack;
+          }
+          const metadata: {
+            threadId: ThreadId;
+            worktreePath?: string | null;
+            branch?: string | null;
+            linkedPullRequest?: ThreadLinkedPullRequest | null;
+            pullRequests?: ReadonlyArray<ThreadPullRequestLink>;
+          } = { threadId: target.threadId };
+          if (previousWorktreePath != null) metadata.worktreePath = previousWorktreePath;
+          if (previousBranch != null) metadata.branch = previousBranch;
+          if (previousLinkedPullRequest != null) {
+            metadata.linkedPullRequest = previousLinkedPullRequest;
+          }
+          if (previousPullRequests != null && previousPullRequests.length > 0) {
+            metadata.pullRequests = previousPullRequests;
+          }
+          return updateThreadMetadata({ environmentId: target.environmentId, input: metadata });
+        },
+        failureTitle: m(msg("Failed to undo move")),
+      });
+      return result;
+    },
   };
 }

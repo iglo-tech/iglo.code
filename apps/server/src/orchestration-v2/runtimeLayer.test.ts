@@ -92,6 +92,7 @@ import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
+import * as ThreadProjectMove from "../project/ThreadProjectMove.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -11919,6 +11920,154 @@ it.layer(layerScratchPromotionTest)("turning a No project thread into a project"
   );
 });
 
+const layerThreadProjectMoveTest = ThreadProjectMove.layer.pipe(
+  Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+  Layer.provideMerge(layerProjectDeletionTest),
+);
+
+it.layer(layerThreadProjectMoveTest)("moving a thread to another project", (it) => {
+  const setup = Effect.fn(function* (name: string) {
+    const projects = yield* ProjectService.ProjectService;
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const sourceProjectId = ProjectId.make(`move-source-${name}`);
+    const targetProjectId = ProjectId.make(`move-target-${name}`);
+    for (const [projectId, workspaceRoot] of [
+      [sourceProjectId, `/tmp/runtime-layer-move-${name}-source`],
+      [targetProjectId, `/tmp/runtime-layer-move-${name}-target`],
+    ] as const) {
+      yield* projects.create({
+        commandId: CommandId.make(`${projectId}-create`),
+        projectId,
+        title: projectId,
+        workspaceRoot,
+      });
+    }
+    const createThread = (threadId: ThreadId) =>
+      orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`${threadId}-create`),
+        threadId,
+        projectId: sourceProjectId,
+        title: "Movable work",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: `/tmp/runtime-layer-move-${name}-worktree`,
+      });
+    return { sourceProjectId, targetProjectId, createThread };
+  });
+  const shellOf = (threadId: ThreadId) =>
+    Orchestrator.OrchestratorV2.pipe(
+      Effect.flatMap((orchestrator) => orchestrator.getThreadShell(threadId)),
+    );
+
+  it.effect("moves the thread and its bound tasks into the target project", () =>
+    Effect.gen(function* () {
+      const move = yield* ThreadProjectMove.ThreadProjectMove;
+      const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+      const { sourceProjectId, targetProjectId, createThread } = yield* setup("tasks");
+      const threadId = ThreadId.make("move-tasks-thread");
+      yield* createThread(threadId);
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("move-tasks-bound"),
+        title: "Bound",
+        prompt: "Check in",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId: sourceProjectId,
+        threadId,
+        workspaceStrategy: { type: "root" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "user",
+        creationSource: "web",
+      });
+
+      yield* move.move({ threadId, projectId: targetProjectId });
+
+      const shell = yield* shellOf(threadId);
+      assert.equal(shell?.projectId, targetProjectId);
+      assert.isNull(shell?.worktreePath);
+      const saved = (yield* tasks.list()).tasks.find((candidate) => candidate.id === task.id);
+      assert.equal(saved?.projectId, targetProjectId);
+    }),
+  );
+
+  it.effect("is a no-op for the thread's current project", () =>
+    Effect.gen(function* () {
+      const move = yield* ThreadProjectMove.ThreadProjectMove;
+      const { sourceProjectId, createThread } = yield* setup("no-op");
+      const threadId = ThreadId.make("move-no-op-thread");
+      yield* createThread(threadId);
+      yield* move.move({ threadId, projectId: sourceProjectId });
+      assert.equal((yield* shellOf(threadId))?.projectId, sourceProjectId);
+    }),
+  );
+
+  it.effect("changes nothing while the thread is working", () =>
+    Effect.gen(function* () {
+      const move = yield* ThreadProjectMove.ThreadProjectMove;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+      const { sourceProjectId, targetProjectId, createThread } = yield* setup("busy");
+      const threadId = ThreadId.make("move-busy-thread");
+      yield* createThread(threadId);
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("move-busy-bound"),
+        title: "Bound",
+        prompt: "Check in",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId: sourceProjectId,
+        threadId,
+        workspaceStrategy: { type: "root" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("move-busy-message"),
+        threadId,
+        messageId: MessageId.make("move-busy-message"),
+        text: "Keep this run active.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+      });
+
+      const error = yield* move.move({ threadId, projectId: targetProjectId }).pipe(Effect.flip);
+
+      assert.equal(error.message, '"Movable work" is still working. Finish or stop it first.');
+      assert.equal((yield* shellOf(threadId))?.projectId, sourceProjectId);
+      // The tasks move only once the dispatch can commit, so a refused move leaves them in place.
+      const saved = (yield* tasks.list()).tasks.find((candidate) => candidate.id === task.id);
+      assert.equal(saved?.projectId, sourceProjectId);
+    }),
+  );
+
+  it.effect("refuses a missing project", () =>
+    Effect.gen(function* () {
+      const move = yield* ThreadProjectMove.ThreadProjectMove;
+      const { createThread } = yield* setup("missing");
+      const threadId = ThreadId.make("move-missing-thread");
+      yield* createThread(threadId);
+      const error = yield* move
+        .move({ threadId, projectId: ProjectId.make("move-missing-project") })
+        .pipe(Effect.flip);
+      assert.equal(error.message, "Project not found.");
+    }),
+  );
+});
+
 it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
   it.effect("carries snooze, settle and title state through the V2 shell projection", () =>
     Effect.gen(function* () {
@@ -12107,6 +12256,282 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
       assert.isNull(moved?.worktreePath);
       const stayed = shell.threads.find((thread) => thread.id === busyThreadId);
       assert.equal(stayed?.projectId, scratchProjectId);
+    }),
+  );
+
+  it.effect("re-files a thread into another project", () =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const sourceProjectId = ProjectId.make("runtime-layer-move-source");
+      const targetProjectId = ProjectId.make("runtime-layer-move-target");
+      const createProject = (projectId: ProjectId, workspaceRoot: string) =>
+        projects.create({
+          commandId: CommandId.make(`${projectId}-create`),
+          projectId,
+          title: projectId,
+          workspaceRoot,
+        });
+      yield* createProject(sourceProjectId, "/tmp/runtime-layer-move-source");
+      yield* createProject(targetProjectId, "/tmp/runtime-layer-move-target");
+      const threadId = ThreadId.make("runtime-layer-move-thread");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`${threadId}-create`),
+        threadId,
+        projectId: sourceProjectId,
+        title: "Moved work",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: "feature/move",
+        worktreePath: "/tmp/runtime-layer-move-worktree",
+      });
+      const move = (projectId: ProjectId, suffix: string) =>
+        orchestrator.dispatch({
+          type: "thread.project.move",
+          commandId: CommandId.make(`${threadId}-move-${suffix}`),
+          threadId,
+          projectId,
+        });
+
+      const same = yield* move(sourceProjectId, "same").pipe(Effect.flip);
+      assert.equal(same.cause, `Thread ${threadId} is already in project ${sourceProjectId}.`);
+      const missing = yield* move(ProjectId.make("missing"), "missing").pipe(Effect.flip);
+      assert.equal(missing.cause, `Thread ${threadId} cannot move to missing project missing.`);
+      const archivedProjectId = ProjectId.make("runtime-layer-move-archived");
+      yield* createProject(archivedProjectId, "/tmp/runtime-layer-move-archived");
+      yield* projects.update({
+        commandId: CommandId.make("runtime-layer-move-archived-update"),
+        projectId: archivedProjectId,
+        archived: true,
+      });
+      const archived = yield* move(archivedProjectId, "archived").pipe(Effect.flip);
+      assert.equal(
+        archived.cause,
+        `Thread ${threadId} cannot move to archived project ${archivedProjectId}.`,
+      );
+
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request.link",
+        commandId: CommandId.make(`${threadId}-link`),
+        threadId,
+        host: "github.com",
+        repository: "iglo-tech/iglo.code",
+        number: 1,
+        url: "https://github.com/iglo-tech/iglo.code/pull/1",
+        source: "manual",
+      });
+      assert.equal((yield* orchestrator.getThreadShell(threadId))?.pullRequests?.length, 1);
+
+      yield* move(targetProjectId, "target");
+      const shell = yield* orchestrator.getShellSnapshot();
+      const moved = shell.threads.find((thread) => thread.id === threadId);
+      assert.equal(moved?.projectId, targetProjectId);
+      assert.isNull(moved?.worktreePath);
+      assert.isNull(moved?.branch);
+      assert.isNull(moved?.linkedPullRequest);
+      assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.pullRequests, []);
+
+      yield* orchestrator.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make(`${threadId}-delete`),
+        threadId,
+      });
+      const deleted = yield* move(sourceProjectId, "deleted").pipe(Effect.flip);
+      assert.equal(deleted.cause, `Thread ${threadId} is deleted.`);
+    }),
+  );
+
+  it.effect("detaches the thread's provider session when moving", () =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const sourceProjectId = ProjectId.make("runtime-layer-detach-source");
+      const targetProjectId = ProjectId.make("runtime-layer-detach-target");
+      for (const [projectId, workspaceRoot] of [
+        [sourceProjectId, "/tmp/runtime-layer-detach-source"],
+        [targetProjectId, "/tmp/runtime-layer-detach-target"],
+      ] as const) {
+        yield* projects.create({
+          commandId: CommandId.make(`${projectId}-create`),
+          projectId,
+          title: projectId,
+          workspaceRoot,
+        });
+      }
+      const threadId = ThreadId.make("runtime-layer-detach-thread");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`${threadId}-create`),
+        threadId,
+        projectId: sourceProjectId,
+        title: "Detached work",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const now = yield* DateTime.now;
+      yield* eventSink.write({
+        commandId: CommandId.make("runtime-layer-detach-attach"),
+        events: [
+          {
+            id: EventId.make("runtime-layer-detach-attach-event"),
+            type: "provider-session.attached",
+            threadId,
+            occurredAt: now,
+            payload: {
+              id: ProviderSessionId.make("runtime-layer-detach-session"),
+              driver,
+              providerInstanceId: modelSelection.instanceId,
+              status: "ready" as const,
+              cwd: "/tmp/runtime-layer-detach-source",
+              model: modelSelection.model,
+              capabilities: CodexProviderCapabilitiesV2,
+              createdAt: now,
+              updatedAt: now,
+              lastError: null,
+            },
+          },
+        ],
+      });
+      const before = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(before.providerSessions.length, 1);
+
+      yield* orchestrator.dispatch({
+        type: "thread.project.move",
+        commandId: CommandId.make("runtime-layer-detach-move"),
+        threadId,
+        projectId: targetProjectId,
+      });
+
+      const after = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(after.providerSessions.length, 0);
+    }),
+  );
+
+  it.effect("restores pull request links wholesale after a move", () =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const sourceProjectId = ProjectId.make("runtime-layer-pr-restore-source");
+      const targetProjectId = ProjectId.make("runtime-layer-pr-restore-target");
+      for (const [projectId, workspaceRoot] of [
+        [sourceProjectId, "/tmp/runtime-layer-pr-restore-source"],
+        [targetProjectId, "/tmp/runtime-layer-pr-restore-target"],
+      ] as const) {
+        yield* projects.create({
+          commandId: CommandId.make(`${projectId}-create`),
+          projectId,
+          title: projectId,
+          workspaceRoot,
+        });
+      }
+      const threadId = ThreadId.make("runtime-layer-pr-restore-thread");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`${threadId}-create`),
+        threadId,
+        projectId: sourceProjectId,
+        title: "Linked work",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const linked = {
+        projectId: sourceProjectId,
+        repository: "iglo-tech/iglo.code",
+        number: 1,
+        url: "https://github.com/iglo-tech/iglo.code/pull/1",
+      };
+      const links = [
+        {
+          host: "github.com",
+          repository: "iglo-tech/iglo.code",
+          number: 1,
+          url: linked.url,
+          source: "manual" as const,
+          linkedAt: "2026-01-01T00:00:00.000Z",
+          snapshot: {
+            state: "open" as const,
+            title: "Move threads",
+            headBranch: "feature/move",
+            baseBranch: "main",
+            isDraft: false,
+            updatedAt: null,
+            syncedAt: "2026-01-01T00:00:00.000Z",
+          },
+          stack: null,
+        },
+        {
+          host: "github.com",
+          repository: "iglo-tech/iglo.code",
+          number: 2,
+          url: "https://github.com/iglo-tech/iglo.code/pull/2",
+          source: "stack" as const,
+          linkedAt: "2026-01-01T00:00:00.000Z",
+          snapshot: null,
+          stack: {
+            kind: "native" as const,
+            id: "stack-2",
+            number: 2,
+            url: "https://github.com/iglo-tech/iglo.code/pull/2",
+            base: "main",
+            layers: [
+              { number: 1, headBranch: "feature/move", state: "open" as const },
+              { number: 2, headBranch: "feature/move-2", state: "open" as const },
+            ],
+          },
+        },
+      ];
+      // The undo sends the captured array and the legacy pointer together; the array is
+      // authoritative, so both links keep their snapshot and stack instead of being
+      // recomputed into a bare legacy entry.
+      const restore = (suffix: string) =>
+        orchestrator.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`${threadId}-restore-${suffix}`),
+          threadId,
+          linkedPullRequest: linked,
+          pullRequests: links,
+        });
+      yield* restore("seed");
+      const seeded = (yield* orchestrator.getThreadShell(threadId))?.pullRequests;
+      assert.equal(seeded?.length, 2);
+
+      yield* orchestrator.dispatch({
+        type: "thread.project.move",
+        commandId: CommandId.make(`${threadId}-move`),
+        threadId,
+        projectId: targetProjectId,
+      });
+      assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.pullRequests, []);
+
+      yield* restore("undo");
+      const restored = (yield* orchestrator.getThreadShell(threadId))?.pullRequests;
+      assert.deepEqual(
+        restored?.map((link) => ({
+          number: link.number,
+          snapshot: link.snapshot === null ? null : link.snapshot.title,
+          stack: link.stack === null ? null : link.stack.layers.map((layer) => layer.number),
+        })),
+        [
+          { number: 1, snapshot: "Move threads", stack: null },
+          { number: 2, snapshot: null, stack: [1, 2] },
+        ],
+      );
+      assert.equal((yield* orchestrator.getThreadShell(threadId))?.linkedPullRequest?.number, 1);
     }),
   );
 });
