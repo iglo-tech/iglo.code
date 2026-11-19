@@ -30,7 +30,8 @@ import {
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
   followStreamInEnvironment,
-  type AtomCommandResult,
+  type AtomCommand,
+  runAtomCommand,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Stream from "effect/Stream";
 import * as Cause from "effect/Cause";
@@ -45,7 +46,8 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { authorizePluginApi, availableCatalogAtom } from "./runtime";
 
 const plugin = { id: "workflows", displayName: "Workflows" };
-const settle = <A, E>(result: AtomCommandResult<A, E>): A => {
+const settle = async <W, A, E>(command: AtomCommand<W, A, E>, input: W): Promise<A> => {
+  const result = await runAtomCommand(appAtomRegistry, command, input, { reportFailure: false });
   if (result._tag === "Failure") throw Cause.squash(result.cause);
   return result.value;
 };
@@ -337,19 +339,18 @@ export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowCli
   return {
     subscribePermissions: (onPermissions) =>
       appAtomRegistry.subscribe(permissionsAtom(environmentId), onPermissions, { immediate: true }),
-    projects: async () => settle(await projects.run(appAtomRegistry, target({}))),
-    library: async (input) => settle(await library.run(appAtomRegistry, target(input))),
-    read: async (input) => settle(await read.run(appAtomRegistry, target(input))),
-    validate: async (input) => settle(await validate.run(appAtomRegistry, target(input))),
-    save: async (input) => settle(await save.run(appAtomRegistry, target(input))),
-    replace: async (input) => settle(await replace.run(appAtomRegistry, target(input))),
-    remove: async (input) => settle(await remove.run(appAtomRegistry, target(input))),
-    capabilities: async (projectId) =>
-      settle(await capabilities.run(appAtomRegistry, target({ projectId }))),
-    skills: async (input) => settle(await skills.run(appAtomRegistry, target(input))),
-    preview: async (input) => settle(await preview.run(appAtomRegistry, target(input))),
-    startSaved: async (input) => settle(await startSaved.run(appAtomRegistry, target(input))),
-    runs: async (input) => settle(await runs.run(appAtomRegistry, target(input))),
+    projects: () => settle(projects, target({})),
+    library: (input) => settle(library, target(input)),
+    read: (input) => settle(read, target(input)),
+    validate: (input) => settle(validate, target(input)),
+    save: (input) => settle(save, target(input)),
+    replace: (input) => settle(replace, target(input)),
+    remove: (input) => settle(remove, target(input)),
+    capabilities: (projectId) => settle(capabilities, target({ projectId })),
+    skills: (input) => settle(skills, target(input)),
+    preview: (input) => settle(preview, target(input)),
+    startSaved: (input) => settle(startSaved, target(input)),
+    runs: (input) => settle(runs, target(input)),
     subscribeRuns: (projectId, onRuns, onError) =>
       listen(runsAtom(JSON.stringify({ environmentId, projectId })), onRuns, onError),
     // Each run view lifetime owns a fresh atom: another consumer's cached success cannot
@@ -375,12 +376,11 @@ export function createWorkflowsClient(environmentId: EnvironmentId): WorkflowCli
         onPage,
         onError,
       ),
-    cancel: async (input) => settle(await cancel.run(appAtomRegistry, target(input))),
-    retry: async (input) => settle(await retry.run(appAtomRegistry, target(input))),
-    resume: async (input) => settle(await resume.run(appAtomRegistry, target(input))),
-    gate: async (input) => settle(await gate.run(appAtomRegistry, target(input))),
-    schedule: async (input) => settle(await schedule.run(appAtomRegistry, target(input))),
-    scheduleHistory: async (input) =>
-      settle(await scheduleHistory.run(appAtomRegistry, target(input))),
+    cancel: (input) => settle(cancel, target(input)),
+    retry: (input) => settle(retry, target(input)),
+    resume: (input) => settle(resume, target(input)),
+    gate: (input) => settle(gate, target(input)),
+    schedule: (input) => settle(schedule, target(input)),
+    scheduleHistory: (input) => settle(scheduleHistory, target(input)),
   };
 }
