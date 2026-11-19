@@ -62,6 +62,8 @@ layer("055_OrchestrationV2", (it) => {
         [99, "IssueTrackerBindings"],
         [100, "ActiveShellIndexIndexes"],
         [101, "BackgroundRecoveryIndexes"],
+        [102, "TurnStartReadIndexes"],
+        [103, "DelegatedTaskReadIndexes"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
@@ -150,6 +152,8 @@ layer("055_OrchestrationV2", (it) => {
           [99, "IssueTrackerBindings"],
           [100, "ActiveShellIndexIndexes"],
           [101, "BackgroundRecoveryIndexes"],
+          [102, "TurnStartReadIndexes"],
+          [103, "DelegatedTaskReadIndexes"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -201,6 +205,8 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 99, name: "IssueTrackerBindings" },
             { migration_id: 100, name: "ActiveShellIndexIndexes" },
             { migration_id: 101, name: "BackgroundRecoveryIndexes" },
+            { migration_id: 102, name: "TurnStartReadIndexes" },
+            { migration_id: 103, name: "DelegatedTaskReadIndexes" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -261,6 +267,8 @@ layer("055_OrchestrationV2", (it) => {
         [99, "IssueTrackerBindings"],
         [100, "ActiveShellIndexIndexes"],
         [101, "BackgroundRecoveryIndexes"],
+        [102, "TurnStartReadIndexes"],
+        [103, "DelegatedTaskReadIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -318,6 +326,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 99, name: "IssueTrackerBindings" },
         { migration_id: 100, name: "ActiveShellIndexIndexes" },
         { migration_id: 101, name: "BackgroundRecoveryIndexes" },
+        { migration_id: 102, name: "TurnStartReadIndexes" },
+        { migration_id: 103, name: "DelegatedTaskReadIndexes" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -326,7 +336,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 101 }, (_, index) => index + 1),
+        Array.from({ length: 103 }, (_, index) => index + 1),
       );
     }),
   );
@@ -386,6 +396,8 @@ layer("055_OrchestrationV2", (it) => {
         [99, "IssueTrackerBindings"],
         [100, "ActiveShellIndexIndexes"],
         [101, "BackgroundRecoveryIndexes"],
+        [102, "TurnStartReadIndexes"],
+        [103, "DelegatedTaskReadIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -453,6 +465,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 99, name: "IssueTrackerBindings" },
         { migration_id: 100, name: "ActiveShellIndexIndexes" },
         { migration_id: 101, name: "BackgroundRecoveryIndexes" },
+        { migration_id: 102, name: "TurnStartReadIndexes" },
+        { migration_id: 103, name: "DelegatedTaskReadIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

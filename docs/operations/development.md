@@ -55,10 +55,19 @@ Running `vp run dev` through an agent's own shell tool does not attach it to thi
 ### State and ports
 
 Linked worktrees default to their own `.iglo.code/userdata`, even when `IGLO_CODE_HOME` is set.
-The main checkout defaults to `~/.iglo.code/dev`. An explicit `--home-dir` wins in both cases.
+Any other checkout, including the main checkout and every plain `git clone`, uses
+`IGLO_CODE_HOME` when it is set and otherwise `~/.iglo.code/dev`, with default ports. Checkouts on
+`~/.iglo.code/dev` share one database, settings, and secrets, and only one of their servers can run
+at a time. An explicit `--home-dir` wins in both cases. It and `IGLO_CODE_HOME` store state in
+`<home>/userdata`.
+A home of `~/.iglo.code`, from either source, still selects `~/.iglo.code/dev`, because `~/.iglo.code/userdata` is
+the live install.
 The first start in a worktree seeds its empty database from a read-only copy of
 `~/.iglo.code/userdata/statev2.sqlite` if the source is at most 500 MiB. Larger sources warn
 and dev starts with an empty database. `--no-seed` or `IGLO_CODE_DEV_SEED=0` skips seeding.
+Seeding targets only a worktree's own `.iglo.code`, so a plain clone or a `--home-dir` outside the
+worktree starts empty. To give a clone its own seeded state, run
+`vp run migrate-dev-db --base-dir <clone>/.iglo.code` and then `vp run dev --home-dir <clone>/.iglo.code`.
 To copy a larger source, run `vp run migrate-dev-db` with dev stopped. It may use
 substantial disk space before pruning.
 The first start in any checkout also builds the native resource monitor with Cargo when
