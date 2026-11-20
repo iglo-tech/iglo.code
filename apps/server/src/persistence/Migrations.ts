@@ -108,6 +108,7 @@ import Migration0097 from "./Migrations/097_TurnItemInlineWorkOutput.ts";
 import Migration0098 from "./Migrations/098_RepairStaleTitleRegeneration.ts";
 import Migration0099 from "./Migrations/099_IssueTrackerBindings.ts";
 import Migration0100 from "./Migrations/100_ActiveShellIndexIndexes.ts";
+import Migration0101 from "./Migrations/101_PeerLinkSessionBinding.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -211,6 +212,7 @@ export const migrationEntries = [
   [98, "RepairStaleTitleRegeneration", Migration0098],
   [99, "IssueTrackerBindings", Migration0099],
   [100, "ActiveShellIndexIndexes", Migration0100],
+  [101, "PeerLinkSessionBinding", Migration0101],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

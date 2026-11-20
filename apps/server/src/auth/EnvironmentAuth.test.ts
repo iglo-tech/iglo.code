@@ -537,9 +537,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
           expect(rejected._tag).toBe("ServerAuthMcpApprovalCodeError");
         }
 
-        expect(
-          yield* serverAuth.consumeMcpApprovalCode(pairing.credential, "approval-required", true),
-        ).toBe("approval-required");
+        const consumed = yield* serverAuth.consumeMcpApprovalCode(
+          pairing.credential,
+          "approval-required",
+          true,
+        );
+        expect(consumed.access).toBe("approval-required");
+        expect(typeof consumed.pairingGrantId).toBe("string");
       }).pipe(Effect.provide(layerEnvironmentAuth())),
     );
 

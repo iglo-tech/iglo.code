@@ -100,6 +100,51 @@ current when an authorized change replaces a decision.
   local, LAN, Tailscale, and SSH connections. Device tool installation and execution
   use the supported Bun interpreter, including remote version checks; removing
   native T3 clients must not remove users' device-project support.
+- **Peer links are two-way.** Upstream links one direction per sign-in; the fork
+  makes one link serve both. After the forward sign-in, the linking environment
+  mints its own one-time peer-link code and offers it over
+  `/api/peer-links/reciprocal`, and the peer links back at the same access with
+  the code the offer carried; **Forget** removes the link on both sides and ends
+  both sessions when the peer answers. Default on, with a **Link back**
+  checkbox opt-out (`--one-way` on the CLI). Upstream's one-way pieces stay
+  intact underneath, so reconcile at their boundaries rather than freezing:
+  [PeerLinks.ts](../../../apps/server/src/peer/PeerLinks.ts) (offer, accept,
+  teardown hop),
+  [peerLinksHttp.ts](../../../apps/server/src/peer/peerLinksHttp.ts) and the
+  `peerLinks` group with its `PeerLinkAuthenticated` middleware
+  ([environmentHttp.ts](../../../packages/contracts/src/environmentHttp.ts)),
+  [OwnLinkOrigins.ts](../../../apps/server/src/peer/OwnLinkOrigins.ts) (addresses
+  a peer can reach back: tailnet entries only — plain-http LAN and loopback are
+  refused by the peer's own address rules), the `peerLinkReciprocal` capability,
+  the `reciprocal` fields in
+  [peerLink.ts](../../../packages/contracts/src/peerLink.ts) and the link
+  request answer, and the results (`PeerLinkCreateResult`, `PeerLinkRemoveResult.remote`)
+  in [rpc.ts](../../../packages/contracts/src/rpc.ts). Preserve the bindings that
+  keep offers and teardowns honest — the declared id rides the OAuth
+  registration as a bounded `software_version`, signed into the session
+  (`peid` in [SessionStore.ts](../../../apps/server/src/auth/SessionStore.ts)
+  through [McpOAuth.ts](../../../apps/server/src/auth/McpOAuth.ts) and
+  [EnvironmentAuth.ts](../../../apps/server/src/auth/EnvironmentAuth.ts)), but
+  it is only a claim: the accept path refuses to move an existing link row
+  whatever address the offer carries, and each row's `peer_session_id` (migration 101) names the one session that may forget it — bound to the offering
+  session on accept, and to the back-link session found via the spent grant's
+  `pairing_grant_id` on the offering side. An impostor session therefore pays
+  with its own revocation and cannot touch an existing row — but it can still
+  register a new row under an id this side has not linked yet, since the id is
+  its own claim; that is the trust boundary (you gave that machine a pairing
+  code). The create result is flat with an
+  optional `reciprocal` so mixed versions decode it, and unset `reciprocal` on
+  the wire means one way. The accepting link passes `reciprocal: false` so
+  offers never loop, a failed offer revokes its one-time code, and each teardown
+  hop fires only when a row was removed, so the hops stop. Web: the checkbox and outcome notices in
+  [LinkedEnvironmentsSettings.tsx](../../../apps/web/src/components/settings/LinkedEnvironmentsSettings.tsx)
+  and [LinkRequestCard.tsx](../../../apps/web/src/components/chat/LinkRequestCard.tsx),
+  the answer field in
+  [linkRequest.ts](../../../packages/client-runtime/src/linkRequest.ts), and the
+  testkit's served peers with links
+  ([PeerLinks.testkit.ts](../../../apps/server/src/peer/PeerLinks.testkit.ts)).
+  Drop this entry wholesale once upstream ships its own two-way linking and the
+  fork moves onto it.
 - **Plugin and workflow extensions.** Preserve the fork's compiled plugin host,
   Reports fixture, and [workflow plugin](../../../packages/plugin-workflows/src/server.ts),
   including provider/model/skill choices, parallel reviews, bounded rework,

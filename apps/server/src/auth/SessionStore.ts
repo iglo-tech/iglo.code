@@ -60,6 +60,8 @@ export interface VerifiedSession {
   readonly runtimeModeCeiling?: RuntimeMode;
   /** An MCP client that is another T3 Code environment's peer link. */
   readonly peerLink?: true;
+  /** The environment that signed in with this peer link session, as it registered. */
+  readonly peerEnvironmentId?: string;
 }
 
 export interface VerifiedWebSocketTicket extends VerifiedSession {
@@ -395,6 +397,10 @@ export class SessionStore extends Context.Service<
       readonly proofKeyThumbprint?: string;
       readonly runtimeModeCeiling?: RuntimeMode;
       readonly peerLink?: boolean;
+      /** The linking environment's id, so a peer link session names its owner. */
+      readonly peerEnvironmentId?: string;
+      /** The one-time pairing grant this session is spent from, recorded on the row. */
+      readonly pairingGrantId?: string;
       readonly replaceActiveForSubjectAndMethod?: boolean;
       readonly replaceSessionId?: AuthSessionId;
     }) => Effect.Effect<IssuedSession, SessionCredentialInternalError>;
@@ -459,6 +465,8 @@ const SessionClaims = Schema.Struct({
   rtc: Schema.optionalKey(RuntimeMode),
   /** Signed, so a client cannot shed its peer link's limits. */
   plk: Schema.optionalKey(Schema.Literal(1)),
+  /** The linking environment's id, signed so the session names its owner. */
+  peid: Schema.optionalKey(Schema.String),
   iat: Schema.Number,
   exp: Schema.Number,
 });
@@ -682,6 +690,9 @@ const make = Effect.gen(function* () {
         ...(input?.proofKeyThumbprint ? { jkt: input.proofKeyThumbprint } : {}),
         ...(input?.runtimeModeCeiling ? { rtc: input.runtimeModeCeiling } : {}),
         ...(input?.peerLink === true ? { plk: 1 as const } : {}),
+        ...(input?.peerLink === true && input.peerEnvironmentId !== undefined
+          ? { peid: input.peerEnvironmentId }
+          : {}),
         iat: issuedAt.epochMilliseconds,
         exp: expiresAt.epochMilliseconds,
       };
@@ -718,6 +729,7 @@ const make = Effect.gen(function* () {
         issuedAt,
         expiresAt,
         ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
+        ...(input?.pairingGrantId !== undefined ? { pairingGrantId: input.pairingGrantId } : {}),
       } satisfies AuthSessions.CreateAuthSessionInput;
       const replacedSessionIds = yield* (
         input?.replaceSessionId !== undefined || input?.replaceActiveForSubjectAndMethod
@@ -865,6 +877,9 @@ const make = Effect.gen(function* () {
         ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
         ...(claims.rtc ? { runtimeModeCeiling: claims.rtc } : {}),
         ...(claims.plk === 1 ? { peerLink: true as const } : {}),
+        ...(claims.plk === 1 && claims.peid !== undefined
+          ? { peerEnvironmentId: claims.peid }
+          : {}),
       } satisfies VerifiedSession;
     },
   );

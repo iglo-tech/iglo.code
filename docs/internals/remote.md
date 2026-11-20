@@ -69,9 +69,64 @@ revokes it; reordering does not, because the same addresses remain trusted.
 A [peer link](../../apps/server/src/peer/PeerLinks.ts) lets one environment's
 agents work in another. The linking environment signs in to the other's `/mcp`
 as an outside MCP client, with a pairing code from it, and keeps that session's
-token in its own secret store. The other environment needs nothing new: it
-sees one more OAuth client, lists it in Sharing & access, and revokes it there.
-Unlinking on the linking side only forgets the token.
+token in its own secret store. The other environment sees one more OAuth
+client, lists it in Sharing & access, and revokes it there.
+
+**One link serves both directions.** After the forward sign-in, the linking
+environment mints its own one-time peer-link pairing code and offers it over
+`/api/peer-links/reciprocal` (`PeerLinks.offerReciprocal`), authenticated with
+the session it just obtained; the code is revoked at once if the offer fails.
+The offer names the linking environment and the addresses a peer could reach
+it at, bounded to eight
+([`OwnLinkOrigins`](../../apps/server/src/peer/OwnLinkOrigins.ts): tailnet
+entries only — a plain-http LAN address or a loopback port is refused by the
+peer's own address rules, so offering them would only bury the honest
+"no address to link back to" outcome). The receiving environment's handler
+([`peerLinksHttp.ts`](../../apps/server/src/peer/peerLinksHttp.ts)) accepts only
+a peer-link session, and the offer may name only the environment that session
+declared when it signed in — its environment id rides the OAuth registration
+as `software_version` (bounded, decoded as an `EnvironmentId`) and is signed
+into the session claims (`peid`). That declared id is a claim, not a binding,
+so two real bindings carry the weight instead: the accept path never moves or
+replaces a link this environment already holds — an offer at an address the
+existing row does not have is refused, expired or not — and every link row
+carries `peer_session_id`, the one session that may forget it. On
+accept, the row binds to the offering session; on the offering side, the row
+binds to the session the peer's link back created, found through the spent
+grant's `pairing_grant_id` on `auth_sessions`. Accepting runs the receiving
+side's own link flow with the offered code, `reciprocal: false` (the offer is
+the answer; offering back would loop), and the same access; every check the
+forward flow has — beta gate, probe-verified identity, fence capability,
+code-pinned access — applies unchanged, and per-address probe results are
+logged locally, never echoed back to the caller. `reciprocal` unset on the
+wire means one way, so an older client that never chose links one way;
+first-party clients send it explicitly. The link result is flat
+(`PeerLinkCreateResult` = a link plus an optional `reciprocal`), so mixed
+versions decode each other's answers. An older peer without the
+`peerLinkReciprocal` capability, or one that cannot reach back, is reported on
+the linking side and the forward link stands.
+
+**Forgetting is two teardowns.** `PeerLinks.unlink` removes the link here,
+revokes the peer's session here when the row names it (`peer_session_id`), and
+then asks the peer over `/api/peer-links/teardown` to forget its link back and
+revoke this side's session there; the peer's handler deletes its own row only
+when the calling session is the one the row is bound to — any other session
+pays with its own revocation and nothing more — revokes the calling session.
+The trust boundary to state plainly: any environment you gave a pairing code
+to can register a link back under an environment id this side has not linked
+yet (the id is that session's own claim); the row guard keeps it from moving a
+link that already exists. So a both-ways link grants the peer you linked to a
+session here under the name it claimed — choose its access accordingly,
+and, when it removed a row, asks back the same way, so both sessions end.
+Each hop only fires when a row was actually removed, so the hops terminate,
+and the last hop back is best-effort: when it cannot reach, the session it
+would have ended lingers as an inert row until it expires or is revoked, and
+the peer logs it. A link made before this change has no bound session, so its
+teardown ends the caller's session and leaves the row; the unlink result
+reports that as `kept`. A peer that does not answer, or that runs a version
+without the teardown endpoint, keeps what it holds, and the unlink result says
+so with how to revoke the session by hand (`PeerLinkRemoveResult.remote`,
+`removed` / `kept` / `off`).
 
 - **The Linked environments beta (`linkedEnvironmentsEnabled`) gates both
   sides.** Off on the linking side, `PeerLinks.link`, link requests and

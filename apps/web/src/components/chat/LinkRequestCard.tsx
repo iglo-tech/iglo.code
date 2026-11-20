@@ -28,6 +28,7 @@ import * as Result from "effect/Result";
 import { CheckIcon, LinkIcon, MinusIcon, XIcon } from "lucide-react";
 import { useId, useRef, useState } from "react";
 
+import { useServerConfigs } from "~/state/entities";
 import { useEnvironmentScope, usePreparedConnection } from "../../state/session";
 import { mintPairingCodeOn } from "../../state/peerPairingCode";
 import { peerLinkEnvironment, useLinkableMachines } from "../../state/peerLinks";
@@ -37,11 +38,16 @@ import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { LinkAccessPicker } from "../settings/LinkAccessPicker";
 import { LinkAddressWarning, LinkMachineBadge } from "../settings/LinkMachineSelect";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import { Dialog } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Radio, RadioGroup } from "../ui/radio-group";
+import { stackedThreadToast, toastManager } from "../ui/toast";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardSteps } from "../ui/wizard";
 import { WorkLogRow } from "./WorkLog";
+
+const warningToast = (title: string, description: string) =>
+  toastManager.add(stackedThreadToast({ type: "warning", title, description }));
 
 const accessLabel = (access: AuthMcpClientAccess) => accessConfig[access].label;
 
@@ -179,6 +185,11 @@ function LinkRequestDialog(props: {
   const [address, setAddress] = useState(item.url ?? "");
   const [access, setAccess] = useState<AuthMcpClientAccess>(() => linkRequestDefaultAccess(item));
   const [pairingCode, setPairingCode] = useState("");
+  const [bothWays, setBothWays] = useState(true);
+  // An older environment ignores the reciprocal field, so its links are one way.
+  const configs = useServerConfigs();
+  const supportsReciprocal =
+    configs.get(props.environmentId)?.environment.capabilities.peerLinkReciprocal === true;
   const [step, setStep] = useState<LinkStep>("machine");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -225,6 +236,7 @@ function LinkRequestDialog(props: {
     setAddress(item.url ?? "");
     setAccess(linkRequestDefaultAccess(item));
     setPairingCode("");
+    setBothWays(true);
     setStep("machine");
     setError(null);
   };
@@ -259,6 +271,8 @@ function LinkRequestDialog(props: {
       target: target.kind === "machine" && target.urls.length > 0 ? target : { url: address },
       access,
       pairingCode: code,
+      // An environment that cannot link back gets one way, whatever the box says.
+      reciprocal: supportsReciprocal && bothWays,
     });
   };
 
@@ -274,7 +288,22 @@ function LinkRequestDialog(props: {
     setBusy(false);
     if (result === null) return;
     if (result._tag === "Success") {
-      // The card switches to its answered row once the item updates.
+      // The card switches to its answered row once the item updates; this says
+      // what came of the other direction, which the card itself never shows.
+      // An undefined outcome means the link answer failed or the server is
+      // older; the failure is shown on the card, so no toast here.
+      const reciprocal = result.value?.result?.reciprocal;
+      // The forward link stands whatever came of the link back, so say so.
+      if (reciprocal?.kind === "failed") {
+        warningToast(`Linked ${targetName} one way`, reciprocal.message);
+      } else if (reciprocal?.kind === "unsupported") {
+        toastManager.add({
+          type: "info",
+          title: `Linked ${targetName} one way`,
+          description:
+            "It runs a T3 Code version that does not link back. Update it there, then link again.",
+        });
+      }
       close();
     } else if (!isAtomCommandInterrupted(result)) {
       pipe(squashAtomCommandFailure(result), linkRequestFailureMessage, setError);
@@ -386,6 +415,30 @@ function LinkRequestDialog(props: {
                       </label>
                     )}
                     <LinkAccessPicker value={access} onChange={setAccess} disabled={busy} />
+                    {supportsReciprocal ? (
+                      <label className="flex items-start gap-2">
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={bothWays}
+                          onCheckedChange={(checked) => setBothWays(Boolean(checked))}
+                          disabled={busy}
+                        />
+                        <span className="min-w-0 space-y-0.5">
+                          <span className="block text-xs font-medium text-foreground">
+                            Link back to this environment
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {targetName}'s agents get the same access here, using a code minted for
+                            it. Turn this off to link one way.
+                          </span>
+                        </span>
+                      </label>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        This environment runs a version that links one way only. Update it to link
+                        back automatically.
+                      </p>
+                    )}
                   </>
                 )}
               </>

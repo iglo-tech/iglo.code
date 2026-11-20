@@ -21,14 +21,22 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
     link: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:peer-links:link",
       tag: WS_METHODS.peerLinksLink,
-      onSuccess: ({ environmentId }, registry) =>
-        Effect.sync(() => registry.refresh(list({ environmentId, input: {} }))),
+      onSuccess: ({ environmentId }, registry, result) =>
+        Effect.sync(() => {
+          registry.refresh(list({ environmentId, input: {} }));
+          // A both-ways link changed the peer's list too.
+          registry.refresh(list({ environmentId: result.environmentId, input: {} }));
+        }),
     }),
     unlink: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:peer-links:unlink",
       tag: WS_METHODS.peerLinksUnlink,
-      onSuccess: ({ environmentId }, registry) =>
-        Effect.sync(() => registry.refresh(list({ environmentId, input: {} }))),
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() => {
+          registry.refresh(list({ environmentId, input: {} }));
+          // The teardown may have removed the peer's link back.
+          registry.refresh(list({ environmentId: input.environmentId, input: {} }));
+        }),
     }),
     // An agent's link card. One answer per card at a time.
     answerRequest: createEnvironmentRpcCommand(runtime, {
@@ -39,8 +47,14 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.threadId, input.turnItemId]),
       },
-      onSuccess: ({ environmentId }, registry) =>
-        Effect.sync(() => registry.refresh(list({ environmentId, input: {} }))),
+      onSuccess: ({ environmentId }, registry, result) =>
+        Effect.sync(() => {
+          registry.refresh(list({ environmentId, input: {} }));
+          // A link answer changed the peer's list too.
+          if (result?.result !== undefined) {
+            registry.refresh(list({ environmentId: result.result.environmentId, input: {} }));
+          }
+        }),
     }),
   };
 }

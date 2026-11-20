@@ -330,6 +330,12 @@ export function linkRequestAnswerInput(
           | { readonly url: string };
         readonly access: AuthMcpClientAccess;
         readonly pairingCode: string;
+        /**
+         * Also link this environment back at the same access. Always sent:
+         * on the wire, unset means one way, so an unset answer would silently
+         * not link back. Defaults to yes.
+         */
+        readonly reciprocal?: boolean;
       }
     | { readonly type: "use-existing"; readonly environmentId: EnvironmentId }
     | { readonly type: "decline" },
@@ -342,7 +348,16 @@ export function linkRequestAnswerInput(
   if ("url" in target) {
     const url = target.url.trim();
     if (url.length === 0) return null;
-    return { ...base, answer: { type: "link", urls: [url], access: answer.access, pairingCode } };
+    return {
+      ...base,
+      answer: {
+        type: "link",
+        urls: [url],
+        access: answer.access,
+        pairingCode,
+        reciprocal: answer.reciprocal ?? true,
+      },
+    };
   }
   const [first, ...rest] = target.urls;
   if (first === undefined) return null;
@@ -355,6 +370,7 @@ export function linkRequestAnswerInput(
       urls: [first, ...rest],
       access: answer.access,
       pairingCode,
+      reciprocal: answer.reciprocal ?? true,
     },
   };
 }

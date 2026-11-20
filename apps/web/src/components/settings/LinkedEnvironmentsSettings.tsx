@@ -18,6 +18,7 @@ import { PlusIcon } from "lucide-react";
 import { useId, useRef, useState } from "react";
 
 import { requestConfirmDialog } from "~/confirmDialog";
+import { useServerConfigs } from "~/state/entities";
 import { mintPairingCodeOn } from "~/state/peerPairingCode";
 import { peerLinkEnvironment, useLinkableMachines } from "~/state/peerLinks";
 import { useEnvironmentQuery } from "~/state/query";
@@ -26,6 +27,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { accessConfig } from "../auth/ConnectAgentSurface";
 import { ConnectionStatusDot } from "../ConnectionStatusDot";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -49,6 +51,9 @@ import { searchableSetting } from "./settingsSearch";
 
 const failureToast = (title: string, description: string) =>
   toastManager.add(stackedThreadToast({ type: "error", title, description }));
+
+const warningToast = (title: string, description: string) =>
+  toastManager.add(stackedThreadToast({ type: "warning", title, description }));
 
 export function LinkedEnvironmentsSettings({
   environmentId,
@@ -74,12 +79,24 @@ export function LinkedEnvironmentsSettings({
     },
   );
   const canLink = useAtomValue(peerLinkEnvironment.link.permissionAtom(environmentId));
+  const configs = useServerConfigs();
+  // An older environment ignores the reciprocal field, so its links are one way.
+  const supportsReciprocal =
+    configs.get(environmentId)?.environment.capabilities.peerLinkReciprocal === true;
   const search = searchableSetting("linked-environments");
   return (
     <SettingsSection
       {...(isSearchTarget ? { id: search.id } : {})}
       title={environmentLabel === null ? search.title : `${search.title} · ${environmentLabel}`}
-      headerAction={canLink ? <LinkEnvironmentAction environmentId={environmentId} /> : null}
+      headerAction={
+        canLink ? (
+          <LinkEnvironmentAction
+            environmentId={environmentId}
+            environmentLabel={environmentLabel}
+            supportsReciprocal={supportsReciprocal}
+          />
+        ) : null
+      }
     >
       {links.error ? (
         <SettingsRow title="Could not load linked environments" description={links.error} />
@@ -117,15 +134,23 @@ function LinkedEnvironmentRow({
   const [busy, setBusy] = useState(false);
   const forget = async () => {
     const confirmed = await (requestConfirmDialog(
-      `Forget ${link.label}? Agents here stop working there. Revoke "T3 Code · …" in ${link.label}'s Sharing & access to end the session there too.`,
+      `Forget ${link.label}? Agents here stop working there, its link back here goes, and its session here ends.`,
       { variant: "destructive" },
     ) ?? Promise.resolve(false));
     if (!confirmed) return;
     setBusy(true);
     const result = await unlink({ environmentId, input: { environmentId: link.environmentId } });
     setBusy(false);
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      failureToast("Could not forget the link", String(squashAtomCommandFailure(result)));
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        failureToast("Could not forget the link", String(squashAtomCommandFailure(result)));
+      }
+      return;
+    }
+    // The link is gone here whatever the peer said; its side is the message's to tell.
+    const remote = result.value.remote;
+    if (remote?.kind === "off" || remote?.kind === "kept") {
+      warningToast(`Forgot ${link.label} here`, remote.message);
     }
   };
   const status =
@@ -180,7 +205,15 @@ function LinkedEnvironmentRow({
   );
 }
 
-function LinkEnvironmentAction({ environmentId }: { readonly environmentId: EnvironmentId }) {
+function LinkEnvironmentAction({
+  environmentId,
+  environmentLabel,
+  supportsReciprocal,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly environmentLabel: string | null;
+  readonly supportsReciprocal: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const machines = useLinkableMachines(environmentId, open);
   // Null until the user picks; with no other machines known, only an address is left.
@@ -188,6 +221,7 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
   const [address, setAddress] = useState("");
   const [pairingCode, setPairingCode] = useState("");
   const [access, setAccess] = useState<AuthMcpClientAccess>("approval-required");
+  const [bothWays, setBothWays] = useState(true);
   const [busy, setBusy] = useState(false);
   // Machines whose minting already failed, so the dialog asks for a code instead.
   const [mintFailed, setMintFailed] = useState<ReadonlySet<EnvironmentId>>(new Set());
@@ -222,6 +256,7 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
       setAddress("");
       setPairingCode("");
       setAccess("approval-required");
+      setBothWays(true);
       setMintFailed(new Set());
     }
   };
@@ -255,13 +290,39 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
                 : { expectedEnvironmentId: machine.environmentId, expectedLabel: machine.label }),
               pairingCode: code,
               access,
+              // An environment that cannot link back gets one way, whatever the box says.
+              reciprocal: supportsReciprocal && bothWays,
             },
           });
     inFlight.current = false;
     setBusy(false);
     if (result === null) return;
     if (result._tag === "Success") {
-      toastManager.add({ type: "success", title: `Linked ${result.value.label}` });
+      // An older server's plain link carries no outcome: it linked one way.
+      const askedBothWays = supportsReciprocal && bothWays;
+      const reciprocal =
+        result.value.reciprocal ??
+        (askedBothWays ? ({ kind: "unsupported" } as const) : ({ kind: "off" } as const));
+      const linkedLabel = result.value.label;
+      const here = environmentLabel ?? "this environment";
+      if (reciprocal.kind === "linked") {
+        toastManager.add({
+          type: "success",
+          title: `Linked ${linkedLabel}, and it linked back to ${here}`,
+        });
+      } else if (reciprocal.kind === "failed") {
+        // The forward link stands whatever came of the link back, so say so.
+        warningToast(`Linked ${linkedLabel} one way`, reciprocal.message);
+      } else if (reciprocal.kind === "unsupported") {
+        toastManager.add({
+          type: "info",
+          title: `Linked ${linkedLabel} one way`,
+          description:
+            "It runs a T3 Code version that does not link back. Update it there, then link again.",
+        });
+      } else {
+        toastManager.add({ type: "success", title: `Linked ${linkedLabel}` });
+      }
       handleOpenChange(false);
     } else if (!isAtomCommandInterrupted(result)) {
       failureToast("Could not link the environment", String(squashAtomCommandFailure(result)));
@@ -364,6 +425,31 @@ function LinkEnvironmentAction({ environmentId }: { readonly environmentId: Envi
               </label>
             )}
             <LinkAccessPicker value={access} onChange={setAccess} disabled={busy} />
+            {!supportsReciprocal ? (
+              <p className="text-xs text-muted-foreground">
+                This environment runs a version that links one way only. Update it to link back
+                automatically.
+              </p>
+            ) : (
+              <label className="flex items-start gap-2">
+                <Checkbox
+                  className="mt-0.5"
+                  checked={bothWays}
+                  onCheckedChange={(checked) => setBothWays(Boolean(checked))}
+                  disabled={busy}
+                />
+                <span className="min-w-0 space-y-0.5">
+                  <span className="block text-xs font-medium text-foreground">
+                    Link back to {environmentLabel ?? "this environment"}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {machine === null
+                      ? `Its agents get the same access on ${environmentLabel ?? "this environment"}, using a code minted for it. Turn this off to link one way.`
+                      : `${machine.label}'s agents get the same access on ${environmentLabel ?? "this environment"}, using a code minted for it. Turn this off to link one way.`}
+                  </span>
+                </span>
+              </label>
+            )}
           </form>
         </DialogPanel>
         <DialogFooter variant="bare">

@@ -562,6 +562,11 @@ export const MCP_PEER_LINK_SOFTWARE_ID = "t3code-peer-link";
 export const AuthMcpClientRegistration = Schema.Struct({
   client_name: Schema.optionalKey(Schema.String),
   software_id: Schema.optionalKey(Schema.String),
+  /**
+   * For a peer link, the linking environment's id, so the session it gets here
+   * names its owner. Old servers ignore it.
+   */
+  software_version: Schema.optionalKey(Schema.String),
   redirect_uris: Schema.optionalKey(Schema.Array(Schema.String)),
   token_endpoint_auth_method: Schema.optionalKey(Schema.String),
 });
