@@ -197,6 +197,11 @@ current when an authorized change replaces a decision.
 - **History swipe setting.** The fork carries upstream PR 28370's
   `historySwipeNavigation` setting (off by default). Drop the fork copy once
   upstream merges its own.
+- **Mistral Vibe usage provider.** The fork carries upstream PR 23380's `mistral`
+  usage provider (Mistral Vibe session stats and estimated cost in the Usage
+  view), which upstream closed unmerged. Drop the fork copy once upstream
+  merges its own; reconcile the reader, the driver/provider lists, and the web
+  presentations together.
 - **Move a thread between projects.** A thread's context menu (sidebar row and
   chat header share one builder) offers **Move to project** with a destination
   submenu: project identity (a custom monogram icon, else the title monogram)

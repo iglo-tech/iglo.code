@@ -128,6 +128,8 @@ const PROPER_NOUNS = [
   "Kiro",
   "Pi",
   "Muse Code",
+  "Mistral",
+  "Mistral Vibe",
   "OpenAI",
   "OpenRouter",
   "Anthropic",

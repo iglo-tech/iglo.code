@@ -6,8 +6,8 @@ terminal is not focused. Customize `usage.open` in
 
 ## Understand your usage
 
-**Usage** combines Codex, Claude Code, Grok Build, OpenCode, Antigravity, Pi, Muse Code, and Cursor history
-from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
+**Usage** combines Codex, Claude Code, Grok Build, OpenCode, Antigravity, Pi, Muse Code, Cursor, and Mistral Vibe
+history from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
 cost, split by token type and by speed. These estimates are not your subscription bill.
 **Premium** is what Fast and Ultrafast requests cost above standard rates. Cost that cannot be
 split, such as a provider-reported cost for a model without public rates, shows as **Other**.
@@ -20,7 +20,7 @@ the totals for Codex or Claude Code 2.0.63 and newer, because those runs save no
 
 The server keeps scanned usage history for 92 days by default. Claude Code deletes its own
 transcripts after 30 days, so for older Claude usage this history is the only record left. To keep
-it longer, set `usageHistoryRetentionDays` in `<T3 home>/userdata/settings.json` to a number of days
+it longer, set `usageHistoryRetentionDays` in `<iglo.code home>/userdata/settings.json` to a number of days
 such as `365`, or to `"unlimited"`. Usage views still show at most 90 days. Lowering the value
 prunes older history on the next refresh, and raising it again does not bring pruned history back.
 While `settings.json` cannot be read, nothing is pruned.
@@ -46,6 +46,14 @@ known prices still contribute tokens and appear as unpriced; set custom prices t
 Use absolute paths or `~/` paths in the account's environment settings; relative environment paths
 depend on each project's working directory and cannot be reliably discovered by Usage. Accounts
 sharing a history directory count once.
+
+Mistral Vibe history is read when a Mistral Vibe agent is configured (registry agent `mistral-vibe`,
+or a local command whose name contains `vibe`): from `~/.vibe/logs/session/unified`, or the
+`logs/session/unified` directory under `VIBE_HOME` set on the agent instance's environment or the
+server. Each session counts once with its lifetime token totals, attributed to the day of its last
+update, so a session resumed on a later day lands on that day. Vibe records tokens but no dollar
+cost, so costs are estimated from the shared price table; model IDs with a trailing build number
+(such as `mistral-large-4-0-3`) price at their base (`mistral-large-4-0`).
 
 The server saves its first hostname in `<iglo.code home>/usage-host-id`, so a recreated container keeps
 its usage identity when the iglo.code home is persisted. Set `IGLO_CODE_HOST_ID` to choose the identity
