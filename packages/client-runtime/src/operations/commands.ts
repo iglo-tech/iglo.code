@@ -715,6 +715,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
         ...(input.linkedPullRequest === undefined
           ? {}
           : { linkedPullRequest: input.linkedPullRequest }),
+        ...(input.pullRequests === undefined ? {} : { pullRequests: input.pullRequests }),
       });
     }
     if (input.modelSelection !== undefined) {

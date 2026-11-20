@@ -48,6 +48,7 @@ import {
   revertThreadCheckpoint,
   resumeThreadQueue,
   startThreadTurn,
+  updateThreadMetadata,
 } from "./commands.ts";
 
 const layerTestRandom = Layer.succeed(
@@ -178,6 +179,40 @@ describe("V2 environment commands", () => {
 
       expect(commands).toEqual([
         { type: "thread.archive", commandId: "queued-command", threadId: "thread-1" },
+      ]);
+    }).pipe(Effect.provide(layerTestRandom)),
+  );
+
+  it.effect("sends pull request links in the thread.metadata.update command", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+      const pullRequests = [
+        {
+          host: "github.com",
+          repository: "iglo-tech/iglo.code",
+          number: 1,
+          url: "https://github.com/iglo-tech/iglo.code/pull/1",
+          source: "manual",
+          linkedAt: "2026-06-06T00:00:00.000Z",
+          snapshot: null,
+          stack: null,
+        },
+      ] as const;
+
+      yield* updateThreadMetadata({
+        commandId: CommandId.make("restore-pr-links"),
+        threadId: ThreadId.make("thread-1"),
+        pullRequests,
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(commands).toEqual([
+        {
+          type: "thread.metadata.update",
+          commandId: "restore-pr-links",
+          threadId: "thread-1",
+          pullRequests,
+        },
       ]);
     }).pipe(Effect.provide(layerTestRandom)),
   );

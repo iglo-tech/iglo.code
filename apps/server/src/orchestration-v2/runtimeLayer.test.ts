@@ -12184,6 +12184,49 @@ it.layer(layerThreadProjectMoveTest)("moving a thread to another project", (it) 
     }),
   );
 
+  it.effect("re-files bound tasks when called with the thread's current project", () =>
+    Effect.gen(function* () {
+      const move = yield* ThreadProjectMove.ThreadProjectMove;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+      const { sourceProjectId, targetProjectId, createThread } = yield* setup("repair");
+      const threadId = ThreadId.make("move-repair-thread");
+      yield* createThread(threadId);
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("move-repair-bound"),
+        title: "Bound",
+        prompt: "Check in",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId: sourceProjectId,
+        threadId,
+        workspaceStrategy: { type: "root" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      // Commit the thread move directly, leaving the bound task behind: the partial state a
+      // failed task step produces after the dispatch committed.
+      yield* orchestrator.dispatch({
+        type: "thread.project.move",
+        commandId: CommandId.make(`${threadId}-move-direct`),
+        threadId,
+        projectId: targetProjectId,
+      });
+      const boundTask = function* () {
+        return (yield* tasks.list()).tasks.find((candidate) => candidate.id === task.id);
+      };
+      assert.equal((yield* shellOf(threadId))?.projectId, targetProjectId);
+      assert.equal((yield* boundTask())?.projectId, sourceProjectId);
+
+      yield* move.move({ threadId, projectId: targetProjectId });
+
+      assert.equal((yield* boundTask())?.projectId, targetProjectId);
+    }),
+  );
+
   it.effect("changes nothing while the thread is working", () =>
     Effect.gen(function* () {
       const move = yield* ThreadProjectMove.ThreadProjectMove;
@@ -12225,6 +12268,55 @@ it.layer(layerThreadProjectMoveTest)("moving a thread to another project", (it) 
       assert.equal(error.message, '"Movable work" is still working. Finish or stop it first.');
       assert.equal((yield* shellOf(threadId))?.projectId, sourceProjectId);
       // The tasks move only once the dispatch can commit, so a refused move leaves them in place.
+      const saved = (yield* tasks.list()).tasks.find((candidate) => candidate.id === task.id);
+      assert.equal(saved?.projectId, sourceProjectId);
+    }),
+  );
+
+  it.effect("leaves bound tasks in place when the dispatch refuses the move", () =>
+    Effect.gen(function* () {
+      const move = yield* ThreadProjectMove.ThreadProjectMove;
+      const projects = yield* ProjectService.ProjectService;
+      const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+      const { sourceProjectId, createThread } = yield* setup("refused");
+      const archivedProjectId = ProjectId.make("move-refused-archived");
+      yield* projects.create({
+        commandId: CommandId.make(`${archivedProjectId}-create`),
+        projectId: archivedProjectId,
+        title: archivedProjectId,
+        workspaceRoot: "/tmp/runtime-layer-move-refused-archived",
+      });
+      yield* projects.update({
+        commandId: CommandId.make(`${archivedProjectId}-archive`),
+        projectId: archivedProjectId,
+        archived: true,
+      });
+      const threadId = ThreadId.make("move-refused-thread");
+      yield* createThread(threadId);
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("move-refused-bound"),
+        title: "Bound",
+        prompt: "Check in",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId: sourceProjectId,
+        threadId,
+        workspaceStrategy: { type: "root" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "user",
+        creationSource: "web",
+      });
+
+      const error = yield* move.move({ threadId, projectId: archivedProjectId }).pipe(Effect.flip);
+
+      assert.equal(
+        error.message,
+        `Thread ${threadId} cannot move to archived project ${archivedProjectId}.`,
+      );
+      assert.equal((yield* shellOf(threadId))?.projectId, sourceProjectId);
+      // The dispatch refuses before the tasks are re-filed, so a refused move leaves them in place.
       const saved = (yield* tasks.list()).tasks.find((candidate) => candidate.id === task.id);
       assert.equal(saved?.projectId, sourceProjectId);
     }),
