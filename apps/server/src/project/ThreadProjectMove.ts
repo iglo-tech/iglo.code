@@ -61,7 +61,6 @@ const make = Effect.gen(function* () {
           () => new ThreadProjectMoveError({ reason: "Thread not found." }),
         ),
       );
-      if (thread.projectId === input.projectId) return;
       const target = yield* projects
         .getById(input.projectId)
         .pipe(Effect.mapError(fail("Could not read the project.")));
@@ -77,14 +76,18 @@ const make = Effect.gen(function* () {
         });
       }
 
+      // The dispatch owns every refusal (archived or deleted target, background work, a lost
+      // race), so it runs before the tasks are re-filed: a refused move must leave them in the
+      // old project. moveThreadTasks is idempotent, and re-calling move with the thread's current
+      // project re-runs it to repair a move whose task step failed after the dispatch committed.
+      if (thread.projectId === input.projectId) {
+        return yield* scheduledTasks
+          .moveThreadTasks({ threadIds: [thread.id], projectId: input.projectId })
+          .pipe(Effect.mapError(fail("Could not move the thread's scheduled tasks.")));
+      }
+
       return yield* Effect.uninterruptible(
         Effect.gen(function* () {
-          // Tasks move before the dispatch, so a lost race (work starting, or another client moving
-          // the thread first) can leave tasks re-pointed while the thread stays. The same-project
-          // early return above makes a retry finish the partial task move.
-          yield* scheduledTasks
-            .moveThreadTasks({ threadIds: [thread.id], projectId: input.projectId })
-            .pipe(Effect.mapError(fail("Could not move the thread's scheduled tasks.")));
           yield* threads
             .dispatch({
               type: "thread.project.move",
@@ -106,6 +109,9 @@ const make = Effect.gen(function* () {
                   }),
               ),
             );
+          yield* scheduledTasks
+            .moveThreadTasks({ threadIds: [thread.id], projectId: input.projectId })
+            .pipe(Effect.mapError(fail("Could not move the thread's scheduled tasks.")));
         }),
       );
     },

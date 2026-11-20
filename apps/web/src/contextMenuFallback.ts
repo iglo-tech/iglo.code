@@ -7,6 +7,8 @@ import { projectIconColorClassName } from "./projectIconColors";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<string, string> }>> = {
   archive: [
     { tag: "rect", attrs: { width: "20", height: "5", x: "2", y: "3", rx: "1" } },
@@ -202,13 +204,16 @@ function createMonogramElement(
   const text = document.createElementNS(SVG_NS, "text");
   text.setAttribute("x", "8");
   text.setAttribute("y", "10.8");
-  text.setAttribute("textAnchor", "middle");
+  text.setAttribute("text-anchor", "middle");
   text.setAttribute("fill", "currentColor");
-  text.setAttribute("fontSize", "8.25");
-  text.setAttribute("fontWeight", "700");
-  text.setAttribute("textLength", monogram.text.length === 1 ? "6" : "12");
+  text.setAttribute("font-size", "8.25");
+  text.setAttribute("font-weight", "700");
+  text.setAttribute(
+    "textLength",
+    Array.from(monogramSegmenter.segment(monogram.text)).length === 1 ? "6" : "12",
+  );
   text.setAttribute("lengthAdjust", "spacingAndGlyphs");
-  text.setAttribute("textRendering", "geometricPrecision");
+  text.setAttribute("text-rendering", "geometricPrecision");
   text.textContent = monogram.text;
   svg.appendChild(text);
   wrapper.appendChild(svg);

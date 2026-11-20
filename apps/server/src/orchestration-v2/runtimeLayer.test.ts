@@ -12230,6 +12230,55 @@ it.layer(layerThreadProjectMoveTest)("moving a thread to another project", (it) 
     }),
   );
 
+  it.effect("leaves bound tasks in place when the dispatch refuses the move", () =>
+    Effect.gen(function* () {
+      const move = yield* ThreadProjectMove.ThreadProjectMove;
+      const projects = yield* ProjectService.ProjectService;
+      const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+      const { sourceProjectId, createThread } = yield* setup("refused");
+      const archivedProjectId = ProjectId.make("move-refused-archived");
+      yield* projects.create({
+        commandId: CommandId.make(`${archivedProjectId}-create`),
+        projectId: archivedProjectId,
+        title: archivedProjectId,
+        workspaceRoot: "/tmp/runtime-layer-move-refused-archived",
+      });
+      yield* projects.update({
+        commandId: CommandId.make(`${archivedProjectId}-archive`),
+        projectId: archivedProjectId,
+        archived: true,
+      });
+      const threadId = ThreadId.make("move-refused-thread");
+      yield* createThread(threadId);
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("move-refused-bound"),
+        title: "Bound",
+        prompt: "Check in",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId: sourceProjectId,
+        threadId,
+        workspaceStrategy: { type: "root" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "user",
+        creationSource: "web",
+      });
+
+      const error = yield* move.move({ threadId, projectId: archivedProjectId }).pipe(Effect.flip);
+
+      assert.equal(
+        error.message,
+        `Thread ${threadId} cannot move to archived project ${archivedProjectId}.`,
+      );
+      assert.equal((yield* shellOf(threadId))?.projectId, sourceProjectId);
+      // The dispatch refuses before the tasks are re-filed, so a refused move leaves them in place.
+      const saved = (yield* tasks.list()).tasks.find((candidate) => candidate.id === task.id);
+      assert.equal(saved?.projectId, sourceProjectId);
+    }),
+  );
+
   it.effect("refuses a missing project", () =>
     Effect.gen(function* () {
       const move = yield* ThreadProjectMove.ThreadProjectMove;
