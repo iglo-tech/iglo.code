@@ -12184,6 +12184,49 @@ it.layer(layerThreadProjectMoveTest)("moving a thread to another project", (it) 
     }),
   );
 
+  it.effect("re-files bound tasks when called with the thread's current project", () =>
+    Effect.gen(function* () {
+      const move = yield* ThreadProjectMove.ThreadProjectMove;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+      const { sourceProjectId, targetProjectId, createThread } = yield* setup("repair");
+      const threadId = ThreadId.make("move-repair-thread");
+      yield* createThread(threadId);
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("move-repair-bound"),
+        title: "Bound",
+        prompt: "Check in",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId: sourceProjectId,
+        threadId,
+        workspaceStrategy: { type: "root" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      // Commit the thread move directly, leaving the bound task behind: the partial state a
+      // failed task step produces after the dispatch committed.
+      yield* orchestrator.dispatch({
+        type: "thread.project.move",
+        commandId: CommandId.make(`${threadId}-move-direct`),
+        threadId,
+        projectId: targetProjectId,
+      });
+      const boundTask = function* () {
+        return (yield* tasks.list()).tasks.find((candidate) => candidate.id === task.id);
+      };
+      assert.equal((yield* shellOf(threadId))?.projectId, targetProjectId);
+      assert.equal((yield* boundTask())?.projectId, sourceProjectId);
+
+      yield* move.move({ threadId, projectId: targetProjectId });
+
+      assert.equal((yield* boundTask())?.projectId, targetProjectId);
+    }),
+  );
+
   it.effect("changes nothing while the thread is working", () =>
     Effect.gen(function* () {
       const move = yield* ThreadProjectMove.ThreadProjectMove;

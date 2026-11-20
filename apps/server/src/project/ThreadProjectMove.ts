@@ -33,7 +33,8 @@ export class ThreadProjectMove extends Context.Service<
   {
     /**
      * Moves a thread into another project, where its cwd becomes that project's root.
-     * Moving into the thread's current project is a no-op.
+     * Moving into the thread's current project only re-files its scheduled tasks, which
+     * repairs a move whose task step failed after the dispatch committed.
      */
     readonly move: (input: {
       readonly threadId: ThreadId;
