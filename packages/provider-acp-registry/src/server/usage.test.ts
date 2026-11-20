@@ -7,10 +7,13 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { AcpRegistrySettings } from "../settings.ts";
+import {
+  type AcpRegistrySettings,
+  AcpRegistrySettings as AcpRegistrySettingsSchema,
+} from "../settings.ts";
 import { mistralVibeUsageReader } from "./usage.ts";
 
-const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
+const decodeSettings = Schema.decodeSync(AcpRegistrySettingsSchema);
 
 const SESSION_ID = "11111111-2222-3333-4444-555555555555";
 const OTHER_SESSION_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -82,7 +85,7 @@ const writeCatalog = Effect.fn("writeCatalog")(function* (
 const scan = Effect.fn("scan")(function* (input: {
   readonly instances: ReadonlyArray<{
     readonly id: string;
-    readonly config: unknown;
+    readonly config: AcpRegistrySettings | undefined;
     readonly environment: NodeJS.ProcessEnv;
   }>;
   readonly windowStartMs?: number;
@@ -92,7 +95,7 @@ const scan = Effect.fn("scan")(function* (input: {
   const scan = mistralVibeUsageReader.scan({
     instances: input.instances.map((instance) => ({
       instanceId: ProviderInstanceId.make(instance.id),
-      config: instance.config as ReturnType<typeof decodeSettings> | undefined,
+      config: instance.config,
       environment: instance.environment,
       configured: true,
     })),
@@ -130,7 +133,7 @@ describe("mistralVibeUsageReader", () => {
           totalTokens: 1050,
         },
         updatedAt: UPDATED_AT,
-        model: "mistral-large-4",
+        model: "mistral-large-4-0-3",
       });
       const sources = yield* scan({
         instances: [
@@ -150,7 +153,9 @@ describe("mistralVibeUsageReader", () => {
       const record = records[0]!;
       assert.strictEqual(record.provider, "mistral");
       assert.strictEqual(record.sessionId, SESSION_ID);
-      assert.strictEqual(record.model, "mistral-large-4");
+      assert.strictEqual(record.model, "mistral-large-4-0-3");
+      // Dated model IDs price at their undated base in the shared price table.
+      assert.strictEqual(record.rateModel, "mistral-large-4-0");
       assert.strictEqual(record.timestampMs, UPDATED_AT);
       assert.deepStrictEqual(record.totals, {
         uncachedInputTokens: 600,
@@ -176,7 +181,8 @@ describe("mistralVibeUsageReader", () => {
           totalTokens: 510,
         },
         updatedAt: UPDATED_AT,
-        model: null,
+        // The runtime state's model loses to the catalog's for a session.
+        model: "mistral-large-4",
       });
       // The catalog applied the recovery journal, so it is newer than the
       // published generation, and it carries the model the generation lacks.
@@ -221,11 +227,32 @@ describe("mistralVibeUsageReader", () => {
   it.effect("keeps the published generation when it is newer than the catalog", () =>
     Effect.gen(function* () {
       const { vibeHome, unifiedRoot } = yield* makeVibeHome();
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       yield* writeSession(unifiedRoot, SESSION_ID, {
         tokenUsage: { cachedInputTokens: 0, inputTokens: 300, outputTokens: 5, totalTokens: 305 },
         updatedAt: UPDATED_AT + 120_000,
         model: "mistral-large-4",
       });
+      // A later generation on disk must not win over the one CURRENT publishes.
+      const newerDir = path.join(unifiedRoot, SESSION_ID, "generations", "0000000000000002");
+      yield* fileSystem.makeDirectory(newerDir, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(newerDir, "projection-state.json"),
+        JSON.stringify({
+          snapshot: {
+            session: {
+              tokenUsage: {
+                cachedInputTokens: 0,
+                inputTokens: 9999,
+                outputTokens: 1,
+                totalTokens: 10000,
+              },
+              updatedAt: UPDATED_AT + 999_000,
+            },
+          },
+        }),
+      );
       yield* writeCatalog(unifiedRoot, [
         {
           sessionId: SESSION_ID,
@@ -265,6 +292,14 @@ describe("mistralVibeUsageReader", () => {
         updatedAt: UPDATED_AT,
         model: "mistral-large-4",
       });
+      // A local vibe command gets its own home, so only the local-command
+      // detection can add its root.
+      const localHome = yield* makeVibeHome();
+      yield* writeSession(localHome.unifiedRoot, OTHER_SESSION_ID, {
+        tokenUsage: { cachedInputTokens: 0, inputTokens: 20, outputTokens: 2, totalTokens: 22 },
+        updatedAt: UPDATED_AT,
+        model: "mistral-large-4",
+      });
       const sources = yield* scan({
         instances: [
           {
@@ -286,14 +321,24 @@ describe("mistralVibeUsageReader", () => {
           {
             id: "acpRegistry_local_vibe",
             config: decodeSettings({ source: "local", commandPath: "/tools/vibe-acp" }),
-            environment: { VIBE_HOME: vibeHome },
+            environment: { VIBE_HOME: localHome.vibeHome },
+          },
+          {
+            id: "acpRegistry_local_other",
+            config: decodeSettings({ source: "local", commandPath: "/tools/other-acp" }),
+            environment: { VIBE_HOME: localHome.vibeHome },
           },
         ],
       });
       // One source per distinct vibe home, not per instance.
-      assert.strictEqual(sources.length, 1);
-      const records = sources[0]?.files?.flatMap((file) => file.records) ?? [];
-      assert.strictEqual(records.length, 1);
+      assert.strictEqual(sources.length, 2);
+      const records = sources.flatMap(
+        (source) => source.files?.flatMap((file) => file.records) ?? [],
+      );
+      assert.deepStrictEqual(
+        records.map((record) => record.sessionId).sort(),
+        [SESSION_ID, OTHER_SESSION_ID].sort(),
+      );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -375,6 +420,30 @@ describe("mistralVibeUsageReader", () => {
         path.join(emptyDir, "projection-state.json"),
         JSON.stringify({ snapshot: { session: { tokenUsage: null, updatedAt: UPDATED_AT } } }),
       );
+      // Tokens without a usable timestamp cannot be bucketed: unreadable, not empty.
+      const badTimestampDir = path.join(
+        unifiedRoot,
+        "dddddddd-0000-0000-0000-000000000000",
+        "generations",
+        "0000000000000001",
+      );
+      yield* fileSystem.makeDirectory(badTimestampDir, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(badTimestampDir, "projection-state.json"),
+        JSON.stringify({
+          snapshot: {
+            session: {
+              tokenUsage: {
+                cachedInputTokens: 0,
+                inputTokens: 50,
+                outputTokens: 5,
+                totalTokens: 55,
+              },
+              updatedAt: "not-a-number",
+            },
+          },
+        }),
+      );
       const sources = yield* scan({
         instances: [
           {
@@ -385,6 +454,7 @@ describe("mistralVibeUsageReader", () => {
         ],
         windowStartMs: UPDATED_AT,
       });
+      assert.strictEqual(sources[0]?.status, "partial");
       const records = sources[0]?.files?.flatMap((file) => file.records) ?? [];
       assert.deepStrictEqual(
         records.map((record) => record.sessionId),

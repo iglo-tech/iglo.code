@@ -47,10 +47,13 @@ Use absolute paths or `~/` paths in the account's environment settings; relative
 depend on each project's working directory and cannot be reliably discovered by Usage. Accounts
 sharing a history directory count once.
 
-Mistral Vibe reads `~/.vibe/logs/session/unified`, or the `logs/session/unified` directory under
-`VIBE_HOME` set on the server. Each session counts once with its lifetime token totals, attributed
-to the day of its last update, so a session resumed on a later day lands on that day. Vibe records
-tokens but no dollar cost, so Mistral Vibe costs are estimated from the shared price table.
+Mistral Vibe history is read when a Mistral Vibe agent is configured (registry agent `mistral-vibe`,
+or a local command whose name contains `vibe`): from `~/.vibe/logs/session/unified`, or the
+`logs/session/unified` directory under `VIBE_HOME` set on the agent instance's environment or the
+server. Each session counts once with its lifetime token totals, attributed to the day of its last
+update, so a session resumed on a later day lands on that day. Vibe records tokens but no dollar
+cost, so costs are estimated from the shared price table; dated model IDs such as
+`mistral-large-4-0-3` price at their undated base (`mistral-large-4-0`).
 
 The server saves its first hostname in `<iglo.code home>/usage-host-id`, so a recreated container keeps
 its usage identity when the iglo.code home is persisted. Set `IGLO_CODE_HOST_ID` to choose the identity

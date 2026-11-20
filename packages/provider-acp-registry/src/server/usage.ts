@@ -15,22 +15,26 @@ import * as Schema from "effect/Schema";
 
 import type { AcpRegistrySettings } from "../settings.ts";
 
+// Vibe writes cumulative per-session token counts under
+// `<vibe home>/logs/session/unified/<session id>/` (`CURRENT` generation:
+// `projection-state.json` totals, `runtime-state.json` model) and a
+// `.session-index.json` catalog that can lag or lead; keep the newer reading.
 const MISTRAL_VIBE_AGENT_ID = "mistral-vibe";
 const UNKNOWN_MODEL = "unknown";
-
-/**
- * Vibe writes cumulative per-session token counts under
- * `<vibe home>/logs/session/unified/<session id>/` (`CURRENT` generation:
- * `projection-state.json` totals, `runtime-state.json` model) and a
- * `.session-index.json` catalog that can lag or lead; keep the newer reading.
- */
 
 function isMistralVibeInstance(config: AcpRegistrySettings | undefined): boolean {
   if (config === undefined) return false;
   if (config.source === "registry") return config.agentId === MISTRAL_VIBE_AGENT_ID;
   // Local commands run the vibe ACP binary (`vibe-acp`) or a `mistral-vibe` build.
-  return config.commandPath.split(/[\\/]/).pop()!.toLowerCase().includes("vibe");
+  return config.commandPath.split(/[\\/]/).at(-1)?.toLowerCase().includes("vibe") ?? false;
 }
+
+// Vibe records dated model IDs (mistral-large-4-0-3) while the shared price
+// table lists the undated base (mistral-large-4-0).
+export const mistralVibeRateModel = (model: string): string => {
+  const match = /^(mistral-[a-z]+-\d+-\d+)-\d+$/i.exec(model);
+  return match === null ? model : match[1]!;
+};
 
 function object(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -52,25 +56,34 @@ interface SessionUsageReading {
 
 /**
  * Vibe's `inputTokens` includes the cached portion, so the uncached share is
- * the difference. Returns null when the reading carries no usage or no
- * timestamp to bucket it by.
+ * the difference. Tokens without a usable timestamp cannot be bucketed, so
+ * they count as unreadable rather than empty.
  */
-function readingFromTokenUsage(
+type TokenUsageReading =
+  | { readonly kind: "usage"; readonly reading: SessionUsageReading }
+  | { readonly kind: "empty" }
+  | { readonly kind: "unreadable" };
+
+function readTokenUsage(
   tokenUsage: unknown,
   updatedAt: unknown,
   model: unknown,
-): SessionUsageReading | null {
+): TokenUsageReading {
   const usage = object(tokenUsage);
   const inputTokens = tokenCount(usage.inputTokens);
   const cachedInputTokens = Math.min(tokenCount(usage.cachedInputTokens), inputTokens);
   const outputTokens = tokenCount(usage.outputTokens);
-  if (inputTokens + outputTokens === 0) return null;
-  if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) return null;
-  return { inputTokens, cachedInputTokens, outputTokens, updatedAt, model: text(model) };
+  if (inputTokens + outputTokens === 0) return { kind: "empty" };
+  if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) return { kind: "unreadable" };
+  return {
+    kind: "usage",
+    reading: { inputTokens, cachedInputTokens, outputTokens, updatedAt, model: text(model) },
+  };
 }
 
 const decodeUnknownJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 
+// Untraced: a scan reads one small JSON per session, like UsageService's per-file reads.
 const readJsonFile = Effect.fnUntraced(function* (
   filePath: string,
 ): Effect.fn.Return<unknown, never, FileSystem.FileSystem> {
@@ -117,18 +130,20 @@ function parseSessionCatalog(parsed: unknown): ReadonlyMap<string, SessionUsageR
     const sessionId = text(record.session_id) ?? text(object(record.identity).session_id);
     if (sessionId === null) continue;
     const session = object(record.session);
-    const reading = readingFromTokenUsage(
+    const result = readTokenUsage(
       session.tokenUsage,
       session.updatedAt,
       object(record.metadata).active_model,
     );
-    if (reading === null) continue;
-    entries.set(sessionId, reading);
+    if (result.kind !== "usage") continue;
+    entries.set(sessionId, result.reading);
   }
   return entries;
 }
 
-const readRuntimeStateModel = Effect.fn("mistralVibeUsage.readRuntimeStateModel")(function* (
+// Per-session reads run once per session per scan, so like UsageService's
+// per-file reads they stay untraced; scanSessionRoot annotates the counts.
+const readRuntimeStateModel = Effect.fnUntraced(function* (
   generationDir: string,
 ): Effect.fn.Return<string | null, never, FileSystem.FileSystem | Path.Path> {
   const path = yield* Path.Path;
@@ -149,7 +164,8 @@ type SessionReadResult =
   // Session data exists but could not be read, so its usage is missing.
   | { readonly kind: "unreadable" };
 
-const readSessionDirectory = Effect.fn("mistralVibeUsage.readSessionDirectory")(function* (
+// Untraced for the same per-session reason as readRuntimeStateModel.
+const readSessionDirectory = Effect.fnUntraced(function* (
   sessionDir: string,
   catalogEntry: SessionUsageReading | undefined,
 ): Effect.fn.Return<SessionReadResult | null, never, FileSystem.FileSystem | Path.Path> {
@@ -193,17 +209,20 @@ const readSessionDirectory = Effect.fn("mistralVibeUsage.readSessionDirectory")(
   const projectionPath = path.join(generationDir, "projection-state.json");
   const projection = yield* readJsonFile(projectionPath);
   const session = object(object(object(projection).snapshot).session);
-  const published = readingFromTokenUsage(session.tokenUsage, session.updatedAt, null);
+  const published = readTokenUsage(session.tokenUsage, session.updatedAt, null);
+  const publishedReading = published.kind === "usage" ? published.reading : undefined;
   // The catalog is journal-backed, so it can carry usable totals even when the
   // published projection is empty or unreadable; skip only when both are gone.
   const reading =
-    published === null
+    publishedReading === undefined
       ? catalogEntry
-      : catalogEntry !== undefined && catalogEntry.updatedAt > published.updatedAt
+      : catalogEntry !== undefined && catalogEntry.updatedAt > publishedReading.updatedAt
         ? catalogEntry
-        : published;
+        : publishedReading;
   if (reading === undefined) {
-    return projection === null ? { kind: "unreadable" } : { kind: "empty" };
+    return published.kind === "unreadable" || projection === null
+      ? { kind: "unreadable" }
+      : { kind: "empty" };
   }
   // The active model is fixed for a session's lifetime, so the catalog's copy
   // is authoritative even when its usage reading lost the freshness race.
@@ -226,6 +245,7 @@ function toUsageRecord(
     // Vibe folds reasoning into outputTokens and does not break it out.
     reasoningTokens: 0,
   };
+  const rateModel = mistralVibeRateModel(model);
   return {
     provider: "mistral",
     timestampMs: reading.updatedAt,
@@ -237,6 +257,7 @@ function toUsageRecord(
     reportedCostUsd: null,
     speed: "standard",
     dedupeKey: `mistral:${root}:session:${sessionId}`,
+    ...(rateModel === model ? {} : { rateModel }),
   };
 }
 
@@ -295,19 +316,28 @@ const scanSessionRoot = Effect.fn("mistralVibeUsage.scanSessionRoot")(function* 
   );
   const files: { path: string; records: UsageRecord[] }[] = [];
   let unreadable = 0;
+  let skipped = 0;
   for (const { name, result } of results) {
     if (result === null || result.kind === "empty") continue;
     if (result.kind === "unreadable") {
       unreadable += 1;
       continue;
     }
-    if (result.reading.updatedAt < windowStartMs) continue;
+    if (result.reading.updatedAt < windowStartMs) {
+      skipped += 1;
+      continue;
+    }
     files.push({
       path: result.projectionPath,
       records: [toUsageRecord(name, root, result.reading, result.model)],
     });
   }
   files.sort((left, right) => left.path.localeCompare(right.path));
+  yield* Effect.annotateCurrentSpan({
+    "usage.sessions": results.length,
+    "usage.sessions_unreadable": unreadable,
+    "usage.sessions_outside_window": skipped,
+  });
   const incomplete = catalogRead.failed || directory.failed || unreadable > 0;
   return {
     dir: root,
@@ -325,6 +355,7 @@ export const mistralVibeUsageReader: ProviderUsageReader<
 > = {
   kind: "scan",
   provider: "mistral",
+  rateModel: mistralVibeRateModel,
   scan: Effect.fn("mistralVibeUsageReader.scan")(function* ({ instances, windowStartMs }) {
     const roots = new Set<string>();
     for (const instance of instances) {
