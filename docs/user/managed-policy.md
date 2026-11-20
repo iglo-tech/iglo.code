@@ -136,6 +136,7 @@ A few settings need care:
     "clients": ["local-browser"],
     "webhookTasks": false,
     "browserCookieImport": false,
+    "previewTunnel": false,
     "telemetry": false,
     "providers": {
       "allowedDrivers": ["claudeAgent", "codex"],
@@ -213,6 +214,9 @@ so restart iglo.code after that.
   but do not run, and cannot be turned back on. Users can still edit or delete them.
 - `browserCookieImport: false`: users cannot import cookies from another browser into iglo.code's
   browser.
+- `previewTunnel: false`: other devices cannot load this machine's `localhost` pages themselves;
+  browser tabs stream from it instead. This wins over the user's
+  [Preview tunnel setting](./remote-access.md#browser-on-a-remote-environment).
 - `telemetry: false`: the server sends no [product usage data](./telemetry.md). A policy cannot
   turn it on.
 

@@ -162,6 +162,13 @@ Browser tabs belong to the environment, so you and your agents see the same
 tabs from any device. The web client streams them from the host. Agents keep using them while no device is
 connected, and `localhost` addresses reach servers on the host.
 
+Turn off **Settings → Sharing & access → Preview tunnel** on the host to stop
+other devices from loading its `localhost` pages themselves; open tunnels
+close. Tabs keep working by streaming from the host, so anyone who can use the
+host's browser tabs can still view its `localhost` pages there. An
+administrator can also turn it off with a
+[managed policy](./managed-policy.md#other-capabilities).
+
 The first tab downloads a full Chrome, about 200 MB, into the iglo.code home. It
 is the same browser [HTML renders](html-renders.md) use, so a host downloads it
 only once. The browser runs as a real window — on the host's display, or on a
@@ -265,6 +272,21 @@ makes the pairing code itself; otherwise paste one from that machine's
 **Settings → Sharing & access**. From a terminal, use
 `iglo.code environment link <address> --pairing-code <code> --access <mode>`.
 
+To link many machines at once, choose **Link several…** (it appears once this
+app has two other machines saved). Tick the machines, pick one access level for
+all of them, and confirm once. A machine can be ticked when this app is
+connected to it with a session that manages access there and has an address
+another machine can reach; the list says why when it cannot. Each machine
+reports its own result, and the ones that failed stay ticked so you can try
+only those again. Machines already linked are left as they are.
+
+For machines no app is connected to, put one `<address> <pairing-code>` per
+line in a file (make each code with `iglo.code pair` on that machine) and run
+`iglo.code environment link --from <file> --access <mode>`, or `--from -` to read
+standard input. It prints a result per line, leaves machines already linked as
+they are, and exits non-zero if any line failed, so the same file can be run
+again with fresh codes for the failures.
+
 You can also ask an agent to link a machine by name, such as "delegate this to
 my vps". It shows a card in the thread where you pick the machine the same way
 and the access, then approve. An address the agent gives that this app does
@@ -281,7 +303,9 @@ an address you trust: the code is sent there.
 - The link shows up in that machine's **Settings → Sharing & access** like any
   outside agent. Revoke it there to end it. **Forget** on this machine only
   removes it here.
-- Links last 30 days. Link again with a new pairing code to renew one.
+- A link stays valid while agents use it. One unused for 30 days expires, as
+  does one to a machine on an older iglo.code after 30 days; link again with a
+  new pairing code.
 
 An agent can also hand a task to a linked machine with `delegate_task`: it runs
 there as an ordinary thread, in the project with the same repository (or the
