@@ -324,7 +324,11 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
     VITE_DEV_SERVER_URL: devUrl?.toString() ?? `http://localhost:${webPort}`,
   };
 
-  if (configuredBaseDir !== undefined) {
+  const path = yield* Path.Path;
+  // The server stores an explicit home's state in userdata, which for ~/.iglo.code is the live
+  // install. Left implicit, dev state goes to ~/.iglo.code/dev.
+  const isLiveHome = resolvedBaseDir === path.join(yield* HostProcess.HomeDirectory, ".iglo.code");
+  if (configuredBaseDir !== undefined && !isLiveHome) {
     output.IGLO_CODE_HOME = resolvedBaseDir;
   } else {
     delete output.IGLO_CODE_HOME;

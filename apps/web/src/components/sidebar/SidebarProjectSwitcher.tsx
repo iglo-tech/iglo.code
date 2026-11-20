@@ -1,6 +1,7 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { LayersIcon, PinIcon, PlusIcon } from "lucide-react";
+import { T, useGT } from "gt-react";
 import { memo } from "react";
 
 import type { ContextMenuSource, ProjectIconColor } from "@t3tools/contracts";
@@ -48,6 +49,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   onContextMenu,
   threads,
 }: SidebarProjectSwitcherProps) {
+  const gt = useGT();
   const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
 
   const isAllSelected = selectedProjectKeys.length === 0;
@@ -74,12 +76,12 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
 
   return (
     <nav
-      aria-label="Projects"
+      aria-label={gt("Projects")}
       className="relative flex h-full w-14 shrink-0 flex-col items-center border-r border-sidebar-border bg-sidebar/70 py-2 select-none [-webkit-app-region:no-drag]"
     >
       {/* The phone sheet's only close control, where the chat header's toggle sits. */}
       <div className="flex w-full items-center justify-center pb-2 md:hidden">
-        <SidebarTrigger aria-label="Close sidebar" />
+        <SidebarTrigger aria-label={gt("Close sidebar")} />
       </div>
       {/* Top: All Projects button (Discord Home / DM style) */}
       <div className="group/item relative flex w-full items-center justify-center py-0.5">
@@ -96,7 +98,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
             render={
               <button
                 type="button"
-                aria-label="All projects"
+                aria-label={gt("All projects")}
                 aria-pressed={isAllSelected}
                 onClick={onSelectAll}
                 className={cn(
@@ -111,7 +113,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
             }
           />
           <TooltipPopup side="right" sideOffset={12}>
-            All projects
+            <T>All projects</T>
           </TooltipPopup>
         </Tooltip>
       </div>
@@ -139,11 +141,13 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           );
           const activityStatus =
             activity.needsYouCount > 0
-              ? `${activity.needsYouCount} need${activity.needsYouCount === 1 ? "s" : ""} you`
+              ? gt("{count, plural, one {{count} needs you} other {{count} need you}}", {
+                  count: activity.needsYouCount,
+                })
               : activity.unread
-                ? "Done"
+                ? gt("Done")
                 : activity.working
-                  ? "Working"
+                  ? gt("Working")
                   : null;
           const activityLabel = activityStatus ? `, ${activityStatus.toLowerCase()}` : "";
 
@@ -251,9 +255,9 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                       ) : null}
                     </div>
                     <span className="text-2xs text-muted-foreground">
-                      {project.pinned ? "Pinned • " : ""}
+                      {project.pinned ? `${gt("Pinned")} • ` : ""}
                       {activityStatus ? `${activityStatus} • ` : ""}
-                      Click to switch • Shift+click to toggle
+                      <T>Click to switch • Shift+click to toggle</T>
                     </span>
                   </div>
                 </TooltipPopup>
@@ -269,7 +273,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
               render={
                 <button
                   type="button"
-                  aria-label="Add project"
+                  aria-label={gt("Add project")}
                   onClick={onNewProject}
                   className="flex size-10 items-center justify-center rounded-3xl bg-sidebar-control-surface text-success transition-[border-radius,background-color,color,box-shadow] duration-200 outline-hidden hover:rounded-2xl hover:bg-success hover:text-success-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 >
@@ -278,7 +282,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
               }
             />
             <TooltipPopup side="right" sideOffset={12}>
-              Add project
+              <T>Add project</T>
             </TooltipPopup>
           </Tooltip>
         </div>

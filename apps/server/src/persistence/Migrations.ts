@@ -108,7 +108,12 @@ import Migration0097 from "./Migrations/097_TurnItemInlineWorkOutput.ts";
 import Migration0098 from "./Migrations/098_RepairStaleTitleRegeneration.ts";
 import Migration0099 from "./Migrations/099_IssueTrackerBindings.ts";
 import Migration0100 from "./Migrations/100_ActiveShellIndexIndexes.ts";
-import Migration0101 from "./Migrations/101_PeerLinkSessionBinding.ts";
+import Migration0101 from "./Migrations/101_BackgroundRecoveryIndexes.ts";
+import Migration0102 from "./Migrations/102_TurnStartReadIndexes.ts";
+import Migration0103 from "./Migrations/103_DelegatedTaskReadIndexes.ts";
+import Migration0104 from "./Migrations/104_ThreadItemCounts.ts";
+// Fork-only migrations land after upstream's numbers, so a sync never collides.
+import Migration0105 from "./Migrations/105_PeerLinkSessionBinding.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -212,7 +217,11 @@ export const migrationEntries = [
   [98, "RepairStaleTitleRegeneration", Migration0098],
   [99, "IssueTrackerBindings", Migration0099],
   [100, "ActiveShellIndexIndexes", Migration0100],
-  [101, "PeerLinkSessionBinding", Migration0101],
+  [101, "BackgroundRecoveryIndexes", Migration0101],
+  [102, "TurnStartReadIndexes", Migration0102],
+  [103, "DelegatedTaskReadIndexes", Migration0103],
+  [104, "ThreadItemCounts", Migration0104],
+  [105, "PeerLinkSessionBinding", Migration0105],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

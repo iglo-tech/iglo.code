@@ -50,6 +50,20 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+### Move a thread between projects
+
+Open a thread's menu — right-click its sidebar row or use the chat header's menu — and
+choose **Move to project**, then the destination, shown with its name, project color,
+and folder. The thread moves to that project's section, its scheduled tasks follow
+it, and from then on it works in the destination project's folder. Nothing is
+deleted: the conversation is unchanged, and files written in the old folder stay
+where they are. The saved branch and pull request links belonged to the old
+repository, so the thread starts fresh in the new one. The choice is unavailable
+while the thread is working, so finish or stop it first. A move can be undone for a
+few seconds from the undo notice, which also restores a worktree thread's branch
+and pull request links. For a No-project thread whose own folder should become a
+project, use **Turn into project** instead.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.
@@ -313,12 +327,17 @@ model, and reasoning level shown in the thread's composer, including for its fir
 reply. Change them for an individual side chat in its composer. Later changes to the
 parent do not change existing side chats.
 
-To use what you learned, choose **Bring back**. The thread gets the side chat with
-your next message there. Bring back is available while the thread is idle.
+To use what you learned, choose **Add to chat** at the top of the side chat, or type
+`@` and a word from its title in the thread's composer. The thread's message gets a
+link to the side chat, and the agent reads as much of it as it needs. This works
+while the thread is busy, once you have sent a message in the side chat. An agent on
+an external OpenCode server cannot read the link, so put the details in your message
+instead.
 
 Closing a side chat you never sent a message in deletes it. To delete one you used,
 choose **Delete** at the top of the side chat. Deleting a thread also deletes its
-side chats.
+side chats. Archiving a thread also archives its side chats and stops their work, and
+unarchiving the thread brings them back.
 
 ## Snooze until later
 

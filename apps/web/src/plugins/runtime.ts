@@ -16,6 +16,7 @@ import {
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
   followStreamInEnvironment,
+  runAtomCommand,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -29,6 +30,8 @@ import type { RpcClientError } from "effect/rpc";
 import type { EnvironmentSupervisor } from "@t3tools/client-runtime/connection";
 
 import { connectionAtomRuntime } from "../connection/runtime";
+import { msg } from "gt-react";
+import { m } from "~/i18n/messages";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSession } from "../state/session";
 
@@ -190,26 +193,41 @@ export function createFixtureClient(environmentId: EnvironmentId): FixtureClient
     subscribePermissions: (onPermissions) =>
       appAtomRegistry.subscribe(permissionsAtom(environmentId), onPermissions, { immediate: true }),
     list: async (input) => {
-      const result = await list.run(appAtomRegistry, {
-        environmentId,
-        input: { ...input, environmentId },
-      });
+      const result = await runAtomCommand(
+        appAtomRegistry,
+        list,
+        {
+          environmentId,
+          input: { ...input, environmentId },
+        },
+        { reportFailure: false },
+      );
       if (result._tag === "Failure") throw Cause.squash(result.cause);
       return result.value;
     },
     resolve: async (id) => {
-      const result = await resolve.run(appAtomRegistry, {
-        environmentId,
-        input: { id, environmentId },
-      });
+      const result = await runAtomCommand(
+        appAtomRegistry,
+        resolve,
+        {
+          environmentId,
+          input: { id, environmentId },
+        },
+        { reportFailure: false },
+      );
       if (result._tag === "Failure") throw Cause.squash(result.cause);
       return result.value;
     },
     schedule: async (id, everyMs) => {
-      const result = await schedule.run(appAtomRegistry, {
-        environmentId,
-        input: { id, everyMs, environmentId },
-      });
+      const result = await runAtomCommand(
+        appAtomRegistry,
+        schedule,
+        {
+          environmentId,
+          input: { id, everyMs, environmentId },
+        },
+        { reportFailure: false },
+      );
       if (result._tag === "Failure") throw Cause.squash(result.cause);
     },
     subscribe: (input, onReports, onError) =>
@@ -219,7 +237,7 @@ export function createFixtureClient(environmentId: EnvironmentId): FixtureClient
           if (result._tag === "Success") onReports(result.value);
           if (result._tag === "Failure") {
             const error = Cause.squash(result.cause);
-            onError(error instanceof Error ? error.message : "Reports subscription ended.");
+            onError(error instanceof Error ? error.message : m(msg("Reports subscription ended.")));
           }
         },
         { immediate: true },

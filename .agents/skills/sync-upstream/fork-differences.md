@@ -100,6 +100,30 @@ current when an authorized change replaces a decision.
   local, LAN, Tailscale, and SSH connections. Device tool installation and execution
   use the supported Bun interpreter, including remote version checks; removing
   native T3 clients must not remove users' device-project support.
+- **Headed full-Chrome browser pane.** The pane and HTML renders share one pinned
+  full Chrome for Testing (`chrome` flavor, never upstream's
+  `chrome-headless-shell`), installed under `tools/chrome/<platform>/<version>`
+  with per-platform executable paths and the macOS bundle's symlinks; see
+  [PreviewBrowser.ts](../../../apps/server/src/preview/PreviewBrowser.ts).
+  Upstream pins and bumps the shell: port a bump as a full-Chrome re-pin with
+  fresh sizes and SHA-256 from the Chrome for Testing index, not by restoring the
+  shell release table, its `tools/chrome-headless-shell` install root, or the
+  UA-spoofing `presentAsChrome` path this fork deleted. The pane always launches
+  headed (`headless: false` in
+  [ServerBrowserContexts.ts](../../../apps/server/src/preview/ServerBrowserContexts.ts));
+  there is no headless fallback. A Linux host without a display gets one from
+  [XvfbServer.ts](../../../apps/server/src/preview/XvfbServer.ts), started on
+  demand and closed with the server; a missing Xvfb is a hard
+  `PreviewBrowserDisplayError`. `iglo.code browser setup` owns the host story: it
+  installs Xvfb, the fuller full-Chrome library list, and the `t3-chrome`
+  AppArmor profile, unloading the legacy `t3-chrome-headless-shell` profile. The
+  error reaches clients through the fork-only `"display"` value of
+  `PreviewStreamHostSetup.need`; keep that literal, its
+  [ServerBrowserStream.ts](../../../apps/server/src/preview/ServerBrowserStream.ts)
+  mapping, and the client decode in
+  [serverBrowserStream.ts](../../../packages/client-runtime/src/preview/serverBrowserStream.ts)
+  together when importing upstream contracts, which has only `"sandbox"` and
+  `"libraries"`.
 - **Peer links are two-way.** Upstream links one direction per sign-in; the fork
   makes one link serve both. After the forward sign-in, the linking environment
   mints its own one-time peer-link code and offers it over
@@ -126,7 +150,7 @@ current when an authorized change replaces a decision.
   through [McpOAuth.ts](../../../apps/server/src/auth/McpOAuth.ts) and
   [EnvironmentAuth.ts](../../../apps/server/src/auth/EnvironmentAuth.ts)), but
   it is only a claim: the accept path refuses to move an existing link row
-  whatever address the offer carries, and each row's `peer_session_id` (migration 101) names the one session that may forget it — bound to the offering
+  whatever address the offer carries, and each row's `peer_session_id` (migration 105) names the one session that may forget it — bound to the offering
   session on accept, and to the back-link session found via the spent grant's
   `pairing_grant_id` on the offering side. An impostor session therefore pays
   with its own revocation and cannot touch an existing row — but it can still
@@ -218,3 +242,36 @@ current when an authorized change replaces a decision.
 - **History swipe setting.** The fork carries upstream PR 28370's
   `historySwipeNavigation` setting (off by default). Drop the fork copy once
   upstream merges its own.
+- **Mistral Vibe usage provider.** The fork carries upstream PR 23380's `mistral`
+  usage provider (Mistral Vibe session stats and estimated cost in the Usage
+  view), which upstream closed unmerged. Drop the fork copy once upstream
+  merges its own; reconcile the reader, the driver/provider lists, and the web
+  presentations together.
+- **Move a thread between projects.** A thread's context menu (sidebar row and
+  chat header share one builder) offers **Move to project** with a destination
+  submenu: project identity (a custom monogram icon, else the title monogram)
+  and a short path, rendered through `ContextMenuItem.monogram`. The guarded
+  `threads.moveToProject` method re-points the thread's scheduled tasks and
+  dispatches the internal `thread.project.move` command
+  ([ThreadProjectMove.ts](../../../apps/server/src/project/ThreadProjectMove.ts);
+  `dispatchThreadProjectMove` in
+  [Orchestrator.ts](../../../apps/server/src/orchestration-v2/Orchestrator.ts)).
+  A move detaches live provider sessions ("Moved to another project.") exactly
+  as a workspace change does, refuses while work or background agents run or
+  the target is archived or deleted, and clears the worktree pin plus the old
+  repository's branch and pull request links — including the `pullRequests`
+  array the UI reads first — so the thread re-homes clean at the target
+  project's root. The undo notice ("Moved") moves it back and restores a
+  worktree thread's pin, branch, and pull request links through
+  `thread.metadata.update` (which carries an optional wholesale-replace
+  `pullRequests` field for that restore)
+  ([useThreadActions.ts](../../../apps/web/src/hooks/useThreadActions.ts)).
+  The `threadProjectMove` server capability hides the item on older servers.
+  Keep the destinations builder and menu item in
+  [threadActionMenu.logic.ts](../../../apps/web/src/components/threadActionMenu.logic.ts),
+  the **Move a thread between projects** section in
+  [thread-sidebar.md](../../../docs/user/thread-sidebar.md), and the focused
+  tests beside each layer (runtimeLayer.test.ts, useThreadActions.undo.test.ts,
+  threadActionMenu.logic.test.ts, commandPermissions.test.ts). Upstream has no
+  equivalent yet; if it ships its own move, reconcile the contracts, menu, and
+  dispatch semantics rather than carrying both paths.

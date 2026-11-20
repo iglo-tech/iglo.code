@@ -1,4 +1,5 @@
 import { useBlocker } from "@tanstack/react-router";
+import { T, useGT, useMessages } from "gt-react";
 import type { PluginBreadcrumbItem, PluginDesign } from "@t3tools/plugin-host-contract/web";
 import {
   CheckIcon,
@@ -99,7 +100,7 @@ function NavigationGuard({
   const actions = (
     <>
       <Button variant="outline" size="sm" autoFocus onClick={() => blocker.reset?.()}>
-        Keep editing
+        <T>Keep editing</T>
       </Button>
       {keepLabel === undefined ? null : (
         <Button variant="outline" size="sm" onClick={() => blocker.proceed?.()}>
@@ -114,7 +115,7 @@ function NavigationGuard({
           blocker.proceed?.();
         }}
       >
-        Discard
+        <T>Discard</T>
       </Button>
     </>
   );
@@ -203,7 +204,7 @@ function ConfirmDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <Button variant="outline" size="sm" autoFocus onClick={() => onOpenChange(false)}>
-            Cancel
+            <T>Cancel</T>
           </Button>
           <Button
             variant="destructive"
@@ -289,6 +290,7 @@ function Crumb({ item, current }: { item: PluginBreadcrumbItem; current: boolean
 
 /** The connection notice a page shows while its environment is not reconciled. */
 export function PluginPageStatusStrip({ chrome }: { chrome: PluginPageChrome }) {
+  const m = useMessages();
   if (chrome.status === "connected") return null;
   const notice = pageStatusNotice[chrome.status];
   return (
@@ -297,11 +299,11 @@ export function PluginPageStatusStrip({ chrome }: { chrome: PluginPageChrome }) 
       className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-warning/8 px-(--workspace-gutter-start) py-1.5 text-xs"
     >
       <TriangleAlertIcon aria-hidden className="size-3.5 text-warning" />
-      <span className="font-medium">{notice.title}</span>
-      <span className="text-muted-foreground">{notice.detail}</span>
+      <span className="font-medium">{m(notice.title)}</span>
+      <span className="text-muted-foreground">{m(notice.detail)}</span>
       {chrome.status === "catalog-unavailable" && chrome.onRetryCatalog !== undefined ? (
         <Button size="xs" variant="outline" onClick={chrome.onRetryCatalog}>
-          Retry
+          <T>Retry</T>
         </Button>
       ) : null}
     </div>
@@ -309,6 +311,7 @@ export function PluginPageStatusStrip({ chrome }: { chrome: PluginPageChrome }) 
 }
 
 function PageHeader({ breadcrumb, children }: ComponentProps<PluginDesign["PageHeader"]>) {
+  const gt = useGT();
   const chrome = usePluginPageChrome();
   const claim = chrome?.claimHeader;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Claims the host header slot while mounted.
@@ -321,7 +324,7 @@ function PageHeader({ breadcrumb, children }: ComponentProps<PluginDesign["PageH
     <>
       <WorkspacePageHeader electron={chrome?.electron ?? false}>
         <WorkspaceBreadcrumb
-          ariaLabel="Page breadcrumb"
+          ariaLabel={gt("Page breadcrumb")}
           className="flex-1 overflow-clip [overflow-clip-margin:2px]"
         >
           {items.map((item, index) => {
@@ -368,11 +371,12 @@ function PluginCombobox({
   onChange,
   options,
   placeholder,
-  searchPlaceholder = "Search…",
-  emptyText = "No matches",
+  searchPlaceholder,
+  emptyText,
   query: controlledQuery,
   onQueryChange,
 }: ComponentProps<PluginDesign["Combobox"]>) {
+  const gt = useGT();
   const [open, setOpen] = useState(false);
   const [localQuery, setLocalQuery] = useState("");
   const query = controlledQuery ?? localQuery;
@@ -414,11 +418,11 @@ function PluginCombobox({
       </ComboboxTrigger>
       <ComboboxPopup className="flex w-(--anchor-width) min-w-72 flex-col">
         <ComboboxSearchInput
-          placeholder={searchPlaceholder}
+          placeholder={searchPlaceholder ?? gt("Search…")}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
-        <ComboboxEmpty>{emptyText}</ComboboxEmpty>
+        <ComboboxEmpty>{emptyText ?? gt("No matches")}</ComboboxEmpty>
         <ComboboxList>
           {shown.map((option, index) => (
             <ComboboxItem

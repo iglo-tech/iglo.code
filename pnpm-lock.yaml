@@ -236,9 +236,9 @@ overrides:
   micromark-extension-llm-math: 3.1.0
   micromark: 4.0.2
   mdast-util-to-hast: 13.2.1
-  '@cursor/sdk': 1.3.1
+  '@cursor/sdk': 1.4.1
   '@ff-labs/fff-node': 0.11.0
-  '@legendapp/list': 3.7.2
+  '@legendapp/list': 3.7.3
   '@pierre/diffs': 1.7.0-beta.4
   '@exodus/bytes>@noble/hashes': 1.8.0
   '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-arm64': '-'
@@ -288,13 +288,12 @@ packageExtensionsChecksum: sha256-+v8ntounVLrYFu5whiqOiF5wsCM8sIM8cT3HaXVONag=
 pnpmfileChecksum: sha256-h8NLkl2dhhbQKbAHnoo4rQ3tYV96igLQxJ7la6dsbSc=
 
 patchedDependencies:
-  '@cursor/sdk@1.3.1': 74bb82d3804752a413af72c7ffedc5fb24039216ab85e3330874a4892a0fdce9
+  '@cursor/sdk@1.4.1': eca524470dd47bd4b1429d36f3f7ed282e804517f572303e12fc18b4f863e8ad
   '@effect/platform-node-shared@4.1.2': 06952843c6f431ca83c78762fd18d23cda76883801049ee311feced2438ecf14
   '@effect/vitest@4.1.2': 299510b71c36537a832a67e9d160a5f112a5f326a29e95c41cb45fc8234e47c7
   '@ff-labs/fff-node@0.11.0': 93f62a76399b435a76588b2bef237db0a1e85880c1ac0d0759c416e9cc579252
-  '@legendapp/list@3.7.2': fc8470158c72676c35f43a0a84f90e53105c3eedd930e242534a37ff4159a3ef
   '@muse-code/sdk@1.4.6': 7b495b607fc5d76b444c7c4d58821e839726a30e6f3c53564f0d59f2d5b42101
-  '@pierre/diffs@1.7.0-beta.4': b24b206d14c79de95be10322b96490b82e41cc13c8a02c7378aaf8e03623431b
+  '@pierre/diffs@1.7.0-beta.4': b5d99ba050d8ccce3bd4018c2c21b7be2be3cb9bcc0d1f5ca76c481a9240b8c7
   mdast-util-math@3.0.0: afe6b2c89e1eaddfd3c90cf2723f12c9a17d513e65beff51653781486013251c
   mdast-util-to-hast@13.2.1: 57ea46c73aea3c876ab8d351fe0482ddd081dcb4a0610576e399dbe5eb59d2b1
   micromark-extension-gfm-table@2.1.1: 9ad23a530e45d9f83cba1da8654fe16d5af8b59d5c73d5c7a7c91fd25b9be1d8
@@ -330,8 +329,8 @@ importers:
         specifier: ^0.3.321
         version: 0.3.321(@anthropic-ai/sdk@0.93.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.29.0(supports-color@8.1.1)(zod@4.6.5))(zod@4.6.5)
       '@cursor/sdk':
-        specifier: 1.3.1
-        version: 1.3.1(patch_hash=74bb82d3804752a413af72c7ffedc5fb24039216ab85e3330874a4892a0fdce9)(zod@4.6.5)
+        specifier: 1.4.1
+        version: 1.4.1(patch_hash=eca524470dd47bd4b1429d36f3f7ed282e804517f572303e12fc18b4f863e8ad)(zod@4.6.5)
       '@effect/platform-node':
         specifier: 4.1.2
         version: 4.1.2(bufferutil@4.1.0)(effect@4.1.3)(redis@6.2.1)(utf-8-validate@6.0.6)
@@ -583,14 +582,14 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       '@legendapp/list':
-        specifier: 3.7.2
-        version: 3.7.2(patch_hash=fc8470158c72676c35f43a0a84f90e53105c3eedd930e242534a37ff4159a3ef)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 3.7.3
+        version: 3.7.3(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@noble/hashes':
         specifier: 'catalog:'
         version: 1.8.0
       '@pierre/diffs':
         specifier: 1.7.0-beta.4
-        version: 1.7.0-beta.4(patch_hash=b24b206d14c79de95be10322b96490b82e41cc13c8a02c7378aaf8e03623431b)(@shikijs/themes@4.2.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 1.7.0-beta.4(patch_hash=b5d99ba050d8ccce3bd4018c2c21b7be2be3cb9bcc0d1f5ca76c481a9240b8c7)(@shikijs/themes@4.2.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@pierre/trees':
         specifier: 1.0.0-beta.6
         version: 1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@4.2.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.2.0)
@@ -914,10 +913,13 @@ importers:
     dependencies:
       '@pierre/diffs':
         specifier: 1.7.0-beta.4
-        version: 1.7.0-beta.4(patch_hash=b24b206d14c79de95be10322b96490b82e41cc13c8a02c7378aaf8e03623431b)(@shikijs/themes@4.2.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 1.7.0-beta.4(patch_hash=b5d99ba050d8ccce3bd4018c2c21b7be2be3cb9bcc0d1f5ca76c481a9240b8c7)(@shikijs/themes@4.2.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@t3tools/issue-tracker-linear':
+        specifier: workspace:*
+        version: link:../issue-tracker-linear
       '@t3tools/provider-acp-registry':
         specifier: workspace:*
         version: link:../provider-acp-registry
@@ -960,6 +962,9 @@ importers:
       effect:
         specifier: 4.1.3
         version: 4.1.3
+      gt-i18n:
+        specifier: 1.0.40
+        version: 1.0.40
       jszip:
         specifier: 3.10.1
         version: 3.10.1
@@ -1282,8 +1287,8 @@ importers:
   packages/provider-cursor:
     dependencies:
       '@cursor/sdk':
-        specifier: 1.3.1
-        version: 1.3.1(patch_hash=74bb82d3804752a413af72c7ffedc5fb24039216ab85e3330874a4892a0fdce9)(zod@4.6.7)
+        specifier: 1.4.1
+        version: 1.4.1(patch_hash=eca524470dd47bd4b1429d36f3f7ed282e804517f572303e12fc18b4f863e8ad)(zod@4.6.7)
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -1556,9 +1561,15 @@ importers:
         specifier: 4.1.3
         version: 4.1.3
     devDependencies:
+      '@effect/vitest':
+        specifier: 4.1.2
+        version: 4.1.2(patch_hash=299510b71c36537a832a67e9d160a5f112a5f326a29e95c41cb45fc8234e47c7)(@astrojs/compiler-rs@0.5.1)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(effect@4.1.3)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
       '@types/node':
         specifier: 24.12.4
         version: 24.12.4
+      vite-plus:
+        specifier: 1.4.0
+        version: 1.4.0(@astrojs/compiler-rs@0.5.1)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
 
   packages/secret-provider-core:
     dependencies:
@@ -1642,6 +1653,9 @@ importers:
       get-east-asian-width:
         specifier: ^1.6.0
         version: 1.7.0
+      gt-i18n:
+        specifier: 1.0.40
+        version: 1.0.40
       mdast-util-directive:
         specifier: 'catalog:'
         version: 3.1.0(supports-color@8.1.1)
@@ -2474,38 +2488,38 @@ packages:
     resolution: {integrity: sha512-bPlN9S9O1A0euCpEWE4qnvB5YDuyYVsUTrxSgmAM1Is0j4tICHoVyOVAXfWMP/kS9ZrjvyIXWV2PmomiAXXqOw==}
     engines: {node: '>=20.19.0'}
 
-  '@cursor/sdk-darwin-arm64@1.3.1':
-    resolution: {integrity: sha512-5JXgVJYeFPxXjDqnu1ha/rAmH+ATFh4abdx199x8E/RcYYM++9b55oJXO3GYv1/9/4Qa9RsE5JkHRY6FYc5vQw==}
+  '@cursor/sdk-darwin-arm64@1.4.1':
+    resolution: {integrity: sha512-iR5v8dQSF574WC4S/hgqXvDjMdLQlXbu9hJnhmUUferHVjI2v1RPoX/HvXFvke3SbPD2sLaTAB69rn3jpyuSFg==}
     cpu: [arm64]
     os: [darwin]
     hasBin: true
 
-  '@cursor/sdk-darwin-x64@1.3.1':
-    resolution: {integrity: sha512-yHzIRER8IpOpIH/CUigquuwqvcjCEe62xV6OiJHzRfgApdnzxCjC8JMhLZP2M08/dofyZu9xeo7yr43H6oSRTA==}
+  '@cursor/sdk-darwin-x64@1.4.1':
+    resolution: {integrity: sha512-nvmA1+rRI/enhbA9P5xKW1sicbSdjN3WkOM0JTIzkjee/A/UQ7YaLBcZjrTqSIna+/tqyNdSupVa41/BL+NM7A==}
     cpu: [x64]
     os: [darwin]
     hasBin: true
 
-  '@cursor/sdk-linux-arm64@1.3.1':
-    resolution: {integrity: sha512-8wI7DUSQtJ7Rkyj5AhNONeR0M+5bjhR0qo8GJEEmRs6isi072sNPsFXwfhlzX7bhbtsX/FCtvsTG/vpam48ObA==}
+  '@cursor/sdk-linux-arm64@1.4.1':
+    resolution: {integrity: sha512-92HIbKzlILBMLUso6a8IlnbUysNi6jJvbkuZX45/T3+C/rkYe5RheIaytdz53crKMleH00Lz2fy9l0MK5aOrOQ==}
     cpu: [arm64]
     os: [linux]
     hasBin: true
 
-  '@cursor/sdk-linux-x64@1.3.1':
-    resolution: {integrity: sha512-jIwzTr3KhMtU4aJc8x0i1RlcBKttqcVYhor9FI/h1qJQm03yTgSwhyZjsMvfBHPQ5KoYDFVdu47S1dIhwaSWZA==}
+  '@cursor/sdk-linux-x64@1.4.1':
+    resolution: {integrity: sha512-lUpG6G7qkOh9cC5IMOWr8sGrlOpnEH7s0nw/Mdg0o6DpJFkouyXk6Cy+RMaQKQeilTPIy5RW87zWgBwRKnj8KQ==}
     cpu: [x64]
     os: [linux]
     hasBin: true
 
-  '@cursor/sdk-win32-x64@1.3.1':
-    resolution: {integrity: sha512-hqYllGgY27eaq+w035PebKdoc/JswcrvOSNCniqq/nicLXgWdK5zdKiAs5MyWUr73HGGL1sK0aiE7WdxbIKKVw==}
+  '@cursor/sdk-win32-x64@1.4.1':
+    resolution: {integrity: sha512-8x8hIPyVu6ChyzGPryOSFVJVbLe7nTvXBUKKia9/SEtzSonQLYPoj5pjpkWOpLxhyHkWnwxQfkSC0mO9+9pW1w==}
     cpu: [x64]
     os: [win32]
     hasBin: true
 
-  '@cursor/sdk@1.3.1':
-    resolution: {integrity: sha512-Mn0gK8V+5BkOqm22J2ocU+1BrqnNH8QcK9kmA7SkRuawDOeq2ABC2BIZq9gRnF3z68x/I7J/ZU8jl6DcshCVUA==}
+  '@cursor/sdk@1.4.1':
+    resolution: {integrity: sha512-+/be5Dh+MSk3KHwVWv2l7rCKemxd6ducLO+X7u43GE+jL9Md00bxwMciP+WMzVu4qcn5Yh0y/Ij+UT+W5FbtQg==}
     engines: {node: '>=22.13'}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -3092,8 +3106,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@legendapp/list@3.7.2':
-    resolution: {integrity: sha512-StFy5qjOHHuxHKjenwLq500S/z+zuF43hj8iqXhX9EMtzeOagPfsnMRWphvBG4CYBvMTX6VzgLjN5BzzwY1jDA==}
+  '@legendapp/list@3.7.3':
+    resolution: {integrity: sha512-trGu1i4xo1+r6gG6GI3qrrZAfYHbB25uVj32/KnxhaQ7/eW4AqzhM5cW21Oye4dpg+180Ts1aejRuI8z6Xc4eg==}
     peerDependencies:
       react: '*'
       react-dom: '*'
@@ -8099,22 +8113,22 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.1': {}
 
-  '@cursor/sdk-darwin-arm64@1.3.1':
+  '@cursor/sdk-darwin-arm64@1.4.1':
     optional: true
 
-  '@cursor/sdk-darwin-x64@1.3.1':
+  '@cursor/sdk-darwin-x64@1.4.1':
     optional: true
 
-  '@cursor/sdk-linux-arm64@1.3.1':
+  '@cursor/sdk-linux-arm64@1.4.1':
     optional: true
 
-  '@cursor/sdk-linux-x64@1.3.1':
+  '@cursor/sdk-linux-x64@1.4.1':
     optional: true
 
-  '@cursor/sdk-win32-x64@1.3.1':
+  '@cursor/sdk-win32-x64@1.4.1':
     optional: true
 
-  '@cursor/sdk@1.3.1(patch_hash=74bb82d3804752a413af72c7ffedc5fb24039216ab85e3330874a4892a0fdce9)(zod@4.6.5)':
+  '@cursor/sdk@1.4.1(patch_hash=eca524470dd47bd4b1429d36f3f7ed282e804517f572303e12fc18b4f863e8ad)(zod@4.6.5)':
     dependencies:
       '@bufbuild/protobuf': 1.10.0
       '@connectrpc/connect': 1.7.0(@bufbuild/protobuf@1.10.0)
@@ -8122,13 +8136,13 @@ snapshots:
       '@statsig/js-client': 3.31.0
       zod: 4.6.5
     optionalDependencies:
-      '@cursor/sdk-darwin-arm64': 1.3.1
-      '@cursor/sdk-darwin-x64': 1.3.1
-      '@cursor/sdk-linux-arm64': 1.3.1
-      '@cursor/sdk-linux-x64': 1.3.1
-      '@cursor/sdk-win32-x64': 1.3.1
+      '@cursor/sdk-darwin-arm64': 1.4.1
+      '@cursor/sdk-darwin-x64': 1.4.1
+      '@cursor/sdk-linux-arm64': 1.4.1
+      '@cursor/sdk-linux-x64': 1.4.1
+      '@cursor/sdk-win32-x64': 1.4.1
 
-  '@cursor/sdk@1.3.1(patch_hash=74bb82d3804752a413af72c7ffedc5fb24039216ab85e3330874a4892a0fdce9)(zod@4.6.7)':
+  '@cursor/sdk@1.4.1(patch_hash=eca524470dd47bd4b1429d36f3f7ed282e804517f572303e12fc18b4f863e8ad)(zod@4.6.7)':
     dependencies:
       '@bufbuild/protobuf': 1.10.0
       '@connectrpc/connect': 1.7.0(@bufbuild/protobuf@1.10.0)
@@ -8136,11 +8150,11 @@ snapshots:
       '@statsig/js-client': 3.31.0
       zod: 4.6.7
     optionalDependencies:
-      '@cursor/sdk-darwin-arm64': 1.3.1
-      '@cursor/sdk-darwin-x64': 1.3.1
-      '@cursor/sdk-linux-arm64': 1.3.1
-      '@cursor/sdk-linux-x64': 1.3.1
-      '@cursor/sdk-win32-x64': 1.3.1
+      '@cursor/sdk-darwin-arm64': 1.4.1
+      '@cursor/sdk-darwin-x64': 1.4.1
+      '@cursor/sdk-linux-arm64': 1.4.1
+      '@cursor/sdk-linux-x64': 1.4.1
+      '@cursor/sdk-win32-x64': 1.4.1
 
   '@dagrejs/dagre@3.1.1':
     dependencies:
@@ -8668,7 +8682,7 @@ snapshots:
   '@koromix/koffi-win32-x64@3.3.7':
     optional: true
 
-  '@legendapp/list@3.7.2(patch_hash=fc8470158c72676c35f43a0a84f90e53105c3eedd930e242534a37ff4159a3ef)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@legendapp/list@3.7.3(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       react: 19.3.0
       use-sync-external-store: 1.6.0(react@19.3.0)
@@ -9244,7 +9258,7 @@ snapshots:
 
   '@oxlint/plugins@1.89.0': {}
 
-  '@pierre/diffs@1.7.0-beta.4(patch_hash=b24b206d14c79de95be10322b96490b82e41cc13c8a02c7378aaf8e03623431b)(@shikijs/themes@4.2.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@pierre/diffs@1.7.0-beta.4(patch_hash=b5d99ba050d8ccce3bd4018c2c21b7be2be3cb9bcc0d1f5ca76c481a9240b8c7)(@shikijs/themes@4.2.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@pierre/highlights': 0.5.1
       '@pierre/patches': 0.0.1

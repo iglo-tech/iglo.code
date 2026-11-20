@@ -4,7 +4,9 @@ import type { EnvironmentId, PluginPageState, PluginTarget, ProjectId } from "@t
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
+import { msg, useGT } from "gt-react";
 import { Fragment, useEffect, useState } from "react";
+import { m } from "~/i18n/messages";
 import type { PluginWebContext } from "@t3tools/plugin-host-contract/web";
 import { RenderErrorBoundary } from "../components/RenderErrorBoundary";
 import { Button } from "../components/ui/button";
@@ -188,6 +190,7 @@ function EnvironmentPluginAttention({
   environmentId: EnvironmentId;
   labelEnvironment: boolean;
 }) {
+  const gt = useGT();
   const { contributions } = usePluginContributions(environmentId);
   const environment = useEnvironment(environmentId);
   const attention = useAtomValue(attentionAtom(environmentId));
@@ -243,7 +246,7 @@ function EnvironmentPluginAttention({
                     title={
                       available
                         ? `${item.summary} · ${item.reason}`
-                        : "This page is not available in this client."
+                        : gt("This page is not available in this client.")
                     }
                     onClick={() => open(item.link)}
                   >
@@ -301,7 +304,7 @@ export function PluginSidebarAttention() {
 function ProjectActionFailed({ title, setOpen }: { title: string; setOpen: (open: null) => void }) {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Fires a toast and closes the action once for a failed project action.
   useEffect(() => {
-    toastManager.add({ type: "error", title: `Couldn't open ${title}` });
+    toastManager.add({ type: "error", title: m(msg("Couldn't open {title}", { title })) });
     setOpen(null);
   }, [title, setOpen]);
   return null;

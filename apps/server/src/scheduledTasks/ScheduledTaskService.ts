@@ -340,6 +340,8 @@ function iso(value: DateTime.DateTime): string {
 }
 
 const RUN_OUTCOME_WAIT_MS = 24 * 60 * 60 * 1_000;
+const HELD_OCCURRENCE_ERROR =
+  "A previous occurrence is held in the thread queue. Resume or remove it to run this task again.";
 const UNSUCCESSFUL_RUN_ERRORS = {
   failed: "The run failed.",
   interrupted: "The run was stopped.",
@@ -930,7 +932,8 @@ export const layer = Layer.effect(
 
     // A dispatch is recorded once the message is accepted; the provider can still
     // reject the turn after that, so follow the run and record its failure. A one-time
-    // task whose turn completed is spent, so it is removed; its thread stays.
+    // task whose turn completed at or after its runAt is spent, so it is removed; its
+    // thread stays. A paused task always has a NULL next_run_at, so that alone proves nothing.
     const recordRunOutcome = Effect.fn("ScheduledTaskService.recordRunOutcome")(function* (
       taskId: ScheduledTaskId,
       startedAtIso: string,
@@ -955,15 +958,24 @@ export const layer = Layer.effect(
           WHERE task_id = ${taskId} AND last_run_at = ${startedAtIso}
             AND last_run_status = 'succeeded' AND next_run_at IS NULL
             AND json_extract(schedule_json, '$.type') = 'once'
+            AND julianday(last_run_at) >= julianday(json_extract(schedule_json, '$.runAt'))
           RETURNING task_id
         `;
         if (removed.length > 0) yield* notifyChanged;
         return;
       }
-      const { turnItems, messages } = yield* threadManagement.getProjectThreadRecords(thread, [
-        "turnItems",
-        "messages",
-      ]);
+      // Only the run's failed errors feed latestRootProviderFailure; a long-lived task
+      // thread holds tens of thousands of items.
+      const { turnItems, messages } = yield* threadManagement.getProjectThreadRecords(
+        thread,
+        ["turnItems", "messages"],
+        {
+          messageIds: [messageId],
+          turnItemRunId: run.id,
+          turnItemTypes: ["error"],
+          turnItemStatuses: ["failed"],
+        },
+      );
       // A queued message promoted to a steer cancels its run and joins the active one.
       if (
         run.status === "cancelled" &&
@@ -975,7 +987,9 @@ export const layer = Layer.effect(
       const updated = yield* sql`
         UPDATE scheduled_tasks
         SET last_run_status = 'failed', last_run_error = ${error}
-        WHERE task_id = ${taskId} AND last_run_at = ${startedAtIso} AND last_run_status = 'succeeded'
+        WHERE task_id = ${taskId} AND last_run_at = ${startedAtIso}
+          AND (last_run_status = 'succeeded'
+            OR (last_run_status = 'failed' AND last_run_error = ${HELD_OCCURRENCE_ERROR}))
         RETURNING task_id
       `;
       if (updated.length > 0) yield* notifyChanged;
@@ -1186,7 +1200,18 @@ export const layer = Layer.effect(
               current.projectId === active.projectId &&
               current.threadId === active.threadId
             )
-              yield* rescheduleNextRun(current, startedAt);
+              yield* rescheduleNextRun(
+                current,
+                startedAt,
+                // An outcome recorded during the lookup outranks the held notice.
+                current.lastRunStatus === active.lastRunStatus &&
+                  current.lastRunError === active.lastRunError &&
+                  pendingPrompt.value.runs.some(
+                    (run) => run.status === "queued" && run.queueHeld === true,
+                  )
+                  ? HELD_OCCURRENCE_ERROR
+                  : undefined,
+              );
             return { task: current ?? active, threadId: null, dispatchFailed: false };
           }
           if (!(yield* markRunning(active, startedAtIso, webhook?.deliveryId))) {

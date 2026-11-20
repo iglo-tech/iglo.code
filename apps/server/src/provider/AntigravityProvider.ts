@@ -4,6 +4,7 @@ import {
   ProviderDriverKind,
   type AntigravitySettings,
   type ProviderSetupError,
+  type RuntimeMode,
   type ServerProvider,
   type ServerProviderModel,
   type ServerProviderSlashCommand,
@@ -24,8 +25,12 @@ import type * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import { parseSessionModeState } from "@t3tools/provider-acp/server/runtimeModel";
 import { acpProviderOptionDescriptors } from "@t3tools/provider-acp/server/sessionConfig";
-import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
+import {
+  DeferringFailedCheck,
+  makeManagedServerProvider,
+} from "@t3tools/provider-core/server/managedProvider";
 import type { ProviderWorkspaceSnapshot } from "@t3tools/provider-core/server/driver";
 import {
   makeManualOnlyProviderMaintenanceCapabilities,
@@ -147,7 +152,7 @@ function isMissingInstallation(error: EffectAcpErrors.AcpError | ProviderSetupEr
   return (
     error._tag === "ProviderSetupError" &&
     error.operation === "resolve" &&
-    /not installed|missing|incomplete|does not publish/i.test(error.detail)
+    /not installed|missing|incomplete|changed on disk|does not publish/i.test(error.detail)
   );
 }
 
@@ -170,6 +175,23 @@ interface AntigravityProviderOptions {
   readonly auth?: { readonly type: string; readonly label: string };
 }
 
+const RUNTIME_MODES_WITHOUT_AUTO = [
+  "approval-required",
+  "auto-accept-edits",
+  "full-access",
+] as const;
+
+/** Auto is offered only where the session advertises agy's own Auto; elsewhere it runs Supervised. */
+function antigravityRuntimeModes(
+  sessionSetupResult: AcpSessionRuntime.AcpSessionRuntimeStartResult["sessionSetupResult"],
+): ReadonlyArray<RuntimeMode> {
+  return parseSessionModeState(sessionSetupResult)?.availableModes.some(
+    (mode) => mode.id === "auto",
+  )
+    ? ["approval-required", "auto-accept-edits", "auto", "full-access"]
+    : RUNTIME_MODES_WITHOUT_AUTO;
+}
+
 export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(function* (
   settings: AntigravitySettings,
   options: AntigravityProviderOptions,
@@ -188,8 +210,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       presentation: {
         displayName: "Antigravity",
         showInteractionModeToggle: false,
-        // No automatic review, so Auto falls back to Supervised instead of approving everything.
-        supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
+        supportedRuntimeModes: RUNTIME_MODES_WITHOUT_AUTO,
       },
       enabled: settings.enabled,
       checkedAt,
@@ -205,7 +226,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       },
     }),
     setup: { canAuthenticate: true, canInstall: true },
-    supportsConversationRollback: false,
+    supportsConversationRollback: true,
     supportsTextGeneration: false,
     workspaceSnapshots: [],
   } satisfies ServerProviderDraft;
@@ -216,6 +237,8 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   // Null marks an invalidated catalog: keep its native commands for the next lookup, but do not
   // republish it as completed discovery after a Settings refresh.
   const discoveredSkills = new Map<string, ServerProvider["skills"] | null>();
+  // Workspaces whose own session reported commands; a cwd-less (catalog) inventory leaves them.
+  const workspaceNativeCommands = new Set<string>();
   const stampSnapshot = (draft: ServerProviderDraft) =>
     options.stampIdentity({
       ...draft,
@@ -306,7 +329,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     const supportsTextGeneration =
       initialized !== undefined ? yield* options.supportsTextGeneration : false;
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
-    const next = yield* SubscriptionRef.updateAndGet(metadata, (state) => {
+    const applyCheck = (state: AntigravityProviderState) => {
       if (state.authRevision !== before.authRevision) return state;
       const { message: _previousMessage, ...draft } = state.draft;
       const authenticated = draft.auth.status === "authenticated";
@@ -345,6 +368,13 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
           ...(message ? { message } : {}),
         },
       } satisfies AntigravityProviderState;
+    };
+    // This state is published as it changes, so a failure the managed provider discards stays out.
+    const deferFailure = errorMessage !== undefined && (yield* DeferringFailedCheck);
+    const next = yield* SubscriptionRef.modifySome(metadata, (state) => {
+      const checked = applyCheck(state);
+      const stored = deferFailure && state.draft.status === "ready" ? state : checked;
+      return [checked, stored === state ? Option.none() : Option.some(stored)];
     });
     if (initialized !== undefined) yield* refreshUsage();
     return yield* stampSnapshot(next.draft);
@@ -405,6 +435,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
           },
           checkedAt: updatedAt,
           models: buildAntigravityModelsFromSession(started.sessionSetupResult, thinkingLevels),
+          supportedRuntimeModes: antigravityRuntimeModes(started.sessionSetupResult),
           supportsTextGeneration,
           ...(cwd
             ? {
@@ -442,6 +473,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   ) {
     if (!settings.enabled) return;
     const slashCommands = nativeCommands(commands);
+    if (cwd) workspaceNativeCommands.add(cwd);
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     yield* SubscriptionRef.update(metadata, (state) => {
       if (state.draft.auth.status === "unauthenticated") return state;
@@ -468,12 +500,10 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
                 ].slice(-MAX_WORKSPACE_SNAPSHOTS),
               }
             : {
-                // The driver publishes native command inventories without a
-                // cwd. Keep discovered workspace catalogs on that inventory.
-                workspaceSnapshots: (state.draft.workspaceSnapshots ?? []).map((entry) => ({
-                  ...entry,
-                  slashCommands,
-                })),
+                // Discovered workspaces without their own report follow the global inventory.
+                workspaceSnapshots: (state.draft.workspaceSnapshots ?? []).map((entry) =>
+                  workspaceNativeCommands.has(entry.cwd) ? entry : { ...entry, slashCommands },
+                ),
               }),
         },
       };
@@ -502,6 +532,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
             slashCommands: [],
             skills: [],
             workspaceSnapshots: [],
+            supportedRuntimeModes: RUNTIME_MODES_WITHOUT_AUTO,
             supportsTextGeneration: false,
             usageLimits: undefined,
           },
@@ -509,6 +540,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     );
     discoveredSkills.clear();
     thinkingLevels.clear();
+    workspaceNativeCommands.clear();
   });
 
   const commitWorkspaceSnapshot = Effect.fn("AntigravityProvider.commitWorkspaceSnapshot")(

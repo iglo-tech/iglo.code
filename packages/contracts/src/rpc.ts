@@ -179,6 +179,7 @@ import {
   IssueCreateInput,
   IssueCreateResult,
   IssueDetail,
+  IssueLinkedThreadsResult,
   IssueListInput,
   IssueListResult,
   IssueOperationError,
@@ -194,6 +195,7 @@ import {
   IssueTrackerConnectionList,
   IssueUnavailableError,
   IssueUpdateInput,
+  ThreadIssueKey,
 } from "./issue.ts";
 import {
   GuestShareCreateError,
@@ -438,7 +440,13 @@ import {
   SourceControlSignInResult,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
-import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
+import {
+  Project,
+  ProjectMutation,
+  ProjectMutationError,
+  ProjectMoveThreadInput,
+  ProjectMoveThreadResult,
+} from "./project.ts";
 
 export const WS_METHODS = {
   projectsListEntries: "projects.listEntries",
@@ -451,6 +459,8 @@ export const WS_METHODS = {
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
   projectsCreateFromThread: "projects.createFromThread",
+
+  threadsMoveToProject: "threads.moveToProject",
 
   shellOpenInEditor: "shell.openInEditor",
 
@@ -639,6 +649,7 @@ export const WS_METHODS = {
   issuesUpdate: "issues.update",
   issuesSetState: "issues.setState",
   issuesReact: "issues.react",
+  issuesLinkedThreads: "issues.linkedThreads",
   issueTrackersList: "issueTrackers.list",
   issueTrackersConnect: "issueTrackers.connect",
   issueTrackersBindProject: "issueTrackers.bindProject",
@@ -1345,6 +1356,12 @@ const WsIssuesDetailRpc = Rpc.make(WS_METHODS.issuesDetail, {
 });
 
 /** Older comments, one page at a time, past the cursor the detail handed over. */
+const WsIssuesLinkedThreadsRpc = Rpc.make(WS_METHODS.issuesLinkedThreads, {
+  payload: ThreadIssueKey,
+  success: IssueLinkedThreadsResult,
+  error: IssueRpcError,
+});
+
 const WsIssuesCommentsRpc = Rpc.make(WS_METHODS.issuesComments, {
   payload: IssueCommentsPageInput,
   success: IssueCommentsPage,
@@ -1568,6 +1585,12 @@ const WsProjectsCreateNewRpc = Rpc.make(WS_METHODS.projectsCreateNew, {
 const WsProjectsCreateFromThreadRpc = Rpc.make(WS_METHODS.projectsCreateFromThread, {
   payload: ProjectCreateFromThreadInput,
   success: ProjectCreateFromThreadResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsThreadsMoveToProjectRpc = Rpc.make(WS_METHODS.threadsMoveToProject, {
+  payload: ProjectMoveThreadInput,
+  success: ProjectMoveThreadResult,
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
@@ -2256,6 +2279,7 @@ export const CoreWsRpcGroup = RpcGroup.make(
   WsIssuesCommentsRpc,
   WsIssuesTemplatesRpc,
   WsIssuesCandidatesRpc,
+  WsIssuesLinkedThreadsRpc,
   WsIssuesCreateRpc,
   WsIssuesCommentRpc,
   WsIssuesUpdateRpc,
@@ -2393,6 +2417,7 @@ export const CoreWsRpcGroup = RpcGroup.make(
   WsProjectsEnsureScratchRpc,
   WsProjectsCreateNewRpc,
   WsProjectsCreateFromThreadRpc,
+  WsThreadsMoveToProjectRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

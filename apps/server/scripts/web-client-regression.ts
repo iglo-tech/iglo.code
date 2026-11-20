@@ -225,7 +225,7 @@ export async function runWebClientRegression(
 ) {
   NodeAssert.ok(
     browserExecutable,
-    "Set T3_WEB_REGRESSION_BROWSER to the pinned chrome-headless-shell executable before running the web regression suite.",
+    "Set T3_WEB_REGRESSION_BROWSER to the pinned Chrome executable before running the web regression suite.",
   );
   const artifacts =
     process.env.T3_WEB_REGRESSION_ARTIFACTS ??

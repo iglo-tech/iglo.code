@@ -93,7 +93,8 @@ import * as PreviewManager from "./Manager.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
-import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
+import { ServerBrowserContexts } from "./ServerBrowserContexts.ts";
+import { XvfbServer } from "./XvfbServer.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 import { installPdfDocumentNavigation, isPdfAssetUrl } from "./PdfDocumentNavigation.ts";
 
@@ -126,8 +127,16 @@ const AGENT_CURSOR_CLICK_LEAD_MS = 40;
 const DESKTOP_VIEWPORT_READ_TIMEOUT = "1 second";
 /** A desktop page that keeps its size draws nothing on a resize, so the wait gives up. */
 const DESKTOP_RESIZE_WAIT_MS = 1000;
+/** Answered only once the guest paints a frame; one pixel keeps it cheap. */
+const DESKTOP_PAINT_CAPTURE = {
+  format: "jpeg",
+  quality: 1,
+  clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 },
+} as const;
 // A revealed tab's client opens the panel and attaches its stream a few round trips later, remote ones included.
 const REVEAL_VIEWER_WAIT_MS = 1000;
+// A desktop panel's shown report waits on the renderer's layout, which a busy machine can push past a second.
+const REVEAL_DESKTOP_SHOWN_WAIT_MS = 3000;
 
 const sleepUntil = (deadline: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, deadline - Date.now())));
@@ -182,6 +191,7 @@ const isHostSetupError = Schema.is(
     PreviewBrowserHost.PreviewBrowserSandboxError,
     PreviewBrowserHost.PreviewBrowserLibrariesError,
     PreviewBrowserHost.PreviewBrowserRootError,
+    PreviewBrowserHost.PreviewBrowserDisplayError,
   ]),
 );
 
@@ -460,7 +470,7 @@ const modifiersOf = (message: Record<string, unknown>) => {
   return Number.isInteger(value) && value >= 0 && value < 16 ? value : 0;
 };
 
-// Linux/headless Chromium needs commands for Cmd editing shortcuts and Ctrl copy/cut.
+// Linux Chromium needs commands for Cmd editing shortcuts and Ctrl copy/cut.
 const editingCommand = (key: string, modifiers: number) => {
   const modifier = modifiers & 0b0111;
   if (modifier !== 2 && modifier !== 4) return null;
@@ -597,10 +607,24 @@ const make = Effect.gen(function* () {
   let hostConnectionId: string | null = null;
   let viewerResizeOrder = 0;
 
+  // The pane is headed Chrome; a Linux host without a display gets one from Xvfb.
+  const xvfb = new XvfbServer({ setupCommand });
+  const browserEnv = async (): Promise<NodeJS.ProcessEnv> => {
+    // A missing Xvfb surfaces as acquire's own error, so reachability stays its call.
+    const plan = PreviewBrowserHost.browserDisplayPlan({
+      platform: host.platform,
+      env: process.env,
+      xvfbInstalled: true,
+    });
+    return plan.kind === "xvfb" ? { ...process.env, DISPLAY: await xvfb.acquire() } : process.env;
+  };
+
   const contexts = new ServerBrowserContexts({
     profilesDir: NodePath.join(config.stateDir, "server-browser", "profiles"),
     idleBrowserMs: 5 * 60_000,
     executable: () => runPromise(previewBrowser.executable),
+    env: () => browserEnv(),
+    platform: host.platform,
     // An agent scope keeps Chrome out of the server's memory protection and OOM score.
     launcher: async (executable) => {
       const launch = await runPromise(
@@ -1131,9 +1155,6 @@ const make = Effect.gen(function* () {
     if (!desktop) opened.push(() => page.close());
     const cdp = await context.newCDPSession(page);
     await installPdfDocumentNavigation(cdp);
-    // The desktop's page is already a normal browser. A popup's first request
-    // went out before it became a tab; everything after presents as Chrome.
-    if (!desktop) await presentAsChrome(cdp, host);
     if (!desktop) await recordCopies(cdp);
     page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
@@ -1231,8 +1252,15 @@ const make = Effect.gen(function* () {
       });
       await cdp.send("Page.enable");
     }
-    const isMainNavigation = (request: { isNavigationRequest(): boolean; frame(): unknown }) =>
-      request.isNavigationRequest() && request.frame() === page.mainFrame();
+    // Playwright's `request.frame()` throws for a request issued before its frame exists, and a
+    // throw from a page listener is uncaught, so such a request is not a main-frame navigation.
+    const isMainNavigation = (request: { isNavigationRequest(): boolean; frame(): unknown }) => {
+      try {
+        return request.isNavigationRequest() && request.frame() === page.mainFrame();
+      } catch {
+        return false;
+      }
+    };
     const navigationGenerations = new WeakMap<object, number>();
     page.on("request", (request) => {
       if (!isMainNavigation(request)) return;
@@ -1870,7 +1898,7 @@ const make = Effect.gen(function* () {
   }, Effect.uninterruptible);
 
   // Desktop browsing bypasses streamed viewers and server input tracking,
-  // so these idle signals only apply to headless tabs.
+  // so these idle signals only apply to streamed tabs.
   const closeIdleAgentTabs = () => {
     for (const tab of idleAgentTabs()) if (tab.desktop === null) dropTab(tab, true);
   };
@@ -2649,11 +2677,17 @@ const make = Effect.gen(function* () {
                 }),
               );
               // Only an explicit show is sure to reach a client; desktop tabs are visible without a viewer.
+              const remainingMs = deadlineMs - performance.now();
               if (reveal === true && tab.viewers.size === 0 && tab.desktop === null)
-                shown = awaitViewer(
-                  tab,
-                  Math.min(REVEAL_VIEWER_WAIT_MS, deadlineMs - performance.now()),
-                );
+                shown = awaitViewer(tab, Math.min(REVEAL_VIEWER_WAIT_MS, remainingMs));
+              // A desktop panel reports the revealed tab shown a few hops after the reveal.
+              else if (reveal === true && !isVisible(tab))
+                shown = runPromise(
+                  desktopChannel.awaitShown(
+                    tab,
+                    Math.max(0, Math.min(REVEAL_DESKTOP_SHOWN_WAIT_MS, remainingMs)),
+                  ),
+                ).then(constVoid);
             }
             await shown;
             return statusWithTitle(tab, request.agentSessionId);
@@ -2811,7 +2845,20 @@ const make = Effect.gen(function* () {
         // The desktop draws the new size after the session update; its page resize says it has.
         // Half the time left keeps room for the read, which runs even if nothing was drawn,
         // because a page can keep another size than the one asked for.
-        if (changed) await within(drawn, Math.min(DESKTOP_RESIZE_WAIT_MS, remainingMs() / 2));
+        if (changed) {
+          // Electron resizes no hidden guest it does not paint; a pending capture makes the desktop paint it.
+          let waiting = true;
+          void (async () => {
+            while (waiting && !tab.closing) {
+              await tab.cdp.send("Page.captureScreenshot", DESKTOP_PAINT_CAPTURE);
+            }
+          })().catch(constVoid);
+          try {
+            await within(drawn, Math.min(DESKTOP_RESIZE_WAIT_MS, remainingMs() / 2));
+          } finally {
+            waiting = false;
+          }
+        }
         const changes = tab.desktopViewportChanges;
         const measured = await within(measureDesktopViewport(tab), remainingMs());
         // Only a read after the draw, with no page resize or load during it, measures this resize.
@@ -3413,12 +3460,24 @@ const make = Effect.gen(function* () {
     Stream.runForEach(mirrorManagerEvent),
     Effect.forkScoped,
   );
+  const hostEnvironment = yield* HostProcess.Environment;
   if (
-    !PreviewBrowserHost.sandboxDisabled(yield* HostProcess.Environment) &&
+    !PreviewBrowserHost.sandboxDisabled(hostEnvironment) &&
     (yield* PreviewBrowserHost.sandboxBlocked)
   ) {
     yield* Effect.logWarning(
       `This host blocks the sandbox T3's browser runs in, so browser tabs and HTML previews will not start. Run \`${setupCommand}\` once to allow it.`,
+    );
+  }
+  // The browser opens a real window, so a displayless Linux host needs Xvfb for one.
+  const displayPlan = PreviewBrowserHost.browserDisplayPlan({
+    platform: host.platform,
+    env: hostEnvironment,
+    xvfbInstalled: (yield* PreviewBrowserHost.commandOnPath("Xvfb")) !== null,
+  });
+  if (displayPlan.kind === "missing-xvfb") {
+    yield* Effect.logWarning(
+      `This Linux host has no display for T3's browser and no Xvfb, so browser tabs will not start. Run \`${setupCommand}\` once to install it.`,
     );
   }
 
@@ -3490,6 +3549,7 @@ const make = Effect.gen(function* () {
   yield* Effect.addFinalizer(() =>
     Effect.promise(async () => {
       await contexts.close();
+      await xvfb.close();
     }),
   );
 

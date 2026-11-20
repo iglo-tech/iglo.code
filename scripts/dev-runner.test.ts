@@ -547,6 +547,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(yield* homeFor("~someone/t3-dev"), path.resolve("~someone/t3-dev"));
         assert.equal(yield* homeFor("relative/t3-dev"), path.resolve("relative/t3-dev"));
         assert.equal(yield* homeFor("/tmp/t3-dev"), path.resolve("/tmp/t3-dev"));
+        // An explicit ~/.iglo.code would put state in the live userdata; leaving it implicit selects ~/.iglo.code/dev.
+        assert.equal(yield* homeFor("~/.iglo.code"), undefined);
+        assert.equal(yield* homeFor("/home/dev/.iglo.code/"), undefined);
       }),
     );
 
@@ -792,7 +795,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             Effect.provideService(HostProcess.Platform, "linux"),
             Effect.provideService(HostProcess.WorkingDirectory, input.cwd),
             // No ~/.iglo.code here, so these runs never seed from this machine's install.
-            Effect.provideService(HostProcess.HomeDirectory, input.cwd),
+            Effect.provideService(HostProcess.HomeDirectory, NodePath.join(input.cwd, "home")),
             Effect.provideService(
               HostProcess.Environment,
               input.ambientHome === undefined ? {} : { IGLO_CODE_HOME: input.ambientHome },

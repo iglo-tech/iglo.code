@@ -1,3 +1,4 @@
+import { useGT } from "gt-react";
 import { SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -43,14 +44,15 @@ export function SidebarThreadHeader({
   activeSearchResultIndex,
   onClearSearch,
 }: SidebarThreadHeaderProps) {
+  const gt = useGT();
   const resultsVisible = isSearching && searchResultCount > 0;
   // Shrinking results can remove the active option; never leave aria-activedescendant pointing at it.
   const activeResultExists = resultsVisible && activeSearchResultIndex < searchResultCount;
   const newThreadTitle = newThreadProjectName
-    ? `New thread in ${newThreadProjectName}`
-    : "New thread";
+    ? gt("New thread in {project}", { project: newThreadProjectName })
+    : gt("New thread");
   const newThreadLabel = newThreadShortcutLabel
-    ? `${newThreadTitle} (${newThreadShortcutLabel})`
+    ? gt("{title} ({shortcut})", { title: newThreadTitle, shortcut: newThreadShortcutLabel })
     : newThreadTitle;
 
   return (
@@ -64,8 +66,8 @@ export function SidebarThreadHeader({
           value={searchQuery}
           onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
           onKeyDown={onSearchKeyDown}
-          placeholder="Search"
-          aria-label="Search threads"
+          placeholder={gt("Search", { $context: "search field placeholder" })}
+          aria-label={gt("Search threads")}
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={resultsVisible}
@@ -83,7 +85,7 @@ export function SidebarThreadHeader({
             size="icon-micro"
             variant="ghost-muted"
             className="shrink-0"
-            aria-label="Clear thread search"
+            aria-label={gt("Clear thread search")}
             onClick={() => {
               onClearSearch();
               searchInputRef.current?.focus();
@@ -112,8 +114,11 @@ export function SidebarThreadHeader({
             <span className="flex flex-col gap-0.5">
               <span>{newThreadLabel}</span>
               <span className="text-muted-foreground">
-                New thread in current project: Shift+click
-                {newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ""}
+                {newThreadInProjectShortcutLabel
+                  ? gt("New thread in current project: Shift+click ({shortcut})", {
+                      shortcut: newThreadInProjectShortcutLabel,
+                    })
+                  : gt("New thread in current project: Shift+click")}
               </span>
             </span>
           ) : (

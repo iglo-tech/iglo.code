@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -580,6 +581,17 @@ it.effect("reads one stored link without asking the peer", () =>
       expect(Option.map(stored, (link) => link.label)).toEqual(Option.some("Box"));
       expect(Option.isNone(yield* a.links.get(laptop.environmentId))).toBe(true);
       expect(yield* Ref.get(b.probes)).toBe(0);
+
+      // An older answer that lands after a newer one never moves the expiry back.
+      const expiresAt = Option.getOrThrow(stored).expiresAt;
+      const later = DateTime.add(expiresAt, { days: 20 });
+      yield* a.links.recordExpiry(box.environmentId, later);
+      yield* a.links.recordExpiry(box.environmentId, DateTime.add(expiresAt, { days: 10 }));
+      expect(
+        Option.map(yield* a.links.get(box.environmentId), (link) =>
+          DateTime.formatIso(link.expiresAt),
+        ),
+      ).toEqual(Option.some(DateTime.formatIso(later)));
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -810,8 +822,9 @@ it.effect("linking a picked machine that answers nowhere names it and links noth
         })
         .pipe(Effect.flip);
       expect(failed.reason).toBe("unreachable");
+      expect(failed.answeredAs).toBe("Impostor");
       expect(failed.message).toBe(
-        `Could not reach Box: ${new URL(impostor.url).origin} answered as another environment, Impostor. http://192.168.1.20:3773 is plain http, which would send the link's credentials unencrypted. Use its https address, or its Tailscale address.`,
+        `This environment could not reach Box: ${new URL(impostor.url).origin} answered as another environment, Impostor. http://192.168.1.20:3773 is plain http, which would send the link's credentials unencrypted. Use its https address, or its Tailscale address.`,
       );
       expect(yield* a.links.list).toEqual([]);
       expect(yield* linkedSessions(impostor)).toEqual([]);
@@ -826,7 +839,7 @@ it.effect("linking a picked machine that answers nowhere names it and links noth
           expectedLabel: "Box",
         })
         .pipe(Effect.flip);
-      expect(refused.message).toContain("Could not reach Box");
+      expect(refused.message).toContain("This environment could not reach Box");
       expect(refused.message).toContain("plain http");
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),

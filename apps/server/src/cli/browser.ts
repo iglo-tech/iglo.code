@@ -9,6 +9,7 @@ import { Command } from "effect/cli";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
+import * as PreviewBrowser from "../preview/PreviewBrowser.ts";
 import * as PreviewBrowserHost from "../preview/PreviewBrowserHost.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import { baseDirFlag } from "./config.ts";
@@ -67,12 +68,14 @@ const aptOffers = Effect.fn("browserSetup.aptOffers")(function* (name: string) {
 const installedBrowser = Effect.fn("browserSetup.installedBrowser")(function* (baseDir: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const root = path.join(baseDir, "tools", "chrome-headless-shell");
+  const root = path.join(baseDir, "tools", PreviewBrowser.PREVIEW_BROWSER_TOOLS_DIRECTORY);
   for (const platform of yield* fs.readDirectory(root).pipe(Effect.orElseSucceed(() => []))) {
+    const layout = PreviewBrowser.previewBrowserLayout(platform);
+    if (layout === null) continue;
     for (const version of yield* fs
       .readDirectory(path.join(root, platform))
       .pipe(Effect.orElseSucceed(() => []))) {
-      const executable = path.join(root, platform, version, "chrome-headless-shell");
+      const executable = path.join(root, platform, version, layout.executable);
       if (yield* fs.exists(executable).pipe(Effect.orElseSucceed(() => false))) {
         return Option.some(executable);
       }
@@ -102,10 +105,11 @@ const fontAvailable = Effect.gen(function* () {
 }).pipe(Effect.withSpan("browserSetup.fontAvailable"));
 
 const FONT_PACKAGES = ["fontconfig", "fonts-liberation"];
+const XVFB_PACKAGES = ["xvfb"];
 
 const browserSetupCommand = Command.make("setup", { baseDir: baseDirFlag }).pipe(
   Command.withDescription(
-    "Set up this Linux host for T3's browser: allow Chrome's sandbox and install its libraries and fonts.",
+    "Set up this Linux host for T3's browser: allow Chrome's sandbox and install its libraries, fonts, and Xvfb.",
   ),
   Command.withHandler(({ baseDir }) =>
     Effect.gen(function* () {
@@ -142,15 +146,27 @@ const browserSetupCommand = Command.make("setup", { baseDir: baseDirFlag }).pipe
         ? yield* PreviewBrowserHost.missingLibraries(browser.value)
         : [];
       const needsFonts = !(yield* fontAvailable);
+      // The browser opens a real window, so a host without a display needs Xvfb for one.
+      const xvfb = yield* PreviewBrowserHost.commandOnPath("Xvfb");
+      const plan = PreviewBrowserHost.browserDisplayPlan({
+        platform: "linux",
+        env,
+        xvfbInstalled: xvfb !== null,
+      });
+      const needsXvfb = plan.kind === "missing-xvfb";
       const hasApt = yield* fs.exists("/usr/bin/apt-get").pipe(Effect.orElseSucceed(() => false));
 
-      if (!needsProfile && missing.length === 0 && !needsFonts) {
+      if (!needsProfile && missing.length === 0 && !needsFonts && !needsXvfb) {
         return yield* Console.log(
           rootWarning ??
             (Option.isSome(browser)
               ? "This host is ready for T3's browser."
               : "Chrome's sandbox is allowed here. T3's browser installs on first use; if it then reports missing libraries, run this again.") +
-              reloadHint,
+              reloadHint +
+              // Setup sees this shell's display, but a background service or VM server has none.
+              (xvfb === null
+                ? "\nA server started as a background service or without a display also needs Xvfb; run setup again from a shell without DISPLAY to install it."
+                : ""),
         );
       }
 
@@ -166,6 +182,11 @@ const browserSetupCommand = Command.make("setup", { baseDir: baseDirFlag }).pipe
         if (needsFonts) {
           yield* Console.log(
             "T3's browser needs fontconfig and system fonts; setup installs them.",
+          );
+        }
+        if (needsXvfb) {
+          yield* Console.log(
+            "T3's browser opens a real window, and this host has no display; setup installs Xvfb for one.",
           );
         }
         return yield* Console.log(`\nThis needs root. Run:\n\n  ${setupCommand}\n`);
@@ -203,7 +224,39 @@ const browserSetupCommand = Command.make("setup", { baseDir: baseDirFlag }).pipe
         );
       }
 
-      if ((missing.length > 0 || needsFonts) && !hasApt) {
+      // The profile from before the full-Chrome switch matches nothing; unload and drop it.
+      if (
+        yield* fs
+          .exists(PreviewBrowserHost.LEGACY_APPARMOR_PROFILE_PATH)
+          .pipe(Effect.orElseSucceed(() => false))
+      ) {
+        const unloaded = yield* runStep("unload the obsolete AppArmor profile", "apparmor_parser", [
+          "-R",
+          PreviewBrowserHost.LEGACY_APPARMOR_PROFILE_PATH,
+        ]).pipe(
+          Effect.as(true),
+          Effect.catch((cause) =>
+            Console.log(
+              `Could not unload ${PreviewBrowserHost.LEGACY_APPARMOR_PROFILE_PATH}: ${String(cause)}`,
+            ).pipe(Effect.as(false)),
+          ),
+        );
+        const removed = yield* fs.remove(PreviewBrowserHost.LEGACY_APPARMOR_PROFILE_PATH).pipe(
+          Effect.as(true),
+          Effect.catch((cause) =>
+            Console.log(
+              `Could not remove ${PreviewBrowserHost.LEGACY_APPARMOR_PROFILE_PATH}: ${String(cause)}`,
+            ).pipe(Effect.as(false)),
+          ),
+        );
+        if (unloaded && removed) {
+          yield* Console.log(
+            `Removed the obsolete AppArmor profile at ${PreviewBrowserHost.LEGACY_APPARMOR_PROFILE_PATH}.`,
+          );
+        }
+      }
+
+      if ((missing.length > 0 || needsFonts || needsXvfb) && !hasApt) {
         if (missing.length > 0) {
           yield* Console.log(
             `T3's browser is missing ${missing.join(", ")}. Install them with your package manager, then run this again.`,
@@ -214,9 +267,14 @@ const browserSetupCommand = Command.make("setup", { baseDir: baseDirFlag }).pipe
             "T3's browser needs fontconfig and system fonts. Install them with your package manager, then run this again.",
           );
         }
+        if (needsXvfb) {
+          yield* Console.log(
+            "T3's browser needs Xvfb for its window on this displayless host. Install it with your package manager, then run this again.",
+          );
+        }
         return;
       }
-      if (missing.length > 0 || needsFonts) {
+      if (missing.length > 0 || needsFonts || needsXvfb) {
         yield* runStep("refresh the package lists", "apt-get", ["update"]);
       }
 
@@ -231,6 +289,18 @@ const browserSetupCommand = Command.make("setup", { baseDir: baseDirFlag }).pipe
           ...packages,
         ]);
         yield* Console.log("Installed the browser's libraries.");
+      }
+
+      if (needsXvfb) {
+        yield* runStep("install Xvfb for the browser's window", "apt-get", [
+          "install",
+          "-y",
+          "--no-install-recommends",
+          ...XVFB_PACKAGES,
+        ]);
+        yield* Console.log(
+          "Installed Xvfb. The T3 server starts it on demand; no display needs configuring.",
+        );
       }
 
       if (needsFonts) {
@@ -256,6 +326,6 @@ const browserSetupCommand = Command.make("setup", { baseDir: baseDirFlag }).pipe
 );
 
 export const browserCommand = Command.make("browser").pipe(
-  Command.withDescription("Manage T3's headless browser on this host."),
+  Command.withDescription("Manage T3's browser on this host."),
   Command.withSubcommands([browserSetupCommand]),
 );

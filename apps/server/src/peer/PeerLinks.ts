@@ -114,6 +114,13 @@ export class PeerLinks extends Context.Service<
     readonly link: (
       input: PeerLinkCreateInput,
     ) => Effect.Effect<PeerLinkCreateResult, PeerLinkError>;
+    /**
+     * Links like `link`, except that a machine whose link has not expired is
+     * left as it is, with its pairing code unused.
+     */
+    readonly linkUnlessLinked: (
+      input: PeerLinkCreateInput,
+    ) => Effect.Effect<{ readonly link: PeerLink; readonly alreadyLinked: boolean }, PeerLinkError>;
     readonly list: Effect.Effect<ReadonlyArray<PeerLinkSummary>, PeerLinkError>;
     /** The stored link, without asking the peer whether it answers. */
     readonly get: (
@@ -152,6 +159,11 @@ export class PeerLinks extends Context.Service<
     readonly recordOutcome: (
       environmentId: EnvironmentId,
       outcome: { readonly error: string | null },
+    ) => Effect.Effect<void>;
+    /** Records a later end the peer gives the link's session: using a link renews it there. */
+    readonly recordExpiry: (
+      environmentId: EnvironmentId,
+      expiresAt: DateTime.Utc,
     ) => Effect.Effect<void>;
   }
 >()("t3/peer/PeerLinks") {}
@@ -215,7 +227,8 @@ const peerOrigin = (url: string) => {
     return Effect.fail(
       new PeerLinkError({
         reason: "unreachable",
-        message: `${url} is not an http or https address.`,
+        // Never the address as given: it may hold a username, password or query.
+        message: "That address is not an http or https address.",
       }),
     );
   }
@@ -227,7 +240,7 @@ const peerOrigin = (url: string) => {
     return Effect.fail(
       new PeerLinkError({
         reason: "unreachable",
-        message: `${url} is plain http, which would send the link's credentials unencrypted. Use its https address, or its Tailscale address.`,
+        message: `${parsed.origin} is plain http, which would send the link's credentials unencrypted. Use its https address, or its Tailscale address.`,
       }),
     );
   }
@@ -577,6 +590,7 @@ const make = Effect.gen(function* () {
             return yield* new PeerLinkError({
               reason: "unreachable",
               message: `${origin} answered as another environment, ${descriptor.label}.`,
+              answeredAs: descriptor.label,
             });
           }
           return { origin, descriptor };
@@ -588,12 +602,14 @@ const make = Effect.gen(function* () {
     );
     const first = matching[0];
     if (first === undefined) {
-      const reasons = checked.flatMap((result) =>
-        Result.isFailure(result) ? [result.failure.message] : [],
+      const failures = checked.flatMap((result) =>
+        Result.isFailure(result) ? [result.failure] : [],
       );
+      const answeredAs = failures.find((failure) => failure.answeredAs !== undefined)?.answeredAs;
       return yield* new PeerLinkError({
         reason: "unreachable",
-        message: `Could not reach ${name}: ${reasons.join(" ")}`,
+        message: `This environment could not reach ${name}: ${failures.map((failure) => failure.message).join(" ")}`,
+        ...(answeredAs === undefined ? {} : { answeredAs }),
       });
     }
     // Each address is kept once, even when two spellings share an origin.
@@ -702,6 +718,8 @@ const make = Effect.gen(function* () {
     readonly fromReciprocalOffer?: boolean;
     /** The session the offer arrived over, bound to the row this link creates. */
     readonly bindSessionId?: AuthSessionId;
+    /** Set by linkUnlessLinked: a machine whose link has not expired is left as it is. */
+    readonly keepLinked?: boolean;
   }
 
   const linkImpl = Effect.fn("PeerLinks.linkImpl")(function* (
@@ -728,6 +746,13 @@ const make = Effect.gen(function* () {
     // address even when that link has expired.
     const existingRow = yield* readRow(peer.environmentId);
     const existing = Option.isSome(existingRow) ? yield* toLink(existingRow.value) : undefined;
+    const current =
+      existing !== undefined && DateTime.isGreaterThan(existing.expiresAt, yield* DateTime.now)
+        ? existing
+        : undefined;
+    if (options.keepLinked === true && current !== undefined) {
+      return { link: current, reciprocal: { kind: "off" } as const, alreadyLinked: true };
+    }
     if (existing !== undefined && options.fromReciprocalOffer === true) {
       // A renewal from the accepting side signs in where the row already
       // reaches: the peer's own addresses can come in another order, so the
@@ -884,12 +909,18 @@ const make = Effect.gen(function* () {
         }
       }).pipe(Effect.ignoreCause({ log: true }));
     }
-    return { link: linked, reciprocal: offer.outcome };
+    return { link: linked, reciprocal: offer.outcome, alreadyLinked: false };
   });
 
   /** The public link: a flat link with what came of linking back. */
   const link: PeerLinks["Service"]["link"] = (input) =>
     Effect.map(linkImpl(input), ({ link: linked, reciprocal }) => ({ ...linked, reciprocal }));
+  /** Links like `link`, except a machine whose link has not expired is left as it is. */
+  const linkUnlessLinked: PeerLinks["Service"]["linkUnlessLinked"] = (input) =>
+    Effect.map(linkImpl(input, { keepLinked: true }), ({ link: linked, alreadyLinked }) => ({
+      link: linked,
+      alreadyLinked,
+    }));
 
   /** A peer's label follows its machine name, so the link takes the one its own address answers with. */
   const withLabel = (link: PeerLink, label: string) =>
@@ -1289,9 +1320,16 @@ const make = Effect.gen(function* () {
       Effect.ignoreCause({ log: true }),
     );
 
+  const recordExpiry: PeerLinks["Service"]["recordExpiry"] = (environmentId, expiresAt) =>
+    sql`
+      UPDATE peer_environment_links SET expires_at = ${DateTime.formatIso(expiresAt)}
+      WHERE environment_id = ${environmentId} AND expires_at < ${DateTime.formatIso(expiresAt)}
+    `.pipe(Effect.asVoid, Effect.ignoreCause({ log: true }));
+
   return PeerLinks.of({
     enabled,
     link,
+    linkUnlessLinked,
     list,
     get,
     unlink,
@@ -1299,6 +1337,7 @@ const make = Effect.gen(function* () {
     forgetPeer,
     resolve,
     recordOutcome,
+    recordExpiry,
   });
 });
 

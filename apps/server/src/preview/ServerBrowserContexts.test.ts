@@ -1,6 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - Hands a real file on disk to a real desktop browser.
 import * as NodeEvents from "node:events";
 import * as NodeFS from "node:fs";
+import * as NodeHttp from "node:http";
+import type * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
@@ -60,7 +62,7 @@ const makeBrowser = () => {
 const options = () => ({
   profilesDir: "/test/profiles",
   executable: vi.fn(async () => "/test/chromium"),
-  env: {},
+  env: () => ({}),
 });
 
 const withLauncher = () => {
@@ -314,12 +316,68 @@ describe("ServerBrowserContexts", () => {
     launches.launch.mockResolvedValue(browser as unknown as Browser);
     const pool = new ServerBrowserContexts({
       ...options(),
-      env: { IGLO_CODE_SERVER_BROWSER_SANDBOX: "0" },
+      env: () => ({ IGLO_CODE_SERVER_BROWSER_SANDBOX: "0" }),
     });
     await pool.contextFor(INCOGNITO_BROWSER_PROFILE_ID);
     expect(launches.launch).toHaveBeenCalledWith(
       expect.objectContaining({ chromiumSandbox: false }),
     );
+    await pool.close();
+  });
+
+  it("launches the browser headed with the display the environment resolver supplies", async () => {
+    const browser = makeBrowser();
+    const human = makeContext();
+    launches.launch.mockResolvedValue(browser as unknown as Browser);
+    launches.persistent.mockResolvedValue(human as unknown as BrowserContext);
+    const pool = new ServerBrowserContexts({
+      ...options(),
+      env: () => ({ DISPLAY: ":42" }),
+    });
+    await pool.contextFor(INCOGNITO_BROWSER_PROFILE_ID);
+    await pool.contextFor("work/team");
+    expect(launches.launch.mock.calls[0]?.[0]).toMatchObject({
+      headless: false,
+      env: { DISPLAY: ":42" },
+    });
+    expect(launches.persistent.mock.calls[0]?.[1]).toMatchObject({
+      headless: false,
+      env: { DISPLAY: ":42" },
+    });
+    await pool.close();
+  });
+
+  it("adds Linux display and keyring flags only on Linux", async () => {
+    const browser = makeBrowser();
+    launches.launch.mockResolvedValue(browser as unknown as Browser);
+    const pool = new ServerBrowserContexts({ ...options(), platform: "linux" });
+    await pool.contextFor(INCOGNITO_BROWSER_PROFILE_ID);
+    expect(launches.launch.mock.calls[0]?.[0]).toMatchObject({
+      args: expect.arrayContaining(["--password-store=basic", "--ozone-platform-hint=auto"]),
+    });
+    await pool.close();
+
+    launches.launch.mockClear();
+    launches.launch.mockResolvedValue(makeBrowser() as unknown as Browser);
+    const other = new ServerBrowserContexts({ ...options(), platform: "darwin" });
+    await other.contextFor(INCOGNITO_BROWSER_PROFILE_ID);
+    expect(launches.launch.mock.calls[0]?.[0]?.args).not.toContain("--password-store=basic");
+    await other.close();
+  });
+
+  it("propagates a display failure instead of launching", async () => {
+    const failure = new Error("no display");
+    const configuration = options();
+    const pool = new ServerBrowserContexts({
+      ...configuration,
+      env: () => {
+        throw failure;
+      },
+    });
+    await expect(pool.contextFor(INCOGNITO_BROWSER_PROFILE_ID)).rejects.toBe(failure);
+    // The display fails before the browser download starts.
+    expect(configuration.executable).not.toHaveBeenCalled();
+    expect(launches.launch).not.toHaveBeenCalled();
     await pool.close();
   });
 
@@ -358,15 +416,16 @@ describe("ServerBrowserContexts", () => {
     const userDataDir = NodePath.join(directory, "profile");
     const pool = new ServerBrowserContexts(options());
     try {
+      // Chromium can write DevToolsActivePort after Playwright's launch resolves, so the port is chosen here.
+      const reserved = NodeHttp.createServer();
+      await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", resolve));
+      const { port } = reserved.address() as NodeNet.AddressInfo;
+      await new Promise((resolve) => reserved.close(resolve));
       const desktop = await launchPersistentChromium(userDataDir, {
         headless: true,
-        args: ["--remote-debugging-port=0"],
+        args: [`--remote-debugging-port=${port}`],
       });
       try {
-        const [port] = NodeFS.readFileSync(
-          NodePath.join(userDataDir, "DevToolsActivePort"),
-          "utf8",
-        ).split("\n");
         const { browser, page } = await pool.connectDesktopPage(`http://127.0.0.1:${port}`);
         try {
           const file = NodePath.join(directory, "large.bin");
