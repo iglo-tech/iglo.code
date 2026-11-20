@@ -20,7 +20,7 @@ the totals for Codex or Claude Code 2.0.63 and newer, because those runs save no
 
 The server keeps scanned usage history for 92 days by default. Claude Code deletes its own
 transcripts after 30 days, so for older Claude usage this history is the only record left. To keep
-it longer, set `usageHistoryRetentionDays` in `<T3 home>/userdata/settings.json` to a number of days
+it longer, set `usageHistoryRetentionDays` in `<iglo.code home>/userdata/settings.json` to a number of days
 such as `365`, or to `"unlimited"`. Usage views still show at most 90 days. Lowering the value
 prunes older history on the next refresh, and raising it again does not bring pruned history back.
 While `settings.json` cannot be read, nothing is pruned.
@@ -52,8 +52,8 @@ or a local command whose name contains `vibe`): from `~/.vibe/logs/session/unifi
 `logs/session/unified` directory under `VIBE_HOME` set on the agent instance's environment or the
 server. Each session counts once with its lifetime token totals, attributed to the day of its last
 update, so a session resumed on a later day lands on that day. Vibe records tokens but no dollar
-cost, so costs are estimated from the shared price table; dated model IDs such as
-`mistral-large-4-0-3` price at their undated base (`mistral-large-4-0`).
+cost, so costs are estimated from the shared price table; model IDs with a trailing build number
+(such as `mistral-large-4-0-3`) price at their base (`mistral-large-4-0`).
 
 The server saves its first hostname in `<iglo.code home>/usage-host-id`, so a recreated container keeps
 its usage identity when the iglo.code home is persisted. Set `IGLO_CODE_HOST_ID` to choose the identity

@@ -213,6 +213,8 @@ describe("mistralVibeUsageReader", () => {
       const records = sources[0]?.files?.flatMap((file) => file.records) ?? [];
       assert.strictEqual(records.length, 1);
       assert.strictEqual(records[0]?.model, "glm-5-3");
+      // Non-mistral models pass through the rate mapping unchanged.
+      assert.strictEqual(records[0]?.rateModel, undefined);
       assert.strictEqual(records[0]?.timestampMs, UPDATED_AT + 60_000);
       assert.deepStrictEqual(records[0]?.totals, {
         uncachedInputTokens: 700,
@@ -300,14 +302,26 @@ describe("mistralVibeUsageReader", () => {
         updatedAt: UPDATED_AT,
         model: "mistral-large-4",
       });
+      // Non-Vibe instances get a third home with its own session: any
+      // over-inclusion would add a third source and a third record.
+      const otherHome = yield* makeVibeHome();
+      yield* writeSession(otherHome.unifiedRoot, "eeeeeeee-0000-0000-0000-000000000000", {
+        tokenUsage: { cachedInputTokens: 0, inputTokens: 30, outputTokens: 3, totalTokens: 33 },
+        updatedAt: UPDATED_AT,
+        model: "mistral-large-4",
+      });
       const sources = yield* scan({
         instances: [
           {
             id: "acpRegistry_devin",
             config: decodeSettings({ agentId: "devin" }),
-            environment: { VIBE_HOME: vibeHome },
+            environment: { VIBE_HOME: otherHome.vibeHome },
           },
-          { id: "acpRegistry", config: undefined, environment: { VIBE_HOME: vibeHome } },
+          {
+            id: "acpRegistry",
+            config: undefined,
+            environment: { VIBE_HOME: otherHome.vibeHome },
+          },
           {
             id: "acpRegistry_mistral_vibe",
             config: decodeSettings({ agentId: "mistral-vibe" }),
@@ -326,7 +340,7 @@ describe("mistralVibeUsageReader", () => {
           {
             id: "acpRegistry_local_other",
             config: decodeSettings({ source: "local", commandPath: "/tools/other-acp" }),
-            environment: { VIBE_HOME: localHome.vibeHome },
+            environment: { VIBE_HOME: otherHome.vibeHome },
           },
         ],
       });
@@ -444,6 +458,34 @@ describe("mistralVibeUsageReader", () => {
           },
         }),
       );
+      // A catalog entry with tokens but no usable timestamp marks its session
+      // unreadable even when the published projection is merely empty.
+      const catalogOnlyDir = path.join(
+        unifiedRoot,
+        "ffffffff-0000-0000-0000-000000000000",
+        "generations",
+        "0000000000000001",
+      );
+      yield* fileSystem.makeDirectory(catalogOnlyDir, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(catalogOnlyDir, "projection-state.json"),
+        JSON.stringify({ snapshot: { session: { tokenUsage: null, updatedAt: UPDATED_AT } } }),
+      );
+      yield* writeCatalog(unifiedRoot, [
+        {
+          sessionId: "ffffffff-0000-0000-0000-000000000000",
+          fixture: {
+            tokenUsage: {
+              cachedInputTokens: 0,
+              inputTokens: 70,
+              outputTokens: 7,
+              totalTokens: 77,
+            },
+            updatedAt: "not-a-number" as unknown as number,
+            model: "mistral-large-4",
+          },
+        },
+      ]);
       const sources = yield* scan({
         instances: [
           {

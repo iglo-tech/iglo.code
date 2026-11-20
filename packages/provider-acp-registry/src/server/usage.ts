@@ -29,9 +29,9 @@ function isMistralVibeInstance(config: AcpRegistrySettings | undefined): boolean
   return config.commandPath.split(/[\\/]/).at(-1)?.toLowerCase().includes("vibe") ?? false;
 }
 
-// Vibe records dated model IDs (mistral-large-4-0-3) while the shared price
-// table lists the undated base (mistral-large-4-0).
-export const mistralVibeRateModel = (model: string): string => {
+// Vibe records model IDs with a trailing build number (mistral-large-4-0-3)
+// while the shared price table lists the base (mistral-large-4-0).
+const mistralVibeRateModel = (model: string): string => {
   const match = /^(mistral-[a-z]+-\d+-\d+)-\d+$/i.exec(model);
   return match === null ? model : match[1]!;
 };
@@ -121,8 +121,12 @@ const readCatalogJsonFile = Effect.fn("mistralVibeUsage.readCatalogJsonFile")(fu
   });
 });
 
-function parseSessionCatalog(parsed: unknown): ReadonlyMap<string, SessionUsageReading> {
-  const entries = new Map<string, SessionUsageReading>();
+function parseSessionCatalog(parsed: unknown): {
+  readonly readings: ReadonlyMap<string, SessionUsageReading>;
+  readonly unreadable: ReadonlySet<string>;
+} {
+  const readings = new Map<string, SessionUsageReading>();
+  const unreadable = new Set<string>();
   const document = object(parsed);
   const list = Array.isArray(document.entries) ? document.entries : [];
   for (const entry of list) {
@@ -135,10 +139,10 @@ function parseSessionCatalog(parsed: unknown): ReadonlyMap<string, SessionUsageR
       session.updatedAt,
       object(record.metadata).active_model,
     );
-    if (result.kind !== "usage") continue;
-    entries.set(sessionId, result.reading);
+    if (result.kind === "usage") readings.set(sessionId, result.reading);
+    else if (result.kind === "unreadable") unreadable.add(sessionId);
   }
-  return entries;
+  return { readings, unreadable };
 }
 
 // Per-session reads run once per session per scan, so like UsageService's
@@ -168,6 +172,7 @@ type SessionReadResult =
 const readSessionDirectory = Effect.fnUntraced(function* (
   sessionDir: string,
   catalogEntry: SessionUsageReading | undefined,
+  catalogUnreadable: boolean,
 ): Effect.fn.Return<SessionReadResult | null, never, FileSystem.FileSystem | Path.Path> {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -220,7 +225,7 @@ const readSessionDirectory = Effect.fnUntraced(function* (
         ? catalogEntry
         : publishedReading;
   if (reading === undefined) {
-    return published.kind === "unreadable" || projection === null
+    return published.kind === "unreadable" || projection === null || catalogUnreadable
       ? { kind: "unreadable" }
       : { kind: "empty" };
   }
@@ -309,7 +314,11 @@ const scanSessionRoot = Effect.fn("mistralVibeUsage.scanSessionRoot")(function* 
     sessionNames,
     (name) =>
       Effect.map(
-        readSessionDirectory(path.join(root, name), catalog.get(name)),
+        readSessionDirectory(
+          path.join(root, name),
+          catalog.readings.get(name),
+          catalog.unreadable.has(name),
+        ),
         (result) => ({ name, result }) as const,
       ),
     { concurrency: SESSION_READ_CONCURRENCY },
