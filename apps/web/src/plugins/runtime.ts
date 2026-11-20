@@ -29,6 +29,8 @@ import type { RpcClientError } from "effect/rpc";
 import type { EnvironmentSupervisor } from "@t3tools/client-runtime/connection";
 
 import { connectionAtomRuntime } from "../connection/runtime";
+import { msg } from "gt-react";
+import { m } from "~/i18n/messages";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSession } from "../state/session";
 
@@ -219,7 +221,7 @@ export function createFixtureClient(environmentId: EnvironmentId): FixtureClient
           if (result._tag === "Success") onReports(result.value);
           if (result._tag === "Failure") {
             const error = Cause.squash(result.cause);
-            onError(error instanceof Error ? error.message : "Reports subscription ended.");
+            onError(error instanceof Error ? error.message : m(msg("Reports subscription ended.")));
           }
         },
         { immediate: true },

@@ -1,4 +1,6 @@
 import type { EnvironmentId, PluginCatalog } from "@t3tools/contracts";
+import { msg } from "gt-react";
+import { m, type MessageResolver } from "~/i18n/messages";
 
 /** The last catalog a page saw, remembered with the environment it came from. */
 export interface RetainedCatalog {
@@ -46,39 +48,50 @@ export function pageStatus(input: {
  * What a plugin route shows when it has no page to render: a loading or connection state
  * until the environment's catalog is known, and an incompatibility reason only afterwards.
  */
-export function missingPageMessage(input: {
-  readonly status: PluginPageStatus;
-  readonly descriptor: { readonly status: string; readonly reason: string | null } | undefined;
-}): { readonly title: string; readonly text: string; readonly retry: boolean } {
+export function missingPageMessage(
+  input: {
+    readonly status: PluginPageStatus;
+    readonly descriptor: { readonly status: string; readonly reason: string | null } | undefined;
+  },
+  resolve: MessageResolver = m,
+): { readonly title: string; readonly text: string; readonly retry: boolean } {
   switch (input.status) {
     case "reconciling":
-      return { title: "Loading", text: "Loading this page from the environment…", retry: false };
+      return {
+        title: resolve(msg("Loading")),
+        text: resolve(msg("Loading this page from the environment…")),
+        retry: false,
+      };
     case "disconnected":
       return {
-        title: "Disconnected",
-        text: "Disconnected from this environment. This page loads when it reconnects.",
+        title: resolve(msg("Disconnected")),
+        text: resolve(
+          msg("Disconnected from this environment. This page loads when it reconnects."),
+        ),
         retry: false,
       };
     case "unsupported":
       return {
-        title: "Plugin unavailable",
-        text: "This environment does not support plugins.",
+        title: resolve(msg("Plugin unavailable")),
+        text: resolve(msg("This environment does not support plugins.")),
         retry: false,
       };
     case "catalog-unavailable":
       return {
-        title: "Plugin unavailable",
-        text: "This environment's plugin catalog could not be loaded.",
+        title: resolve(msg("Plugin unavailable")),
+        text: resolve(msg("This environment's plugin catalog could not be loaded.")),
         retry: true,
       };
     case "connected":
       return {
-        title: "Plugin unavailable",
+        title: resolve(msg("Plugin unavailable")),
         text:
           input.descriptor?.reason ??
-          (input.descriptor?.status === "available"
-            ? "This page is not included in this client build."
-            : "Connect to the selected environment with a compatible plugin build."),
+          resolve(
+            input.descriptor?.status === "available"
+              ? msg("This page is not included in this client build.")
+              : msg("Connect to the selected environment with a compatible plugin build."),
+          ),
         retry: false,
       };
   }

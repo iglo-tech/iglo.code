@@ -70,7 +70,7 @@ export class ThreadServerUnreachableError extends Schema.TaggedError<ThreadServe
   override readonly [Runtime.errorReported] = false;
   override get message(): string {
     const reason = this.cause instanceof Error ? ` ${this.cause.message}` : "";
-    return `Could not reach the T3 Code server at ${this.origin}.${reason}`;
+    return `Could not reach the iglo.code server at ${this.origin}.${reason}`;
   }
 }
 

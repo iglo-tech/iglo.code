@@ -18,6 +18,8 @@ const RULES: Rule[] = [
   },
   { label: "~/.t3 or worktree .t3 path", pattern: /(?:^|[^A-Za-z0-9_.-])\.t3(?:\/|["'`]|$)/gm },
   { label: "git ref refs/t3", pattern: /refs\/t3/g },
+  { label: "git config key t3-*", pattern: /\.t3-merge-base/g },
+  { label: "npx t3 command", pattern: /\b(?:npx|bunx) t3\b/g },
   { label: "service label", pattern: /com\.t3tools|t3code\.service/g },
   { label: "session cookie", pattern: /\bt3_(?:dev_)?session/g },
   { label: "project file t3.json", pattern: /\bt3\.json\b/g },
@@ -25,12 +27,12 @@ const RULES: Rule[] = [
   { label: "helper/telemetry name", pattern: /t3-resource-monitor|t3code-server|"t3-server"/g },
   {
     label: "MCP server/client name",
-    pattern: /mcp__t3[-_]code|["']t3[-_]code["']\s*:|name: ["']t3[-_]code["']/g,
+    pattern: /mcp__?t3[-_]code|["']t3[-_]code["']\s*:|name: ["']t3[-_]code["']/g,
   },
   {
     label: "t3 CLI command",
     pattern:
-      /(?:^|[\s`(])t3 (?:serve|up|update|service|doctor|uninstall|pair|start|status|help|install)\b/gm,
+      /(?:^|[\s`(])t3 (?:serve|up|update|service|doctor|uninstall|pair|start|status|help|install|triage|connect|auth)\b/gm,
     scope: [...DOCS, "AGENTS.md", "apps/server/src/cli/", "scripts/install"],
   },
   { label: "npm install path", pattern: /(?:npx|bunx|npm i(?:nstall)?(?: -g)?) @iglo-tech\//g },
@@ -57,6 +59,11 @@ const SKIP_PREFIXES = [
 
 // Reviewed exceptions: [path prefix, rule label, why]. Keep each one justified.
 const ALLOW: [string, string, string][] = [
+  [
+    "packages/provider-grok/src/server/driver.test.ts",
+    "npx t3 command",
+    "describes the npm user agent Grok sees when any npx-launched server starts it",
+  ],
   [
     "packages/client-runtime/src/state/filesystem.test.ts",
     "~/.t3 or worktree .t3 path",

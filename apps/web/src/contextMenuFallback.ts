@@ -1,4 +1,9 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
+import { msg } from "gt-react";
+
+import { m } from "./i18n/messages";
+
+import { projectIconColorClassName } from "./projectIconColors";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -124,6 +129,16 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "line", attrs: { x1: "19", x2: "19", y1: "8", y2: "14" } },
     { tag: "line", attrs: { x1: "22", x2: "16", y1: "11", y2: "11" } },
   ],
+  "folder-input": [
+    { tag: "path", attrs: { d: "M2 13h10" } },
+    { tag: "path", attrs: { d: "m9 16 3-3-3-3" } },
+    {
+      tag: "path",
+      attrs: {
+        d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+      },
+    },
+  ],
   "folder-plus": [
     { tag: "path", attrs: { d: "M12 10v6" } },
     { tag: "path", attrs: { d: "M9 13h6" } },
@@ -165,6 +180,40 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "line", attrs: { x1: "14", x2: "14", y1: "11", y2: "17" } },
   ],
 };
+
+// Mirrors ProjectMonogram.tsx so menu rows match project identity everywhere else.
+function createMonogramElement(
+  monogram: NonNullable<ContextMenuItem["monogram"]>,
+): HTMLElement | null {
+  if (typeof document.createElementNS !== "function") return null;
+  const wrapper = document.createElement("span");
+  wrapper.setAttribute("aria-hidden", "true");
+  wrapper.setAttribute(
+    "class",
+    "inline-flex size-4.5 shrink-0 items-center justify-center sm:size-4",
+  );
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute(
+    "class",
+    `size-full overflow-hidden rounded-[25%] font-mono select-none ${projectIconColorClassName(monogram.color)}`,
+  );
+  svg.style.backgroundColor = "color-mix(in srgb, currentColor 14%, transparent)";
+  const text = document.createElementNS(SVG_NS, "text");
+  text.setAttribute("x", "8");
+  text.setAttribute("y", "10.8");
+  text.setAttribute("textAnchor", "middle");
+  text.setAttribute("fill", "currentColor");
+  text.setAttribute("fontSize", "8.25");
+  text.setAttribute("fontWeight", "700");
+  text.setAttribute("textLength", monogram.text.length === 1 ? "6" : "12");
+  text.setAttribute("lengthAdjust", "spacingAndGlyphs");
+  text.setAttribute("textRendering", "geometricPrecision");
+  text.textContent = monogram.text;
+  svg.appendChild(text);
+  wrapper.appendChild(svg);
+  return wrapper;
+}
 
 function createIconElement(name: string, tone: "neutral" | "destructive"): SVGSVGElement | null {
   const paths = ICON_PATHS[name];
@@ -395,7 +444,7 @@ export function showContextMenuFallback<T extends string>(
       menu.dataset.level = String(level);
       menu.dataset.contextMenu = "true";
       menu.setAttribute("role", "menu");
-      menu.setAttribute("aria-label", parentTrigger?.textContent ?? "Context menu");
+      menu.setAttribute("aria-label", parentTrigger?.textContent ?? m(msg("Context menu")));
       menu.tabIndex = -1;
 
       const inner = document.createElement("div");
@@ -464,6 +513,11 @@ export function showContextMenuFallback<T extends string>(
             spacer.style.cssText = "display:inline-block;width:1rem;height:1rem;flex-shrink:0;";
             spacer.setAttribute("aria-hidden", "true");
             button.appendChild(spacer);
+          }
+        } else if (item.monogram) {
+          const monogram = createMonogramElement(item.monogram);
+          if (monogram) {
+            button.appendChild(monogram);
           }
         } else if (typeof item.icon === "string") {
           const icon = createIconElement(item.icon, isLeafDestructive ? "destructive" : "neutral");

@@ -47,7 +47,7 @@ const WAITING_THREAD_PAYLOAD = JSON.stringify({
  * ids plus the surrounding home files. throughForkId seeds a mid-stream upstream release. */
 const seedSourceHome = Effect.fn("seedImportT3SourceHome")(function* (
   sourceHome: string,
-  throughForkId = 100,
+  throughForkId = migrationManifest.at(-1)?.[0] ?? 100,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -240,7 +240,10 @@ it.layer(NodeServices.layer)("importT3", (it) => {
         sourceLedger[sourceLedger.length - 1]?.name,
         migrationManifest.at(-1)?.[1],
       );
-      assert.strictEqual(sourceLedger[sourceLedger.length - 1]?.migration_id, 98);
+      assert.strictEqual(
+        sourceLedger[sourceLedger.length - 1]?.migration_id,
+        (migrationManifest.at(-1)?.[0] ?? 0) - 2,
+      );
     }),
   );
 

@@ -9,7 +9,9 @@ import type {
   PluginScheduleTargetHistoryProps,
   PluginScheduleTargetSaveInput,
 } from "@t3tools/plugin-host-contract/web";
+import { msg } from "gt-react";
 import type { ReactNode } from "react";
+import { m, type MessageResolver } from "~/i18n/messages";
 import type { PluginPageStatus } from "./pageConnection";
 
 export type PluginSchedulePayload = PluginScheduleTargetSaveInput["payload"];
@@ -25,16 +27,29 @@ export interface PluginScheduleTarget {
 }
 
 /** Why a schedule's target has no editor here, worded from the environment's catalog state. */
-export function unavailableTargetText(status: PluginPageStatus, targetId: string) {
+export function unavailableTargetText(
+  status: PluginPageStatus,
+  targetId: string,
+  resolve: MessageResolver = m,
+) {
   switch (status) {
     case "reconciling":
-      return "Checking this environment's plugins…";
+      return resolve(msg("Checking this environment's plugins…"));
     case "disconnected":
-      return "Disconnected. This schedule's target is checked when the environment reconnects.";
+      return resolve(
+        msg("Disconnected. This schedule's target is checked when the environment reconnects."),
+      );
     case "catalog-unavailable":
-      return `Could not check whether ${targetId} is available in this environment.`;
+      return resolve(
+        msg("Could not check whether {targetId} is available in this environment.", { targetId }),
+      );
     default:
-      return `${targetId} is unavailable in this environment or this client. Its settings are kept: you can change its timing, pause it, or delete it.`;
+      return resolve(
+        msg(
+          "{targetId} is unavailable in this environment or this client. Its settings are kept: you can change its timing, pause it, or delete it.",
+          { targetId },
+        ),
+      );
   }
 }
 
@@ -70,30 +85,33 @@ export const webhookAvailable = (targetId: string | null) => targetId === null;
  * What the schedule editor saves for a plugin target: the host's common fields plus the
  * payload the plugin's fields reported, or the reason it cannot be saved yet.
  */
-export function pluginScheduleSubmission(input: {
-  readonly scheduleId: string;
-  readonly title: string;
-  /** Null unless the chosen project is one of the environment's projects. */
-  readonly projectId: ProjectId | null;
-  readonly schedule: ScheduledTaskUpsertSchedule | null;
-  readonly enabled: boolean;
-  readonly payload: PluginSchedulePayload | null;
-}):
+export function pluginScheduleSubmission(
+  input: {
+    readonly scheduleId: string;
+    readonly title: string;
+    /** Null unless the chosen project is one of the environment's projects. */
+    readonly projectId: ProjectId | null;
+    readonly schedule: ScheduledTaskUpsertSchedule | null;
+    readonly enabled: boolean;
+    readonly payload: PluginSchedulePayload | null;
+  },
+  resolve: MessageResolver = m,
+):
   | { readonly ok: true; readonly input: PluginScheduleTargetSaveInput }
   | { readonly ok: false; readonly title: string; readonly description: string } {
   const title = input.title.trim();
   if (!title || input.projectId === null || input.payload === null)
     return {
       ok: false,
-      title: "Scheduled task is incomplete",
-      description: "Add a title, project, and what to run.",
+      title: resolve(msg("Scheduled task is incomplete")),
+      description: resolve(msg("Add a title, project, and what to run.")),
     };
   const schedule = input.schedule;
   if (schedule === null || schedule.type === "webhook")
     return {
       ok: false,
-      title: "Choose a schedule",
-      description: "Run this at a time or on an interval.",
+      title: resolve(msg("Choose a schedule")),
+      description: resolve(msg("Run this at a time or on an interval.")),
     };
   if (
     schedule.type === "interval" &&
@@ -101,8 +119,8 @@ export function pluginScheduleSubmission(input: {
   )
     return {
       ok: false,
-      title: "Invalid interval",
-      description: "Enter an interval of at least one minute.",
+      title: resolve(msg("Invalid interval")),
+      description: resolve(msg("Enter an interval of at least one minute.")),
     };
   return {
     ok: true,

@@ -205,7 +205,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       },
     }),
     setup: { canAuthenticate: true, canInstall: true },
-    supportsConversationRollback: false,
+    supportsConversationRollback: true,
     supportsTextGeneration: false,
     workspaceSnapshots: [],
   } satisfies ServerProviderDraft;
@@ -216,6 +216,8 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   // Null marks an invalidated catalog: keep its native commands for the next lookup, but do not
   // republish it as completed discovery after a Settings refresh.
   const discoveredSkills = new Map<string, ServerProvider["skills"] | null>();
+  // Workspaces whose own session reported commands; a cwd-less (catalog) inventory leaves them.
+  const workspaceNativeCommands = new Set<string>();
   const stampSnapshot = (draft: ServerProviderDraft) =>
     options.stampIdentity({
       ...draft,
@@ -442,6 +444,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   ) {
     if (!settings.enabled) return;
     const slashCommands = nativeCommands(commands);
+    if (cwd) workspaceNativeCommands.add(cwd);
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     yield* SubscriptionRef.update(metadata, (state) => {
       if (state.draft.auth.status === "unauthenticated") return state;
@@ -468,12 +471,10 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
                 ].slice(-MAX_WORKSPACE_SNAPSHOTS),
               }
             : {
-                // The driver publishes native command inventories without a
-                // cwd. Keep discovered workspace catalogs on that inventory.
-                workspaceSnapshots: (state.draft.workspaceSnapshots ?? []).map((entry) => ({
-                  ...entry,
-                  slashCommands,
-                })),
+                // Discovered workspaces without their own report follow the global inventory.
+                workspaceSnapshots: (state.draft.workspaceSnapshots ?? []).map((entry) =>
+                  workspaceNativeCommands.has(entry.cwd) ? entry : { ...entry, slashCommands },
+                ),
               }),
         },
       };
@@ -509,6 +510,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     );
     discoveredSkills.clear();
     thinkingLevels.clear();
+    workspaceNativeCommands.clear();
   });
 
   const commitWorkspaceSnapshot = Effect.fn("AntigravityProvider.commitWorkspaceSnapshot")(

@@ -20,6 +20,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
+import * as ThreadProjectMove from "../project/ThreadProjectMove.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
@@ -185,7 +186,12 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
 
 const layerProviderTurnControlServiceProvided = ProviderTurnControlService.layer.pipe(
   Layer.provide(
-    Layer.mergeAll(layerEventSink, ProjectionStore.layer, layerProviderSessionManagerProvided),
+    Layer.mergeAll(
+      layerEventSink,
+      McpAppModelContext.layer,
+      ProjectionStore.layer,
+      layerProviderSessionManagerProvided,
+    ),
   ),
 );
 const layerRuntimeRequestServiceProvided = RuntimeRequestService.layer.pipe(
@@ -315,6 +321,13 @@ const layerScratchThreadPromotionProvided = ScratchThreadPromotion.layer.pipe(
     ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
+const layerThreadProjectMoveProvided = ThreadProjectMove.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(layerThreadManagementProvided, layerScheduledTaskProvided).pipe(
+      Layer.provideMerge(layerProjectService),
+    ),
+  ),
+);
 const layerProviderContinuationWorkerProvided = ProviderContinuationService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -396,6 +409,7 @@ export const layerProduction = Layer.mergeAll(
   layerThreadLaunchProvided,
   layerScheduledTaskProvided,
   layerScratchThreadPromotionProvided,
+  layerThreadProjectMoveProvided,
   layerSecretRequestsProvided,
   GuestShareService.layer.pipe(
     Layer.provide(Layer.merge(layerOrchestratorProvided, layerCommandOutputHubProvided)),

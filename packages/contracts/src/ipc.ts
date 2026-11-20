@@ -11,6 +11,7 @@ import type {
 } from "./browserImport.ts";
 import { AuthAccessTokenResult, AuthSessionState } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
+import { ProjectIconColor } from "./project.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
@@ -29,6 +30,8 @@ export interface ContextMenuItem<T extends string = string> {
   disabled?: boolean;
   header?: boolean;
   icon?: string;
+  /** Draws a small colored monogram in the icon slot instead of `icon`, for project-like rows. */
+  monogram?: { text: string; color: ProjectIconColor };
   separatorBefore?: boolean;
   checked?: boolean;
   children?: readonly ContextMenuItem<T>[];
@@ -987,6 +990,19 @@ export const DesktopPreviewConfigInputSchema = Schema.Struct({
   environmentId: EnvironmentId,
   /** Main must derive the partition to ensure its session has UA rewrites and permission handlers. */
   profileId: Schema.optional(BrowserProfileId),
+  /** Carry the partition's loopback traffic to the environment instead of this machine. */
+  tunnelLoopback: Schema.optional(Schema.Boolean),
+});
+
+export interface DesktopPreviewTunnelAccessRequest {
+  readonly requestId: string;
+  readonly environmentId: EnvironmentId;
+}
+
+export const DesktopPreviewTunnelAccessResolutionInputSchema = Schema.Struct({
+  requestId: Schema.String,
+  /** The environment's tunnel WebSocket URL with its ticket, or null when it cannot be reached. */
+  url: Schema.NullOr(Schema.String),
 });
 
 export const DesktopPreviewClearDataInputSchema = Schema.Struct({
@@ -1304,7 +1320,13 @@ export interface DesktopPreviewBridge {
   getPreviewConfig: (
     environmentId: EnvironmentId,
     profileId?: string,
+    tunnelLoopback?: boolean,
   ) => Promise<DesktopPreviewWebviewConfig>;
+  /** Main asks for an environment's tunnel URL once per connection a tunnelled page opens. */
+  onTunnelAccessRequest: (
+    listener: (request: DesktopPreviewTunnelAccessRequest) => void,
+  ) => () => void;
+  resolveTunnelAccess: (requestId: string, url: string | null) => Promise<void>;
   listBrowserImportSources: () => Promise<ReadonlyArray<BrowserImportSource>>;
   importBrowserCookies: (input: {
     readonly environmentId: EnvironmentId;

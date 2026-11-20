@@ -233,9 +233,12 @@ const hostSetup = (cause: unknown): PreviewStreamHostSetup | undefined =>
     ? { need: "sandbox", command: cause.setupCommand }
     : isLibrariesError(cause)
       ? { need: "libraries", command: cause.setupCommand }
-      : undefined;
+      : isDisplayError(cause)
+        ? { need: "display", command: cause.setupCommand }
+        : undefined;
 const isSandboxError = Schema.is(PreviewBrowserHost.PreviewBrowserSandboxError);
 const isLibrariesError = Schema.is(PreviewBrowserHost.PreviewBrowserLibrariesError);
+const isDisplayError = Schema.is(PreviewBrowserHost.PreviewBrowserDisplayError);
 const encodeHostSetupJson = Schema.encodeSync(Schema.fromJsonString(PreviewStreamHostSetup));
 // A close reason holds at most 123 bytes; a long install path falls back to the PATH command.
 const MAX_CLOSE_REASON_BYTES = 123;

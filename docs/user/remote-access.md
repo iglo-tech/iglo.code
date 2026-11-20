@@ -40,7 +40,10 @@ Connection settings are under **Settings → Environments**. A loopback address
 such as `127.0.0.1` reaches only the device opening the link.
 
 Pairing authorizes that device for future connections. Use a fresh one-time link
-for each new device; you do not need the original token to reconnect. Links
+for each new device; you do not need the original token to reconnect. A device
+stays signed in while you keep using it, until you revoke it in **Settings →
+Sharing & access** on the host. One unused for 30 days, or paired with a host
+older than this release, has to pair again. Links
 created in Settings can only be copied from the client that created them while
 its Sharing & access page stays open. If you leave or reload that page, create
 another link to share.
@@ -159,10 +162,12 @@ Browser tabs belong to the environment, so you and your agents see the same
 tabs from any device. The web client streams them from the host. Agents keep using them while no device is
 connected, and `localhost` addresses reach servers on the host.
 
-The first tab downloads a headless Chrome, about 120 MB, into the iglo.code home. It
+The first tab downloads a full Chrome, about 200 MB, into the iglo.code home. It
 is the same browser [HTML renders](html-renders.md) use, so a host downloads it
-only once. Some Linux hosts need [setup](#browser-host-setup) before it can
-start.
+only once. The browser runs as a real window — on the host's display, or on a
+virtual one the server starts itself — which is what lets you sign in to
+accounts such as Google and stay signed in. Some Linux hosts need
+[setup](#browser-host-setup) before it can start.
 
 Agent tabs have separate storage and share a Chromium process. Take control before
 typing into an agent's tab, then release control when you want the agent to
@@ -195,9 +200,10 @@ the background service, and restart it. Script preview URLs still appear.
 
 macOS and Linux desktops run the browser as is. Some Linux hosts need
 one-time setup: Ubuntu 23.10 and later block the sandbox the browser runs in,
-and minimal images and containers lack libraries it loads. When that happens,
-the server says so at startup, and browser tabs and HTML previews show the
-command to run on the host:
+minimal images and containers lack libraries it loads, and a host without a
+display — a VM or server — needs Xvfb for the browser's window. When that
+happens, the server says so at startup, and browser tabs and HTML previews show
+the command to run on the host:
 
 ```sh
 sudo iglo.code browser setup
@@ -207,11 +213,14 @@ The server shows the exact line for how you started it, such as
 `sudo iglo.code browser setup`, and keeps your `PATH` when Bun or iglo.code is
 installed only for your user. Where `iglo.code` is not on your `PATH`, a standalone install names its
 full executable path. It allows Chrome's sandbox with an AppArmor profile and installs
-any missing libraries and system fonts with apt; pages that load without text
+any missing libraries, system fonts, and Xvfb with apt; pages that load without text
 can mean the host has no fonts. It is safe to run again, and each run reloads
 the AppArmor profile: run it again if the browser reports a blocked sandbox on a
 host restored from an image or snapshot, where the profile can be on disk
 without being loaded. Without `sudo`, it only reports what it would change.
+
+After setup, the server starts Xvfb on demand whenever a browser tab opens; no
+display needs configuring, and an inherited desktop display is used as is.
 
 The browser runs in Chrome's sandbox by default. Chrome cannot start that sandbox
 as root. If your iglo.code server runs as root, run it as a nonroot user to keep
@@ -303,7 +312,7 @@ iglo.code pair --scope orchestration:read --scope terminal:read
 The selected scopes replace the default permissions. The same option works with
 `iglo.code auth pairing create` and `iglo.code auth session issue`; each command's
 `--help` lists the available scopes. Without `--scope`, pairing tokens and issued
-bearer sessions get every permission, including managing access.
+bearer sessions get the standard client permissions, including managing access.
 A terminal or a full-access agent on the host can reach those as well, so a
 client that should not manage access also needs to go without `terminal:operate`
 and `orchestration:operate`.
@@ -326,7 +335,7 @@ and the agent it runs can use Git however the environment allows.
 
 Settings changes, provider management, environment maintenance, and access
 management can each be granted separately. New
-pairings without `--scope` include all of them. Existing clients keep the
+pairings without `--scope` include the standard client permissions. Existing clients keep the
 permissions they paired with and can stay connected after an update, but newly
 separated features may require pairing again with the permissions they need.
 Older clients may show controls that the server denies. Create a fresh pairing
@@ -335,6 +344,11 @@ link to change a client's permissions.
 `filesystem:read` allows browsing host files, opening workspace files, and viewing
 local changes. Add `filesystem:write` to allow editing files or saving plans to
 the workspace. These scopes control direct file access from the client.
+
+Some permissions also give a client indirect access. With `terminal:operate`,
+a client can run commands that read or change any files the server’s OS account
+can access, even when the pairing link omits file permissions. Grant this
+permission only to clients you trust with that capability.
 
 Treat pairing URLs and authorization codes as passwords. Do not include them in
 screenshots, logs, or bug reports.

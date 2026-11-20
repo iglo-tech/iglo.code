@@ -66,6 +66,7 @@ import {
   ThreadPullRequestSnapshot,
   ThreadPullRequestStack,
   ThreadPullRequestWatch,
+  PullRequestWatchUntil,
 } from "./threadPullRequest.ts";
 import {
   ProviderApprovalDecision,
@@ -549,6 +550,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   lastTitleRegeneration: Schema.optional(Schema.NullOr(OrchestrationV2LastTitleRegeneration)),
   /** Wait decisions for background commands, newest last; absent means none were made. */
   backgroundWaits: Schema.optional(Schema.Array(OrchestrationV2BackgroundWait)),
+  /** Set by a rename until a generated title replaces it; absent reads as false. */
+  titleRenamed: Schema.optional(Schema.Boolean),
   rollbackRequestId: Schema.optional(CommandId),
   rollbackFailure: Schema.optional(
     Schema.NullOr(
@@ -1266,6 +1269,8 @@ export const OrchestrationV2ProviderTurn = Schema.Struct({
   nodeId: NodeId,
   runAttemptId: Schema.NullOr(RunAttemptId),
   nativeTurnRef: Schema.NullOr(OrchestrationV2ProviderRef),
+  /** The native session that held this turn, when a provider can move a thread between sessions. */
+  nativeThreadRef: Schema.optional(OrchestrationV2ProviderRef),
   ordinal: PositiveInt,
   status: Schema.Literals([
     "pending",
@@ -3311,6 +3316,8 @@ export const OrchestrationV2Command = Schema.Union([
     limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecoveryUpdate)),
     /** Link (object) or unlink (null) a pull request; absent leaves it unchanged. */
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+    /** Replaces the thread's saved pull request links wholesale; absent leaves them unchanged. */
+    pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),
@@ -3358,6 +3365,8 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     ...ThreadPullRequestKey.fields,
     watching: Schema.Boolean,
+    /** With `watching`, sets how long the watch holds its thread; absent keeps the current one. */
+    until: Schema.optional(PullRequestWatchUntil),
     link: Schema.optional(
       Schema.Struct({
         url: TrimmedNonEmptyString,
@@ -3682,6 +3691,13 @@ const OrchestrationV2InternalCommand = Schema.Union([
   /** Moves a thread to a project rooted at the folder it already works in, so its cwd never changes. */
   Schema.Struct({
     type: Schema.Literal("thread.project.adopt-folder"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    projectId: ProjectId,
+  }),
+  /** Re-files a thread into another project, where its cwd becomes that project's root. */
+  Schema.Struct({
+    type: Schema.Literal("thread.project.move"),
     commandId: CommandId,
     threadId: ThreadId,
     projectId: ProjectId,
@@ -4194,6 +4210,8 @@ export const OrchestrationV2ThreadHistoryPage = withRecordIdTable(
     ),
     nextCursor: Schema.NullOr(TrimmedNonEmptyString),
     hasMoreHistory: Schema.Boolean,
+    /** Records of the page's subagent items, which a bounded snapshot can omit. */
+    subagents: Schema.optionalKey(Schema.Array(OrchestrationV2Subagent)),
     idTable: IdTableMarker,
   }),
   () => null,

@@ -7,8 +7,10 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { msg } from "gt-react";
 import { Atom } from "effect/reactivity";
 
+import { m, type MessageResolver } from "~/i18n/messages";
 import { environmentSummaries } from "./presentation";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { serverEnvironment } from "./server";
@@ -26,11 +28,14 @@ function unsupportedLookup(config: ServerConfig | null): ServerReleaseError | nu
       });
 }
 
-export function trackReleaseFailureMessage(cause: Cause.Cause<unknown>): string {
+export function trackReleaseFailureMessage(
+  cause: Cause.Cause<unknown>,
+  resolve: MessageResolver = m,
+): string {
   const error = Option.getOrUndefined(Cause.findErrorOption(cause));
   return isServerReleaseError(error)
     ? error.message
-    : "Could not check iglo.code releases. Check the connection and try again.";
+    : resolve(msg("Could not check iglo.code releases. Check the connection and try again."));
 }
 
 /** The newest release on `channel`, looked up by a connected server so its update source decides. */

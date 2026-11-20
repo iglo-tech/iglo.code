@@ -6,7 +6,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { previewBrowserRelease } from "../../src/preview/PreviewBrowser.ts";
+import { previewBrowserLayout, previewBrowserRelease } from "../../src/preview/PreviewBrowser.ts";
 import { DEVICE_HUB_VERSION } from "../../src/device/DeviceToolchain.ts";
 
 const here = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
@@ -79,21 +79,20 @@ export async function prepareWebDependencies(
   await NodeFSP.writeFile(deviceMode, "ready");
   const platform = HostProcess.Platform.defaultValue();
   const release = previewBrowserRelease(platform, HostProcess.Architecture.defaultValue());
-  NodeAssert.ok(release, "This acceptance runner needs a supported Chromium platform.");
+  const layout = previewBrowserLayout(release?.platform ?? "");
+  NodeAssert.ok(release && layout, "This acceptance runner needs a supported Chromium platform.");
   const browserRoot = NodePath.join(
     paths.home,
     "tools",
-    "chrome-headless-shell",
+    layout.toolsDirectory,
     release.platform,
     release.version,
   );
-  await NodeFSP.mkdir(browserRoot, { recursive: true });
-  const browserExecutable = NodePath.join(
-    browserRoot,
-    platform === "win32" ? "chrome-headless-shell.exe" : "chrome-headless-shell",
-  );
+  const browserExecutable = NodePath.join(browserRoot, layout.executable);
   // A complete but failing local installation exercises the real unavailable UI,
-  // without relying on internet access or a download failure.
+  // without relying on internet access or a download failure. The bundle's
+  // directories do not exist yet on macOS, whose executable is nested in an .app.
+  await NodeFSP.mkdir(NodePath.dirname(browserExecutable), { recursive: true });
   await NodeFSP.writeFile(
     browserExecutable,
     "#!/bin/sh\nprintf 'No usable sandbox! Controlled browser launch failure\\n' >&2\nexit 70\n",
@@ -142,6 +141,7 @@ export async function prepareWebDependencies(
     bin,
     browserRoot,
     browserExecutable,
+    layout,
     deviceMode,
   };
 }
@@ -167,9 +167,15 @@ export async function releaseProvider(dependencies: WebDependencies) {
 export async function installBrowser(dependencies: WebDependencies, executable: string) {
   NodeAssert.ok(
     NodePath.isAbsolute(executable),
-    "T3_WEB_REGRESSION_BROWSER must be an absolute chrome-headless-shell NodePath.",
+    "T3_WEB_REGRESSION_BROWSER must be an absolute Chrome executable NodePath.",
+  );
+  NodeAssert.ok(
+    executable.endsWith(dependencies.layout.executable),
+    "T3_WEB_REGRESSION_BROWSER must be the pinned Chrome executable inside its version directory.",
   );
   await NodeFSP.rm(dependencies.browserRoot, { recursive: true, force: true });
-  await NodeFSP.cp(NodePath.dirname(executable), dependencies.browserRoot, { recursive: true });
+  // The bundle spans directories on macOS, so copy the version tree, not the executable's parent.
+  const source = executable.slice(0, executable.length - dependencies.layout.executable.length);
+  await NodeFSP.cp(source, dependencies.browserRoot, { recursive: true });
   NodeAssert.ok((await NodeFSP.stat(dependencies.browserExecutable)).isFile());
 }

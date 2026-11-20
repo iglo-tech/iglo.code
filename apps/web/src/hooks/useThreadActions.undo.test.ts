@@ -1,9 +1,10 @@
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { useThreadActions } from "./useThreadActions";
 import { threadEnvironment } from "../state/threads";
+import { projectEnvironment } from "../state/projects";
 import { toastManager } from "../components/ui/toast";
 import { useThreadUndoNotice } from "./showThreadUndoNotice";
 import { announce } from "../lib/announce";
@@ -19,6 +20,8 @@ const commands = vi.hoisted(() => ({
   snooze: vi.fn(),
   unsnooze: vi.fn(),
   reorderActive: vi.fn(),
+  moveThread: vi.fn(),
+  updateMetadata: vi.fn(),
 }));
 const router = vi.hoisted(() => {
   const listeners = new Set<(event: { action: { type: string } }) => void>();
@@ -68,6 +71,10 @@ const threadShell = vi.hoisted(() => ({
   projectId: "project",
   environmentId: "undo-env",
   session: null,
+  worktreePath: null as string | null,
+  branch: null as string | null,
+  linkedPullRequest: null as unknown,
+  pullRequests: null as unknown,
 }));
 // Archived rows have no loaded shell, so deleting one takes the unresolved path.
 const shellLoaded = vi.hoisted(() => ({ current: true }));
@@ -99,11 +106,29 @@ vi.mock("../state/use-atom-command", () => ({
         return commands.unsnooze;
       case threadEnvironment.reorderActive:
         return commands.reorderActive;
+      case projectEnvironment.moveThread:
+        return commands.moveThread;
       default:
         return vi.fn();
     }
   },
 }));
+vi.mock("../state/use-orchestration-command", async (original) => {
+  const actual = await original<typeof import("../state/use-orchestration-command")>();
+  return {
+    ...actual,
+    useOrchestrationCommand: (
+      command: unknown,
+      options?: Parameters<typeof actual.useOrchestrationCommand>[1],
+    ) =>
+      command === threadEnvironment.updateMetadata
+        ? commands.updateMetadata
+        : actual.useOrchestrationCommand(
+            command as Parameters<typeof actual.useOrchestrationCommand>[0],
+            options,
+          ),
+  };
+});
 
 const target = {
   environmentId: EnvironmentId.make("undo-env"),
@@ -127,6 +152,10 @@ beforeEach(() => {
   threadShell.activeOrderKey = null;
   threadShell.unsettledAt = null;
   threadShell.snoozedUntil = null;
+  threadShell.worktreePath = null;
+  threadShell.branch = null;
+  threadShell.linkedPullRequest = null;
+  threadShell.pullRequests = null;
   shellLoaded.current = true;
 });
 afterEach(() => {
@@ -156,6 +185,69 @@ describe("concurrent thread action Undo", () => {
       expect(commands[inverse]).toHaveBeenCalledOnce();
     },
   );
+});
+
+describe("move Undo", () => {
+  const destination = ProjectId.make("destination");
+
+  it("shows one undo that moves the thread back to its previous project", async () => {
+    const actions = useThreadActions();
+    await actions.moveThreadToProject(target, destination);
+    expect(commands.moveThread).toHaveBeenCalledExactlyOnceWith({
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, projectId: destination },
+    });
+    expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Moved", count: 1 });
+    await currentUndo()();
+    expect(commands.moveThread).toHaveBeenNthCalledWith(2, {
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, projectId: threadShell.projectId },
+    });
+  });
+
+  it("keeps a second move's undo only, and none when the shell is missing", async () => {
+    const actions = useThreadActions();
+    await actions.moveThreadToProject(target, ProjectId.make("other"));
+    await actions.moveThreadToProject(target, destination);
+    expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Moved", count: 1 });
+    // The static shell never observes the first move, so undo restores what it last said.
+    await currentUndo()();
+    expect(commands.moveThread).toHaveBeenNthCalledWith(3, {
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, projectId: threadShell.projectId },
+    });
+
+    shellLoaded.current = false;
+    await actions.moveThreadToProject(target, destination);
+    expect(commands.moveThread).toHaveBeenCalledTimes(4);
+    expect(useThreadUndoNotice.getState().notice).toBeNull();
+  });
+
+  it("restores a worktree-pinned thread's workspace, branch, and PR links on undo", async () => {
+    threadShell.worktreePath = "/tmp/repo-worktree";
+    threadShell.branch = "feature/move";
+    threadShell.linkedPullRequest = { key: "pr-1" };
+    threadShell.pullRequests = [
+      { number: 1, host: "github.com", repository: "iglo-tech/iglo.code" },
+    ];
+    const actions = useThreadActions();
+    await actions.moveThreadToProject(target, destination);
+    await currentUndo()();
+    expect(commands.moveThread).toHaveBeenNthCalledWith(2, {
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, projectId: threadShell.projectId },
+    });
+    expect(commands.updateMetadata).toHaveBeenCalledExactlyOnceWith({
+      environmentId: target.environmentId,
+      input: {
+        threadId: target.threadId,
+        worktreePath: "/tmp/repo-worktree",
+        branch: "feature/move",
+        linkedPullRequest: { key: "pr-1" },
+        pullRequests: [{ number: 1, host: "github.com", repository: "iglo-tech/iglo.code" }],
+      },
+    });
+  });
 });
 
 describe("pin", () => {

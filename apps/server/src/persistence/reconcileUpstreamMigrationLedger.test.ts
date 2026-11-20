@@ -66,14 +66,16 @@ describe("planUpstreamLedger", () => {
   });
 
   it("renumbers an upstream history two ids up from the divergence", () => {
-    const plan = planUpstreamLedger(upstreamRows(100));
+    const head = migrationManifest.at(-1)?.[0] ?? 100;
+    const plan = planUpstreamLedger(upstreamRows(head));
     assert.strictEqual(plan.kind, "upstream");
     if (plan.kind !== "upstream") return;
-    assert.deepStrictEqual(plan.rows.filter((row) => row.id >= 61).slice(0, 2), [
-      { id: 61, name: "McpAppModelContext" },
-      { id: 62, name: "ThreadSnapshotWindowIndexes" },
-    ]);
-    assert.strictEqual(plan.rows.at(-1)?.id, 100);
+    const renumbered = FIRST_UPSTREAM_DIVERGENT_ID + 2;
+    assert.deepStrictEqual(
+      plan.rows.filter((row) => row.id >= renumbered),
+      migrationManifest.filter(([id]) => id >= renumbered).map(([id, name]) => ({ id, name })),
+    );
+    assert.strictEqual(plan.rows.at(-1)?.id, head);
     assert.strictEqual(plan.rows.at(-1)?.name, migrationManifest.at(-1)?.[1]);
     assert.isFalse(plan.rows.some((row) => row.id === 59 || row.id === 60));
   });
@@ -105,7 +107,7 @@ it.layer(NodeServices.layer)("reconcileUpstreamMigrationLedger", (it) => {
         const path = yield* Path.Path;
         const directory = yield* fs.makeTempDirectoryScoped({ prefix: "upstream-ledger-" });
         const databasePath = path.join(directory, "statev2.sqlite");
-        yield* seedUpstreamThrough(databasePath, 100);
+        yield* seedUpstreamThrough(databasePath, migrationManifest.at(-1)?.[0] ?? 100);
 
         const applied = yield* withDatabase(
           databasePath,
