@@ -13,6 +13,7 @@ import * as DatabaseMaintenance from "../persistence/DatabaseMaintenance.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as AutomaticPort from "./automaticPort.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
+import { maybeOfferFirstRunImport } from "./importT3.ts";
 
 const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
@@ -29,18 +30,46 @@ const runServerCommand = Effect.fn("server.runServerCommand")(function* (
   const logLevel = yield* GlobalFlag.LogLevel;
   const selectAutomaticPort = yield* AutomaticPort.make.pipe(Effect.provide(ProcessRunner.layer));
   const config = yield* resolveServerConfig(flags, logLevel, { ...options, selectAutomaticPort });
+  // The destination database appears during boot, so this is the last moment it is clean enough
+  // to offer the one-time T3 Code import. A dev home (devUrl) or a desktop bootstrap start never
+  // offers (throwaway sandbox; one-shot --bootstrap-fd pipe). Headless and non-TTY starts print
+  // the one-line hint instead.
+  const offer = yield* maybeOfferFirstRunImport({
+    destinationHome: config.baseDir,
+    destinationDatabasePath: config.dbPath,
+    presentation:
+      config.devUrl !== undefined || config.desktopBootstrapToken !== undefined
+        ? "dev"
+        : config.startupPresentation === "headless"
+          ? "headless"
+          : "interactive",
+  });
+  // Ctrl+C at the prompt exits without booting, so the ask-once offer survives to the next start.
+  if (offer === "quit") return;
+  // A successful import filled the home this config was resolved against; re-resolve so the
+  // chosen port and the loaded settings come from the imported home, not the empty one. A hinted
+  // (headless/non-TTY) start changes nothing on disk: do NOT re-resolve (the one-shot bootstrap fd
+  // is already drained), just skip the cwd auto-bootstrap so the home stays importable.
+  const activeConfig =
+    offer === "imported"
+      ? yield* resolveServerConfig(flags, logLevel, { ...options, selectAutomaticPort })
+      : offer === "hinted"
+        ? { ...config, autoBootstrapProjectFromCwd: false }
+        : config;
   const run = Effect.raceFirst(
-    runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config)),
+    runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, activeConfig)),
     awaitServiceLauncherStop().pipe(Effect.andThen(Effect.interrupt)),
   ).pipe(
     // Settings' Reclaim stops the server; repair once the database is closed, before the restart.
     Effect.ensuring(
-      DatabaseMaintenance.runRequestedReclaim(config.dbPath).pipe(
+      DatabaseMaintenance.runRequestedReclaim(activeConfig.dbPath).pipe(
         Effect.provide(DatabaseMaintenance.layer),
       ),
     ),
   );
-  if (config.mode !== "desktop" || config.desktopBootstrapToken === undefined) return yield* run;
+  if (activeConfig.mode !== "desktop" || activeConfig.desktopBootstrapToken === undefined) {
+    return yield* run;
+  }
   return yield* Effect.raceFirst(
     run,
     awaitLauncherLoss().pipe(

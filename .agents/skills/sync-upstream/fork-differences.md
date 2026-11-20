@@ -21,8 +21,22 @@ current when an authorized change replaces a decision.
 - **No website.** Keep upstream's `apps/marketing` (the t3.codes site) removed
   with its scripts, lockfile importer, and lint, knip, and gitignore entries.
 - **Side-by-side runtime identity.** iglo.code and an installed T3 Code must run on
-  one machine at once without reading each other's state, whatever the user's
-  config. No data migration from T3 Code exists or is wanted. Every name that
+  one machine at once without reading each other's state at runtime, whatever
+  the user's config. The one sanctioned crossing is the user-run
+  `iglo.code import`: a one-time, refusal-first import of a stopped T3 Code
+  home into a clean iglo.code home (`cli/importT3.ts`, renumbering T3 Code's
+  migration ledger through
+  `persistence/reconcileUpstreamMigrationLedger.ts`). It never opens the T3
+  Code database directly — it works from a private staged copy and snapshots
+  that, so nothing is written back — but after an import iglo.code does manage
+  the old home's `worktrees` directory in place (recorded via
+  `previousWorktreesDirectories`) and links its `scratch` folder to the old
+  home's. The import depends on the migration
+  divergence below: the fork-only migrations at 59/60 and the two-id offset
+  from 59 are encoded in that reconcile, name-driven so new upstream
+  migrations need no change, but a sync that renumbers the fork offset or
+  inserts another fork-only migration must update the reconcile and
+  `cli/importT3.ts` with it. Every name that
   reaches disk, the environment, git, the network, or an agent stays renamed:
 
   | Upstream                                              | iglo.code                                                          |

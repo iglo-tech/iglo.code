@@ -89,6 +89,26 @@ const ALLOW: [string, string, string][] = [
     "default port 3773",
     "a comment on Go's decimal port parsing (03773); the code compares the configured port",
   ],
+  [
+    "apps/server/src/cli/importT3.ts",
+    "~/.t3 or worktree .t3 path",
+    "default source home of the sanctioned one-time import; opened only through a private staged copy, never written",
+  ],
+  [
+    "docs/user/install.md",
+    "product name",
+    "the migration link names the upstream project users migrate from",
+  ],
+  [
+    "docs/user/migrate-from-t3-code.md",
+    "product name",
+    "user doc for the sanctioned migration; it names the upstream product throughout",
+  ],
+  [
+    "docs/user/migrate-from-t3-code.md",
+    "~/.t3 or worktree .t3 path",
+    "documents the import's default source home and the old home's worktrees/scratch that stay in place",
+  ],
 ];
 
 export type Hit = { path: string; line: number; label: string; text: string };

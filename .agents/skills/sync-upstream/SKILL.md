@@ -133,6 +133,19 @@ allowlist:
 bun .agents/skills/sync-upstream/scripts/check-fork-identity.ts
 ```
 
+An upstream merge that adds, renumbers, or inserts migrations must keep the
+T3 Code import's ledger reconcile in shape: the fork-only migrations sit two ids
+below upstream's from id 59, and
+`apps/server/src/persistence/reconcileUpstreamMigrationLedger.ts` encodes that
+offset and refuses anything else. New upstream migrations need no change there
+(the mapping is name-driven), but a renumbered fork offset or an inserted
+fork-only migration means updating that file and
+`apps/server/src/cli/importT3.ts` with it. After any migration change, run:
+
+```sh
+vp test run apps/server/src/persistence/reconcileUpstreamMigrationLedger.test.ts apps/server/src/cli/importT3.test.ts
+```
+
 Review the final diff against the intentional fork differences, including files
 that merged automatically. Confirm `.github/workflows` holds only
 `iglo-release.yml`, and that docs added by upstream do not reintroduce the
