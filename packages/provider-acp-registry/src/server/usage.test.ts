@@ -154,7 +154,7 @@ describe("mistralVibeUsageReader", () => {
       assert.strictEqual(record.provider, "mistral");
       assert.strictEqual(record.sessionId, SESSION_ID);
       assert.strictEqual(record.model, "mistral-large-4-0-3");
-      // Dated model IDs price at their undated base in the shared price table.
+      // IDs with a trailing build number price at their base in the price table.
       assert.strictEqual(record.rateModel, "mistral-large-4-0");
       assert.strictEqual(record.timestampMs, UPDATED_AT);
       assert.deepStrictEqual(record.totals, {
@@ -458,22 +458,45 @@ describe("mistralVibeUsageReader", () => {
           },
         }),
       );
-      // A catalog entry with tokens but no usable timestamp marks its session
-      // unreadable even when the published projection is merely empty.
-      const catalogOnlyDir = path.join(
-        unifiedRoot,
-        "ffffffff-0000-0000-0000-000000000000",
-        "generations",
-        "0000000000000001",
+      const sources = yield* scan({
+        instances: [
+          {
+            id: "acpRegistry_mistral_vibe",
+            config: decodeSettings({ agentId: "mistral-vibe" }),
+            environment: { VIBE_HOME: vibeHome },
+          },
+        ],
+        windowStartMs: UPDATED_AT,
+      });
+      assert.strictEqual(sources[0]?.status, "partial");
+      const records = sources[0]?.files?.flatMap((file) => file.records) ?? [];
+      assert.deepStrictEqual(
+        records.map((record) => record.sessionId),
+        [SESSION_ID],
       );
-      yield* fileSystem.makeDirectory(catalogOnlyDir, { recursive: true });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("marks a session unreadable when only its catalog entry has unusable usage", () =>
+    Effect.gen(function* () {
+      const { vibeHome, unifiedRoot } = yield* makeVibeHome();
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      yield* writeSession(unifiedRoot, SESSION_ID, {
+        tokenUsage: { cachedInputTokens: 0, inputTokens: 10, outputTokens: 1, totalTokens: 11 },
+        updatedAt: UPDATED_AT,
+        model: "mistral-large-4",
+      });
+      // Empty projection; the catalog entry holds tokens but a string timestamp.
+      const emptyDir = path.join(unifiedRoot, OTHER_SESSION_ID, "generations", "0000000000000001");
+      yield* fileSystem.makeDirectory(emptyDir, { recursive: true });
       yield* fileSystem.writeFileString(
-        path.join(catalogOnlyDir, "projection-state.json"),
+        path.join(emptyDir, "projection-state.json"),
         JSON.stringify({ snapshot: { session: { tokenUsage: null, updatedAt: UPDATED_AT } } }),
       );
       yield* writeCatalog(unifiedRoot, [
         {
-          sessionId: "ffffffff-0000-0000-0000-000000000000",
+          sessionId: OTHER_SESSION_ID,
           fixture: {
             tokenUsage: {
               cachedInputTokens: 0,
@@ -494,7 +517,6 @@ describe("mistralVibeUsageReader", () => {
             environment: { VIBE_HOME: vibeHome },
           },
         ],
-        windowStartMs: UPDATED_AT,
       });
       assert.strictEqual(sources[0]?.status, "partial");
       const records = sources[0]?.files?.flatMap((file) => file.records) ?? [];
