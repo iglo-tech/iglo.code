@@ -98,8 +98,8 @@ describe("AcpMcpStdioBridge", () => {
     };
     process.env = {
       ...originalEnvironment,
-      T3_ACP_MCP_ENDPOINT: "http://127.0.0.1:1/mcp",
-      T3_ACP_MCP_AUTHORIZATION: "Bearer bridge-test",
+      IGLO_CODE_ACP_MCP_ENDPOINT: "http://127.0.0.1:1/mcp",
+      IGLO_CODE_ACP_MCP_AUTHORIZATION: "Bearer bridge-test",
     };
     const calls: Array<unknown> = [];
     using _fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {

@@ -936,8 +936,6 @@ const make = Effect.gen(function* () {
                 );
         worktreePath = worktree.path;
         branch = worktree.refName;
-        createdWorktreePath = worktreePath;
-        createdBranch = branch;
         yield* setupTracker.update(threadId, (snapshot) => ({
           ...snapshot,
           worktreePath,
