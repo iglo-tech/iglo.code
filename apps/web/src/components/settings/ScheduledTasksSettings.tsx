@@ -54,7 +54,6 @@ import {
 import { msg, T, useGT, useLocale, useMessages, Var } from "gt-react";
 import { m } from "../../i18n/messages";
 
-import { formatRelativeTime } from "../../timestampFormat";
 import { useClientSettings, useEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import { providerInstanceEntriesFor } from "../../providerInstances";

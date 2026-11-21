@@ -236,7 +236,7 @@ it.layer(NodeServices.layer)("iglo.code update launcher", (it) => {
       const root = yield* fs.makeTempDirectoryScoped();
       const baseDir = path.join(root, "home");
       const runtimeDir = path.join(baseDir, "runtime");
-      const launcher = path.join(root, "custom bin", "t3.cmd");
+      const launcher = path.join(root, "custom bin", "iglo.code.cmd");
       const launchedAs = path.join(runtimeDir, "versions", "1.0.0", "t3.exe");
       const targetEntryPath = path.join(runtimeDir, "versions", "2.0.0", "t3.exe");
       yield* fs.makeDirectory(runtimeDir, { recursive: true });
@@ -331,7 +331,7 @@ it.layer(NodeServices.layer)("iglo.code update launcher", (it) => {
     { name: "no launcher records", recorded: undefined },
     { name: "an empty launcher record", recorded: "" },
     { name: "whole launcher records", recorded: "/opt/t3\n" },
-    { name: "Windows launcher records", recorded: "C:\\t3.cmd\r\n" },
+    { name: "Windows launcher records", recorded: "C:\\iglo.code.cmd\r\n" },
     // An interrupted append cut this record short.
     { name: "an unterminated launcher record", recorded: "/opt/t" },
     // Another process's append is cut short after iglo.code update reads the records.
@@ -683,7 +683,7 @@ it.layer(NodeServices.layer)("t3 update checks the database before switching", (
       launcherProtocol: 3,
       preflight: preflightOutput("", 1),
       failure:
-        "t3@0.1.8 could not confirm it supports this database (its check exited with code 1), so t3 did not switch to it.",
+        "iglo.code@0.1.8 could not confirm it supports this database (its check exited with code 1), so iglo.code did not switch to it.",
     },
     {
       // Newer builds keep accepting the current launcher protocol, which may drop 3.
