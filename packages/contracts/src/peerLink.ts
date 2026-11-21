@@ -51,6 +51,12 @@ export const PeerLinkCreateInput = Schema.Struct({
   pairingCode: TrimmedNonEmptyString,
   access: AuthMcpClientAccess,
   /**
+   * Also link this environment back to the peer with the same access, when the
+   * peer accepts reciprocal links. Unset means no reciprocal link: older
+   * callers that never chose link one way. First-party clients send it explicitly.
+   */
+  reciprocal: Schema.optionalKey(Schema.Boolean),
+  /**
    * The environment the user means. Addresses that answer as another one are
    * skipped, and only those that answer as this one are kept.
    */
@@ -60,10 +66,105 @@ export const PeerLinkCreateInput = Schema.Struct({
 });
 export type PeerLinkCreateInput = typeof PeerLinkCreateInput.Type;
 
+/** What came of also linking this environment back to the peer. */
+export const PeerLinkReciprocalOutcome = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("linked") }),
+  /** The peer runs a version without reciprocal links, so it linked one way. */
+  Schema.Struct({ kind: Schema.Literal("unsupported") }),
+  /** Linking offered no reciprocity, because the user turned it off. */
+  Schema.Struct({ kind: Schema.Literal("off") }),
+  Schema.Struct({
+    kind: Schema.Literal("failed"),
+    /** Why the peer could not link back, in words a user can act on. */
+    message: Schema.String,
+  }),
+]);
+export type PeerLinkReciprocalOutcome = typeof PeerLinkReciprocalOutcome.Type;
+
+/**
+ * A made link, flat, with what came of also linking back. Flat so an older
+ * client that decodes a plain `PeerLink` still succeeds: the extra optional
+ * key is dropped on decode. Likewise a newer client decodes an older server's
+ * plain link, with `reciprocal` absent.
+ */
+export const PeerLinkCreateResult = Schema.Struct({
+  ...PeerLink.fields,
+  reciprocal: Schema.optionalKey(PeerLinkReciprocalOutcome),
+});
+export type PeerLinkCreateResult = typeof PeerLinkCreateResult.Type;
+
+/** What answering a link request made, for the client to say aloud. */
+export const PeerLinkRequestAnswerResult = Schema.Struct({
+  /** The link an answer of "link" made, with what came of linking back. */
+  result: Schema.optionalKey(PeerLinkCreateResult),
+});
+export type PeerLinkRequestAnswerResult = typeof PeerLinkRequestAnswerResult.Type;
+
+/** What came of asking the peer to forget its link back here. */
+export const PeerLinkTeardownOutcome = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("removed") }),
+  /**
+   * The peer answered but kept its side — a link from before sessions were
+   * bound to rows, or one its session is not bound to. The caller can still
+   * end the peer's session here itself; the message says how.
+   */
+  Schema.Struct({
+    kind: Schema.Literal("kept"),
+    /** Why it kept its side, in words a user can act on. */
+    message: Schema.String,
+  }),
+  /** The peer could not be asked: the link back stays until removed there. */
+  Schema.Struct({
+    kind: Schema.Literal("off"),
+    /** Why, in words a user can act on. */
+    message: Schema.String,
+  }),
+]);
+export type PeerLinkTeardownOutcome = typeof PeerLinkTeardownOutcome.Type;
+
+/** Most addresses a reciprocal offer may carry, so one session cannot scan many. */
+export const MAX_RECIPROCAL_OFFER_URLS = 8;
+/** Most characters an offer's label may carry. */
+export const MAX_RECIPROCAL_OFFER_LABEL_LENGTH = 200;
+
+/**
+ * A linked peer's offer to link back: its addresses and a one-time pairing
+ * code it minted, delivered over the session its forward link holds here.
+ * The addresses are probed by the receiver, so the count and lengths are
+ * bounded: the offer must not turn into a port scanner.
+ */
+export const PeerLinkReciprocalOffer = Schema.Struct({
+  environmentId: EnvironmentId,
+  label: TrimmedNonEmptyString.check(Schema.isMaxLength(MAX_RECIPROCAL_OFFER_LABEL_LENGTH)),
+  /** Where the offering environment answers, most preferred first. */
+  urls: Schema.NonEmptyArray(TrimmedNonEmptyString).check(
+    Schema.isMaxLength(MAX_RECIPROCAL_OFFER_URLS),
+  ),
+  /** A pairing code from the offering environment, spent to link back to it. */
+  pairingCode: TrimmedNonEmptyString,
+  access: AuthMcpClientAccess,
+});
+export type PeerLinkReciprocalOffer = typeof PeerLinkReciprocalOffer.Type;
+
+/** A linked peer asking this one to forget it: drop its link back and end its session here. */
+export const PeerLinkReciprocalTeardownInput = Schema.Struct({ environmentId: EnvironmentId });
+export type PeerLinkReciprocalTeardownInput = typeof PeerLinkReciprocalTeardownInput.Type;
+
+export const PeerLinkReciprocalTeardownResult = Schema.Struct({
+  removed: Schema.Boolean,
+  /** Whether a link to this environment still stands there, which a one-way link never had. */
+  kept: Schema.Boolean,
+});
+export type PeerLinkReciprocalTeardownResult = typeof PeerLinkReciprocalTeardownResult.Type;
+
 export const PeerLinkRemoveInput = Schema.Struct({ environmentId: EnvironmentId });
 export type PeerLinkRemoveInput = typeof PeerLinkRemoveInput.Type;
 
-export const PeerLinkRemoveResult = Schema.Struct({ removed: Schema.Boolean });
+export const PeerLinkRemoveResult = Schema.Struct({
+  removed: Schema.Boolean,
+  /** What came of asking the peer to forget its link back, when a token was still held. */
+  remote: Schema.optionalKey(PeerLinkTeardownOutcome),
+});
 export type PeerLinkRemoveResult = typeof PeerLinkRemoveResult.Type;
 
 /** Why linking or calling a peer failed, in words a user can act on. */
@@ -229,6 +330,8 @@ export const PeerLinkRequestAnswerInput = Schema.Struct({
       urls: Schema.NonEmptyArray(TrimmedNonEmptyString),
       access: AuthMcpClientAccess,
       pairingCode: TrimmedNonEmptyString,
+      /** Also link this environment back to that machine. Unset means one way. */
+      reciprocal: Schema.optionalKey(Schema.Boolean),
     }),
     /** Answers with a machine this environment is already linked to, as it is. */
     Schema.Struct({ type: Schema.Literal("use-existing"), environmentId: EnvironmentId }),

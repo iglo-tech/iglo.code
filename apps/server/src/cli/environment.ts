@@ -21,8 +21,11 @@ import * as GlobalFlag from "effect/cli/GlobalFlag";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
+import * as DirectEndpoints from "../environment/DirectEndpoints.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as OwnLinkOrigins from "../peer/OwnLinkOrigins.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
@@ -59,6 +62,34 @@ const runWithPeerLinks = Effect.fn("environment.runWithPeerLinks")(function* <A,
                 ServerSecretStore.layer,
                 SqlitePersistence.layerCliConfig,
                 ManagedPolicy.layer,
+              ),
+            ),
+          ),
+        ),
+        // Mints the one-time code a peer links back with: the same database
+        // and secret store as the rest of this chain, by layer memoization.
+        Layer.provide(
+          EnvironmentAuth.layer.pipe(
+            Layer.provide(ManagedPolicy.layer),
+            Layer.provideMerge(
+              Layer.mergeAll(ServerSecretStore.layer, SqlitePersistence.layerCliConfig),
+            ),
+            Layer.provideMerge(ServerEnvironment.layerIdentity),
+          ),
+        ),
+        // Answers a link back with this machine's own addresses.
+        Layer.provide(
+          OwnLinkOrigins.layer.pipe(
+            Layer.provide(
+              DirectEndpoints.layer.pipe(
+                Layer.provide(FetchHttpClient.layer),
+                Layer.provideMerge(
+                  ServerEnvironment.layer.pipe(
+                    Layer.provide(
+                      Layer.mergeAll(ServerSecretStore.layer, SqlitePersistence.layerCliConfig),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -222,13 +253,19 @@ const environmentLinkCommand = Command.make("link", {
   ),
   access: Flag.Literals("access", AuthMcpClientAccess.literals).pipe(
     Flag.withDescription(
-      "What this environment's agents may do there: read-only, or the broadest runtime mode.",
+      "What this environment's agents may do there: read-only, or the broadest runtime mode. The other environment's agents get the same here.",
     ),
     Flag.withDefault("approval-required" as const),
   ),
+  oneWay: Flag.Boolean("one-way").pipe(
+    Flag.withDescription(
+      "Link only this direction, and leave the other environment unlinked here.",
+    ),
+    Flag.withDefault(false),
+  ),
 }).pipe(
   Command.withDescription(
-    "Link another T3 Code environment, so agents here can work there. It shows up there under Authorized clients in Settings → Sharing & access, where it can be revoked.",
+    "Link another T3 Code environment, so agents here can work there and its agents can work here. It shows up there under Authorized clients in Settings → Sharing & access, where it can be revoked.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
@@ -250,15 +287,39 @@ const environmentLinkCommand = Command.make("link", {
       const pairingCode = flags.pairingCode.value;
       return yield* runWithPeerLinks(flags, (links) =>
         Effect.gen(function* () {
-          const linked = yield* links.link({
+          const created = yield* links.link({
             url,
             alternateUrls: flags.alternateUrl,
             pairingCode,
             access: flags.access,
+            reciprocal: !flags.oneWay,
           });
+          // An older server's plain link carries no outcome: it linked one way.
+          const reciprocal =
+            created.reciprocal ??
+            (flags.oneWay ? ({ kind: "off" } as const) : ({ kind: "unsupported" } as const));
           yield* Console.log(
-            `Linked ${linked.label} (${linked.environmentId}) with ${linked.access} access, until ${DateTime.formatIso(linked.expiresAt)}.\n`,
+            `Linked ${created.label} (${created.environmentId}) with ${created.access} access, until ${DateTime.formatIso(created.expiresAt)}.`,
           );
+          switch (reciprocal.kind) {
+            case "linked":
+              yield* Console.log(
+                `${created.label} linked back here, so its agents can work in this environment.`,
+              );
+              break;
+            case "off":
+              break;
+            case "unsupported":
+              yield* Console.log(
+                `${created.label} runs a T3 Code version that does not link back. Update it there, then link again for both ways.`,
+              );
+              break;
+            case "failed":
+              // The outcome's message already names the peer.
+              yield* Console.log(reciprocal.message);
+              break;
+          }
+          yield* Console.log("");
         }),
       );
     }),
@@ -287,17 +348,25 @@ const environmentUnlinkCommand = Command.make("unlink", {
   ),
 }).pipe(
   Command.withDescription(
-    "Forget a linked environment here. Revoke it in that environment's Sharing & access to end its session there too.",
+    "Forget a linked environment here, and there too when it can: its link back goes, and so does this side's session.",
   ),
   Command.withHandler((flags) =>
     runWithPeerLinks(flags, (links) =>
       Effect.gen(function* () {
-        const removed = yield* links.unlink(EnvironmentId.make(flags.environmentId));
-        yield* Console.log(
-          removed
-            ? `Forgot ${flags.environmentId}. Revoke it in that environment's Sharing & access to end its session there.\n`
-            : `No linked environment ${flags.environmentId}.\n`,
-        );
+        const { removed, remote } = yield* links.unlink(EnvironmentId.make(flags.environmentId));
+        if (!removed) {
+          yield* Console.log(`No linked environment ${flags.environmentId}.\n`);
+          return;
+        }
+        yield* Console.log(`Forgot ${flags.environmentId}.`);
+        if (remote === undefined) {
+          yield* Console.log("This side held no session token, so the peer was not asked.");
+        } else if (remote.kind === "removed") {
+          yield* Console.log("Its link back here is gone too, and its session here has ended.");
+        } else {
+          yield* Console.log(remote.message);
+        }
+        yield* Console.log("");
       }),
     ),
   ),

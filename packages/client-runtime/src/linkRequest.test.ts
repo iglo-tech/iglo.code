@@ -70,7 +70,8 @@ describe("linkRequestAnswerInput", () => {
     ).toEqual({
       threadId: item.threadId,
       turnItemId: item.id,
-      answer: { type: "link", ...vps, access: "auto", pairingCode: "abc" },
+      // Always sent explicitly: unset on the wire means one way.
+      answer: { type: "link", ...vps, access: "auto", pairingCode: "abc", reciprocal: true },
     });
     expect(
       linkRequestAnswerInput(item, {
@@ -78,8 +79,9 @@ describe("linkRequestAnswerInput", () => {
         target: { url: " https://box.ts.net " },
         access: "auto",
         pairingCode: "abc",
+        reciprocal: false,
       }),
-    ).toMatchObject({ answer: { urls: ["https://box.ts.net"] } });
+    ).toMatchObject({ answer: { urls: ["https://box.ts.net"], reciprocal: false } });
   });
 
   it("refuses a blank code, a blank address, or a machine with no address", () => {

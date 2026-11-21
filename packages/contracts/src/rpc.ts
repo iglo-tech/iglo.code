@@ -18,15 +18,16 @@ import {
   McpAppUpdateModelContextInput,
 } from "./mcpApps.ts";
 import {
-  PeerLink,
   PeerLinkClientPairingInput,
   PeerLinkClientPairingResult,
   PeerLinkCreateInput,
+  PeerLinkCreateResult,
   PeerLinkError,
   PeerLinkName,
   PeerLinkRemoveInput,
   PeerLinkRemoveResult,
   PeerLinkRequestAnswerInput,
+  PeerLinkRequestAnswerResult,
   PeerLinkRequestError,
   PeerLinkSummary,
   PeerLinkThreadHistoryInput,
@@ -921,7 +922,7 @@ const WsPeerLinksNamesRpc = Rpc.make(WS_METHODS.peerLinksNames, {
 
 const WsPeerLinksLinkRpc = Rpc.make(WS_METHODS.peerLinksLink, {
   payload: PeerLinkCreateInput,
-  success: PeerLink,
+  success: PeerLinkCreateResult,
   error: Schema.Union([PeerLinkError, EnvironmentAuthorizationError]),
 });
 
@@ -959,6 +960,8 @@ const WsPeerLinksPairClientRpc = Rpc.make(WS_METHODS.peerLinksPairClient, {
 
 const WsPeerLinksAnswerRequestRpc = Rpc.make(WS_METHODS.peerLinksAnswerRequest, {
   payload: PeerLinkRequestAnswerInput,
+  // UndefinedOr so an older server, which answers with nothing, still decodes.
+  success: Schema.UndefinedOr(PeerLinkRequestAnswerResult),
   error: Schema.Union([PeerLinkRequestError, EnvironmentAuthorizationError]),
 });
 

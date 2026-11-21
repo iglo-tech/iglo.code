@@ -49,11 +49,13 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
     tag: WS_METHODS.peerLinksNames,
     staleTimeMs: 10_000,
   });
-  const refreshLinks = (registry: AtomRegistry.AtomRegistry, environmentId: EnvironmentId) =>
-    Effect.sync(() => {
-      registry.refresh(list({ environmentId, input: {} }));
-      registry.refresh(names({ environmentId, input: {} }));
-    });
+  const refreshLinks = (
+    registry: AtomRegistry.AtomRegistry,
+    environmentId: EnvironmentId,
+  ): void => {
+    registry.refresh(list({ environmentId, input: {} }));
+    registry.refresh(names({ environmentId, input: {} }));
+  };
   const threadStream = createEnvironmentSubscriptionAtomFamily(runtime, {
     label: "environment-data:peer-links:thread-stream",
     idleTtlMs: 0,
@@ -95,7 +97,12 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
     link: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:peer-links:link",
       tag: WS_METHODS.peerLinksLink,
-      onSuccess: ({ environmentId }, registry) => refreshLinks(registry, environmentId),
+      onSuccess: ({ environmentId }, registry, result) =>
+        Effect.sync(() => {
+          refreshLinks(registry, environmentId);
+          // A both-ways link changed the peer's list too.
+          registry.refresh(list({ environmentId: result.environmentId, input: {} }));
+        }),
     }),
     // Leaves the list alone: a batch refreshes it once, when it ends (`runLinkBatch`).
     linkInBatch: createEnvironmentRpcCommand(runtime, {
@@ -105,7 +112,12 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
     unlink: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:peer-links:unlink",
       tag: WS_METHODS.peerLinksUnlink,
-      onSuccess: ({ environmentId }, registry) => refreshLinks(registry, environmentId),
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() => {
+          refreshLinks(registry, environmentId);
+          // The teardown may have removed the peer's link back.
+          registry.refresh(list({ environmentId: input.environmentId, input: {} }));
+        }),
     }),
     threadView: (target: LinkedThreadViewTarget) => threadView(threadViewKey(target)),
     lastThreadView: (target: LinkedThreadViewTarget) => lastThreadView(threadViewKey(target)),
@@ -133,7 +145,14 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.threadId, input.turnItemId]),
       },
-      onSuccess: ({ environmentId }, registry) => refreshLinks(registry, environmentId),
+      onSuccess: ({ environmentId }, registry, result) =>
+        Effect.sync(() => {
+          refreshLinks(registry, environmentId);
+          // A link answer changed the peer's list too.
+          if (result?.result !== undefined) {
+            registry.refresh(list({ environmentId: result.result.environmentId, input: {} }));
+          }
+        }),
     }),
   };
 }

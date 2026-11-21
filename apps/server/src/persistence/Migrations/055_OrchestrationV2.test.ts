@@ -65,6 +65,7 @@ layer("055_OrchestrationV2", (it) => {
         [102, "TurnStartReadIndexes"],
         [103, "DelegatedTaskReadIndexes"],
         [104, "ThreadItemCounts"],
+        [105, "PeerLinkSessionBinding"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
@@ -156,6 +157,7 @@ layer("055_OrchestrationV2", (it) => {
           [102, "TurnStartReadIndexes"],
           [103, "DelegatedTaskReadIndexes"],
           [104, "ThreadItemCounts"],
+          [105, "PeerLinkSessionBinding"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -210,6 +212,7 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 102, name: "TurnStartReadIndexes" },
             { migration_id: 103, name: "DelegatedTaskReadIndexes" },
             { migration_id: 104, name: "ThreadItemCounts" },
+            { migration_id: 105, name: "PeerLinkSessionBinding" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -273,6 +276,7 @@ layer("055_OrchestrationV2", (it) => {
         [102, "TurnStartReadIndexes"],
         [103, "DelegatedTaskReadIndexes"],
         [104, "ThreadItemCounts"],
+        [105, "PeerLinkSessionBinding"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -333,6 +337,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 102, name: "TurnStartReadIndexes" },
         { migration_id: 103, name: "DelegatedTaskReadIndexes" },
         { migration_id: 104, name: "ThreadItemCounts" },
+        { migration_id: 105, name: "PeerLinkSessionBinding" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -341,7 +346,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 104 }, (_, index) => index + 1),
+        Array.from({ length: 105 }, (_, index) => index + 1),
       );
     }),
   );
@@ -404,6 +409,7 @@ layer("055_OrchestrationV2", (it) => {
         [102, "TurnStartReadIndexes"],
         [103, "DelegatedTaskReadIndexes"],
         [104, "ThreadItemCounts"],
+        [105, "PeerLinkSessionBinding"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -474,6 +480,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 102, name: "TurnStartReadIndexes" },
         { migration_id: 103, name: "DelegatedTaskReadIndexes" },
         { migration_id: 104, name: "ThreadItemCounts" },
+        { migration_id: 105, name: "PeerLinkSessionBinding" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

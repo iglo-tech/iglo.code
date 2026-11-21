@@ -218,7 +218,7 @@ const handlers = {
   t3_environment_unlink: McpToolAccess.writesEnvironment(({ environmentId }) =>
     Effect.gen(function* () {
       const links = yield* PeerLinks.PeerLinks;
-      const removed = yield* links
+      const { removed, remote } = yield* links
         .unlink(environmentId)
         .pipe(
           Effect.mapError(
@@ -226,7 +226,12 @@ const handlers = {
               new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
           ),
         );
-      return { environmentId, removed };
+      // The peer's side matters to the agent too: kept/off says what remains there.
+      return {
+        environmentId,
+        removed,
+        ...(remote === undefined ? {} : { remote }),
+      };
     }),
   ),
   t3_thread_interrupt: McpToolAccess.writesThreads(

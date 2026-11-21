@@ -82,6 +82,12 @@ import {
 } from "./orchestrationV2.ts";
 import { Project, ProjectMutation, ProjectSnapshot } from "./project.ts";
 import {
+  PeerLink,
+  PeerLinkReciprocalOffer,
+  PeerLinkReciprocalTeardownInput,
+  PeerLinkReciprocalTeardownResult,
+} from "./peerLink.ts";
+import {
   PullRequestDiffInput,
   PullRequestDiffResult,
   PullRequestOperationError,
@@ -687,6 +693,70 @@ class EnvironmentMcpOAuthHttpApi extends HttpApiGroup.make("mcpOAuth")
     }),
   ) {}
 
+/**
+ * Reciprocal peer links, called by a linked peer's server over the session
+ * its link holds here. A regular MCP client session is refused: only a peer
+ * link may link this environment back to its own machine, or ask it to forget.
+ */
+export interface PeerLinkPrincipalShape {
+  readonly sessionId: AuthSessionId;
+  /** The linking environment's own name for itself, as it registered. */
+  readonly label: string;
+  /** The linking environment, as it named itself when it signed in. */
+  readonly peerEnvironmentId: string | undefined;
+}
+
+export class PeerLinkPrincipal extends Context.Service<PeerLinkPrincipal, PeerLinkPrincipalShape>()(
+  "@t3tools/contracts/environmentHttp/PeerLinkPrincipal",
+) {}
+
+export class PeerLinkAuthenticated extends HttpApiMiddleware.Service<
+  PeerLinkAuthenticated,
+  { provides: PeerLinkPrincipal }
+>()("PeerLinkAuthenticated", {
+  error: [EnvironmentAuthInvalidError, EnvironmentHttpForbiddenError],
+}) {}
+
+/** Why a reciprocal link or teardown failed on the environment that refused it. */
+export class PeerLinkReciprocalError extends Schema.TaggedError<PeerLinkReciprocalError>()(
+  "PeerLinkReciprocalError",
+  {
+    reason: Schema.Literals([
+      "disabled",
+      "unreachable",
+      "not_a_t3_environment",
+      "incompatible",
+      "self",
+      "pairing_rejected",
+      "storage",
+    ]),
+    message: Schema.String,
+  },
+  { httpApiStatus: 400 },
+) {
+  [HttpServerRespondable.symbol]() {
+    return HttpServerResponse.schemaJson(PeerLinkReciprocalError)(this, { status: 400 });
+  }
+}
+
+class EnvironmentPeerLinksHttpApi extends HttpApiGroup.make("peerLinks")
+  .add(
+    HttpApiEndpoint.post("reciprocal", "/api/peer-links/reciprocal", {
+      headers: OptionalBearerHeaders,
+      payload: PeerLinkReciprocalOffer,
+      success: PeerLink,
+      error: [PeerLinkReciprocalError],
+    }).middleware(PeerLinkAuthenticated),
+  )
+  .add(
+    HttpApiEndpoint.post("teardown", "/api/peer-links/teardown", {
+      headers: OptionalBearerHeaders,
+      payload: PeerLinkReciprocalTeardownInput,
+      success: PeerLinkReciprocalTeardownResult,
+      error: [PeerLinkReciprocalError],
+    }).middleware(PeerLinkAuthenticated),
+  ) {}
+
 const EnvironmentOrchestrationThreadSnapshotParams = Schema.Struct({
   threadId: ThreadId,
 });
@@ -1056,6 +1126,7 @@ export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentMcpOAuthHttpApi)
+  .add(EnvironmentPeerLinksHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentPullRequestsHttpApi)
   .add(EnvironmentProjectsHttpApi)

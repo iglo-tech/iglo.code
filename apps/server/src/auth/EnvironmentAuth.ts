@@ -101,6 +101,8 @@ export interface McpClientSession {
   readonly access: AuthMcpClientAccess;
   /** Another T3 Code environment's link, whose work here stays within it. */
   readonly peerLink: boolean;
+  /** The linking environment, as it named itself when it signed in. */
+  readonly peerEnvironmentId?: string;
   /** When a peer link's session ends unless it is used again; the linking side keeps this. */
   readonly linkExpiresAt?: DateTime.Utc;
 }
@@ -639,6 +641,10 @@ export class EnvironmentAuth extends Context.Service<
       readonly label: string;
       readonly access: AuthMcpClientAccess;
       readonly peerLink: boolean;
+      /** The linking environment's id, signed into the session it gets here. */
+      readonly peerEnvironmentId?: string;
+      /** The one-time pairing grant this sign-in spends, recorded on the session's row. */
+      readonly pairingGrantId?: string;
       readonly client: AuthClientMetadata;
     }) => Effect.Effect<
       {
@@ -649,15 +655,17 @@ export class EnvironmentAuth extends Context.Service<
       ServerAuthInternalError
     >;
     /**
-     * Spends a code covering all granted scopes and returns the level it approves. A level-bound
-     * code must name `access`. Rejects desktop grants and leaves refused codes unspent.
+     * Spends a code covering all granted scopes and returns the level it approves and the
+     * grant it was spent from, so a peer link's link back can be tied to the code that
+     * authorized it. A level-bound code must name `access`. Rejects desktop grants and
+     * leaves refused codes unspent.
      */
     readonly consumeMcpApprovalCode: (
       code: string,
       access: AuthMcpClientAccess,
       peerLink?: boolean,
     ) => Effect.Effect<
-      AuthMcpClientAccess,
+      { readonly access: AuthMcpClientAccess; readonly pairingGrantId: string | undefined },
       ServerAuthMcpApprovalCodeError | ServerAuthInternalError
     >;
   }
@@ -1000,7 +1008,7 @@ export const make = Effect.gen(function* () {
 
   type ResolvedBootstrapGrant = Pick<
     PairingGrantStore.BootstrapGrant,
-    "scopes" | "subject" | "label"
+    "id" | "scopes" | "subject" | "label"
   > & {
     readonly method: PairingGrantStore.BootstrapGrant["method"] | "reusable-dev-token";
   };
@@ -1625,6 +1633,9 @@ export const make = Effect.gen(function* () {
               ? (session.runtimeModeCeiling ?? "approval-required")
               : "read-only",
             peerLink: session.peerLink === true,
+            ...(session.peerLink === true && session.peerEnvironmentId !== undefined
+              ? { peerEnvironmentId: session.peerEnvironmentId }
+              : {}),
           } satisfies McpClientSession;
           if (session.peerLink !== true || session.expiresAt === undefined) return client;
           return {
@@ -1646,6 +1657,10 @@ export const make = Effect.gen(function* () {
         ttl: MCP_CLIENT_SESSION_TTL,
         ...(input.access === "read-only" ? {} : { runtimeModeCeiling: input.access }),
         peerLink: input.peerLink,
+        ...(input.peerEnvironmentId !== undefined
+          ? { peerEnvironmentId: input.peerEnvironmentId }
+          : {}),
+        ...(input.pairingGrantId !== undefined ? { pairingGrantId: input.pairingGrantId } : {}),
         client: { ...input.client, label: input.label, deviceType: "bot" },
       })
       .pipe(
@@ -1678,7 +1693,10 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((grant) =>
         grant.method !== "one-time-token" && grant.method !== "reusable-dev-token"
           ? Effect.fail(new ServerAuthMcpApprovalCodeError({ reason: "not_a_pairing_code" }))
-          : Effect.succeed(mcpApprovalLevel(grant.subject) ?? access),
+          : Effect.succeed({
+              access: mcpApprovalLevel(grant.subject) ?? access,
+              pairingGrantId: grant.id,
+            }),
       ),
       Effect.withSpan("EnvironmentAuth.consumeMcpApprovalCode"),
     );

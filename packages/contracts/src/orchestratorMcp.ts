@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
 import { AuthMcpClientAccess } from "./auth.ts";
+import { PeerLinkTeardownOutcome } from "./peerLink.ts";
 import {
   ContextTransferId,
   EnvironmentId,
@@ -953,6 +954,8 @@ export type OrchestratorMcpEnvironmentUnlinkInput =
 export const OrchestratorMcpEnvironmentUnlinkResult = Schema.Struct({
   environmentId: EnvironmentId,
   removed: Schema.Boolean,
+  /** What came of asking the peer to forget its link back, when a token was held. */
+  remote: Schema.optionalKey(PeerLinkTeardownOutcome),
 });
 export type OrchestratorMcpEnvironmentUnlinkResult =
   typeof OrchestratorMcpEnvironmentUnlinkResult.Type;

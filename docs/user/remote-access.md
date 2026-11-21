@@ -272,6 +272,12 @@ makes the pairing code itself; otherwise paste one from that machine's
 **Settings → Sharing & access**. From a terminal, use
 `iglo.code environment link <address> --pairing-code <code> --access <mode>`.
 
+By default one link serves both directions: the other machine also links back
+to this one, with the same access, using a pairing code this machine mints and
+delivers to it over the link's own sign-in. Uncheck **Link back** in the link
+dialog (or pass `--one-way` in the terminal) to link one direction only, and
+link again from the other side later if you change your mind.
+
 To link many machines at once, choose **Link several…** (it appears once this
 app has two other machines saved). Tick the machines, pick one access level for
 all of them, and confirm once. A machine can be ticked when this app is
@@ -287,25 +293,35 @@ standard input. It prints a result per line, leaves machines already linked as
 they are, and exits non-zero if any line failed, so the same file can be run
 again with fresh codes for the failures.
 
-You can also ask an agent to link a machine by name, such as "delegate this to
-my vps". It shows a card in the thread where you pick the machine the same way
-and the access, then approve. An address the agent gives that this app does
-not know for one of your machines also needs a pasted code. Paste one only for
-an address you trust: the code is sent there.
+The link back needs an address on this machine the other one can reach and
+send credentials to: its Tailscale address (Tailscale HTTPS counts). If it has
+none — say both machines sit on a plain LAN with no Tailscale — the link still
+works this direction, and you are told the other machine could not link back.
+The other machine's version must also know how; update it and link again.
 
-- The access you pick is the most agents from this machine may do there. An
-  agent also never gets more there than its own mode here.
+You can also ask an agent to link a machine by name, such as "delegate this to
+my vps". It shows a card in the thread where you pick the machine the same way,
+the access, and whether to link back, then approve. An address the agent gives
+that this app does not know for one of your machines also needs a pasted code.
+Paste one only for an address you trust: the code is sent there.
+
+- The access you pick is the most agents from this machine may do there, and —
+  on a both-ways link — the most its agents may do here. An agent also never
+  gets more there than its own mode here.
 - Threads a link starts are marked **From** and this machine's name there.
 - A full-access link works there like that machine's own agents. Below full
   access, the link's agents can change only threads it started, not that
   machine's own threads, projects or settings, and they skip its project setup
   scripts.
 - The link shows up in that machine's **Settings → Sharing & access** like any
-  outside agent. Revoke it there to end it. **Forget** on this machine only
-  removes it here.
+  outside agent, and can be revoked there. **Forget** here removes the link on
+  both machines and ends both sides' sessions when the other machine answers;
+  if it does not answer, or runs a version without two-way links, whatever it
+  holds stays until you remove it there.
 - A link stays valid while agents use it. One unused for 30 days expires, as
   does one to a machine on an older iglo.code after 30 days; link again with a
-  new pairing code.
+  new pairing code to renew one. On a both-ways link, renewing from either
+  machine renews both directions.
 
 On web and desktop, **Settings → Environments** opens as a map of your machines:
 this app, each environment with one line per route (the one in use is

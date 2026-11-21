@@ -3615,6 +3615,8 @@
   "4136b6bb217cc0b8": "Link {target} to this environment",
   "0986757d94229f8f": "Choose machine…",
   "24d18b1cd3e6109b": "Review link…",
+  "dfb95e4a4e5699f6": "Linked {target} one way",
+  "23211f58dfba4456": "It runs a T3 Code version that does not link back. Update it there, then link again.",
   "1138f95b01382016": "Link a machine",
   "ea745611e41bb8b5": "Link {targetName}",
   "022755e40ab2938b": "Agents here can then launch, message and wait on threads there. Revoke it in that machine's Sharing & access.",
@@ -3649,6 +3651,16 @@
     },
     ": Settings → Sharing & access → Authorized clients → Create link, then paste its code here."
   ],
+  "af1bedb2d6a982f2": "Link back to this environment",
+  "0610b662a0c3bde7": [
+    {
+      "i": 1,
+      "k": "target",
+      "v": "v"
+    },
+    "'s agents get the same access here, using a code minted for it. Turn this off to link one way."
+  ],
+  "a28790f24d566c00": "This environment runs a version that links one way only. Update it to link back automatically.",
   "c205277bd4ab61d2": [
     "This environment is already linked to ",
     {

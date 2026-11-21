@@ -15,9 +15,11 @@ import {
   type OrchestratorMcpEnvironmentLinkResult,
   OrchestratorMcpFailure,
   type PeerLink,
+  type PeerLinkCreateResult,
   PeerLinkError,
   PeerLinkRequestError,
   type PeerLinkRequestAnswerInput,
+  type PeerLinkRequestAnswerResult,
   type RunId,
   type ThreadId,
   TurnItemId,
@@ -55,6 +57,13 @@ type LinkRequestOutcome = Pick<
   "linkStatus" | "linkedEnvironmentId" | "linkedLabel" | "linkedAccess" | "failure"
 >;
 
+/** What an answer did, for the card and for the client that answered. */
+interface AnsweredLink {
+  readonly outcome: LinkRequestOutcome;
+  /** The link a "link" answer made, and what came of linking back. */
+  readonly result?: PeerLinkCreateResult;
+}
+
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : typeof error === "string" ? error : "unknown error";
 
@@ -73,11 +82,12 @@ export class PeerLinkRequests extends Context.Service<
     /**
      * Answers a pending card and tells the agent. Linking uses the pairing
      * code once; a link the other environment refuses closes the card as
-     * failed, with its reason.
+     * failed, with its reason. Returns what a "link" answer made, so the
+     * client can say whether the peer also linked back.
      */
     readonly answer: (
       input: PeerLinkRequestAnswerInput,
-    ) => Effect.Effect<void, PeerLinkRequestError>;
+    ) => Effect.Effect<PeerLinkRequestAnswerResult | undefined, PeerLinkRequestError>;
   }
 >()("t3/peer/PeerLinkRequests") {}
 
@@ -300,10 +310,10 @@ const make = Effect.gen(function* () {
   /** Links the machine the user picked, or finds the link they chose to keep. */
   const answerOutcome = (
     answer: PeerLinkRequestAnswerInput["answer"],
-  ): Effect.Effect<LinkRequestOutcome> => {
+  ): Effect.Effect<AnsweredLink> => {
     switch (answer.type) {
       case "decline":
-        return Effect.succeed({ linkStatus: "declined" });
+        return Effect.succeed({ outcome: { linkStatus: "declined" } });
       case "use-existing":
         return usableLink(answer.environmentId).pipe(
           Effect.flatMap(
@@ -316,11 +326,13 @@ const make = Effect.gen(function* () {
                       "That environment is no longer linked here, or its link expired. Link it again.",
                   }),
                 ),
-              onSome: (linked) => Effect.succeed(linkedOutcome(linked)),
+              onSome: (linked) => Effect.succeed({ outcome: linkedOutcome(linked) }),
             }),
           ),
           Effect.catch((error) =>
-            Effect.succeed<LinkRequestOutcome>({ linkStatus: "failed", failure: error.message }),
+            Effect.succeed<AnsweredLink>({
+              outcome: { linkStatus: "failed", failure: error.message },
+            }),
           ),
         );
       case "link": {
@@ -335,11 +347,17 @@ const make = Effect.gen(function* () {
               ? {}
               : { expectedEnvironmentId: answer.environmentId }),
             ...(answer.label === undefined ? {} : { expectedLabel: answer.label }),
+            ...(answer.reciprocal === undefined ? {} : { reciprocal: answer.reciprocal }),
           })
           .pipe(
-            Effect.map(linkedOutcome),
+            Effect.map((created) => ({
+              outcome: linkedOutcome(created),
+              result: created,
+            })),
             Effect.catch((error) =>
-              Effect.succeed<LinkRequestOutcome>({ linkStatus: "failed", failure: error.message }),
+              Effect.succeed<AnsweredLink>({
+                outcome: { linkStatus: "failed", failure: error.message },
+              }),
             ),
           );
       }
@@ -371,14 +389,16 @@ const make = Effect.gen(function* () {
       );
       // An id beside an address is what answered there, recorded by an older
       // server. Linking that machine could send its pairing code to the address.
-      const outcome: LinkRequestOutcome =
+      const answered: AnsweredLink =
         card.url !== undefined &&
         card.environmentId !== undefined &&
         input.answer.type === "link" &&
         input.answer.environmentId !== undefined
           ? {
-              linkStatus: "failed",
-              failure: "This request is from before an update. Ask for the link again.",
+              outcome: {
+                linkStatus: "failed",
+                failure: "This request is from before an update. Ask for the link again.",
+              },
             }
           : yield* answerOutcome(input.answer);
       // If Stop closed the card while linking, the card keeps that; the link
@@ -388,11 +408,11 @@ const make = Effect.gen(function* () {
         Effect.flatMap(answerLocks.activeKeys, (answering) =>
           record(
             card,
-            outcome,
-            CommandId.make(`link-request:${card.id}:${outcome.linkStatus}`),
+            answered.outcome,
+            CommandId.make(`link-request:${card.id}:${answered.outcome.linkStatus}`),
             {
               messageId: MessageId.make(`message:link-request:${card.id}`),
-              ...outcomeNotice(card, outcome),
+              ...outcomeNotice(card, answered.outcome),
             },
             answering,
           ),
@@ -400,6 +420,15 @@ const make = Effect.gen(function* () {
           Effect.mapError((cause) => new PeerLinkRequestError({ reason: "record_failed", cause })),
         ),
       );
+      // Only a link answer from a client that knows the reciprocal field carries
+      // a result. Everything else answers undefined, which the wire encodes as
+      // null — exactly what an older client, whose success schema is void,
+      // expects to decode.
+      return answered.result !== undefined &&
+        input.answer.type === "link" &&
+        input.answer.reciprocal !== undefined
+        ? { result: answered.result }
+        : undefined;
     },
     (effect, input) =>
       effect.pipe(
