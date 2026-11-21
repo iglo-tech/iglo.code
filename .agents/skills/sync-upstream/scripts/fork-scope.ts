@@ -28,6 +28,7 @@ export const REMOVED_PATHS = [
   ".devcontainer",
   "docs/internals/devcontainer.md",
   "native/browser-secret",
+  "native/apple-speech",
   "native/hyprland-snap-shot",
   "native/kde-snap-shot",
   ".github/scripts/stage-preview-bundle.*",
@@ -72,6 +73,7 @@ export const REMOVED_PATHS = [
   "docs/operations/scenarios.md",
   // Website, hosted services, and upstream's agent setup.
   "apps/marketing",
+  ".agents/skills/launch-video",
   "infra/relay",
   "infra/task-cache",
   "docs/user/t3-connect-troubleshooting.md",
