@@ -1,4 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
+import {
+  linkBackBlockLabel,
+  linkBatchFailureLabel,
+  linkWithMintedCode,
+} from "@t3tools/client-runtime/link-batch";
 import { ANOTHER_ADDRESS, linkRequestFailureMessage } from "@t3tools/client-runtime/link-request";
 import {
   AuthAccessWriteScope,
@@ -10,18 +15,18 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { peerLinkHealth } from "@t3tools/client-runtime/state/peerLinks";
+import { peerLinkHealth, type PeerLinkHealth } from "@t3tools/client-runtime/state/peerLinks";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { PlusIcon } from "lucide-react";
 import { T, useGT, useMessages, Var } from "gt-react";
-import { useId, useRef, useState } from "react";
+import { type ReactNode, useId, useRef, useState } from "react";
 
 import { requestConfirmDialog } from "~/confirmDialog";
-import { useServerConfigs } from "~/state/entities";
+import { useEnvironment } from "~/state/environments";
 import { mintPairingCodeOn } from "~/state/peerPairingCode";
-import { peerLinkEnvironment, useLinkableMachines } from "~/state/peerLinks";
+import { peerLinkEnvironment, useLinkableMachines, useLinkBackOffers } from "~/state/peerLinks";
 import { useEnvironments } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { useEnvironmentScope, usePreparedConnection } from "~/state/session";
@@ -60,9 +65,6 @@ const LINK_COMMAND_LABEL = "link environment";
 const failureToast = (title: string, description: string) =>
   toastManager.add(stackedThreadToast({ type: "error", title, description }));
 
-const warningToast = (title: string, description: string) =>
-  toastManager.add(stackedThreadToast({ type: "warning", title, description }));
-
 export function LinkedEnvironmentsSettings({
   environmentId,
   environmentLabel,
@@ -92,10 +94,6 @@ export function LinkedEnvironmentsSettings({
     },
   );
   const canLink = useAtomValue(peerLinkEnvironment.link.permissionAtom(environmentId));
-  const configs = useServerConfigs();
-  // An older environment ignores the reciprocal field, so its links are one way.
-  const supportsReciprocal =
-    configs.get(environmentId)?.environment.capabilities.peerLinkReciprocal === true;
   const search = searchableSetting("linked-environments");
   // A batch needs at least two other machines this app has saved.
   const otherMachines = useEnvironments().environments.length - 1;
@@ -109,11 +107,7 @@ export function LinkedEnvironmentsSettings({
             {otherMachines > 1 ? (
               <LinkSeveralEnvironmentsAction environmentId={environmentId} />
             ) : null}
-            <LinkEnvironmentAction
-              environmentId={environmentId}
-              environmentLabel={environmentLabel}
-              supportsReciprocal={supportsReciprocal}
-            />
+            <LinkEnvironmentAction environmentId={environmentId} />
           </div>
         ) : null
       }
@@ -153,43 +147,9 @@ function LinkedEnvironmentRow({
   const m = useMessages();
   const nowMinute = useNowMinute();
   const health = peerLinkHealth(link, DateTime.makeUnsafe(nowMinute));
-  const unlink = useAtomCommand(peerLinkEnvironment.unlink, { label: UNLINK_COMMAND_LABEL });
   const canUnlink = useAtomValue(peerLinkEnvironment.unlink.permissionAtom(environmentId));
-  const [busy, setBusy] = useState(false);
-  const forget = async () => {
-    const confirmed = await (requestConfirmDialog(
-      `Forget ${link.label}? Agents here stop working there, its link back here goes, and its session here ends.`,
-      { variant: "destructive" },
-    ) ?? Promise.resolve(false));
-    if (!confirmed) return;
-    setBusy(true);
-    const result = await unlink({ environmentId, input: { environmentId: link.environmentId } });
-    setBusy(false);
-    if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) {
-        failureToast(gt("Could not forget the link"), String(squashAtomCommandFailure(result)));
-      }
-      return;
-    }
-    // The link is gone here whatever the peer said; its side is the message's to tell.
-    const remote = result.value.remote;
-    if (remote?.kind === "off" || remote?.kind === "kept") {
-      warningToast(`Forgot ${link.label} here`, remote.message);
-    }
-  };
-  const status =
-    health.kind === "expired"
-      ? gt("Expired. Link it again with a new pairing code.")
-      : health.kind === "unreachable"
-        ? (health.detail ?? gt("Not answering right now."))
-        : health.kind === "failing"
-          ? health.detail
-          : health.expiresInDays !== null
-            ? gt(
-                "{days, plural, one {Expires in {days} day. Link it again to renew.} other {Expires in {days} days. Link it again to renew.}}",
-                { days: health.expiresInDays },
-              )
-            : gt("Reachable");
+  const { busy, forget } = useForgetPeerLink(environmentId, link);
+  const status = peerLinkStatusText(health, gt);
   return (
     <div className={ITEM_ROW_CLASSNAME}>
       <div className={ITEM_ROW_INNER_CLASSNAME}>
@@ -232,24 +192,63 @@ function LinkedEnvironmentRow({
   );
 }
 
-function LinkEnvironmentAction({
-  environmentId,
-  environmentLabel,
-  supportsReciprocal,
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly environmentLabel: string | null;
-  readonly supportsReciprocal: boolean;
-}) {
+function LinkEnvironmentAction({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const gt = useGT();
   const [open, setOpen] = useState(false);
+  return (
+    <LinkEnvironmentDialog
+      environmentId={environmentId}
+      open={open}
+      onOpenChange={setOpen}
+      trigger={
+        <DialogTrigger
+          render={
+            <Button size="xs" variant="default">
+              <PlusIcon className="size-3" />
+              {gt("Link", { $context: "verb, links an environment" })}
+            </Button>
+          }
+        />
+      }
+    />
+  );
+}
+
+/** What the link dialog opens with when something other than its own button opened it. */
+export interface LinkEnvironmentPrefill {
+  /** The machine to link to, by environment id, or `ANOTHER_ADDRESS` with `address`. */
+  readonly choice: string | null;
+  readonly address?: string;
+}
+
+/**
+ * The one link flow. When this client is connected to the picked machine and may create pairing
+ * links there, it mints the code itself; otherwise it asks for one.
+ */
+export function LinkEnvironmentDialog({
+  environmentId,
+  open,
+  onOpenChange,
+  trigger = null,
+  prefill,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly trigger?: ReactNode;
+  readonly prefill?: LinkEnvironmentPrefill;
+}) {
+  const gt = useGT();
+  const m = useMessages();
+  const setOpen = onOpenChange;
+  // Named in the title: from the map, nothing else on screen says which machine is linking.
+  const source = useEnvironment(environmentId);
   const machines = useLinkableMachines(environmentId, open);
   // Null until the user picks; with no other machines known, only an address is left.
-  const [choice, setChoice] = useState<string | null>(null);
-  const [address, setAddress] = useState("");
+  const [choice, setChoice] = useState<string | null>(prefill?.choice ?? null);
+  const [address, setAddress] = useState(prefill?.address ?? "");
   const [pairingCode, setPairingCode] = useState("");
   const [access, setAccess] = useState<AuthMcpClientAccess>("approval-required");
-  const [bothWays, setBothWays] = useState(true);
   const [busy, setBusy] = useState(false);
   // Machines whose minting already failed, so the dialog asks for a code instead.
   const [mintFailed, setMintFailed] = useState<ReadonlySet<EnvironmentId>>(new Set());
@@ -257,6 +256,13 @@ function LinkEnvironmentAction({
   const inFlight = useRef(false);
   const formId = useId();
   const link = useAtomCommand(peerLinkEnvironment.link, { label: LINK_COMMAND_LABEL });
+  const linkOnTarget = useAtomCommand(peerLinkEnvironment.link, {
+    label: "link environment back",
+    // The failure cause holds the request, and with it the code; keep it out of the console.
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const [alsoLinkBack, setAlsoLinkBack] = useState(false);
   const selected = choice ?? (machines.length === 0 ? ANOTHER_ADDRESS : null);
   const machine = machines.find((candidate) => candidate.environmentId === selected) ?? null;
   const targetId = machine?.environmentId ?? null;
@@ -273,6 +279,8 @@ function LinkEnvironmentAction({
     Option.isSome(connected) &&
     mayMint &&
     !mintFailed.has(targetId);
+  const linkBack = useLinkBackOffers(environmentId, targetId === null ? [] : [targetId], open);
+  const backOffer = linkBack.offerFor(targetId);
   const ready =
     selected !== null &&
     (!needsAddress || address.trim().length > 0) &&
@@ -280,12 +288,12 @@ function LinkEnvironmentAction({
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
     if (!next) {
-      setChoice(null);
-      setAddress("");
+      setChoice(prefill?.choice ?? null);
+      setAddress(prefill?.address ?? "");
       setPairingCode("");
       setAccess("approval-required");
-      setBothWays(true);
       setMintFailed(new Set());
+      setAlsoLinkBack(false);
     }
   };
   // Settles to the code to link with, or null after reporting why there is none.
@@ -321,42 +329,46 @@ function LinkEnvironmentAction({
                 : { expectedEnvironmentId: machine.environmentId, expectedLabel: machine.label }),
               pairingCode: code,
               access,
-              // An environment that cannot link back gets one way, whatever the box says.
-              reciprocal: supportsReciprocal && bothWays,
             },
           });
+    // The link back is its own link, made on the other machine: it never undoes this one.
+    const back =
+      result?._tag === "Success" &&
+      alsoLinkBack &&
+      backOffer.kind === "offered" &&
+      linkBack.source !== null &&
+      targetId !== null &&
+      // A typed address can answer as another machine: the picked one links back only if it did.
+      result.value.environmentId === targetId
+        ? await linkWithMintedCode({
+            machine: linkBack.source,
+            access,
+            mint: mintPairingCodeOn,
+            link: async (input) => {
+              const reverse = await linkOnTarget({ environmentId: targetId, input });
+              return reverse._tag === "Success"
+                ? Result.succeed(reverse.value)
+                : Result.fail(squashAtomCommandFailure(reverse));
+            },
+          })
+        : null;
     inFlight.current = false;
     setBusy(false);
     if (result === null) return;
     if (result._tag === "Success") {
-      // An older server's plain link carries no outcome: it linked one way.
-      const askedBothWays = supportsReciprocal && bothWays;
-      const reciprocal =
-        result.value.reciprocal ??
-        (askedBothWays ? ({ kind: "unsupported" } as const) : ({ kind: "off" } as const));
-      const linkedLabel = result.value.label;
-      const here = environmentLabel ?? "this environment";
-      if (reciprocal.kind === "linked") {
-        toastManager.add({
-          type: "success",
-          title: gt("Linked {label}, and it linked back to {here}", {
-            label: linkedLabel,
-            here,
-          }),
-        });
-      } else if (reciprocal.kind === "failed") {
-        // The forward link stands whatever came of the link back, so say so.
-        warningToast(gt("Linked {label} one way", { label: linkedLabel }), reciprocal.message);
-      } else if (reciprocal.kind === "unsupported") {
-        toastManager.add({
-          type: "info",
-          title: gt("Linked {label} one way", { label: linkedLabel }),
-          description: gt(
-            "It runs a T3 Code version that does not link back. Update it there, then link again.",
-          ),
-        });
-      } else {
-        toastManager.add({ type: "success", title: gt("Linked {label}", { label: linkedLabel }) });
+      const names = { source: source?.label ?? "", target: result.value.label };
+      toastManager.add({
+        type: "success",
+        title:
+          back?.kind === "linked"
+            ? gt("Linked {source} and {target} both ways", names)
+            : gt("Linked {label}", { label: result.value.label }),
+      });
+      if (back?.kind === "failed") {
+        failureToast(
+          gt("Could not link {target} back to {source}", names),
+          back.detail ?? linkBatchFailureLabel(back.failure, m),
+        );
       }
       handleOpenChange(false);
     } else if (!isAtomCommandInterrupted(result)) {
@@ -371,18 +383,17 @@ function LinkEnvironmentAction({
         handleOpenChange(next);
       }}
     >
-      <DialogTrigger
-        render={
-          <Button size="xs" variant="default">
-            <PlusIcon className="size-3" />
-            {gt("Link", { $context: "verb, links an environment" })}
-          </Button>
-        }
-      />
+      {trigger}
       <DialogPopup className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            <T>Link an environment</T>
+            {source === null ? (
+              <T>Link an environment</T>
+            ) : machine === null ? (
+              gt("Link {label} to another machine", { label: source.label })
+            ) : (
+              gt("Link {source} to {target}", { source: source.label, target: machine.label })
+            )}
           </DialogTitle>
           <DialogDescription>
             <T>
@@ -406,7 +417,11 @@ function LinkEnvironmentAction({
                 machines={machines}
                 value={selected}
                 disabled={busy}
-                onChange={setChoice}
+                onChange={(next) => {
+                  // The opt-in names one machine: it does not carry over to another.
+                  if (next !== selected) setAlsoLinkBack(false);
+                  setChoice(next);
+                }}
               />
             ) : null}
             {machine?.linked ? (
@@ -472,37 +487,37 @@ function LinkEnvironmentAction({
               </label>
             )}
             <LinkAccessPicker value={access} onChange={setAccess} disabled={busy} />
-            {!supportsReciprocal ? (
-              <p className="text-xs text-muted-foreground">
-                <T>
-                  This environment runs a version that links one way only. Update it to link back
-                  automatically.
-                </T>
-              </p>
-            ) : (
-              <label className="flex items-start gap-2">
+            {machine === null || source === null ? null : backOffer.kind === "offered" ? (
+              <label className="flex cursor-pointer items-start gap-2.5 text-sm has-data-disabled:cursor-default">
                 <Checkbox
-                  className="mt-0.5"
-                  checked={bothWays}
-                  onCheckedChange={(checked) => setBothWays(Boolean(checked))}
+                  checked={alsoLinkBack}
                   disabled={busy}
+                  onCheckedChange={setAlsoLinkBack}
                 />
                 <span className="min-w-0 space-y-0.5">
-                  <span className="block text-xs font-medium text-foreground">
-                    <T>
-                      Link back to <Var>{environmentLabel ?? "this environment"}</Var>
-                    </T>
+                  <span className="block font-medium text-foreground">
+                    {gt("Also link {target} back to {source}", {
+                      source: source.label,
+                      target: machine.label,
+                    })}
                   </span>
                   <span className="block text-xs text-muted-foreground">
-                    <T>
-                      <Var>{machine === null ? "It" : machine.label}</Var>'s agents get the same
-                      access on <Var>{environmentLabel ?? "this environment"}</Var>, using a code
-                      minted for it. Turn this off to link one way.
-                    </T>
+                    {gt("Agents on {target} can then work on {source} too.", {
+                      source: source.label,
+                      target: machine.label,
+                    })}
                   </span>
                 </span>
               </label>
-            )}
+            ) : backOffer.kind === "blocked" ? (
+              <p className="text-xs text-muted-foreground">
+                {linkBackBlockLabel(
+                  backOffer.reason,
+                  { source: source.label, target: machine.label },
+                  m,
+                )}
+              </p>
+            ) : null}
           </form>
         </DialogPanel>
         <DialogFooter variant="bare">
@@ -516,4 +531,44 @@ function LinkEnvironmentAction({
       </DialogPopup>
     </Dialog>
   );
+}
+
+/** What a link's health means for the user, in a sentence. */
+export function peerLinkStatusText(health: PeerLinkHealth, gt: ReturnType<typeof useGT>): string {
+  return health.kind === "expired"
+    ? gt("Expired. Link it again with a new pairing code.")
+    : health.kind === "unreachable"
+      ? (health.detail ?? gt("Not answering right now."))
+      : health.kind === "failing"
+        ? health.detail
+        : health.expiresInDays !== null
+          ? gt(
+              "{days, plural, one {Expires in {days} day. Link it again to renew.} other {Expires in {days} days. Link it again to renew.}}",
+              { days: health.expiresInDays },
+            )
+          : gt("Reachable");
+}
+
+/** Forgets `link` from `environmentId` after the user confirms. */
+export function useForgetPeerLink(environmentId: EnvironmentId, link: PeerLinkSummary) {
+  const gt = useGT();
+  const unlink = useAtomCommand(peerLinkEnvironment.unlink, { label: UNLINK_COMMAND_LABEL });
+  const [busy, setBusy] = useState(false);
+  const forget = async () => {
+    const confirmed = await (requestConfirmDialog(
+      gt(
+        "Forget {label}? Agents here stop working there. Revoke \"T3 Code · …\" in {label}''s Sharing & access to end the session there too.",
+        { label: link.label },
+      ),
+      { variant: "destructive" },
+    ) ?? Promise.resolve(false));
+    if (!confirmed) return;
+    setBusy(true);
+    const result = await unlink({ environmentId, input: { environmentId: link.environmentId } });
+    setBusy(false);
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      failureToast(gt("Could not forget the link"), String(squashAtomCommandFailure(result)));
+    }
+  };
+  return { busy, forget };
 }
