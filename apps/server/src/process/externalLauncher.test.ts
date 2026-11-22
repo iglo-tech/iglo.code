@@ -66,6 +66,8 @@ const layerTest = (input: {
   readonly onUnref?: () => void;
   readonly spawnResult?: (command: ChildProcess.StandardCommand) => MockSpawnResult | undefined;
   readonly existingPaths?: ReadonlyArray<string>;
+  /** Hides every path outside this directory, such as editors installed in the host /Applications. */
+  readonly confineTo?: string;
 }) => {
   const layerSpawner = Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
@@ -102,6 +104,10 @@ const layerTest = (input: {
                 input.existingPaths?.includes(path)
                   ? Effect.succeed(true)
                   : fileSystem.exists(path),
+              stat: (path: string) =>
+                input.confineTo === undefined || path.startsWith(input.confineTo)
+                  ? fileSystem.stat(path)
+                  : fileSystem.stat(`${input.confineTo}/missing`),
             })),
           ).pipe(Layer.provide(NodeServices.layer)),
         ),
@@ -1165,6 +1171,7 @@ it.effect("keeps the macOS VS Code Insiders bundle out of stable VS Code", () =>
         layerTest({
           platform: "darwin",
           env: { HOME: home, PATH: path.join(home, "empty") },
+          confineTo: home,
           onSpawn: (command) => {
             spawned = command;
           },
