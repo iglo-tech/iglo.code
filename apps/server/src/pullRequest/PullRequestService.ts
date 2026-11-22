@@ -1374,6 +1374,7 @@ export const make = Effect.gen(function* () {
       ...(input.item.checksState === undefined || input.item.checksState === null
         ? {}
         : { checksState: input.item.checksState }),
+      ...(input.item.visibility === undefined ? {} : { visibility: input.item.visibility }),
       viewerReviewRequested:
         input.item.author?.login.toLowerCase() !== viewer &&
         input.item.reviewRequestLogins.some((login) => login.toLowerCase() === viewer),
@@ -1997,6 +1998,9 @@ export const make = Effect.gen(function* () {
             ...(changeRequest.mergeQueueRemoval === undefined
               ? {}
               : { mergeQueueRemoval: changeRequest.mergeQueueRemoval }),
+            ...(changeRequest.visibility === undefined
+              ? {}
+              : { visibility: changeRequest.visibility }),
           })),
         ),
       ),

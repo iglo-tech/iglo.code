@@ -9,7 +9,6 @@ interface ImportMetaEnv {
   readonly VITE_HOSTED_APP_CHANNEL: string;
   readonly VITE_RELEASE_CHANNEL: string;
   readonly IGLO_CODE_DESKTOP_UPDATE_REPOSITORY: string;
-  readonly IGLO_CODE_FEATURE_SECRETS: string;
   readonly APP_VERSION: string;
 }
 

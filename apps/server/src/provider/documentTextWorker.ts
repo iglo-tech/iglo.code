@@ -115,7 +115,10 @@ function xml(source: string, extension: string): XmlNode {
     if (odf && (node.name === "p" || node.name === "h")) collapseOdfWhitespace(node);
     if (
       (extension === ".docx" && node.name === "del") ||
-      (odf && node.name === "annotation" && parent.name !== "semantics")
+      (odf && node.name === "annotation" && parent.name !== "semantics") ||
+      (extension === ".odp" &&
+        node.name === "page-thumbnail" &&
+        stack.some((ancestor) => ancestor.name === "notes"))
     ) {
       parent.children.pop();
       return;
@@ -220,6 +223,18 @@ function* paragraphs(node: XmlNode): Generator<TextPart, void> {
       if (["li", "div", "section"].includes(child.name)) yield "\n";
     }
   }
+}
+// A notes page also holds the slide image, slide number, date, header and footer placeholders.
+const NOTES_PAGE_PLACEHOLDERS = new Set(["sldImg", "sldNum", "dt", "hdr", "ftr"]);
+const isNotesPagePlaceholder = (node: XmlNode) =>
+  node.name === "sp" && NOTES_PAGE_PLACEHOLDERS.has(all(node, "ph").next().value?.attrs.type ?? "");
+function withoutNotesPagePlaceholders(node: XmlNode): XmlNode {
+  return {
+    ...node,
+    children: node.children
+      .filter((child) => typeof child === "string" || !isNotesPagePlaceholder(child))
+      .map((child) => (typeof child === "string" ? child : withoutNotesPagePlaceholders(child))),
+  };
 }
 function* inCell(parts: Iterable<TextPart>): Generator<TextPart, void> {
   yield CELL_START;
@@ -609,8 +624,19 @@ async function* document(path: string, extension: string): AsyncGenerator<TextPa
           yield extension === ".ods"
             ? `\n\n## Sheet: ${part.attrs.name ?? "Untitled"}\n`
             : `\n\n## Slide ${++index}\n`;
-          if (extension === ".ods") yield* table(part);
-          else yield* paragraphs(part);
+          if (extension === ".ods") {
+            yield* table(part);
+            continue;
+          }
+          const notes = children(part).find((child) => child.name === "notes");
+          yield* paragraphs({
+            ...part,
+            children: part.children.filter((child) => child !== notes),
+          });
+          if (notes && hasCellText(notes)) {
+            yield "\nNotes:\n";
+            yield* paragraphs(notes);
+          }
         }
       }
     } else if (extension === ".xlsx") {
@@ -733,14 +759,16 @@ async function* document(path: string, extension: string): AsyncGenerator<TextPa
             !target
           )
             continue;
-          yield "Notes:\n";
-          yield* paragraphs(
+          const notesPage = withoutNotesPagePlaceholders(
             read(
               target.startsWith("/")
                 ? target.slice(1)
                 : NodePath.posix.join(NodePath.posix.dirname(name), target),
             ),
           );
+          if (!hasCellText(notesPage)) continue;
+          yield "Notes:\n";
+          yield* paragraphs(notesPage);
         }
       }
     } else if (extension === ".epub") {
