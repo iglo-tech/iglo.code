@@ -474,12 +474,11 @@ it.effect("resolves a link at its answering address without waiting out a sleepi
       });
 
       yield* Ref.set(b.asleep, true);
+      // The clock never moves: a resolve that probes the sleeping address first never returns.
+      // Advancing it would also expire the answering probe if that one was still in flight.
       const first = yield* a.links.resolve(box.environmentId).pipe(Effect.forkScoped);
       yield* Queue.take(b.unanswered);
-      yield* TestClock.adjust(Duration.seconds(3));
       expect((yield* Fiber.join(first)).url).toBe(elsewhere);
-
-      // The clock no longer moves: a resolve that probes the sleeping address first never returns.
       expect((yield* a.links.resolve(box.environmentId)).url).toBe(elsewhere);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),

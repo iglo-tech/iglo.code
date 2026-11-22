@@ -270,14 +270,13 @@ it.effect.each(["interrupt", "timeout", "success"] as const)(
           ),
         ),
       );
-      const packs = (yield* fs.readDirectory(path.join(objectDirectory, "pack"))).filter(
-        (name) => name.startsWith("tmp_pack_") && name !== "tmp_pack_other_operation",
+      // With core.fsyncMethod=batch, newer Git nests the pack in a tmp_objdir-bulk-fsync-* store.
+      const packs = (yield* fs.readDirectory(objectDirectory, { recursive: true })).filter((name) =>
+        path.basename(name).startsWith("tmp_pack_"),
       );
       assert.strictEqual(packs.length, 1);
-      assert.isAbove(
-        Number((yield* fs.stat(path.join(objectDirectory, "pack", packs[0]!))).size),
-        1024 * 1024,
-      );
+      const ownedPack = path.join(objectDirectory, packs[0]!);
+      assert.isAbove(Number((yield* fs.stat(ownedPack)).size), 1024 * 1024);
       // An overlapping capture publishes the same large blob while the first
       // still owns an unfinished pack. Its objects/ref must survive either exit.
       const concurrentRef = CheckpointRef.make("refs/iglo.code/checkpoints/concurrent");
@@ -319,7 +318,7 @@ it.effect.each(["interrupt", "timeout", "success"] as const)(
         sharedPackBytes,
       );
       assert.strictEqual((yield* git(["rev-parse", concurrentRef])).stdout, concurrentOid);
-      assert.isFalse(yield* fs.exists(path.join(objectDirectory, "pack", packs[0]!)));
+      assert.isFalse(yield* fs.exists(ownedPack));
       assert.isFalse(yield* fs.exists(objectDirectory));
       assert.strictEqual(yield* fs.readFileString(sharedPack), "owned by another Git operation");
       if (stop !== "success")

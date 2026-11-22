@@ -77,11 +77,8 @@ const make = Effect.gen(function* () {
               maxBuffer: 4 * 1024 * 1024 + 1024,
               encoding: "utf8",
               windowsHide: true,
-              env: {
-                ...environment,
-                ELECTRON_RUN_AS_NODE: "1",
-                NODE_OPTIONS: `${environment.NODE_OPTIONS ?? ""} --max-old-space-size=192`,
-              },
+              // Bun has no heap cap; the worker's own input, expansion and output limits bound it.
+              env: { ...environment, ELECTRON_RUN_AS_NODE: "1" },
             },
             (error, stdout) => (error ? reject(error) : resolve(stdout)),
           );
