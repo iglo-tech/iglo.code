@@ -12,7 +12,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 import { vi } from "vite-plus/test";
-import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as ServerConfig from "../config.ts";
 import * as DocumentText from "./DocumentText.ts";
 import { extractDocumentText } from "./documentTextWorker.ts";
@@ -217,16 +216,15 @@ describe("question answer paths", () => {
           if (failure === "spawn") {
             throw Object.assign(new Error("spawn EAGAIN"), { code: "EAGAIN" });
           }
-          const preload = `import fs from 'node:fs/promises';
-            import { syncBuiltinESMExports } from 'node:module';
+          // Bun ignores data: preloads and only syncs builtin ESM exports from the CommonJS object.
+          const preload = NodePath.join(NodePath.dirname(args.at(-2)!), "read-eagain.cjs");
+          NodeFS.writeFileSync(
+            preload,
+            `const fs = require('node:fs/promises');
             fs.readFile = async () => { throw Object.assign(new Error('read EAGAIN'), { code: 'EAGAIN' }); };
-            syncBuiltinESMExports();`;
-          return execFile(
-            file,
-            ["--import", `data:text/javascript,${encodeURIComponent(preload)}`, ...args],
-            options,
-            callback,
+            require('node:module').syncBuiltinESMExports();`,
           );
+          return execFile(file, ["--require", preload, ...args], options, callback);
         }) as typeof NodeChildProcess.execFile);
         return worker;
       }),
@@ -370,57 +368,6 @@ describe("question answer paths", () => {
       expect(yield* (yield* DocumentText.DocumentText).ensure(path)).toBe(path + ".txt");
       expect(NodeFS.readFileSync(path + ".txt", "utf8")).toBe(expected);
     }).pipe(Effect.provide(layer)),
-  );
-
-  it.effect.each([false, true])("limits the child heap for standalone=%s", (standalone) =>
-    Effect.acquireUseRelease(
-      Effect.promise(async () => {
-        const { execFile } = await vi.importActual<typeof NodeChildProcess>("node:child_process");
-        const probe = vi.spyOn(NodeChildProcess, "execFile");
-        probe.mockImplementation(((
-          file: string,
-          _args: readonly string[],
-          options: NodeChildProcess.ExecFileOptionsWithStringEncoding,
-          callback: (
-            error: NodeChildProcess.ExecFileException | null,
-            stdout: string,
-            stderr: string,
-          ) => void,
-        ) =>
-          execFile(
-            file,
-            [
-              "-e",
-              'process.stdout.write(String(require("node:v8").getHeapStatistics().heap_size_limit))',
-            ],
-            options,
-            callback,
-          )) as typeof NodeChildProcess.execFile);
-        return probe;
-      }),
-      () =>
-        Effect.gen(function* () {
-          const config = yield* ServerConfig.ServerConfig;
-          const path = NodePath.join(config.attachmentsDir, "heap.rtf");
-          NodeFS.writeFileSync(path, String.raw`{\rtf1 hello}`);
-          const extracted = yield* Effect.gen(function* () {
-            return yield* (yield* DocumentText.DocumentText).ensure(path);
-          }).pipe(
-            Effect.provide(Layer.fresh(DocumentText.layer)),
-            Effect.provideService(HostProcess.IsExecutable, standalone),
-            Effect.provideService(HostProcess.Environment, {
-              ...process.env,
-              NODE_OPTIONS: "--max-old-space-size=1024",
-            }),
-          );
-          expect(extracted).toBe(path + ".txt");
-          const heapLimit = Number(NodeFS.readFileSync(path + ".txt", "utf8"));
-          expect(heapLimit).toBeGreaterThan(192 * 1024 * 1024);
-          // Newer V8 versions reserve up to 192 MiB for the young generation as well.
-          expect(heapLimit).toBeLessThanOrEqual(384 * 1024 * 1024);
-        }).pipe(Effect.provide(layer)),
-      (probe) => Effect.sync(() => probe.mockRestore()),
-    ),
   );
 
   it.effect("extracts notebook cells and outputs once and keeps both readable paths", () =>

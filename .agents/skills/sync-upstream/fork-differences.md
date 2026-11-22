@@ -77,6 +77,9 @@ current when an authorized change replaces a decision.
   supported stall diagnostics rather than restoring Node-only assumptions.
   Keep upstream's Node-only `cliCompileCache` removed: Bun has no `node:sea`, so
   importing it stops the CLI at startup, and Bun's `enableCompileCache` is a stub.
+  Keep upstream's `--max-old-space-size` and its child-heap test out of
+  [DocumentText](../../../apps/server/src/provider/DocumentText.ts): Bun ignores
+  the flag and JSC options cannot cap the heap, so the worker's own limits bound it.
   Executable bundling preserves one shared Effect context, leaves `ws` to Bun's
   compatibility module, and stages file-backed dependencies using the same
   [external-package boundary](../../../scripts/lib/cli-external-packages.ts).
