@@ -271,8 +271,11 @@ it.effect.each(["interrupt", "timeout", "success"] as const)(
         ),
       );
       // With core.fsyncMethod=batch, newer Git nests the pack in a tmp_objdir-bulk-fsync-* store.
-      const packs = (yield* fs.readDirectory(objectDirectory, { recursive: true })).filter((name) =>
-        path.basename(name).startsWith("tmp_pack_"),
+      assert.notStrictEqual(objectDirectory, path.join(cwd, ".git/objects"));
+      const packs = (yield* fs.readDirectory(objectDirectory, { recursive: true })).filter(
+        (name) =>
+          path.basename(name).startsWith("tmp_pack_") &&
+          path.basename(name) !== "tmp_pack_other_operation",
       );
       assert.strictEqual(packs.length, 1);
       const ownedPack = path.join(objectDirectory, packs[0]!);
