@@ -35,7 +35,7 @@ import { m } from "~/i18n/messages";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSession } from "../state/session";
 
-export const supportsPlugins = (config: ServerConfig | null) =>
+const supportsPlugins = (config: ServerConfig | null) =>
   config?.environment.capabilities.pluginHost === 1;
 export const pluginConnectedAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get) =>

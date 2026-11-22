@@ -7,12 +7,12 @@ import { EnvironmentId, PluginAttention, PluginCatalog, PluginError } from "./pl
 import { AuthOrchestrationReadScope, EnvironmentAuthorizationError } from "./auth.ts";
 
 const error = Schema.Union([PluginError, EnvironmentAuthorizationError]);
-export const PluginCatalogRpc = Rpc.make("plugins.catalog", {
+const PluginCatalogRpc = Rpc.make("plugins.catalog", {
   payload: Schema.Struct({ environmentId: EnvironmentId }),
   success: PluginCatalog,
   error,
 });
-export const PluginAttentionRpc = Rpc.make("plugins.attention", {
+const PluginAttentionRpc = Rpc.make("plugins.attention", {
   payload: Schema.Struct({ environmentId: EnvironmentId }),
   success: PluginAttention,
   error,

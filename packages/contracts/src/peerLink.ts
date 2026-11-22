@@ -125,7 +125,7 @@ export type PeerLinkTeardownOutcome = typeof PeerLinkTeardownOutcome.Type;
 /** Most addresses a reciprocal offer may carry, so one session cannot scan many. */
 export const MAX_RECIPROCAL_OFFER_URLS = 8;
 /** Most characters an offer's label may carry. */
-export const MAX_RECIPROCAL_OFFER_LABEL_LENGTH = 200;
+const MAX_RECIPROCAL_OFFER_LABEL_LENGTH = 200;
 
 /**
  * A linked peer's offer to link back: its addresses and a one-time pairing
