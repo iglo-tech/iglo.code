@@ -1,5 +1,8 @@
+import { RegistryContext } from "@effect/atom-react";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId, type PluginCatalog } from "@t3tools/contracts";
+import { manifest as workflowsManifest } from "@t3tools/plugin-workflows/contracts";
+import { AtomRegistry } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
@@ -44,6 +47,35 @@ vi.mock("../hooks/useHandleNewThread", async (original) => {
     }),
   };
 });
+const plugins = vi.hoisted(() => ({
+  connected: [] as ReadonlyArray<EnvironmentId>,
+  catalogs: new Map<EnvironmentId, PluginCatalog>(),
+  scriptedWorkflows: [] as ReadonlyArray<EnvironmentId>,
+}));
+vi.mock("../state/presentation", async (original) => {
+  const actual = await original<typeof import("../state/presentation")>();
+  const { Atom } = await import("effect/reactivity");
+  return {
+    ...actual,
+    environmentSummaries: {
+      ...actual.environmentSummaries,
+      connectedEnvironmentIdsAtom: Atom.make(() => plugins.connected),
+    },
+  };
+});
+vi.mock("../plugins/runtime", async (original) => {
+  const actual = await original<typeof import("../plugins/runtime")>();
+  const { Atom } = await import("effect/reactivity");
+  return {
+    ...actual,
+    availableCatalogAtom: Atom.family((environmentId: EnvironmentId) =>
+      Atom.make(() => plugins.catalogs.get(environmentId) ?? null),
+    ),
+  };
+});
+vi.mock("./workflows/useWorkflowEnvironmentIds", () => ({
+  useWorkflowEnvironmentIds: () => plugins.scriptedWorkflows,
+}));
 vi.mock("../state/entities", async (original) => ({
   ...(await original<typeof import("../state/entities")>()),
   useProjects: () => entities.projects,
@@ -51,7 +83,10 @@ vi.mock("../state/entities", async (original) => ({
   useDelegatedUnderParent: () => entities.delegatedUnderParent,
 }));
 
-function setup(state: Partial<typeof entities> = {}) {
+function setup(state: Partial<typeof entities> = {}, pluginState: Partial<typeof plugins> = {}) {
+  plugins.connected = pluginState.connected ?? [];
+  plugins.catalogs = pluginState.catalogs ?? new Map();
+  plugins.scriptedWorkflows = pluginState.scriptedWorkflows ?? [];
   // Earlier browser test files share this origin's localStorage; a remembered project
   // that is not listed here hides the default "New thread in <project>" row.
   removeLocalStorageItem(LAST_USED_PROJECT_STORAGE_KEY);
@@ -306,6 +341,51 @@ describe("CommandPalette open intents", () => {
         environmentId: EnvironmentId.make("local"),
         projectId: ProjectId.make("lima"),
       }),
+    );
+  });
+});
+
+describe("CommandPalette plugin navigation", () => {
+  it("opens each environment's plugin page, apart from scripted workflows", async () => {
+    const local = EnvironmentId.make("local");
+    const remote = EnvironmentId.make("remote");
+    const catalog = (environmentId: EnvironmentId): PluginCatalog => ({
+      environmentId,
+      hostVersion: 1,
+      providerTools: [],
+      plugins: [{ environmentId, manifest: workflowsManifest, status: "available", reason: null }],
+    });
+    setup(
+      {},
+      {
+        connected: [local, remote],
+        catalogs: new Map([
+          [local, catalog(local)],
+          [remote, catalog(remote)],
+        ]),
+        scriptedWorkflows: [local],
+      },
+    );
+    // A fresh registry, so earlier renders' cached plugin atoms do not leak in.
+    await using screen = await render(
+      <RegistryContext.Provider value={AtomRegistry.make()}>
+        <CommandPalette>{null}</CommandPalette>
+      </RegistryContext.Provider>,
+    );
+
+    openCommandPalette({ query: "workflows" });
+    await expect
+      .element(page.getByRole("option", { name: /^Open scripted workflows/ }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("option", { name: /^Open Workflows · local/ }))
+      .toBeVisible();
+    await page.getByRole("option", { name: /^Open Workflows · remote/ }).click();
+
+    await vi.waitFor(() =>
+      expect(screen.router?.state.location.pathname).toBe(
+        "/plugins/remote/workflows/workflows.library",
+      ),
     );
   });
 });

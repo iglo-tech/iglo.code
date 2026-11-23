@@ -16,7 +16,8 @@ page always shows which.
 
 ### Build a workflow
 
-Open **Workflows** from the project navigation and choose **New workflow**. Add steps from
+Open **Workflows** from its icon at the bottom of the sidebar, **Open Workflows** in the command
+palette, or the **Workflows** button in a chat's header, and choose **New workflow**. Add steps from
 **Add a step**; a new step joins after the selected one. Every agent step submits a structured
 report, and decisions route on its declared fields, a check's recorded result, or a review's
 join. Select a step or route in the graph to edit it in the inspector; keyboard controls also
@@ -43,18 +44,19 @@ merged automatically.
 
 ### Run and recover
 
-Choose **Run workflow** from the project or library. The run view shows each visit, its thread,
+Choose **Run workflow** in a chat's header or the library. The run view shows each visit, its thread,
 whether a report was accepted, and why routing stopped. Only the actions the server allows
 are offered: approve or request changes at a human gate, resume a retained session, retry, or
 cancel.
 
 ### Schedule a workflow
 
-In **Settings → Scheduled tasks**, choose **New task** and the environment, set **Runs** to
+In **Settings → Scheduled tasks**, which lists tasks from every environment, choose **New task** and the environment, set **Runs** to
 **Run a workflow**, and choose the project. Pick a saved workflow, an optional task and the
 workspace, then set the time or interval. Each occurrence starts the workflow as it is saved when that occurrence
 runs, so later edits apply to later runs; a run that already started keeps its snapshot.
-Pause, resume, edit, **Run now** and delete work as for any scheduled task.
+Pause, resume, edit, **Run now** and delete work as for any scheduled task. Existing tasks
+also appear in the sidebar's **Scheduled** section, which opens a task in the main pane.
 
 Open the task's menu and choose **Run history** to see recent occurrences. Each shows whether
 the dispatch went out, separately from how its run is going, and **Open run** goes to that
@@ -64,8 +66,8 @@ and task but cannot run; you can still change its timing, pause it or delete it.
 ### Answer what needs you
 
 **Needs attention**, the topmost section of the thread list, shows the newest runs that need a
-person with a count of all of them. Choose **more** to open the full list, where you can pick a
-project in the breadcrumb to narrow it. Items are
+person with a count of all of them. Choose **more** to open the full **Attention** list, which
+the **Workflows** pages also link to; pick a project in the breadcrumb to narrow it. Items are
 human gates, each pending approval or question in a workflow thread, and stopped
 runs with their reason. Open a request to answer it in its thread; a thread answers its
 requests in order, so later ones wait for earlier ones. Each item clears only when its own
@@ -87,7 +89,7 @@ They are a Labs feature, off by default. Turn on **Settings → Labs → Workflo
 Workflow files live in `~/.iglo.code/workflows/` (or wherever `IGLO_CODE_WORKFLOWS` points: a folder or a single file). The server watches the folder and reloads changes without a restart.
 
 - **Ask an agent (recommended):** copy the repository's [`t3-workflows` skill](../../skills/t3-workflows/SKILL.md) into your agent's skills folder (such as `~/.claude/skills/` or `~/.agents/skills/`) and describe what you want.
-- **Edit directly:** edit files in `~/.iglo.code/workflows/`, or use **Definitions** on the Workflows page (saving and deleting in the app require terminal access). Before anything has run, open the page with **Open workflows** in the command palette.
+- **Edit directly:** edit files in `~/.iglo.code/workflows/`, or use **Definitions** on the Workflows page (saving and deleting in the app require terminal access). Before anything has run, open the page with **Open scripted workflows** in the command palette.
 
 A small workflow, saved as `~/.iglo.code/workflows/release.ts`:
 
@@ -142,7 +144,7 @@ Every start needs a `--key`: starting twice with the same key returns the same r
 
 ### Follow runs in the app
 
-Open the Workflows page with **Open workflows** in the command palette; the entry shows once a connected server has scripted workflows on. Filter by **Needs you**, **Running**, or **All** (skipped runs stay hidden unless toggled on), open child runs from their parent, and answer questions, resume paused runs, or cancel active runs (requires permission to operate threads). The issues and pull requests a run touched show as chips under its title and on the steps that touched them; a chip opens the item beside the run, in a tab next to any agent transcripts you opened.
+Open the Workflows page with **Open scripted workflows** in the command palette; the entry shows once a connected server has scripted workflows on. Filter by **Needs you**, **Running**, or **All** (skipped runs stay hidden unless toggled on), open child runs from their parent, and answer questions, resume paused runs, or cancel active runs (requires permission to operate threads). The issues and pull requests a run touched show as chips under its title and on the steps that touched them; a chip opens the item beside the run, in a tab next to any agent transcripts you opened.
 
 #### Agent threads
 

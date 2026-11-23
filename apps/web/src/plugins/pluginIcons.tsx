@@ -29,7 +29,13 @@ const icons: Record<PluginIconName, LucideIcon> = {
 };
 
 /** The host-owned icon for a plugin entry; unknown names (an older client) fall back. */
-export function PluginIcon({ name }: { readonly name: PluginIconName }) {
+export function PluginIcon({
+  name,
+  className,
+}: {
+  readonly name: PluginIconName;
+  readonly className?: string;
+}) {
   const Icon = icons[name] ?? PuzzleIcon;
-  return <Icon />;
+  return <Icon className={className} />;
 }
