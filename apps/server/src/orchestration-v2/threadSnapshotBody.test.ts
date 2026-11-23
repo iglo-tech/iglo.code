@@ -367,7 +367,8 @@ it.layer(TestLayer)("thread snapshot body", (it) => {
         deep = depth % 2 === 0 ? [deep] : { deep };
         deepJson = depth % 2 === 0 ? `[${deepJson}]` : `{"deep":${deepJson}}`;
       }
-      assert.throws(() => JSON.stringify(deep), RangeError);
+      // JSC (Bun) stringifies this depth; only V8 overflows here.
+      if (!("Bun" in globalThis)) assert.throws(() => JSON.stringify(deep), RangeError);
       const expected = referenceBody(snapshot("placeholder"))
         .toString("utf8")
         .replace('"deep":"placeholder"', () => `"deep":${deepJson}`);

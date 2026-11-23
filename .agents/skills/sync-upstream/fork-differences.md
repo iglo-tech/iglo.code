@@ -82,6 +82,11 @@ current when an authorized change replaces a decision.
   Keep upstream's `--max-old-space-size` and its child-heap test out of
   [DocumentText](../../../apps/server/src/provider/DocumentText.ts): Bun ignores
   the flag and JSC options cannot cap the heap, so the worker's own limits bound it.
+  Bun carries no `AsyncLocalStorage` store into module evaluation, so
+  [WorkflowRuntime](../../../apps/server/src/workflows/WorkflowRuntime.ts) keeps its
+  `evaluatingUnderBun` fallback for the load in progress; without it every
+  `T3.workflow(…)` call in a definition file fails. Upstream's Node/V8-inspector
+  `scripts/server-metrics*` benchmark stays removed.
   Executable bundling preserves one shared Effect context, leaves `ws` to Bun's
   compatibility module, and stages file-backed dependencies using the same
   [external-package boundary](../../../scripts/lib/cli-external-packages.ts).
