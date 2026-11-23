@@ -22,6 +22,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import { serviceLauncherLockPath } from "../serviceLauncher.ts";
 import * as BootService from "./bootService.ts";
 import { pinnedRuntimePaths } from "./pinnedRuntime.ts";
+import { RESTORE_OOMD_WATCH_SCRIPT } from "./userManagerOom.ts";
 import {
   decodeServiceUnit,
   disabledServiceTask,
@@ -1314,6 +1315,28 @@ process.disconnect();
     }),
   );
 
+  it.effect("treats a symlinked T3 home path as the same home", () =>
+    Effect.gen(function* () {
+      const { service, fs, baseDir, commands, makeService } = yield* makeHarness();
+      yield* service.install();
+      const path = yield* Path.Path;
+      const linkDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-symlink-home-" });
+      const aliasDir = path.join(linkDir, "a$$b");
+      yield* fs.symlink(baseDir, aliasDir);
+
+      const alias = yield* makeService(undefined, "1.2.3", aliasDir);
+      expect(yield* alias.status).toMatchObject({ current: true });
+      expect((yield* alias.status).otherBaseDir).toBeUndefined();
+      expect(yield* alias.restart).toBe("restarted");
+      commands.length = 0;
+      yield* alias.withStopped(Effect.void);
+      expect(commands).toContain("systemctl --user stop iglo.code.service");
+      expect((yield* alias.install()).baseDir).toBe(aliasDir);
+      expect(yield* service.status).toMatchObject({ current: true });
+      expect((yield* service.status).otherBaseDir).toBeUndefined();
+    }),
+  );
+
   it.effect("hands the whole install to systemd without changing the running service", () =>
     Effect.gen(function* () {
       const { fs, commands, invocations, control, makeService } = yield* makeHarness();
@@ -1413,6 +1436,7 @@ process.disconnect();
         const outcome = yield* inside.restart;
         expect(commands).toEqual([
           "systemctl --user daemon-reload",
+          `/bin/sh -c ${RESTORE_OOMD_WATCH_SCRIPT}`,
           "systemctl --user enable iglo.code.service",
           "systemctl --user reset-failed iglo.code.service",
           "systemctl --user restart --no-block iglo.code.service",

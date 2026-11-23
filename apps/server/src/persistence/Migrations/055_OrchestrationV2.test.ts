@@ -74,6 +74,7 @@ layer("055_OrchestrationV2", (it) => {
         [111, "AgentFeedback"],
         [112, "IssueTrackerAccounts"],
         [113, "Workflows"],
+        [114, "SupersededRunAttemptIndex"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
@@ -174,6 +175,7 @@ layer("055_OrchestrationV2", (it) => {
           [111, "AgentFeedback"],
           [112, "IssueTrackerAccounts"],
           [113, "Workflows"],
+          [114, "SupersededRunAttemptIndex"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -237,6 +239,7 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 111, name: "AgentFeedback" },
             { migration_id: 112, name: "IssueTrackerAccounts" },
             { migration_id: 113, name: "Workflows" },
+            { migration_id: 114, name: "SupersededRunAttemptIndex" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -309,6 +312,7 @@ layer("055_OrchestrationV2", (it) => {
         [111, "AgentFeedback"],
         [112, "IssueTrackerAccounts"],
         [113, "Workflows"],
+        [114, "SupersededRunAttemptIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -378,6 +382,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 111, name: "AgentFeedback" },
         { migration_id: 112, name: "IssueTrackerAccounts" },
         { migration_id: 113, name: "Workflows" },
+        { migration_id: 114, name: "SupersededRunAttemptIndex" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -386,7 +391,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 113 }, (_, index) => index + 1),
+        Array.from({ length: 114 }, (_, index) => index + 1),
       );
     }),
   );
@@ -458,6 +463,7 @@ layer("055_OrchestrationV2", (it) => {
         [111, "AgentFeedback"],
         [112, "IssueTrackerAccounts"],
         [113, "Workflows"],
+        [114, "SupersededRunAttemptIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -537,6 +543,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 111, name: "AgentFeedback" },
         { migration_id: 112, name: "IssueTrackerAccounts" },
         { migration_id: 113, name: "Workflows" },
+        { migration_id: 114, name: "SupersededRunAttemptIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
