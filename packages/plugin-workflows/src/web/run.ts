@@ -1,3 +1,4 @@
+import type { PluginPageState } from "@t3tools/plugin-host-contract/schema";
 import type {
   Attempt,
   AttentionItem,
@@ -535,4 +536,10 @@ export function joinStatus(review: Review): {
     review.cause ? ` · ${causeTexts[review.cause]}` : ""
   }`;
   return { label, variant: review.result === "failed" ? "error" : "warning" };
+}
+
+/** The runs page state with the start dialog open or closed; the run inspection stays. */
+export function withStartDialog(state: PluginPageState, open: boolean): PluginPageState {
+  const { start: _start, workflow: _workflow, ...inspection } = state;
+  return open ? { ...inspection, start: "1" } : inspection;
 }

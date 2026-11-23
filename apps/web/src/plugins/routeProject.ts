@@ -1,9 +1,15 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { selectProjectGroupingSettings } from "@t3tools/client-runtime/state/project-grouping";
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useParams, useSearch } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
-import { useThreadProjectId } from "../state/entities";
+import { getClientSettings } from "../hooks/useSettings";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { readProjects, useThreadProjectId } from "../state/entities";
+import { primaryEnvironmentIdAtom } from "../state/primaryEnvironment";
+import { useUiStateStore } from "../uiStateStore";
+import { railProjectFor } from "./routeProject.logic";
 
 export interface RouteProject {
   readonly environmentId: EnvironmentId;
@@ -62,10 +68,24 @@ export function useRouteProject(): RouteProject | null {
   return current;
 }
 
-/** The route's project in this environment, else the last one used there. */
+function readRailProject(environmentId: EnvironmentId): ProjectId | undefined {
+  return railProjectFor({
+    projects: readProjects(),
+    scopeKeys: useUiStateStore.getState().sidebarProjectScopeKeys,
+    settings: selectProjectGroupingSettings(getClientSettings()),
+    primaryEnvironmentId: appAtomRegistry.get(primaryEnvironmentIdAtom),
+    environmentId,
+  });
+}
+
+/**
+ * The route's project in this environment, else the project scoped alone in the sidebar's
+ * project rail, else the last one used there. Read when the user acts, not during render.
+ */
 export function projectFor(
   route: RouteProject | null,
   environmentId: EnvironmentId,
 ): ProjectId | undefined {
-  return route?.environmentId === environmentId ? route.projectId : lastProjects.get(environmentId);
+  if (route?.environmentId === environmentId) return route.projectId;
+  return readRailProject(environmentId) ?? lastProjects.get(environmentId);
 }

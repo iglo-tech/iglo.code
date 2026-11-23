@@ -108,7 +108,6 @@ function EnvironmentPluginItems({
   labelEnvironment: boolean;
   route: RouteProject | null;
 }) {
-  const projectId = projectFor(route, environmentId);
   const { contributions } = usePluginContributions(environmentId);
   const environment = useEnvironment(environmentId);
   const params = useParams({ strict: false });
@@ -146,6 +145,7 @@ function EnvironmentPluginItems({
                   onClick={() => {
                     if (isMobile) setOpenMobile(false);
                     // Like project actions, entries open in the project the user is in.
+                    const projectId = projectFor(route, environmentId);
                     plugin.context.navigate(
                       item.link.projectId === undefined && projectId !== undefined
                         ? { ...item.link, projectId }
