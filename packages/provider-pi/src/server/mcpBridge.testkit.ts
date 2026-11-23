@@ -62,6 +62,12 @@ export async function loadMcpBridge(
     readonly activatesOnRegistration?: boolean;
     readonly allowsTool?: (name: string) => boolean;
     readonly runtimeMode?: string;
+    readonly readOnlyPluginTools?: ReadonlyArray<string>;
+    readonly extraTools?: ReadonlyArray<{
+      readonly name: string;
+      readonly description: string;
+      readonly annotations?: { readonly readOnlyHint?: boolean };
+    }>;
     readonly inputSchema?: Record<string, unknown>;
   } = {},
 ) {
@@ -89,6 +95,7 @@ export async function loadMcpBridge(
       annotations: { readOnlyHint: false },
     },
     { name: "preview_snapshot", description: "Inspect the collaborative browser." },
+    ...(options.extraTools ?? []),
   ].map((tool) => ({
     ...tool,
     inputSchema: options.inputSchema ?? { type: "object", properties: {} },
@@ -107,6 +114,9 @@ export async function loadMcpBridge(
         IGLO_CODE_MCP_BEARER_TOKEN: "fixture-token",
         IGLO_CODE_PI_MCP_EXTENSION_PATH: "/fixture/pi-t3-extension.ts",
         IGLO_CODE_PI_RUNTIME_MODE: options.runtimeMode,
+        ...(options.readOnlyPluginTools === undefined
+          ? {}
+          : { IGLO_CODE_MCP_READ_ONLY_TOOLS: JSON.stringify(options.readOnlyPluginTools) }),
       },
     },
     AbortSignal,

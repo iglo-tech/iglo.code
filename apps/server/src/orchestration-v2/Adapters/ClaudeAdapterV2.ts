@@ -669,6 +669,7 @@ export const ClaudeProviderCapabilitiesV2 = {
     emitsToolOutput: true,
     supportsMcpTools: true,
     supportsDynamicToolCallbacks: true,
+    supportsHostMcpInjection: true,
     supportsBackgroundWait: true,
   },
   approvals: {

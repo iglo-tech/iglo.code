@@ -36,6 +36,11 @@ import { PluginError } from "@t3tools/plugin-host-contract/schema";
 import * as Projects from "../project/ProjectService.ts";
 import * as McpSessions from "../mcp/McpSessionRegistry.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as ProviderInstances from "../provider/ProviderInstanceRegistry.ts";
+import * as Providers from "../provider/ProviderRegistry.ts";
+import * as HostAdapter from "@t3tools/plugin-host-adapter/host";
+import * as Receipts from "../orchestration-v2/CommandReceiptStore.ts";
+import * as PullRequests from "../pullRequest/PullRequestService.ts";
 import { makeReplayServerConfig } from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 
 const ToolResult = Schema.fromJsonString(
@@ -775,4 +780,262 @@ it.live("boots ordinary thread and scheduling services with zero compiled plugin
       yield* Fiber.interrupt(server.fiber);
     }),
   ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+);
+
+it.live(
+  "enables plugin reporting from adapter host-MCP capability across managed providers and rejects unsupported ones",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const config = {
+          ...(yield* makeReplayServerConfig("plugin-capability-driven")),
+          noBrowser: true,
+          traceTimingEnabled: false,
+        };
+        const server = yield* startEnvironment(config);
+        const host = Context.get(server.context, Host);
+        const registry = Context.get(server.context, Registry.PluginRegistry);
+        const providers = yield* host.providers();
+        const catalog = yield* registry.catalog;
+
+        // Every managed built-in provider whose adapter injects per-thread host MCP is supported.
+        for (const driver of [
+          "codex",
+          "claudeAgent",
+          "cursor",
+          "grok",
+          "fx",
+          "antigravity",
+          "kiro",
+          "pi",
+          "muse",
+        ]) {
+          expect(
+            providers.find((provider) => provider.driver === driver)?.toolsSupported,
+            `expected managed ${driver} to support plugin tools`,
+          ).toBe(true);
+          expect(catalog.providerTools).toContainEqual({
+            driver,
+            connectionMode: "managed",
+            supported: true,
+            reason: null,
+          });
+          expect(catalog.providerTools).toContainEqual({
+            driver,
+            connectionMode: "external",
+            supported: false,
+            reason: expect.stringContaining("Externally owned"),
+          });
+        }
+
+        // Legacy OpenCode 1 (without 2.x version) remains unsupported.
+        const openCodeV1 = providers.find((provider) => provider.instanceId === "opencode");
+        expect(openCodeV1).toMatchObject({
+          toolsSupported: false,
+          reason: expect.stringContaining("Upgrade OpenCode"),
+        });
+
+        // A managed non-allowlisted provider (Antigravity) can invoke plugin_fixture_report
+        // (allowInReadOnly: true) in plan + readOnly sandbox mode over the real /mcp endpoint.
+        const projectId = ProjectId.make("capability-project");
+        yield* Context.get(server.context, Projects.ProjectService).create({
+          commandId: CommandId.make("capability-project"),
+          projectId,
+          title: "Capability",
+          workspaceRoot: config.baseDir,
+        });
+        const threads = Context.get(server.context, Threads.ThreadManagementService);
+        const mcpSessions = Context.get(server.context, McpProviderSessions.McpProviderSessions);
+        const sessions = Context.get(server.context, McpSessions.McpSessionRegistry);
+        const http = Context.get(server.context, HttpClient.HttpClient);
+        const callReport = (instanceId: ProviderInstanceId, threadId: ThreadId, reportId: string) =>
+          Effect.gen(function* () {
+            yield* threads.dispatch({
+              type: "thread.create",
+              commandId: CommandId.make(`thread-${reportId}`),
+              threadId,
+              projectId,
+              title: reportId,
+              createdBy: "user",
+              creationSource: "web",
+              modelSelection: { instanceId, model: "test-model" },
+              runtimeMode: "approval-required",
+              interactionMode: "plan",
+              branch: null,
+              worktreePath: null,
+            });
+            const credential = yield* sessions.issue({
+              threadId,
+              providerInstanceId: instanceId,
+            });
+            yield* mcpSessions.set({
+              ...credential.config,
+              runtimePolicy: {
+                cwd: config.baseDir,
+                runtimeMode: "approval-required",
+                interactionMode: "plan",
+                sandboxPolicy: { type: "readOnly" },
+              },
+            });
+            const headers = {
+              authorization: credential.config.authorizationHeader,
+              accept: "application/json, text/event-stream",
+            };
+            const init = yield* http.post(`${testOrigin(server.context)}/mcp`, {
+              headers,
+              body: HttpBody.text(
+                encodeJson({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "initialize",
+                  params: {
+                    protocolVersion: "2025-06-18",
+                    capabilities: {},
+                    clientInfo: { name: "capability-test", version: "1" },
+                  },
+                }),
+                "application/json",
+              ),
+            });
+            yield* init.text;
+            const response = yield* http.post(`${testOrigin(server.context)}/mcp`, {
+              headers: {
+                ...headers,
+                "mcp-protocol-version": "2025-06-18",
+                ...(init.headers["mcp-session-id"] === undefined
+                  ? {}
+                  : { "mcp-session-id": init.headers["mcp-session-id"] }),
+              },
+              body: HttpBody.text(
+                encodeJson({
+                  jsonrpc: "2.0",
+                  id: 2,
+                  method: "tools/call",
+                  params: {
+                    name: "plugin_fixture_report",
+                    arguments: { id: reportId, summary: "Capability-driven report" },
+                  },
+                }),
+                "application/json",
+              ),
+            });
+            return yield* response.text;
+          });
+
+        const antigravityResult = yield* callReport(
+          ProviderInstanceId.make("antigravity"),
+          ThreadId.make("thread-antigravity-plan"),
+          "antigravity-plan-report",
+        );
+        expect(antigravityResult).toContain('"isError":false');
+        expect(antigravityResult).toContain('"id":"antigravity-plan-report"');
+
+        // Legacy OpenCode v1 is rejected by PluginToolService as unsupported.
+        const openCodeV1Result = yield* callReport(
+          ProviderInstanceId.make("opencode"),
+          ThreadId.make("thread-opencode-v1"),
+          "opencode-v1-report",
+        );
+        expect(openCodeV1Result).toContain('"isError":true');
+        expect(openCodeV1Result).toContain('"code":"unsupported"');
+
+        // Verify a generic future driver not in any built-in list follows its adapter capability.
+        const realInstances = Context.get(
+          server.context,
+          ProviderInstances.ProviderInstanceRegistry,
+        );
+        const realProviders = Context.get(server.context, Providers.ProviderRegistry);
+        const baseProvider = (yield* realProviders.getProviders)[0]!;
+        const baseInstance = (yield* realInstances.listInstances)[0]!;
+        const baseCapabilities = yield* baseInstance.orchestrationAdapter.getCapabilities();
+        const futureSupportedId = ProviderInstanceId.make("futureMcp");
+        const futureUnsupportedId = ProviderInstanceId.make("futureNoMcp");
+        const makeSyntheticInstance = (
+          instanceId: ProviderInstanceId,
+          driver: string,
+          supportsHostMcpInjection: boolean,
+        ) => ({
+          ...baseInstance,
+          instanceId,
+          driverKind: ProviderDriverKind.make(driver),
+          orchestrationAdapter: {
+            ...baseInstance.orchestrationAdapter,
+            instanceId,
+            driver: ProviderDriverKind.make(driver),
+            getCapabilities: () =>
+              Effect.succeed({
+                ...baseCapabilities,
+                tools: { ...baseCapabilities.tools, supportsHostMcpInjection },
+              }),
+          },
+        });
+        const syntheticInstances = new Map([
+          [futureSupportedId, makeSyntheticInstance(futureSupportedId, "futureMcp", true)],
+          [futureUnsupportedId, makeSyntheticInstance(futureUnsupportedId, "futureNoMcp", false)],
+        ]);
+        const syntheticContext = yield* Layer.build(
+          Layer.fresh(
+            HostAdapter.layer.pipe(
+              Layer.provide(Receipts.layer),
+              Layer.provide(Layer.mock(PullRequests.PullRequestService)({})),
+            ),
+          ),
+        ).pipe(
+          Effect.provide(
+            server.context.pipe(
+              Context.add(
+                ProviderInstances.ProviderInstanceRegistry,
+                ProviderInstances.ProviderInstanceRegistry.of({
+                  ...realInstances,
+                  getInstance: (id) => Effect.succeed(syntheticInstances.get(id)),
+                  listInstances: Effect.succeed([...syntheticInstances.values()]),
+                }),
+              ),
+              Context.add(
+                Providers.ProviderRegistry,
+                Providers.ProviderRegistry.of({
+                  ...realProviders,
+                  getProviders: Effect.succeed([
+                    {
+                      ...baseProvider,
+                      instanceId: futureSupportedId,
+                      driver: ProviderDriverKind.make("futureMcp"),
+                      enabled: true,
+                      installed: true,
+                      status: "ready",
+                      availability: "available",
+                      auth: { status: "authenticated" },
+                    },
+                    {
+                      ...baseProvider,
+                      instanceId: futureUnsupportedId,
+                      driver: ProviderDriverKind.make("futureNoMcp"),
+                      enabled: true,
+                      installed: true,
+                      status: "ready",
+                      availability: "available",
+                      auth: { status: "authenticated" },
+                    },
+                  ]),
+                }),
+              ),
+            ),
+          ),
+        );
+        const syntheticProviders = yield* Context.get(syntheticContext, Host).providers();
+        expect(
+          syntheticProviders.find((provider) => provider.instanceId === futureSupportedId),
+        ).toMatchObject({ toolsSupported: true, reason: null });
+        expect(
+          syntheticProviders.find((provider) => provider.instanceId === futureUnsupportedId),
+        ).toMatchObject({
+          toolsSupported: false,
+          reason: expect.stringContaining(
+            "does not support host-owned per-thread MCP tool injection",
+          ),
+        });
+
+        yield* Fiber.interrupt(server.fiber);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

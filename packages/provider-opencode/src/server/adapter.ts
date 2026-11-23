@@ -157,6 +157,8 @@ const OpenCodeProviderCapabilitiesV2 = {
     emitsToolOutput: true,
     supportsMcpTools: true,
     supportsDynamicToolCallbacks: false,
+    // Legacy v1 registers a single shared server name without per-thread isolation.
+    supportsHostMcpInjection: false,
   },
   approvals: {
     supportsCommandApproval: true,

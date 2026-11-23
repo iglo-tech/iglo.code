@@ -59,7 +59,10 @@ import {
   XAiExitPlanModeRequest,
 } from "./xaiAcpExtension.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
-import { acpPermissionDisposition } from "@t3tools/provider-acp/server/clientPolicy";
+import {
+  acpPermissionDisposition,
+  isAcpAllowedReadOnlyPluginTool,
+} from "@t3tools/provider-acp/server/clientPolicy";
 import {
   findModelConfigOption,
   sessionModelStateFromInitialize,
@@ -412,8 +415,12 @@ export function makeGrokAcpAdapterFlavor(
           runtimeMode: grokLaunchRuntimeMode(runtimePolicy),
         })),
     // Auto prompts represent classifier refusals and must reach the user.
-    permissionDisposition: (policy, request) =>
-      grokLaunchRuntimeMode(policy) === "auto" ? "ask" : acpPermissionDisposition(policy, request),
+    permissionDisposition: (policy, request, options) =>
+      isAcpAllowedReadOnlyPluginTool(request, options?.readOnlyPluginTools)
+        ? "allow"
+        : grokLaunchRuntimeMode(policy) === "auto"
+          ? "ask"
+          : acpPermissionDisposition(policy, request, options),
     approvalOptions: grokApprovalOptions,
     promptFailure: (cause) =>
       makeProviderFailure({

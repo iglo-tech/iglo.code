@@ -78,15 +78,15 @@ export const make = Effect.gen(function* () {
               operation: tool.id,
               message: provider?.reason ?? "The selected provider is unavailable.",
             });
-          // Supervised Claude/OpenCode sessions can mutate. Only Codex defaults
-          // to a read-only sandbox; explicit overrides take precedence.
+          // Any provider with an explicit read-only sandbox policy (or no applied policy yet)
+          // is read-only. Without an explicit override, only Codex defaults to a read-only
+          // sandbox in approval-required mode.
           const policy = session.runtimePolicy;
           const readOnly =
             policy === undefined ||
-            ((provider.driver === "codex" || provider.driver === "claudeAgent") &&
-              (policy.sandboxPolicy === undefined
-                ? provider.driver === "codex" && policy.runtimeMode === "approval-required"
-                : isReadOnlySandbox(policy.sandboxPolicy)));
+            (policy.sandboxPolicy !== undefined
+              ? isReadOnlySandbox(policy.sandboxPolicy)
+              : provider.driver === "codex" && policy.runtimeMode === "approval-required");
           if (readOnly && !tool.permission.readOnly && !tool.permission.allowInReadOnly)
             return yield* denied(
               "This mutating tool has no explicit allowance for a read-only provider session. Use an allowed permission mode.",

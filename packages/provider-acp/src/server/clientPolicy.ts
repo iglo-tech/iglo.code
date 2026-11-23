@@ -14,6 +14,91 @@ export interface AcpRuntimePolicy {
 
 export type AcpPermissionDisposition = "allow" | "ask" | "deny";
 
+export interface AcpPermissionPolicyOptions {
+  readonly readOnlyPluginTools?: ReadonlyArray<string> | undefined;
+}
+
+const ACP_T3_QUALIFIED_MCP_PATTERNS = [
+  /^Run mcp_iglo-code_(?<tool>[A-Za-z0-9_]+)\??$/,
+  /^mcp__(?:iglo[-_ ]?code|editor_iglo_?code_[0-9a-f]{8})__(?<tool>[A-Za-z0-9_]+)$/i,
+  /^@iglo-code\/(?<tool>[A-Za-z0-9_]+)(?::.*)?$/i,
+  /^(?<tool>[A-Za-z0-9_]+) \(iglo[-_ ]?code MCP Server\)(?::|$)/i,
+] as const;
+
+/** Matches only server-qualified `iglo-code` MCP calls listed in `readOnlyPluginTools`. */
+export function isAcpAllowedReadOnlyPluginTool(
+  request: EffectAcpSchema.RequestPermissionRequest,
+  readOnlyPluginTools?: ReadonlyArray<string>,
+): boolean {
+  if (readOnlyPluginTools === undefined || readOnlyPluginTools.length === 0) return false;
+  const allowed = new Set(readOnlyPluginTools);
+  const rawInput = unknownRecord(request.toolCall.rawInput);
+  if (typeof rawInput?.CommandLine === "string") return false;
+  const meta = unknownRecord(request.toolCall._meta);
+  if (rawInput?.ServerName !== undefined) {
+    return (
+      rawInput.ServerName === "iglo-code" &&
+      typeof rawInput.ToolName === "string" &&
+      allowed.has(rawInput.ToolName)
+    );
+  }
+  if (meta?.is_mcp_tool_call === true && typeof rawInput?.server === "string") {
+    return (
+      rawInput.server === "iglo-code" &&
+      typeof rawInput.tool === "string" &&
+      allowed.has(rawInput.tool)
+    );
+  }
+  const kiroServer = unknownRecord(meta?.kiro)?.serverName;
+  if (typeof kiroServer === "string") {
+    return (
+      kiroServer === "iglo-code" &&
+      typeof rawInput?.tool_id === "string" &&
+      rawInput.tool_id.startsWith("iglo-code::") &&
+      allowed.has(rawInput.tool_id.slice("iglo-code::".length))
+    );
+  }
+  const metaServerId = typeof meta?.serverId === "string" ? meta.serverId.trim() : "";
+  const gooseToolCall = unknownRecord(unknownRecord(meta?.goose)?.toolCall);
+  const gooseExtension =
+    typeof gooseToolCall?.extensionName === "string" ? gooseToolCall.extensionName.trim() : "";
+  if (
+    (metaServerId.length > 0 && !/^iglo[-_ ]?code$/i.test(metaServerId)) ||
+    (gooseExtension.length > 0 && !/^iglo[-_ ]?code$/i.test(gooseExtension))
+  ) {
+    return false;
+  }
+  if (/^iglo[-_ ]?code$/i.test(metaServerId) && typeof meta?.toolName === "string") {
+    const toolName = meta.toolName.trim();
+    for (const candidate of allowed) {
+      const boundary = toolName.length - candidate.length - 1;
+      if (
+        toolName === candidate ||
+        (toolName.endsWith(candidate) &&
+          boundary >= 0 &&
+          !/[A-Za-z0-9]/.test(toolName.charAt(boundary)))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+  const candidates = [
+    meta?.toolName,
+    unknownRecord(meta?.claudeCode)?.toolName,
+    gooseToolCall?.toolName,
+    request.toolCall.title,
+  ].filter((value): value is string => typeof value === "string");
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    for (const pattern of ACP_T3_QUALIFIED_MCP_PATTERNS) {
+      const tool = pattern.exec(trimmed)?.groups?.tool;
+      if (tool !== undefined && allowed.has(tool)) return true;
+    }
+  }
+  return false;
+}
+
 export function unknownRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -194,7 +279,11 @@ function isAcpMutationKind(toolKind: string): boolean {
 export function acpPermissionDisposition(
   runtimePolicy: AcpRuntimePolicy,
   request: EffectAcpSchema.RequestPermissionRequest,
+  options?: AcpPermissionPolicyOptions,
 ): AcpPermissionDisposition {
+  if (isAcpAllowedReadOnlyPluginTool(request, options?.readOnlyPluginTools)) {
+    return "allow";
+  }
   return acpOperationDisposition(runtimePolicy, {
     kind: request.toolCall.kind,
     locations: request.toolCall.locations,
@@ -205,13 +294,24 @@ export function acpMcpToolApprovalElicitationDisposition(
   runtimePolicy: AcpRuntimePolicy,
   request: EffectAcpSchema.CreateElicitationRequest,
   nativeRequestId?: string,
+  options?: AcpPermissionPolicyOptions,
 ): "ask" | "allow" | undefined {
+  const meta = unknownRecord(request._meta);
   if (
     request.mode !== "form" ||
-    (unknownRecord(request._meta)?.codex_approval_kind !== "mcp_tool_call" &&
+    (meta?.codex_approval_kind !== "mcp_tool_call" &&
       nativeRequestId?.startsWith("mcp_tool_call_approval_") !== true)
   ) {
     return undefined;
+  }
+  const server = meta?.server ?? meta?.server_name ?? meta?.serverName;
+  const tool = meta?.tool ?? meta?.tool_name ?? meta?.toolName;
+  if (
+    server === "iglo-code" &&
+    typeof tool === "string" &&
+    options?.readOnlyPluginTools?.includes(tool) === true
+  ) {
+    return "allow";
   }
   // T3's authenticated MCP endpoint enforces scope; only explicit approval mode needs a user prompt.
   return acpPolicyRequiresApproval(runtimePolicy) ? "ask" : "allow";

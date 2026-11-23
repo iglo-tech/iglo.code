@@ -20,7 +20,9 @@ import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRunti
 import { collectSessionConfigOptionValues } from "@t3tools/provider-acp/server/runtimeModel";
 import {
   acpPermissionDisposition,
+  isAcpAllowedReadOnlyPluginTool,
   type AcpPermissionDisposition,
+  type AcpPermissionPolicyOptions,
 } from "@t3tools/provider-acp/server/clientPolicy";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -143,14 +145,22 @@ export function fxSessionModeForPolicy(
 export function fxPermissionDisposition(
   policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   request: EffectAcpSchema.RequestPermissionRequest,
+  options?: AcpPermissionPolicyOptions,
 ): AcpPermissionDisposition {
+  if (isAcpAllowedReadOnlyPluginTool(request, options?.readOnlyPluginTools)) {
+    return "allow";
+  }
   switch (fxSessionModeForPolicy(policy)) {
     case "auto":
       return "ask";
     case FX_FULL_ACCESS_MODE_ID:
-      return acpPermissionDisposition(policy, request);
+      return acpPermissionDisposition(policy, request, options);
     case "ask":
-      return acpPermissionDisposition({ ...policy, runtimeMode: "approval-required" }, request);
+      return acpPermissionDisposition(
+        { ...policy, runtimeMode: "approval-required" },
+        request,
+        options,
+      );
   }
 }
 

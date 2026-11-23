@@ -165,6 +165,7 @@ function workspaceModelsFor(
 function selectOpenCodeRuntimeAdapter(input: {
   readonly probe: OpenCodeRuntimeProbe;
   readonly resolve: Effect.Effect<ProbedOpenCode, OpenCodeRuntime.OpenCodeRuntimeError>;
+  readonly external: boolean;
   readonly v1: ProviderAdapter.ProviderAdapterV2["Service"];
   readonly v2: ProviderAdapter.ProviderAdapterV2["Service"];
 }): ProviderAdapter.ProviderAdapterV2["Service"] {
@@ -180,6 +181,11 @@ function selectOpenCodeRuntimeAdapter(input: {
       const capabilities = yield* adapter.getCapabilities();
       return {
         ...capabilities,
+        tools: {
+          ...capabilities.tools,
+          supportsHostMcpInjection:
+            !input.external && capabilities.tools.supportsHostMcpInjection === true,
+        },
         turns: {
           ...capabilities.turns,
           supportsNativeGoals:
@@ -397,6 +403,7 @@ export const OpenCodeDriver: ProviderDriver<
     const orchestrationAdapter = selectOpenCodeRuntimeAdapter({
       probe: runtimeProbe,
       resolve: resolveRuntime,
+      external: effectiveConfig.serverUrl.trim().length > 0,
       v1: openCodeV1Adapter,
       v2: yield* OpenCode2AdapterV2.make(instanceId).pipe(
         Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),

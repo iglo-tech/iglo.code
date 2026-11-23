@@ -452,6 +452,49 @@ describe("Pi tool discovery permissions", () => {
     },
   );
 
+  it("pre-approves readOnlyPluginTools even when readOnlyHint is false while gating unlisted plugin mutations", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      runtimeMode: "approval-required",
+      readOnlyPluginTools: ["plugin_workflows_report"],
+      extraTools: [
+        {
+          name: "plugin_workflows_report",
+          description: "Submit workflow report",
+          annotations: { readOnlyHint: false },
+        },
+        {
+          name: "plugin_fixture_mutation",
+          description: "Unlisted plugin mutation",
+          annotations: { readOnlyHint: false },
+        },
+      ],
+    });
+    const hook = bridge.handlers.get("tool_call") as unknown as (
+      event: { toolName: string; input: unknown },
+      ctx: { ui: { confirm: (title: string) => Promise<boolean> } },
+    ) => Promise<{ block: true; reason: string } | undefined>;
+    const confirmations: string[] = [];
+    const ctx = {
+      ui: {
+        confirm: async (title: string) => {
+          confirmations.push(title);
+          return false;
+        },
+      },
+    };
+    for (const prefix of ["mcp__iglo-code__", "mcp__iglo_code__"]) {
+      assert.isUndefined(
+        await hook({ toolName: prefix + "plugin_workflows_report", input: {} }, ctx),
+      );
+      assert.equal(
+        (await hook({ toolName: prefix + "plugin_fixture_mutation", input: {} }, ctx))?.block,
+        true,
+      );
+    }
+    assert.equal(confirmations.length, 2);
+  });
+
   it("allows discovery without confirmation and still gates the discovered tool", async () => {
     type ToolCallHook = (
       event: { toolName: string; input: unknown },

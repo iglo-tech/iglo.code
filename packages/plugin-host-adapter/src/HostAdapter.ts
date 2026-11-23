@@ -21,7 +21,6 @@ import * as DateTime from "effect/DateTime";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -33,12 +32,13 @@ import * as Threads from "../../../apps/server/src/orchestration-v2/ThreadManage
 import * as Launch from "../../../apps/server/src/orchestration-v2/ThreadLaunchService.ts";
 import * as Receipts from "../../../apps/server/src/orchestration-v2/CommandReceiptStore.ts";
 import * as Events from "../../../apps/server/src/persistence/OrchestrationEventStore.ts";
+import * as ProviderInstances from "../../../apps/server/src/provider/ProviderInstanceRegistry.ts";
 import * as Providers from "../../../apps/server/src/provider/ProviderRegistry.ts";
 import * as Settings from "../../../apps/server/src/serverSettings.ts";
 import * as Git from "../../../apps/server/src/vcs/GitVcsDriver.ts";
 import * as PullRequests from "../../../apps/server/src/pullRequest/PullRequestService.ts";
 import { deriveProviderInstanceConfigMap } from "../../../apps/server/src/provider/ProviderInstanceRegistryHydration.ts";
-import { providerToolCapability } from "./providerPolicy.ts";
+import { resolveProviderToolCapability } from "./providerPolicy.ts";
 import * as LaunchCancellation from "./LaunchCancellation.ts";
 import {
   DispatchModeLimit,
@@ -99,6 +99,7 @@ const make = Effect.gen(function* () {
   const receipts = yield* Receipts.CommandReceiptStoreV2;
   const sql = yield* SqlClient.SqlClient;
   const events = yield* Events.OrchestrationEventStore;
+  const providerInstances = yield* ProviderInstances.ProviderInstanceRegistry;
   const providers = yield* Providers.ProviderRegistry;
   const settings = yield* Settings.ServerSettingsService;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
@@ -459,66 +460,70 @@ const make = Effect.gen(function* () {
       const current = yield* providers.getProviders;
       const configuration = yield* settings.getSettings;
       const configured = deriveProviderInstanceConfigMap(configuration);
-      return current.map((provider) => {
-        const enabled =
-          input === undefined
-            ? provider.enabled
-            : resolveProjectProviderInstanceEnabled(
-                configuration,
-                input.projectId,
-                provider.instanceId,
-              );
-        const config = configured[provider.instanceId]?.config;
-        const external =
-          (provider.driver === "opencode" || provider.driver === "opencode2") &&
-          Predicate.isObject(config) &&
-          "serverUrl" in config &&
-          typeof config.serverUrl === "string" &&
-          config.serverUrl.length > 0;
-        const driver =
-          provider.driver === "opencode" && provider.version?.startsWith("2.")
-            ? "opencode2"
-            : provider.driver;
-        const capability = providerToolCapability(driver, external);
-        return {
-          instanceId: provider.instanceId,
-          driver,
-          ...(provider.displayName === undefined ? {} : { displayName: provider.displayName }),
-          models: provider.models.map((model) => ({
-            slug: model.slug,
-            name: model.name,
-            isCustom: model.isCustom,
-            optionDescriptors: model.capabilities?.optionDescriptors ?? [],
-          })),
-          toolsSupported: capability.supported,
-          available:
-            enabled &&
-            provider.installed &&
-            provider.availability !== "unavailable" &&
-            !["error", "disabled"].includes(provider.status) &&
-            provider.auth.status !== "unauthenticated",
-          reason:
-            capability.reason ??
-            (!enabled
-              ? input === undefined
-                ? "The provider is disabled."
-                : "The provider is disabled in this project. Enable it in the project's provider settings."
-              : !provider.installed
-                ? "The provider is not installed."
-                : provider.availability === "unavailable"
-                  ? (provider.unavailableReason ?? "The provider driver is unavailable.")
-                  : ["error", "disabled"].includes(provider.status) ||
-                      provider.auth.status === "unauthenticated"
-                    ? (provider.message ?? "The provider is not ready.")
-                    : null),
-          runtimeModes: provider.supportedRuntimeModes ?? [
-            "approval-required",
-            "auto-accept-edits",
-            "auto",
-            "full-access",
-          ],
-        };
-      });
+      return yield* Effect.forEach(current, (provider) =>
+        Effect.gen(function* () {
+          const enabled =
+            input === undefined
+              ? provider.enabled
+              : resolveProjectProviderInstanceEnabled(
+                  configuration,
+                  input.projectId,
+                  provider.instanceId,
+                );
+          const instance = yield* providerInstances.getInstance(provider.instanceId);
+          const adapterCapabilities =
+            instance === undefined
+              ? undefined
+              : yield* instance.orchestrationAdapter
+                  .getCapabilities()
+                  .pipe(Effect.orElseSucceed(() => undefined));
+          const { driver, capability } = resolveProviderToolCapability({
+            driver: provider.driver,
+            version: provider.version,
+            config: configured[provider.instanceId]?.config,
+            adapterSupportsHostMcpInjection: adapterCapabilities?.tools.supportsHostMcpInjection,
+            hasLiveInstance: instance !== undefined,
+          });
+          return {
+            instanceId: provider.instanceId,
+            driver,
+            ...(provider.displayName === undefined ? {} : { displayName: provider.displayName }),
+            models: provider.models.map((model) => ({
+              slug: model.slug,
+              name: model.name,
+              isCustom: model.isCustom,
+              optionDescriptors: model.capabilities?.optionDescriptors ?? [],
+            })),
+            toolsSupported: capability.supported,
+            available:
+              enabled &&
+              provider.installed &&
+              provider.availability !== "unavailable" &&
+              !["error", "disabled"].includes(provider.status) &&
+              provider.auth.status !== "unauthenticated",
+            reason:
+              capability.reason ??
+              (!enabled
+                ? input === undefined
+                  ? "The provider is disabled."
+                  : "The provider is disabled in this project. Enable it in the project's provider settings."
+                : !provider.installed
+                  ? "The provider is not installed."
+                  : provider.availability === "unavailable"
+                    ? (provider.unavailableReason ?? "The provider driver is unavailable.")
+                    : ["error", "disabled"].includes(provider.status) ||
+                        provider.auth.status === "unauthenticated"
+                      ? (provider.message ?? "The provider is not ready.")
+                      : null),
+            runtimeModes: provider.supportedRuntimeModes ?? [
+              "approval-required",
+              "auto-accept-edits",
+              "auto",
+              "full-access",
+            ],
+          };
+        }),
+      );
     },
     Effect.mapError((cause) => fail("providers", "Could not read provider capabilities.", cause)),
   );

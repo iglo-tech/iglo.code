@@ -150,6 +150,7 @@ const MuseProviderCapabilitiesV2 = {
     emitsToolOutput: true,
     supportsMcpTools: true,
     supportsDynamicToolCallbacks: false,
+    supportsHostMcpInjection: true,
   },
   approvals: {
     supportsCommandApproval: true,

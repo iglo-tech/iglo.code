@@ -25,7 +25,9 @@ import {
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import {
   acpPermissionDisposition,
+  isAcpAllowedReadOnlyPluginTool,
   unknownRecord,
+  type AcpPermissionPolicyOptions,
   type AcpRuntimePolicy,
 } from "@t3tools/provider-acp/server/clientPolicy";
 import type { AcpSessionModeState } from "@t3tools/provider-acp/server/runtimeModel";
@@ -204,8 +206,12 @@ function isAntigravityT3McpRequest(request: EffectAcpSchema.RequestPermissionReq
 export function antigravityPermissionDisposition(
   policy: AcpRuntimePolicy,
   request: EffectAcpSchema.RequestPermissionRequest,
+  options?: AcpPermissionPolicyOptions,
 ) {
-  const disposition = acpPermissionDisposition(policy, request);
+  if (isAcpAllowedReadOnlyPluginTool(request, options?.readOnlyPluginTools)) {
+    return "allow";
+  }
+  const disposition = acpPermissionDisposition(policy, request, options);
   if (disposition === "deny") return "deny";
   // T3 authorizes its own MCP server, so Auto and Auto-accept edits run it unasked, as Claude does.
   if (

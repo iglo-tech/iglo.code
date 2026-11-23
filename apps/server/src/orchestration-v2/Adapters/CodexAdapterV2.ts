@@ -339,6 +339,7 @@ export const CodexProviderCapabilitiesV2 = {
     emitsToolOutput: true,
     supportsMcpTools: true,
     supportsDynamicToolCallbacks: true,
+    supportsHostMcpInjection: true,
   },
   approvals: {
     supportsCommandApproval: true,

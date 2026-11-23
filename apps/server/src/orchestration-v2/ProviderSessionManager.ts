@@ -2764,6 +2764,19 @@ export const layerWithOptions = (
                 ),
               ),
             ),
+          ...(runtime.resumeTurn === undefined
+            ? {}
+            : {
+                resumeTurn: Effect.fn("ProviderSessionManager.resumeTurn")(function* (
+                  input: ProviderAdapter.ProviderAdapterV2ResumeTurnInput,
+                ) {
+                  const owner = yield* policyOwner(input.threadId);
+                  if (!publishesNativePolicy) yield* mcpSessions.invalidateRuntimePolicy(owner);
+                  yield* runtime.resumeTurn!(input);
+                  if (!publishesNativePolicy)
+                    yield* mcpSessions.updateRuntimePolicy(owner, input.runtimePolicy);
+                }),
+              }),
           steerTurn: (input) =>
             observeActivity(providerSessionId, touchActivity(providerSessionId)).pipe(
               Effect.andThen(runtime.steerTurn(input).pipe(turnMetrics("steer"))),

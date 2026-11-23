@@ -11,6 +11,7 @@ import type * as EffectAcpErrors from "effect-acp/errors";
 import {
   acpPermissionDisposition,
   type AcpPermissionDisposition,
+  type AcpPermissionPolicyOptions,
   type AcpRuntimePolicy,
 } from "@t3tools/provider-acp/server/clientPolicy";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
@@ -117,8 +118,9 @@ export function kiroApprovalOptions(
 export function kiroPermissionDisposition(
   policy: AcpRuntimePolicy,
   request: EffectAcpSchema.RequestPermissionRequest,
+  options?: AcpPermissionPolicyOptions,
 ): AcpPermissionDisposition {
-  const disposition = acpPermissionDisposition(policy, request);
+  const disposition = acpPermissionDisposition(policy, request, options);
   const offersOnce = request.options.some(
     (option) => option.kind === "allow_once" && option.optionId.trim().length > 0,
   );

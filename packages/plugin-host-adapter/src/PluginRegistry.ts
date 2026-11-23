@@ -43,7 +43,11 @@ import * as BoundHost from "./BoundHost.ts";
 import * as McpTool from "./McpTool.ts";
 import * as Scheduler from "../../../apps/server/src/scheduling/Scheduler.ts";
 import * as McpToolPolicy from "../../../apps/server/src/mcp/McpToolPolicy.ts";
-import { PROVIDER_TOOL_MATRIX } from "./providerPolicy.ts";
+import * as ProviderInstances from "../../../apps/server/src/provider/ProviderInstanceRegistry.ts";
+import { deriveProviderInstanceConfigMap } from "../../../apps/server/src/provider/ProviderInstanceRegistryHydration.ts";
+import * as Providers from "../../../apps/server/src/provider/ProviderRegistry.ts";
+import * as Settings from "../../../apps/server/src/serverSettings.ts";
+import { deriveProviderToolCapabilities } from "./providerPolicy.ts";
 
 const HOST_CAPABILITIES: ReadonlyArray<PluginHostCapability> = [
   "execution",
@@ -116,6 +120,11 @@ const make = Effect.gen(function* () {
   const options = yield* Configuration;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const providerInstancesOption = yield* Effect.serviceOption(
+    ProviderInstances.ProviderInstanceRegistry,
+  );
+  const providersOption = yield* Effect.serviceOption(Providers.ProviderRegistry);
+  const settingsOption = yield* Effect.serviceOption(Settings.ServerSettingsService);
   const servicesContext = yield* Effect.context<
     Host | Scheduler.Scheduler | FileSystem.FileSystem | Path.Path | Digest.Digest
   >();
@@ -413,12 +422,54 @@ const make = Effect.gen(function* () {
     ),
     awaitToolsReady: Deferred.await(toolsReady),
     markToolsReady: Deferred.succeed(toolsReady, undefined).pipe(Effect.asVoid),
-    catalog: Effect.sync(() => ({
-      environmentId: options.environmentId,
-      hostVersion: PLUGIN_HOST_VERSION,
-      plugins: descriptors,
-      providerTools: PROVIDER_TOOL_MATRIX,
-    })),
+    catalog: Effect.gen(function* () {
+      const providerTools =
+        providerInstancesOption._tag === "None"
+          ? []
+          : yield* Effect.gen(function* () {
+              const configured =
+                settingsOption._tag === "Some"
+                  ? deriveProviderInstanceConfigMap(yield* settingsOption.value.getSettings)
+                  : {};
+              const snapshots =
+                providersOption._tag === "Some" ? yield* providersOption.value.getProviders : [];
+              const liveInstances = yield* providerInstancesOption.value.listInstances;
+              const liveById = new Map(
+                liveInstances.map((instance) => [instance.instanceId, instance]),
+              );
+              const snapshotById = new Map(
+                snapshots.map((snapshot) => [snapshot.instanceId, snapshot]),
+              );
+              const ids = new Set([...snapshotById.keys(), ...liveById.keys()]);
+              const entries = yield* Effect.forEach([...ids], (instanceId) =>
+                Effect.gen(function* () {
+                  const snapshot = snapshotById.get(instanceId);
+                  const instance = liveById.get(instanceId);
+                  const adapterCapabilities =
+                    instance === undefined
+                      ? undefined
+                      : yield* instance.orchestrationAdapter
+                          .getCapabilities()
+                          .pipe(Effect.orElseSucceed(() => undefined));
+                  return {
+                    driver: snapshot?.driver ?? instance!.driverKind,
+                    version: snapshot?.version,
+                    config: configured[instanceId]?.config,
+                    adapterSupportsHostMcpInjection:
+                      adapterCapabilities?.tools.supportsHostMcpInjection,
+                    hasLiveInstance: instance !== undefined,
+                  };
+                }),
+              );
+              return deriveProviderToolCapabilities(entries);
+            }).pipe(Effect.orElseSucceed(() => []));
+      return {
+        environmentId: options.environmentId,
+        hostVersion: PLUGIN_HOST_VERSION,
+        plugins: descriptors,
+        providerTools,
+      };
+    }),
     tools: Effect.sync(() =>
       [...registered].flatMap(([pluginId, service]) =>
         service.tools.map((tool) => ({ pluginId, tool })),

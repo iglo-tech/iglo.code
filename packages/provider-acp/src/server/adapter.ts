@@ -101,6 +101,7 @@ import {
   acpMcpToolApprovalElicitationDisposition,
   acpPermissionDisposition,
   type AcpPermissionDisposition,
+  type AcpPermissionPolicyOptions,
   makeAcpClientPolicyGrants,
   unknownRecord,
 } from "./clientPolicy.ts";
@@ -552,6 +553,7 @@ export interface AcpAdapterV2Flavor {
   readonly permissionDisposition?: (
     policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
     request: EffectAcpSchema.RequestPermissionRequest,
+    options?: AcpPermissionPolicyOptions,
   ) => AcpPermissionDisposition;
   readonly approvalOptions?: (
     request: EffectAcpSchema.RequestPermissionRequest,
@@ -892,6 +894,7 @@ export const AcpProviderCapabilitiesV2 = {
     emitsToolOutput: true,
     supportsMcpTools: false,
     supportsDynamicToolCallbacks: false,
+    supportsHostMcpInjection: true,
   },
   approvals: {
     supportsCommandApproval: true,
@@ -7432,9 +7435,18 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               const dispositionFor = (
                 policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
                 request: EffectAcpSchema.RequestPermissionRequest = params,
-              ) => (flavor.permissionDisposition ?? acpPermissionDisposition)(policy, request);
+                readOnlyPluginTools?: ReadonlyArray<string>,
+              ) =>
+                (flavor.permissionDisposition ?? acpPermissionDisposition)(policy, request, {
+                  readOnlyPluginTools,
+                });
+              const preflightReadOnlyPluginTools = (yield* mcpSessions.read(
+                trackedTurn?.input.threadId ?? input.threadId,
+              ))?.readOnlyPluginTools;
               if (
-                (followsAgentWorkState && dispositionFor(latestRuntimePolicy) === "ask") ||
+                (followsAgentWorkState &&
+                  dispositionFor(latestRuntimePolicy, params, preflightReadOnlyPluginTools) ===
+                    "ask") ||
                 (postSettleContinuationEnabled && flavor.wakeOnDetachedRequest)
               ) {
                 if (!(yield* awaitRequestTurn(handlerGeneration)))
@@ -7446,6 +7458,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   const context = followsAgentWorkState
                     ? yield* Ref.get(activeTurn)
                     : yield* activeContext;
+                  const readOnlyPluginTools = (yield* mcpSessions.read(
+                    context?.input.threadId ?? input.threadId,
+                  ))?.readOnlyPluginTools;
                   // Kiro sends the tool's kind on its `tool_call` and leaves it
                   // off the permission request for that call; take it from the
                   // tool already seen under the same id so policy can tell a
@@ -7456,6 +7471,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                     params.toolCall.kind == null && knownKind !== undefined
                       ? { ...params, toolCall: { ...params.toolCall, kind: knownKind } }
                       : params,
+                    readOnlyPluginTools,
                   );
                   if (disposition === "allow") {
                     const optionId = selectAutoApprovedPermissionOption(answerableParams);
@@ -7585,10 +7601,13 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   handlerGeneration,
                   Effect.gen(function* () {
                     const context = yield* activeContext;
+                    const readOnlyPluginTools = (yield* mcpSessions.read(context.input.threadId))
+                      ?.readOnlyPluginTools;
                     const disposition = acpMcpToolApprovalElicitationDisposition(
                       context.input.runtimePolicy,
                       params,
                       transportRequestId,
+                      { readOnlyPluginTools },
                     );
                     if (disposition === undefined || disposition === "ask") {
                       return disposition;

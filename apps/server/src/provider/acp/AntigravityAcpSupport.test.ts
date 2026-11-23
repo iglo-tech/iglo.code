@@ -174,6 +174,60 @@ describe("Antigravity Auto", () => {
       }
     },
   );
+
+  it("allows readOnlyPluginTools on iglo-code across read-only sandbox and supervised modes", () => {
+    const options = { readOnlyPluginTools: ["plugin_workflows_report"] };
+    const request = (
+      title: string,
+      rawInput?: Record<string, unknown>,
+    ): EffectAcpSchema.RequestPermissionRequest => ({
+      sessionId: "session-1",
+      toolCall: { toolCallId: "call-1", title, kind: "execute", rawInput },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+    const reportCalls = [
+      request("Run mcp_iglo-code_plugin_workflows_report?"),
+      request("MCP Tool plugin_workflows_report", {
+        ServerName: "iglo-code",
+        ToolName: "plugin_workflows_report",
+      }),
+    ];
+    for (const policy of [
+      { runtimeMode: "approval-required" as const, cwd: "/workspace" },
+      { runtimeMode: "auto-accept-edits" as const, cwd: "/workspace" },
+      { runtimeMode: "auto" as const, cwd: "/workspace" },
+      {
+        runtimeMode: "full-access" as const,
+        cwd: "/workspace",
+        sandboxPolicy: { type: "readOnly" },
+      },
+    ]) {
+      for (const call of reportCalls) {
+        expect(antigravityPermissionDisposition(policy, call, options)).toBe("allow");
+      }
+    }
+    expect(
+      antigravityPermissionDisposition(
+        {
+          runtimeMode: "full-access",
+          cwd: "/workspace",
+          sandboxPolicy: { type: "readOnly" },
+        },
+        request("Run mcp_iglo-code_plugin_fixture_mutation?"),
+        options,
+      ),
+    ).toBe("deny");
+    expect(
+      antigravityPermissionDisposition(
+        { runtimeMode: "auto", cwd: "/workspace" },
+        request("MCP Tool plugin_workflows_report", {
+          ServerName: "other",
+          ToolName: "plugin_workflows_report",
+        }),
+        options,
+      ),
+    ).toBe("ask");
+  });
 });
 
 describe("applyAntigravityAcpModelSelection", () => {

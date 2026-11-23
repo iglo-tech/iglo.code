@@ -6,6 +6,7 @@ export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
 
 export const T3_MCP_URL_ENV = "IGLO_CODE_MCP_URL";
 export const T3_MCP_BEARER_ENV = "IGLO_CODE_MCP_BEARER_TOKEN";
+export const T3_MCP_READ_ONLY_TOOLS_ENV = "IGLO_CODE_MCP_READ_ONLY_TOOLS";
 export const T3_PI_RUNTIME_MODE_ENV = "IGLO_CODE_PI_RUNTIME_MODE";
 export const T3_PI_MCP_EXTENSION_PATH_ENV = "IGLO_CODE_PI_MCP_EXTENSION_PATH";
 export const PI_T3_SERVICE_TIER_COMMAND = "t3-service-tier";
@@ -22,6 +23,7 @@ import { Type } from "typebox";
 
 const URL_ENV = ${JSON.stringify(T3_MCP_URL_ENV)};
 const TOKEN_ENV = ${JSON.stringify(T3_MCP_BEARER_ENV)};
+const READ_ONLY_TOOLS_ENV = ${JSON.stringify(T3_MCP_READ_ONLY_TOOLS_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
@@ -414,6 +416,19 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   const client = createMcpClient(endpoint, token);
   let started: Promise<void> | undefined;
 
+  const readOnlyPluginTools = (() => {
+    const raw = env(READ_ONLY_TOOLS_ENV);
+    if (raw === undefined) return new Set<string>();
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? new Set(parsed.filter((entry): entry is string => typeof entry === "string"))
+        : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  })();
+
   const registerTools = () => {
     // Preserve public names for saved loadouts and tool selectors. The alias,
     // Pi's own MCP name for T3, reserves it against Pi's configured MCP servers.
@@ -424,7 +439,9 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       const name = tool.name;
       for (const prefix of prefixes) {
         const toolName = \`\${prefix}\${name}\`;
-        if (tool.annotations?.readOnlyHint === true) readOnlyMcpTools.add(toolName);
+        if (tool.annotations?.readOnlyHint === true || readOnlyPluginTools.has(name)) {
+          readOnlyMcpTools.add(toolName);
+        }
         const isAlias = prefix === ALIAS_PREFIX;
         const exposure = isAlias ? "model-only" : isDeferred(name) ? "deferred" : "direct";
         pi.registerTool({

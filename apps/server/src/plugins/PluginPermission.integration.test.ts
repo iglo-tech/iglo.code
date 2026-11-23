@@ -52,6 +52,27 @@ const cases = [
     allowed: true,
   },
   { driver: "opencode", runtimeMode: "approval-required", allowed: true },
+  { driver: "antigravity", runtimeMode: "approval-required", allowed: true },
+  {
+    driver: "antigravity",
+    runtimeMode: "full-access",
+    sandboxPolicy: { type: "readOnly" },
+    allowed: false,
+  },
+  { driver: "cursor", runtimeMode: "approval-required", allowed: true },
+  {
+    driver: "cursor",
+    runtimeMode: "full-access",
+    sandboxPolicy: { type: "readOnly" },
+    allowed: false,
+  },
+  { driver: "pi", runtimeMode: "approval-required", allowed: true },
+  {
+    driver: "pi",
+    runtimeMode: "full-access",
+    sandboxPolicy: { type: "readOnly" },
+    allowed: false,
+  },
 ] as const;
 
 it.live.each(cases)("enforces the effective MCP policy: %j", (policyCase) =>

@@ -128,6 +128,7 @@ export const CursorProviderCapabilitiesV2 = {
     emitsToolOutput: true,
     supportsMcpTools: true,
     supportsDynamicToolCallbacks: false,
+    supportsHostMcpInjection: true,
     supportsBackgroundWait: true,
   },
   approvals: {

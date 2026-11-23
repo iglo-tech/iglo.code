@@ -99,6 +99,144 @@ describe("acpPermissionDisposition", () => {
     assert.equal(acpPermissionDisposition(policy, permissionRequest("execute")), "deny");
   });
 
+  it("auto-allows only server-qualified iglo-code readOnlyPluginTools across read-only and supervised policies", () => {
+    const readOnlyPluginTools = ["plugin_workflows_report"];
+    const restrictedPolicies: ReadonlyArray<AcpRuntimePolicy> = [
+      { runtimeMode: "approval-required", cwd },
+      { runtimeMode: "auto-accept-edits", cwd },
+      {
+        runtimeMode: "full-access",
+        cwd,
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly" },
+      },
+    ];
+    const allowedRequests: ReadonlyArray<EffectAcpSchema.RequestPermissionRequest> = [
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "execute",
+          toolCallId: "t1",
+          title: "MCP Tool plugin_workflows_report",
+          rawInput: { ServerName: "iglo-code", ToolName: "plugin_workflows_report" },
+        },
+      },
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "other",
+          toolCallId: "t2",
+          title: "Run mcp_iglo-code_plugin_workflows_report?",
+        },
+      },
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "other",
+          toolCallId: "t3",
+          title: "mcp__iglo-code__plugin_workflows_report",
+        },
+      },
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "other",
+          toolCallId: "t4",
+          title: "@iglo-code/plugin_workflows_report",
+        },
+      },
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "other",
+          toolCallId: "t5",
+          title: "plugin_workflows_report",
+          _meta: { is_mcp_tool_call: true },
+          rawInput: { server: "iglo-code", tool: "plugin_workflows_report" },
+        },
+      },
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "other",
+          toolCallId: "t6",
+          title: "plugin_workflows_report",
+          _meta: { kiro: { serverName: "iglo-code" } },
+          rawInput: { tool_id: "iglo-code::plugin_workflows_report" },
+        },
+      },
+    ];
+    for (const runtimePolicy of restrictedPolicies) {
+      for (const req of allowedRequests) {
+        assert.equal(
+          acpPermissionDisposition(runtimePolicy, req, { readOnlyPluginTools }),
+          "allow",
+        );
+      }
+    }
+    const readOnlySandbox: AcpRuntimePolicy = {
+      runtimeMode: "full-access",
+      cwd,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "readOnly" },
+    };
+    for (const denied of [
+      // Unlisted mutating plugin tool
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "execute" as const,
+          toolCallId: "d1",
+          title: "Run mcp_iglo-code_plugin_fixture_mutation?",
+        },
+      },
+      // Foreign server with the same tool name
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "execute" as const,
+          toolCallId: "d2",
+          title: "MCP Tool plugin_workflows_report",
+          rawInput: { ServerName: "other", ToolName: "plugin_workflows_report" },
+        },
+      },
+      // Shell command spoofing an MCP title
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "execute" as const,
+          toolCallId: "d3",
+          title: "Run mcp_iglo-code_plugin_workflows_report?",
+          rawInput: { CommandLine: "echo spoof" },
+        },
+      },
+      // Unqualified bare tool name
+      {
+        options: [],
+        sessionId: "permission-session",
+        toolCall: {
+          kind: "execute" as const,
+          toolCallId: "d4",
+          title: "plugin_workflows_report",
+        },
+      },
+    ]) {
+      assert.equal(
+        acpPermissionDisposition(readOnlySandbox, denied, { readOnlyPluginTools }),
+        "deny",
+      );
+    }
+  });
+
   it("auto-accept-edits approves file changes without locations and asks for the rest", () => {
     const autoAcceptEdits: AcpRuntimePolicy = { runtimeMode: "auto-accept-edits", cwd };
     for (const kind of ["edit", "delete", "move"] as const) {
@@ -249,6 +387,22 @@ describe("acpMcpToolApprovalElicitationDisposition", () => {
 
     assert.equal(acpMcpToolApprovalElicitationDisposition(fullAccess, tagged), "allow");
     assert.equal(acpMcpToolApprovalElicitationDisposition(approvalRequired, tagged), "ask");
+    assert.equal(
+      acpMcpToolApprovalElicitationDisposition(
+        approvalRequired,
+        {
+          ...tagged,
+          _meta: {
+            codex_approval_kind: "mcp_tool_call",
+            server_name: "iglo-code",
+            tool_name: "plugin_workflows_report",
+          },
+        },
+        undefined,
+        { readOnlyPluginTools: ["plugin_workflows_report"] },
+      ),
+      "allow",
+    );
     assert.equal(
       acpMcpToolApprovalElicitationDisposition(
         { ...fullAccess, approvalPolicy: "on-request" },
