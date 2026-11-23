@@ -269,7 +269,6 @@ export const make = Effect.gen(function* () {
       threadVisitedTracking: true,
       threadPullRequests: true,
       threadPullRequestWatch: true,
-      pluginHost: 1,
       pullRequestStackActions: true,
       threadPullRequestLinking: true,
       serverResolvedCommandContext: true,

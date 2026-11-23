@@ -1,4 +1,4 @@
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -20,35 +20,11 @@ vi.mock(import("../../state/use-orchestration-command"), async (importOriginal) 
 vi.mock(import("~/hooks/useThreadActionMenu"), () => ({
   useThreadActionMenu: () => ({ openMenu, closeMenu: () => {} }),
 }));
-vi.mock(
-  import("../../plugins/PluginSlots"),
-  () =>
-    ({
-      PluginProjectActions: ({ projectId }: { projectId: string }) => (
-        <span>Project actions for {projectId}</span>
-      ),
-      PluginThreadContext: ({ target }: { target: { threadId: string } }) => (
-        <span>Thread context for {target.threadId}</span>
-      ),
-    }) as never,
-);
 
 import { render, stubGlobal } from "../../../test/render";
 import { ChatHeader } from "./ChatHeader";
 
-const project = {
-  id: ProjectId.make("project"),
-  environmentId: EnvironmentId.make("environment"),
-  title: "Project",
-  workspaceRoot: "/work/project",
-  repositoryIdentity: null,
-  defaultModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
-  scripts: [],
-};
-
-function header(title: string, activeProject: typeof project | null = null) {
+function header(title: string) {
   return (
     <>
       <ChatHeader
@@ -56,7 +32,7 @@ function header(title: string, activeProject: typeof project | null = null) {
         activeThreadId={ThreadId.make("thread")}
         activeThreadTitle={title}
         isServerThread
-        activeProject={activeProject}
+        activeProject={null}
         parentThreadLink={null}
         onOpenThread={() => {}}
         rightPanelOpen={false}
@@ -126,10 +102,4 @@ it("keeps the Escape that cancels a rename from also reaching window shortcuts",
   await expect.element(input).not.toBeInTheDocument();
   expect(persisted.title).toBe("New thread");
   expect(windowEscapes).toEqual([true]);
-});
-
-it("offers the project's plugin actions beside a server thread's plugin context", async () => {
-  await using screen = await render(header("Fix login redirect", project));
-  await expect.element(screen.getByText("Thread context for thread")).toBeInTheDocument();
-  await expect.element(screen.getByText("Project actions for project")).toBeInTheDocument();
 });

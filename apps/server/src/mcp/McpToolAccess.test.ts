@@ -119,10 +119,6 @@ const ProbeToolkit = Toolkit.make(
     McpSchema.EnabledWhen,
     McpInvocationContext.hiddenFromOutsideClients,
   ),
-  Tool.make("writes_plugin_state_as_caller", probe).annotate(
-    McpSchema.EnabledWhen,
-    McpInvocationContext.hiddenFromOutsideClients,
-  ),
   Tool.make("acts_as_caller", probe).annotate(
     McpSchema.EnabledWhen,
     McpInvocationContext.hiddenFromOutsideClients,
@@ -146,7 +142,6 @@ const ran = Effect.succeed({ ran: "ran" });
 const probeHandlers: McpToolAccess.Handlers<typeof ProbeToolkit.tools> = {
   reads: McpToolAccess.reads(() => ran),
   reads_as_caller: McpToolAccess.readsAsCaller(() => ran),
-  writes_plugin_state_as_caller: McpToolAccess.writesPluginStateAsCaller(() => ran),
   acts_as_caller: McpToolAccess.actsAsCaller(() => ran),
   writes: McpToolAccess.writes(() => ran),
   writes_with_capability: McpToolAccess.writesWithCapability(() => ran),
@@ -267,8 +262,6 @@ it.effect.each([
   ["writes_environment", readOnlyClient, {}, "capability_denied"],
 
   ["reads_as_caller", ended, {}, "ran"],
-  ["writes_plugin_state_as_caller", supervised, {}, "ran"],
-  ["writes_plugin_state_as_caller", ended, {}, "ran"],
   ["acts_as_caller", supervised, {}, "ran"],
   ["acts_as_caller", ended, {}, "parent_not_active"],
   ["acts_as_caller", background, {}, "ran"],
@@ -486,7 +479,7 @@ it.effect("refuses a linked environment to a tool that acts as its calling threa
 );
 
 // Discovery hides these tools. The handler must refuse on its own if that ever changes.
-it.effect.each(["reads_as_caller", "writes_plugin_state_as_caller", "acts_as_caller"] as const)(
+it.effect.each(["reads_as_caller", "acts_as_caller"] as const)(
   "%s refuses an outside client behind discovery",
   (tool) =>
     Effect.gen(function* () {

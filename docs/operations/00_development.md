@@ -69,7 +69,7 @@ The `iglo.code.json` Setup Worktree action links that file into each worktree. T
 - `vp run check:changed` runs fast checks for your branch: format and lint of changed files, `knip:check` when code or a manifest changes, generated GraphQL checks, typecheck of affected packages and dependents, nearby tests, the agent context budget when the server is affected, and React Compiler coverage for changed web files. It maps files with [ci-changes.cjs](../../.github/scripts/ci-changes.cjs) and compares against the closest merge base with any remote's `main` (or a ref you pass). It skips full test suites and the build, so also run the pre-push checks below.
 - Steps run in parallel, one per two cores and per 6 GiB of available memory (`--concurrency <n>` or `CHECK_CHANGED_CONCURRENCY`; `1` runs serially). A step past `--timeout <seconds>` or `CHECK_CHANGED_TIMEOUT` (default 900) is killed with its children and reported as `TIMEOUT`. With the exact files of the last passing run it prints that summary instead of rerunning.
 - Focused iteration: `vp test run <files>`, `vp lint <files>`, `vp run --filter <pkg> typecheck`.
-- `apps/web` tests that render React or touch the DOM are `*.browser.test.{ts,tsx}` and run in headless Chromium with the React Compiler on; other `*.test.ts` run in Node. The fork's plugin and workflow tests in `apps/web/integration` still use jsdom and `react-test-renderer`.
+- `apps/web` tests that render React or touch the DOM are `*.browser.test.{ts,tsx}` and run in headless Chromium with the React Compiler on; other `*.test.ts` run in Node.
 - Typechecking uses `effect-tsgo tsrs --noEmit` (`@effect/tsgo`); VS Code's TypeScript 7 extension starts the same checker through `.vscode/tsdk/tsgo` (`js/ts.tsdk.path`).
 
 ### Pre-push checks

@@ -472,18 +472,6 @@ importers:
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@t3tools/plugin-fixture':
-        specifier: workspace:*
-        version: link:../../packages/plugin-fixture
-      '@t3tools/plugin-host-adapter':
-        specifier: workspace:*
-        version: link:../../packages/plugin-host-adapter
-      '@t3tools/plugin-host-contract':
-        specifier: workspace:*
-        version: link:../../packages/plugin-host-contract
-      '@t3tools/plugin-workflows':
-        specifier: workspace:*
-        version: link:../../packages/plugin-workflows
       '@t3tools/provider-testing':
         specifier: workspace:*
         version: link:../../packages/provider-testing
@@ -607,15 +595,6 @@ importers:
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@t3tools/plugin-fixture':
-        specifier: workspace:*
-        version: link:../../packages/plugin-fixture
-      '@t3tools/plugin-host-contract':
-        specifier: workspace:*
-        version: link:../../packages/plugin-host-contract
-      '@t3tools/plugin-workflows':
-        specifier: workspace:*
-        version: link:../../packages/plugin-workflows
       '@t3tools/provider-core':
         specifier: workspace:*
         version: link:../../packages/provider-core
@@ -794,9 +773,6 @@ importers:
       '@types/react-dom':
         specifier: 'catalog:'
         version: 19.3.0(@types/react@19.3.0)
-      '@types/react-test-renderer':
-        specifier: 19.1.0
-        version: 19.1.0
       '@types/sql.js':
         specifier: 1.4.11
         version: 1.4.11
@@ -818,18 +794,12 @@ importers:
       gt:
         specifier: 2.27.0
         version: 2.27.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)
-      jsdom:
-        specifier: ^30.0.1
-        version: 30.1.0(@noble/hashes@1.8.0)
       oxc-transform-react:
         specifier: ~0.152.0
         version: 0.152.0
       playwright:
         specifier: 1.64.1
         version: 1.64.1
-      react-test-renderer:
-        specifier: 19.3.0
-        version: 19.3.0(react@19.3.0)
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3
@@ -839,9 +809,6 @@ importers:
       vite-plus:
         specifier: 1.4.0
         version: 1.4.0(@astrojs/compiler-rs@0.5.1)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
 
   evals:
     dependencies:
@@ -980,12 +947,6 @@ importers:
 
   packages/contracts:
     dependencies:
-      '@t3tools/plugin-fixture':
-        specifier: workspace:*
-        version: link:../plugin-fixture
-      '@t3tools/plugin-workflows':
-        specifier: workspace:*
-        version: link:../plugin-workflows
       effect:
         specifier: 4.1.5
         version: 4.1.5(patch_hash=14a7acd734809d8dddbf2c19c4ec01fdd2ffae60a612de42b5ed29860216052a)
@@ -1062,106 +1023,6 @@ importers:
       '@types/node':
         specifier: 24.12.4
         version: 24.12.4
-      vite-plus:
-        specifier: 1.4.0
-        version: 1.4.0(@astrojs/compiler-rs@0.5.1)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
-
-  packages/plugin-fixture:
-    dependencies:
-      '@t3tools/plugin-host-contract':
-        specifier: workspace:*
-        version: link:../plugin-host-contract
-      effect:
-        specifier: 4.1.5
-        version: 4.1.5(patch_hash=14a7acd734809d8dddbf2c19c4ec01fdd2ffae60a612de42b5ed29860216052a)
-      react:
-        specifier: 'catalog:'
-        version: 19.3.0
-    devDependencies:
-      '@types/react':
-        specifier: 'catalog:'
-        version: 19.3.0
-      vite-plus:
-        specifier: 1.4.0
-        version: 1.4.0(@astrojs/compiler-rs@0.5.1)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
-
-  packages/plugin-host-adapter:
-    dependencies:
-      '@t3tools/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      '@t3tools/plugin-host-contract':
-        specifier: workspace:*
-        version: link:../plugin-host-contract
-      '@t3tools/provider-core':
-        specifier: workspace:*
-        version: link:../provider-core
-      '@t3tools/shared':
-        specifier: workspace:*
-        version: link:../shared
-      effect:
-        specifier: 4.1.5
-        version: 4.1.5(patch_hash=14a7acd734809d8dddbf2c19c4ec01fdd2ffae60a612de42b5ed29860216052a)
-    devDependencies:
-      '@effect/platform-node':
-        specifier: 4.1.5
-        version: 4.1.5(bufferutil@4.1.0)(effect@4.1.5(patch_hash=14a7acd734809d8dddbf2c19c4ec01fdd2ffae60a612de42b5ed29860216052a))(redis@6.2.1)(utf-8-validate@6.0.6)
-      '@effect/vitest':
-        specifier: 4.1.5
-        version: 4.1.5(patch_hash=dd0bf2b1ae0f63aff0d620ebc67b82d19759b3fa69a608ef85e2a5b40b4d46c5)(@astrojs/compiler-rs@0.5.1)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(effect@4.1.5(patch_hash=14a7acd734809d8dddbf2c19c4ec01fdd2ffae60a612de42b5ed29860216052a))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
-      '@types/node':
-        specifier: 24.12.4
-        version: 24.12.4
-      vite-plus:
-        specifier: 1.4.0
-        version: 1.4.0(@astrojs/compiler-rs@0.5.1)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
-
-  packages/plugin-host-contract:
-    dependencies:
-      '@t3tools/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      effect:
-        specifier: 4.1.5
-        version: 4.1.5(patch_hash=14a7acd734809d8dddbf2c19c4ec01fdd2ffae60a612de42b5ed29860216052a)
-      react:
-        specifier: 'catalog:'
-        version: 19.3.0
-    devDependencies:
-      '@types/react':
-        specifier: 'catalog:'
-        version: 19.3.0
-      vite-plus:
-        specifier: 1.4.0
-        version: 1.4.0(@astrojs/compiler-rs@0.5.1)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
-
-  packages/plugin-workflows:
-    dependencies:
-      '@dagrejs/dagre':
-        specifier: ^3.1.1
-        version: 3.1.1
-      '@t3tools/plugin-host-contract':
-        specifier: workspace:*
-        version: link:../plugin-host-contract
-      '@xyflow/react':
-        specifier: ^12.12.0
-        version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      effect:
-        specifier: 4.1.5
-        version: 4.1.5(patch_hash=14a7acd734809d8dddbf2c19c4ec01fdd2ffae60a612de42b5ed29860216052a)
-      lucide-react:
-        specifier: ^0.564.0
-        version: 0.564.0(react@19.3.0)
-      react:
-        specifier: 'catalog:'
-        version: 19.3.0
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
-    devDependencies:
-      '@types/react':
-        specifier: 'catalog:'
-        version: 19.3.0
       vite-plus:
         specifier: 1.4.0
         version: 1.4.0(@astrojs/compiler-rs@0.5.1)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(typescript@6.0.3))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.64.1)(terser@5.48.0)(typescript@6.0.3)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
@@ -2544,12 +2405,6 @@ packages:
     engines: {node: '>=22.13'}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
-
-  '@dagrejs/dagre@3.1.1':
-    resolution: {integrity: sha512-zroZB1dFOFiGgv4Xcrn1DckB1o4aOikPqD2NDQPV0WM//CXGcS6xiD0rNkqHmw6FEg4tabt4nxPLwgCWT+Vb2A==}
-
-  '@dagrejs/graphlib@4.0.5':
-    resolution: {integrity: sha512-7xrBTqIts3o+PMUZX97wSc+7TUbW+/rULzGNCTP6yooNVDXbzw4Wutg/H/xOutTB/c/k0YqOAavgPh4/Zk9PFA==}
 
   '@date-fns/tz@1.5.0':
     resolution: {integrity: sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg==}
@@ -4808,24 +4663,6 @@ packages:
   '@types/culori@4.0.1':
     resolution: {integrity: sha512-43M51r/22CjhbOXyGT361GZ9vncSVQ39u62x5eJdBQFviI8zWp2X5jzqg7k4M6PVgDQAClpy2bUe2dtwEgEDVQ==}
 
-  '@types/d3-color@3.1.3':
-    resolution: {integrity: sha512-iO90scth9WAbmgv7ogoq57O9YpKmFBbmoEoCHDB2xMBY0+/KVrqAaCDyCE16dUspeOvIxFFRI+0sEtqDqy2b4A==}
-
-  '@types/d3-drag@3.0.7':
-    resolution: {integrity: sha512-HE3jVKlzU9AaMazNufooRJ5ZpWmLIoc90A37WU2JMmeq28w1FQqCZswHZ3xR+SuxYftzHq6WU6KJHvqxKzTxxQ==}
-
-  '@types/d3-interpolate@3.0.4':
-    resolution: {integrity: sha512-mgLPETlrpVV1YRJIglr4Ez47g7Yxjl1lj7YKsiMCb27VJH9W8NVM6Bb9d8kkpG/uAQS5AmbA48q2IAolKKo1MA==}
-
-  '@types/d3-selection@3.0.12':
-    resolution: {integrity: sha512-Qe/KWYhEiIIxGs7HrAAjMfShxKldx19SJtr5zu53f3afPsdZNz7HHtdTLXo/kqeiWNXVycI24kSnfzBYkTzpgw==}
-
-  '@types/d3-transition@3.0.9':
-    resolution: {integrity: sha512-uZS5shfxzO3rGlu0cC3bjmMFKsXv+SmZZcgp0KD22ts4uGXp5EVYGzu/0YdwZeKmddhcAccYtREJKkPfXkZuCg==}
-
-  '@types/d3-zoom@3.0.9':
-    resolution: {integrity: sha512-0sE1406XBYJGiqD3AusTl9ZqC//2mIXix51tbom25gDCA8ri4xnSZg28CaSE8Srl6FClqABUKfsn0qghgdepMA==}
-
   '@types/debug@4.1.13':
     resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
 
@@ -4881,9 +4718,6 @@ packages:
     resolution: {integrity: sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q==}
     peerDependencies:
       '@types/react': ^19.3.0
-
-  '@types/react-test-renderer@19.1.0':
-    resolution: {integrity: sha512-XD0WZrHqjNrxA/MaR9O22w/RNidWR9YZmBdRGI7wcnWGrv/3dA8wKCJ8m63Sn+tLJhcjmuhOi629N66W6kgWzQ==}
 
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
@@ -5137,22 +4971,6 @@ packages:
 
   '@webgpu/types@0.1.74':
     resolution: {integrity: sha512-lgiI4hbuLcI9unnm2cL/tvCaQU45dp0xcLWJh5uB/9MBGvIA4F8XIk7nSiBeg+K4xWGYwgZKn80LmERI5CxoTA==}
-
-  '@xyflow/react@12.12.0':
-    resolution: {integrity: sha512-74oXI0Rgm1Eu33cHQAd74J6oVgCH9mbFyTVQbsGgp2kmWwh0HdtBr2VP04z8mbPD+M/xO69nqG5dDEt7/EN2rQ==}
-    peerDependencies:
-      '@types/react': '>=17'
-      '@types/react-dom': '>=17'
-      react: '>=17'
-      react-dom: '>=17'
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-      '@types/react-dom':
-        optional: true
-
-  '@xyflow/system@0.0.83':
-    resolution: {integrity: sha512-a//eDjez3WZF47aaPTfVUDD0OINOq+WVwBZCRTqG+m0a5euX8EwlJ4jMY1Wxz0Ocj4xOeekJ70V22Pq0ll8RJw==}
 
   '@yuku-core/binding-android-arm64@0.19.0':
     resolution: {integrity: sha512-wdL2XmTiZixAOaHk9Z0JJZ8u9Qm8d333Zjpc6gaxXFX+UR5BlsfxZ7a2+2Rm71pamppsPYGUGFq2oVLbh6DISw==}
@@ -5457,9 +5275,6 @@ packages:
   class-variance-authority@0.7.1:
     resolution: {integrity: sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==}
 
-  classcat@5.0.5:
-    resolution: {integrity: sha512-JhZUT7JFcQy/EzW605k/ktHtncoo9vnyW/2GspNYwFlN1C/WmjuV/xtS04e9SOkL2sTdw0VAZ2UGCcQ9lR6p6w==}
-
   cliui@8.0.1:
     resolution: {integrity: sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ==}
     engines: {node: '>=12'}
@@ -5571,44 +5386,6 @@ packages:
   culori@4.0.2:
     resolution: {integrity: sha512-1+BhOB8ahCn4O0cep0Sh2l9KCOfOdY+BXJnKMHFFzDEouSr/el18QwXEMRlOj9UY5nCeA8UN3a/82rUWRBeyBw==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
-
-  d3-color@3.1.0:
-    resolution: {integrity: sha512-zg/chbXyeBtMQ1LbD/WSoW2DpC3I0mpmPdW+ynRTj/x2DAWYrIY7qeZIHidozwV24m4iavr15lNwIwLxRmOxhA==}
-    engines: {node: '>=12'}
-
-  d3-dispatch@3.0.1:
-    resolution: {integrity: sha512-rzUyPU/S7rwUflMyLc1ETDeBj0NRuHKKAcvukozwhshr6g6c5d8zh4c2gQjY2bZ0dXeGLWc1PF174P2tVvKhfg==}
-    engines: {node: '>=12'}
-
-  d3-drag@3.0.0:
-    resolution: {integrity: sha512-pWbUJLdETVA8lQNJecMxoXfH6x+mO2UQo8rSmZ+QqxcbyA3hfeprFgIT//HW2nlHChWeIIMwS2Fq+gEARkhTkg==}
-    engines: {node: '>=12'}
-
-  d3-ease@3.0.1:
-    resolution: {integrity: sha512-wR/XK3D3XcLIZwpbvQwQ5fK+8Ykds1ip7A2Txe0yxncXSdq1L9skcG7blcedkOX+ZcgxGAmLX1FrRGbADwzi0w==}
-    engines: {node: '>=12'}
-
-  d3-interpolate@3.0.1:
-    resolution: {integrity: sha512-3bYs1rOD33uo8aqJfKP3JWPAibgw8Zm2+L9vBKEHJ2Rg+viTR7o5Mmv5mZcieN+FRYaAOWX5SJATX6k1PWz72g==}
-    engines: {node: '>=12'}
-
-  d3-selection@3.0.0:
-    resolution: {integrity: sha512-fmTRWbNMmsmWq6xJV8D19U/gw/bwrHfNXxrIN+HfZgnzqTHp9jOmKMhsTUjXOJnZOdZY9Q28y4yebKzqDKlxlQ==}
-    engines: {node: '>=12'}
-
-  d3-timer@3.0.1:
-    resolution: {integrity: sha512-ndfJ/JxxMd3nw31uyKoY2naivF+r29V+Lc0svZxe1JvvIRmi8hUsrMvdOwgS1o6uBHmiz91geQ0ylPP0aj1VUA==}
-    engines: {node: '>=12'}
-
-  d3-transition@3.0.1:
-    resolution: {integrity: sha512-ApKvfjsSR6tg06xrL434C0WydLr7JewBB3V+/39RMHsaXTOG0zmt/OAXeng5M5LBm0ojmxJrpomQVZ1aPvBL4w==}
-    engines: {node: '>=12'}
-    peerDependencies:
-      d3-selection: 2 - 3
-
-  d3-zoom@3.0.0:
-    resolution: {integrity: sha512-b8AmV3kfQaqWAuacbPuNbL6vahnOJflOhexLzMMNLga62+/nh0JzvJ0aO/5a5MVgUFGS7Hu1P9P03o3fJkDCyw==}
-    engines: {node: '>=12'}
 
   data-urls@7.0.0:
     resolution: {integrity: sha512-23XHcCF+coGYevirZceTVD7NdJOqVn+49IHyxgszm+JIiHLoB2TkmPtsYkNWT1pvRSGkc35L6NHs0yHkN2SumA==}
@@ -6998,14 +6775,6 @@ packages:
   react-is@17.0.2:
     resolution: {integrity: sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==}
 
-  react-is@19.3.1:
-    resolution: {integrity: sha512-RRieF6IyxQBkcK6pP8xOHprLTPW6QjRkbGdImtqNme+/hYVwCZkLQLdlZGOhUqXwkS9IEynaGvPJtv6XB/cz0Q==}
-
-  react-test-renderer@19.3.0:
-    resolution: {integrity: sha512-AUxgv+hRbqjRgx4xVwiWL6cvDDKPAva1VWLXQIMoevqQn9us//C5TX9LEnBGH47D0zvJpjwjxb1umzgOMvE8Wg==}
-    peerDependencies:
-      react: ^19.3.0
-
   react@19.3.0:
     resolution: {integrity: sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==}
     engines: {node: '>=0.10.0'}
@@ -7724,21 +7493,6 @@ packages:
   zod@4.6.7:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
-  zustand@4.5.7:
-    resolution: {integrity: sha512-CHOUy7mu3lbD6o6LJLfllpjkzhHXSBlX8B9+qPddUsIfeF5S/UZ5q0kmCsnRqT1UHFQZchNFDDzMbQsuesHWlw==}
-    engines: {node: '>=12.7.0'}
-    peerDependencies:
-      '@types/react': '>=16.8'
-      immer: '>=9.0.6'
-      react: '>=16.8'
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-      immer:
-        optional: true
-      react:
-        optional: true
-
   zustand@5.0.14:
     resolution: {integrity: sha512-/8tAspM5LMPr28b3fwLYrtdj77ECpfZviaP75CMTnwO8ISyaE4GDIG/9rDDYq/cH9D2Xw2A2RXglLInmVBQB/g==}
     engines: {node: '>=12.20.0'}
@@ -7781,6 +7535,7 @@ snapshots:
       '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.1)
       '@csstools/css-tokenizer': 4.0.1
       lru-cache: 11.5.3
+    optional: true
 
   '@asamuzakjp/dom-selector@9.2.1':
     dependencies:
@@ -7788,6 +7543,7 @@ snapshots:
       css-tree: 3.2.1
       is-potential-custom-element-name: 1.0.1
       lru-cache: 11.5.3
+    optional: true
 
   '@astrojs/compiler-binding-android-arm64@0.5.1':
     optional: true
@@ -8024,6 +7780,7 @@ snapshots:
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
+    optional: true
 
   '@bufbuild/protobuf@1.10.0': {}
 
@@ -8116,12 +7873,14 @@ snapshots:
     dependencies:
       '@bufbuild/protobuf': 1.10.0
 
-  '@csstools/color-helpers@6.1.1': {}
+  '@csstools/color-helpers@6.1.1':
+    optional: true
 
   '@csstools/css-calc@3.4.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1))(@csstools/css-tokenizer@4.0.1)':
     dependencies:
       '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.1)
       '@csstools/css-tokenizer': 4.0.1
+    optional: true
 
   '@csstools/css-color-parser@4.2.3(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1))(@csstools/css-tokenizer@4.0.1)':
     dependencies:
@@ -8129,16 +7888,20 @@ snapshots:
       '@csstools/css-calc': 3.4.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1))(@csstools/css-tokenizer@4.0.1)
       '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.1)
       '@csstools/css-tokenizer': 4.0.1
+    optional: true
 
   '@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.1)':
     dependencies:
       '@csstools/css-tokenizer': 4.0.1
+    optional: true
 
   '@csstools/css-syntax-patches-for-csstree@1.1.14(css-tree@3.2.1)':
     optionalDependencies:
       css-tree: 3.2.1
+    optional: true
 
-  '@csstools/css-tokenizer@4.0.1': {}
+  '@csstools/css-tokenizer@4.0.1':
+    optional: true
 
   '@cursor/sdk-darwin-arm64@1.4.2':
     optional: true
@@ -8182,12 +7945,6 @@ snapshots:
       '@cursor/sdk-linux-arm64': 1.4.2
       '@cursor/sdk-linux-x64': 1.4.2
       '@cursor/sdk-win32-x64': 1.4.2
-
-  '@dagrejs/dagre@3.1.1':
-    dependencies:
-      '@dagrejs/graphlib': 4.0.5
-
-  '@dagrejs/graphlib@4.0.5': {}
 
   '@date-fns/tz@1.5.0': {}
 
@@ -8491,6 +8248,7 @@ snapshots:
   '@exodus/bytes@1.15.1(@noble/hashes@1.8.0)':
     optionalDependencies:
       '@noble/hashes': 1.8.0
+    optional: true
 
   '@exodus/schemasafe@1.3.0': {}
 
@@ -9889,27 +9647,6 @@ snapshots:
 
   '@types/culori@4.0.1': {}
 
-  '@types/d3-color@3.1.3': {}
-
-  '@types/d3-drag@3.0.7':
-    dependencies:
-      '@types/d3-selection': 3.0.12
-
-  '@types/d3-interpolate@3.0.4':
-    dependencies:
-      '@types/d3-color': 3.1.3
-
-  '@types/d3-selection@3.0.12': {}
-
-  '@types/d3-transition@3.0.9':
-    dependencies:
-      '@types/d3-selection': 3.0.12
-
-  '@types/d3-zoom@3.0.9':
-    dependencies:
-      '@types/d3-interpolate': 3.0.4
-      '@types/d3-selection': 3.0.12
-
   '@types/debug@4.1.13':
     dependencies:
       '@types/ms': 2.1.0
@@ -9966,10 +9703,6 @@ snapshots:
   '@types/range-parser@1.2.7': {}
 
   '@types/react-dom@19.3.0(@types/react@19.3.0)':
-    dependencies:
-      '@types/react': 19.3.0
-
-  '@types/react-test-renderer@19.1.0':
     dependencies:
       '@types/react': 19.3.0
 
@@ -10284,31 +10017,6 @@ snapshots:
 
   '@webgpu/types@0.1.74': {}
 
-  '@xyflow/react@12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
-    dependencies:
-      '@xyflow/system': 0.0.83
-      classcat: 5.0.5
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
-      zustand: 4.5.7(@types/react@19.3.0)(react@19.3.0)
-    optionalDependencies:
-      '@types/react': 19.3.0
-      '@types/react-dom': 19.3.0(@types/react@19.3.0)
-    transitivePeerDependencies:
-      - immer
-
-  '@xyflow/system@0.0.83':
-    dependencies:
-      '@types/d3-drag': 3.0.7
-      '@types/d3-interpolate': 3.0.4
-      '@types/d3-selection': 3.0.12
-      '@types/d3-transition': 3.0.9
-      '@types/d3-zoom': 3.0.9
-      d3-drag: 3.0.0
-      d3-interpolate: 3.0.1
-      d3-selection: 3.0.0
-      d3-zoom: 3.0.0
-
   '@yuku-core/binding-android-arm64@0.19.0':
     optional: true
 
@@ -10467,6 +10175,7 @@ snapshots:
   bidi-js@1.1.0:
     dependencies:
       require-from-string: 2.0.2
+    optional: true
 
   body-parser@2.3.0(supports-color@8.1.1):
     dependencies:
@@ -10549,8 +10258,6 @@ snapshots:
   class-variance-authority@0.7.1:
     dependencies:
       clsx: 2.1.1
-
-  classcat@5.0.5: {}
 
   cliui@8.0.1:
     dependencies:
@@ -10649,46 +10356,11 @@ snapshots:
     dependencies:
       mdn-data: 2.27.1
       source-map-js: 1.2.2
+    optional: true
 
   csstype@3.2.3: {}
 
   culori@4.0.2: {}
-
-  d3-color@3.1.0: {}
-
-  d3-dispatch@3.0.1: {}
-
-  d3-drag@3.0.0:
-    dependencies:
-      d3-dispatch: 3.0.1
-      d3-selection: 3.0.0
-
-  d3-ease@3.0.1: {}
-
-  d3-interpolate@3.0.1:
-    dependencies:
-      d3-color: 3.1.0
-
-  d3-selection@3.0.0: {}
-
-  d3-timer@3.0.1: {}
-
-  d3-transition@3.0.1(d3-selection@3.0.0):
-    dependencies:
-      d3-color: 3.1.0
-      d3-dispatch: 3.0.1
-      d3-ease: 3.0.1
-      d3-interpolate: 3.0.1
-      d3-selection: 3.0.0
-      d3-timer: 3.0.1
-
-  d3-zoom@3.0.0:
-    dependencies:
-      d3-dispatch: 3.0.1
-      d3-drag: 3.0.0
-      d3-interpolate: 3.0.1
-      d3-selection: 3.0.0
-      d3-transition: 3.0.1(d3-selection@3.0.0)
 
   data-urls@7.0.0(@noble/hashes@1.8.0):
     dependencies:
@@ -10696,6 +10368,7 @@ snapshots:
       whatwg-url: 16.0.1(@noble/hashes@1.8.0)
     transitivePeerDependencies:
       - '@noble/hashes'
+    optional: true
 
   date-fns@4.4.0: {}
 
@@ -10718,7 +10391,8 @@ snapshots:
     optionalDependencies:
       supports-color: 8.1.1
 
-  decimal.js@10.6.0: {}
+  decimal.js@10.6.0:
+    optional: true
 
   decode-named-character-reference@1.3.0:
     dependencies:
@@ -11274,6 +10948,7 @@ snapshots:
       '@exodus/bytes': 1.15.1(@noble/hashes@1.8.0)
     transitivePeerDependencies:
       - '@noble/hashes'
+    optional: true
 
   html-entities@2.6.0: {}
 
@@ -11348,7 +11023,8 @@ snapshots:
 
   is-plain-obj@4.1.0: {}
 
-  is-potential-custom-element-name@1.0.1: {}
+  is-potential-custom-element-name@1.0.1:
+    optional: true
 
   is-promise@4.0.0: {}
 
@@ -11396,6 +11072,7 @@ snapshots:
       xml-name-validator: 5.0.0
     transitivePeerDependencies:
       - '@noble/hashes'
+    optional: true
 
   jsep@1.6.0: {}
 
@@ -11551,7 +11228,8 @@ snapshots:
 
   longest-streak@3.1.0: {}
 
-  lru-cache@11.5.3: {}
+  lru-cache@11.5.3:
+    optional: true
 
   lru-cache@5.1.1:
     dependencies:
@@ -11782,7 +11460,8 @@ snapshots:
     dependencies:
       '@types/mdast': 4.0.4
 
-  mdn-data@2.27.1: {}
+  mdn-data@2.27.1:
+    optional: true
 
   media-typer@1.1.0: {}
 
@@ -12397,6 +12076,7 @@ snapshots:
   parse5@8.0.1:
     dependencies:
       entities: 8.1.0
+    optional: true
 
   parseurl@1.3.3: {}
 
@@ -12607,7 +12287,8 @@ snapshots:
       end-of-stream: 1.4.5
       once: 1.4.0
 
-  punycode@2.3.1: {}
+  punycode@2.3.1:
+    optional: true
 
   qs@6.16.0:
     dependencies:
@@ -12641,14 +12322,6 @@ snapshots:
       scheduler: 0.28.0
 
   react-is@17.0.2: {}
-
-  react-is@19.3.1: {}
-
-  react-test-renderer@19.3.0(react@19.3.0):
-    dependencies:
-      react: 19.3.0
-      react-is: 19.3.1
-      scheduler: 0.28.0
 
   react@19.3.0: {}
 
@@ -13103,11 +12776,13 @@ snapshots:
 
   tinyrainbow@3.2.0: {}
 
-  tldts-core@7.4.2: {}
+  tldts-core@7.4.2:
+    optional: true
 
   tldts@7.4.2:
     dependencies:
       tldts-core: 7.4.2
+    optional: true
 
   to-regex-range@5.0.1:
     dependencies:
@@ -13120,12 +12795,14 @@ snapshots:
   tough-cookie@6.0.2:
     dependencies:
       tldts: 7.4.2
+    optional: true
 
   tr46@0.0.3: {}
 
   tr46@6.0.0:
     dependencies:
       punycode: 2.3.1
+    optional: true
 
   transcribe-cpp@0.4.1:
     dependencies:
@@ -13387,6 +13064,7 @@ snapshots:
   w3c-xmlserializer@5.0.0:
     dependencies:
       xml-name-validator: 5.0.0
+    optional: true
 
   walk-up-path@4.0.0: {}
 
@@ -13396,11 +13074,13 @@ snapshots:
 
   webidl-conversions@3.0.1: {}
 
-  webidl-conversions@8.0.1: {}
+  webidl-conversions@8.0.1:
+    optional: true
 
   webpack-virtual-modules@0.6.2: {}
 
-  whatwg-mimetype@5.0.0: {}
+  whatwg-mimetype@5.0.0:
+    optional: true
 
   whatwg-url@16.0.1(@noble/hashes@1.8.0):
     dependencies:
@@ -13409,6 +13089,7 @@ snapshots:
       webidl-conversions: 8.0.1
     transitivePeerDependencies:
       - '@noble/hashes'
+    optional: true
 
   whatwg-url@17.1.2(@noble/hashes@1.8.0):
     dependencies:
@@ -13417,6 +13098,7 @@ snapshots:
       webidl-conversions: 8.0.1
     transitivePeerDependencies:
       - '@noble/hashes'
+    optional: true
 
   whatwg-url@5.0.0:
     dependencies:
@@ -13446,7 +13128,8 @@ snapshots:
     dependencies:
       is-wsl: 3.1.1
 
-  xml-name-validator@5.0.0: {}
+  xml-name-validator@5.0.0:
+    optional: true
 
   xml-naming@0.1.0: {}
 
@@ -13505,13 +13188,6 @@ snapshots:
   zod@4.6.5: {}
 
   zod@4.6.7: {}
-
-  zustand@4.5.7(@types/react@19.3.0)(react@19.3.0):
-    dependencies:
-      use-sync-external-store: 1.6.0(react@19.3.0)
-    optionalDependencies:
-      '@types/react': 19.3.0
-      react: 19.3.0
 
   zustand@5.0.14(@types/react@19.3.0)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0)):
     optionalDependencies:

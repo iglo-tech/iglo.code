@@ -6,7 +6,6 @@ import {
   OrchestrationV2SearchThreadsResult,
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
-import { CompiledPluginRpcGroup } from "./compiledPlugins.ts";
 import {
   McpAppCallToolInput,
   McpAppCallToolResult,
@@ -2476,8 +2475,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-/** Built-in RPCs; servers implement them apart from compiled plugin RPCs to stay within type-depth limits. */
-export const CoreWsRpcGroup = RpcGroup.make(
+export const WsRpcGroup = RpcGroup.make(
   WsIssuesListRpc,
   WsIssuesDetailRpc,
   WsIssuesCommentsRpc,
@@ -2736,6 +2734,4 @@ export const CoreWsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
   WsOrchestrationV2SubscribePromptSuggestionRpc,
-);
-export const WsRpcGroup =
-  CoreWsRpcGroup.merge(CompiledPluginRpcGroup).middleware(RpcScopeAuthorization);
+).middleware(RpcScopeAuthorization);

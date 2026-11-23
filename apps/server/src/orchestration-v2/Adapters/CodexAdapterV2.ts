@@ -1649,7 +1649,7 @@ function codexStdioMcpServerNames(mcpServers: unknown): ReadonlyArray<string> {
     .map(([name]) => name);
 }
 
-export function codexThreadRuntimeParams(input: {
+function codexThreadRuntimeParams(input: {
   readonly threadId: ThreadId | null;
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly stdioMcpServers?: ReadonlyArray<string>;
@@ -1691,20 +1691,7 @@ export function codexThreadRuntimeParams(input: {
         ? {}
         : {
             // Override only T3's servers so launch-argument MCP servers survive.
-            "mcp_servers.iglo-code": {
-              ...t3Server,
-              disabled_tools: CODEX_DIRECT_ONLY_T3_TOOLS,
-              ...((mcpSession?.readOnlyPluginTools?.length ?? 0) === 0
-                ? {}
-                : {
-                    tools: Object.fromEntries(
-                      mcpSession!.readOnlyPluginTools!.map((id) => [
-                        id,
-                        { approval_mode: "approve" },
-                      ]),
-                    ),
-                  }),
-            },
+            "mcp_servers.iglo-code": { ...t3Server, disabled_tools: CODEX_DIRECT_ONLY_T3_TOOLS },
             // Code Mode runs a blocking wait or delegate wait as a nested call, and the model
             // keeps polling it. A second, direct-only registration makes it a plain tool call.
             [`mcp_servers.${CODEX_T3_DIRECT_MCP_SERVER}`]: {

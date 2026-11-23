@@ -2,11 +2,10 @@ import {
   CommandId,
   MessageId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  type ProjectId,
   ScheduledTask,
   ScheduledTaskError,
   ScheduledTaskId,
-  ProjectId,
-  ScheduledTaskDispatchTarget,
   ThreadId,
   ScheduledTaskWebhookDeliveryId,
   type ScheduledTaskDeleteInput,
@@ -47,10 +46,6 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import {
-  DispatchModeLimit,
-  intersectDispatchModes,
-} from "../orchestration-v2/DispatchModeLimit.ts";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -65,7 +60,6 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as DueHint from "../scheduling/DueHint.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
-import * as ScheduleTargets from "../scheduling/ScheduleTargets.ts";
 import { latestRootProviderFailure } from "@t3tools/shared/orchestrationV2ThreadError";
 import { isMissedFixedTimeRun, isSameSchedule, nextScheduledRunAt } from "./Schedule.ts";
 import {
@@ -205,8 +199,6 @@ const decodeWorkspaceStrategyJson = Schema.decodeUnknownEffect(
 const decodeModelSelectionJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ScheduledTask.fields.modelSelection),
 );
-const decodeTarget = Schema.decodeUnknownEffect(Schema.fromJsonString(ScheduledTaskDispatchTarget));
-const encodeTarget = Schema.encodeSync(Schema.fromJsonString(ScheduledTaskDispatchTarget));
 const HeadersJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 const MissingFieldsJson = Schema.fromJsonString(Schema.Array(Schema.String));
 const decodeHeadersJson = Schema.decodeUnknownOption(HeadersJson);
@@ -231,7 +223,6 @@ interface ScheduledTaskRow {
   readonly task_id: string;
   readonly title: string;
   readonly prompt: string;
-  readonly dispatch_target_json: string | null;
   readonly enabled: number;
   readonly schedule_json: string;
   readonly project_id: string;
@@ -277,23 +268,6 @@ export class ScheduledTaskService extends Context.Service<
   ScheduledTaskService,
   {
     readonly list: () => Effect.Effect<ScheduledTaskListResult, ScheduledTaskError>;
-    readonly lastOccurrence: (
-      id: ScheduledTaskId,
-    ) => Effect.Effect<string | null, ScheduledTaskError>;
-    /** Newest plugin dispatch receipts of one schedule, at most `limit`. */
-    readonly occurrences: (
-      id: ScheduledTaskId,
-      limit: number,
-    ) => Effect.Effect<
-      ReadonlyArray<{
-        readonly id: string;
-        readonly projectId: ProjectId;
-        readonly startedAt: string;
-        readonly status: "pending" | "succeeded" | "failed";
-        readonly error: string | null;
-      }>,
-      ScheduledTaskError
-    >;
     /** Emits the full task list on subscribe and again after every change (CRUD, run transitions, reschedules). */
     readonly subscribeList: () => Stream.Stream<ScheduledTaskListResult, ScheduledTaskError>;
     readonly upsert: (
@@ -442,9 +416,6 @@ const decodeRow = Effect.fnUntraced(
       id: row.task_id,
       title: row.title,
       prompt: row.prompt,
-      ...(row.dispatch_target_json == null
-        ? {}
-        : { dispatchTarget: yield* decodeTarget(row.dispatch_target_json) }),
       enabled: row.enabled === 1,
       schedule,
       projectId: row.project_id,
@@ -525,7 +496,6 @@ export const layer = Layer.effect(
     const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
     const secretRequests = yield* SecretRequests.SecretRequests;
     const scheduler = yield* Scheduler.Scheduler;
-    const targets = yield* Effect.serviceOption(ScheduleTargets.ScheduleTargets);
     const readWebhookOrigin = yield* ScheduledTaskWebhookOrigin;
     const managedPolicy = yield* ManagedPolicy.ManagedPolicy;
     const webhookPolicyOrganization = ManagedPolicy.deniedBy(managedPolicy, "webhookTasks");
@@ -559,7 +529,6 @@ export const layer = Layer.effect(
     const changesPubSub = yield* PubSub.sliding<void>(1);
     const dueTasks = DueHint.make();
     const pendingWebhooks = DueHint.make();
-    const pendingOccurrences = DueHint.make();
     // Every scheduled_tasks write that can change next_run_at, enabled or run state notifies.
     const notifyChanged = dueTasks.invalidate.pipe(
       Effect.andThen(PubSub.publish(changesPubSub, undefined)),
@@ -572,7 +541,6 @@ export const layer = Layer.effect(
         task_id,
         title,
         prompt,
-        dispatch_target_json,
         enabled,
         schedule_json,
         project_id,
@@ -616,7 +584,6 @@ export const layer = Layer.effect(
         task_id,
         title,
         prompt,
-        dispatch_target_json,
         enabled,
         schedule_json,
         project_id,
@@ -698,7 +665,6 @@ export const layer = Layer.effect(
           task_id,
           title,
           prompt,
-          dispatch_target_json,
           enabled,
           schedule_json,
           project_id,
@@ -725,7 +691,6 @@ export const layer = Layer.effect(
           ${task.id},
           ${task.title},
           ${task.prompt},
-          ${task.dispatchTarget === undefined ? null : encodeTarget(task.dispatchTarget)},
           ${task.enabled ? 1 : 0},
           ${JSON.stringify(task.schedule)},
           ${task.projectId},
@@ -753,7 +718,6 @@ export const layer = Layer.effect(
         DO UPDATE SET
           title = excluded.title,
           prompt = excluded.prompt,
-          dispatch_target_json = excluded.dispatch_target_json,
           enabled = excluded.enabled,
           schedule_json = excluded.schedule_json,
           project_id = excluded.project_id,
@@ -808,11 +772,9 @@ export const layer = Layer.effect(
     const deleteRow = (id: ScheduledTaskId) =>
       sql
         .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`DELETE FROM scheduled_task_webhook_deliveries WHERE task_id = ${id}`;
-            yield* sql`DELETE FROM scheduled_tasks WHERE task_id = ${id}`;
-            yield* sql`UPDATE scheduled_task_occurrences SET status = 'failed', error = 'Schedule was deleted.' WHERE task_id = ${id} AND status = 'pending'`;
-          }),
+          sql`DELETE FROM scheduled_task_webhook_deliveries WHERE task_id = ${id}`.pipe(
+            Effect.andThen(sql`DELETE FROM scheduled_tasks WHERE task_id = ${id}`),
+          ),
         )
         .pipe(
           Effect.mapError((cause) =>
@@ -1005,14 +967,10 @@ export const layer = Layer.effect(
       if (updated.length > 0) yield* notifyChanged;
     });
 
-    const resolveOrphan = (occurrenceId: string) =>
-      sql`UPDATE scheduled_task_occurrences SET status = 'failed', error = 'Schedule no longer owns this plugin occurrence.' WHERE id = ${occurrenceId} AND status = 'pending'`;
-
     const runTask = Effect.fn("ScheduledTaskService.runTask")(
       function* (
         task: ScheduledTask,
-        trigger: "scheduled" | "manual" | "recovery" | "webhook",
-        requestedOccurrenceId?: string,
+        trigger: "scheduled" | "manual" | "webhook",
         webhook?: {
           readonly deliveryId: string;
           readonly prompt: string;
@@ -1032,8 +990,6 @@ export const layer = Layer.effect(
               return yield* new WebhookDeliverySkipped({
                 reason: "The task was deleted before this delivery ran.",
               });
-            if (trigger === "recovery" && requestedOccurrenceId !== undefined)
-              yield* resolveOrphan(requestedOccurrenceId);
             // A manual run on a just-deleted task must fail loudly, not report
             // a successful run that never dispatched.
             if (trigger === "manual") {
@@ -1078,119 +1034,13 @@ export const layer = Layer.effect(
             if (reason !== null) return yield* new WebhookDeliverySkipped({ reason });
           }
 
-          // A supplied identity may belong to a retired plugin occurrence even
-          // when the current schedule id now names an ordinary prompt.
-          if (requestedOccurrenceId !== undefined) {
-            const [requested] = yield* sql<{
-              task_id: string;
-              status: string;
-              error: string | null;
-            }>`SELECT task_id, status, error FROM scheduled_task_occurrences WHERE id = ${requestedOccurrenceId}`;
-            if (requested !== undefined) {
-              if (requested.task_id !== active.id)
-                return yield* taskError("This occurrence identity belongs to another schedule.", {
-                  taskId: active.id,
-                });
-              if (requested.status === "failed")
-                return yield* taskError(requested.error ?? "The scheduled occurrence failed.", {
-                  taskId: active.id,
-                });
-              if (requested.status === "succeeded")
-                return { task: active, threadId: null, dispatchFailed: false };
-              if (active.dispatchTarget === undefined) {
-                yield* resolveOrphan(requestedOccurrenceId);
-                return yield* taskError("Schedule no longer owns this plugin occurrence.", {
-                  taskId: active.id,
-                });
-              }
-            }
-          }
-
-          if (requestedOccurrenceId !== undefined && active.dispatchTarget === undefined)
-            return yield* taskError(
-              "Occurrence identities are only supported by plugin schedules.",
-              {
-                taskId: active.id,
-              },
-            );
-
-          // Incoming webhooks own their delivery identity; predecessor recovery
-          // runs separately and cannot consume a newly accepted delivery.
-          const [pending] =
-            active.dispatchTarget === undefined || webhook !== undefined
-              ? []
-              : yield* sql<{
-                  id: string;
-                  target_json: string;
-                  project_id: string;
-                  started_at: string;
-                }>`SELECT * FROM scheduled_task_occurrences WHERE task_id = ${active.id} AND status = 'pending' ORDER BY rowid LIMIT 1`;
-          if (
-            trigger === "recovery" &&
-            active.dispatchTarget === undefined &&
-            requestedOccurrenceId !== undefined
-          )
-            yield* resolveOrphan(requestedOccurrenceId);
-          // Recovery belongs to the committed plugin occurrence, never a
-          // replacement prompt task or a fresh run of a reused schedule id.
-          if (
-            trigger === "recovery" &&
-            (pending === undefined || pending.id !== requestedOccurrenceId)
-          )
-            return { task: active, threadId: null, dispatchFailed: false };
-          if (
-            pending !== undefined &&
-            requestedOccurrenceId !== undefined &&
-            pending.id !== requestedOccurrenceId
-          )
-            return yield* taskError(
-              "Another occurrence is pending for this schedule. Retry its original identity before starting a new occurrence.",
-              { taskId: active.id },
-            );
           const fireKey =
-            pending?.id ??
-            requestedOccurrenceId ??
-            (webhook === undefined
+            webhook === undefined
               ? `${active.id}:${trigger === "scheduled" ? active.nextRunAt : DateTime.toEpochMillis(startedAt)}:${trigger}`
-              : `${active.id}:webhook:${webhook.deliveryId}`);
-          if (active.dispatchTarget !== undefined) {
-            const ambient = yield* DispatchModeLimit;
-            const saved = active.dispatchTarget.dispatchLimits;
-            const limits =
-              saved === undefined
-                ? ambient
-                : ambient === undefined
-                  ? saved
-                  : intersectDispatchModes(saved, ambient);
-            const target = {
-              ...active.dispatchTarget,
-              ...(limits === undefined ? {} : { dispatchLimits: limits }),
-            };
-            yield* sql`INSERT OR IGNORE INTO scheduled_task_occurrences (id, task_id, project_id, target_json, started_at, status) VALUES (${fireKey}, ${active.id}, ${active.projectId}, ${encodeTarget(target)}, ${startedAtIso}, 'pending')`;
-            yield* pendingOccurrences.invalidate;
-            const [receipt] = yield* sql<{
-              task_id: string;
-              status: string;
-              error: string | null;
-            }>`SELECT * FROM scheduled_task_occurrences WHERE id = ${fireKey}`;
-            if (receipt?.task_id !== active.id)
-              return yield* taskError("This occurrence identity belongs to another schedule.", {
-                taskId: active.id,
-              });
-            if (receipt.status === "succeeded")
-              return { task: active, threadId: null, dispatchFailed: false };
-            if (receipt.status === "failed")
-              return yield* taskError(receipt.error ?? "The scheduled occurrence failed.", {
-                taskId: active.id,
-              });
-          }
+              : `${active.id}:webhook:${webhook.deliveryId}`;
           // Recurring prompts represent current work, rather than missed intervals.
-          // Plugin occurrences retain their separate durable delivery identities.
           const pendingPrompt =
-            active.dispatchTarget === undefined &&
-            trigger === "scheduled" &&
-            active.schedule.type !== "once" &&
-            active.threadId !== null
+            trigger === "scheduled" && active.schedule.type !== "once" && active.threadId !== null
               ? yield* Effect.exit(
                   threadManagement.getProjectThreadRecords(
                     { projectId: active.projectId, threadId: active.threadId },
@@ -1288,26 +1138,7 @@ export const layer = Layer.effect(
           const dispatchWork = Effect.gen(function* () {
             if (pendingPrompt._tag === "Failure")
               return yield* Effect.failCause(pendingPrompt.cause);
-            if (active.dispatchTarget !== undefined) {
-              if (Option.isNone(targets))
-                return yield* taskError("Schedule dispatch targets are unavailable.", {
-                  taskId: active.id,
-                });
-              const [recorded] = yield* sql<{
-                target_json: string;
-                project_id: string;
-              }>`SELECT * FROM scheduled_task_occurrences WHERE id = ${fireKey}`;
-              if (recorded === undefined)
-                return yield* taskError("The scheduled occurrence receipt is missing.", {
-                  taskId: active.id,
-                });
-              yield* targets.value.dispatch(
-                yield* decodeTarget(recorded.target_json),
-                fireKey,
-                ProjectId.make(recorded.project_id),
-              );
-              return { threadId: null };
-            } else if (active.threadId === null) {
+            if (active.threadId === null) {
               const launched = yield* threadLaunch.launch({
                 commandId,
                 projectId: active.projectId,
@@ -1336,12 +1167,6 @@ export const layer = Layer.effect(
           });
           const result = yield* Effect.exit(dispatchWork);
 
-          if (
-            active.dispatchTarget !== undefined &&
-            result._tag === "Failure" &&
-            Cause.hasInterruptsOnly(result.cause)
-          )
-            return yield* Effect.failCause(result.cause);
           const runSucceeded = result._tag === "Success";
           if (webhook !== undefined && runSucceeded) yield* Ref.set(webhook.dispatched, true);
           const completedAt = yield* localNow;
@@ -1359,8 +1184,6 @@ export const layer = Layer.effect(
           // files, and the transaction holds SQLite's writer lock.
           const origin = yield* readWebhookOrigin;
           const record = Effect.gen(function* () {
-            if (active.dispatchTarget !== undefined)
-              yield* sql`UPDATE scheduled_task_occurrences SET status = ${lastRunStatus}, error = ${lastRunError} WHERE id = ${fireKey}`;
             const [row] = yield* getRows(task.id);
             const current = row === undefined ? null : yield* decodeRow(row, origin);
             const scheduleSource = current ?? task;
@@ -1423,7 +1246,7 @@ export const layer = Layer.effect(
               ),
             );
           if (written) yield* notifyChanged;
-          if (written && threadId !== null && active.dispatchTarget === undefined) {
+          if (written && threadId !== null) {
             yield* recordRunOutcome(active.id, startedAtIso, threadId, messageId).pipe(
               Effect.catchCause((cause) =>
                 Effect.logWarning("Could not record scheduled run outcome", {
@@ -1434,19 +1257,11 @@ export const layer = Layer.effect(
               Effect.forkIn(serviceScope),
             );
           }
-          // A manual plugin operation returns its occurrence result, just as a
-          // retry does. Persist the failed receipt before reporting the failure.
-          if (trigger === "manual" && active.dispatchTarget !== undefined && !runSucceeded)
-            return yield* taskError(lastRunError ?? "The scheduled occurrence failed.", {
-              taskId: active.id,
-            });
           // The stored row can belong to a replacement, so report this dispatch separately.
           return { task: recorded, threadId, dispatchFailed: !runSucceeded };
         }).pipe(
           Effect.onError((cause) =>
-            task.dispatchTarget !== undefined
-              ? Effect.void
-              : releaseStuckRun(task, startedAtIso, errorMessage(cause), webhook?.deliveryId),
+            releaseStuckRun(task, startedAtIso, errorMessage(cause), webhook?.deliveryId),
           ),
         );
 
@@ -1517,25 +1332,6 @@ export const layer = Layer.effect(
     const runDueTasks = Effect.fn("ScheduledTaskService.runDueTasks")(function* () {
       const now = yield* localNow;
       const nowMs = DateTime.toEpochMillis(now);
-      if (!(yield* pendingOccurrences.isIdle(nowMs))) {
-        const readOccurrences = yield* pendingOccurrences.version;
-        const pending = yield* sql<{
-          id: string;
-          task_id: string;
-        }>`SELECT id, task_id FROM scheduled_task_occurrences WHERE status = 'pending' ORDER BY rowid`;
-        for (const row of pending) {
-          const task = yield* findTask(ScheduledTaskId.make(row.task_id));
-          if (task === null || task.dispatchTarget === undefined) yield* resolveOrphan(row.id);
-          else
-            yield* runTask(task, "recovery", row.id).pipe(
-              Effect.catch((cause) =>
-                Effect.logWarning("Scheduled target recovery failed", { taskId: task.id, cause }),
-              ),
-            );
-        }
-        if (pending.length === 0)
-          yield* pendingOccurrences.record(readOccurrences, Infinity, nowMs);
-      }
       if (yield* dueTasks.isIdle(nowMs)) return;
       const readVersion = yield* dueTasks.version;
       const [next] = yield* sql<{ next_run_at: string | null }>`
@@ -1586,9 +1382,7 @@ export const layer = Layer.effect(
     // Recover crash-left running rows that the due-task filter would otherwise skip forever.
     yield* Effect.gen(function* () {
       const rows = yield* selectAllRows();
-      const stuck = rows.filter(
-        (row) => row.last_run_status === "running" && row.dispatch_target_json == null,
-      );
+      const stuck = rows.filter((row) => row.last_run_status === "running");
       if (stuck.length === 0) return;
       const now = yield* localNow;
       yield* Effect.forEach(
@@ -1826,9 +1620,6 @@ export const layer = Layer.effect(
         id,
         title: input.title,
         prompt: input.prompt,
-        ...(input.dispatchTarget === undefined && existingTask?.dispatchTarget === undefined
-          ? {}
-          : { dispatchTarget: input.dispatchTarget ?? existingTask?.dispatchTarget }),
         enabled: input.enabled,
         schedule,
         projectId: input.projectId,
@@ -2002,7 +1793,7 @@ export const layer = Layer.effect(
           taskId: input.id,
         });
       }
-      return yield* runTask(task, "manual", input.occurrenceId).pipe(
+      return yield* runTask(task, "manual").pipe(
         Effect.mapError((cause) =>
           isScheduledTaskError(cause)
             ? cause
@@ -2322,7 +2113,7 @@ export const layer = Layer.effect(
           Metrics.increment(Metrics.webhookRunsTotal, { outcome }),
         ]);
       const dispatched = yield* Ref.make(false);
-      return yield* runTask(task, "webhook", undefined, { deliveryId, prompt, dispatched }).pipe(
+      return yield* runTask(task, "webhook", { deliveryId, prompt, dispatched }).pipe(
         Effect.flatMap(({ dispatchFailed }) =>
           dispatchFailed
             ? runOutcome("failed").pipe(
@@ -2919,45 +2710,6 @@ export const layer = Layer.effect(
 
     return ScheduledTaskService.of({
       list,
-      lastOccurrence: Effect.fn("ScheduledTaskService.lastOccurrence")((id) =>
-        sql<{
-          id: string;
-        }>`SELECT id FROM scheduled_task_occurrences WHERE task_id = ${id} ORDER BY rowid DESC LIMIT 1`.pipe(
-          Effect.map((rows) => rows[0]?.id ?? null),
-          Effect.mapError((cause) =>
-            taskError("Could not read the schedule occurrence receipt.", { taskId: id, cause }),
-          ),
-        ),
-      ),
-      occurrences: Effect.fn("ScheduledTaskService.occurrences")((id, limit) =>
-        // Only the current schedule's receipts: a schedule recreated under a reused id starts
-        // a fresh history. Each receipt keeps the project it was dispatched for.
-        sql<{
-          id: string;
-          project_id: string;
-          started_at: string;
-          status: string;
-          error: string | null;
-        }>`SELECT o.id, o.project_id, o.started_at, o.status, o.error FROM scheduled_task_occurrences o JOIN scheduled_tasks t ON t.task_id = o.task_id WHERE o.task_id = ${id} AND o.started_at >= t.created_at ORDER BY o.rowid DESC LIMIT ${limit}`.pipe(
-          Effect.map((rows) =>
-            rows.map((row) => ({
-              id: row.id,
-              projectId: ProjectId.make(row.project_id),
-              startedAt: row.started_at,
-              status:
-                row.status === "succeeded"
-                  ? ("succeeded" as const)
-                  : row.status === "failed"
-                    ? ("failed" as const)
-                    : ("pending" as const),
-              error: row.error,
-            })),
-          ),
-          Effect.mapError((cause) =>
-            taskError("Could not read the schedule occurrence receipts.", { taskId: id, cause }),
-          ),
-        ),
-      ),
       subscribeList,
       upsert,
       setEnabled,

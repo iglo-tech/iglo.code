@@ -10,7 +10,7 @@ import {
   PeerLinkReciprocalOffer,
   PeerLinkRequestAnswerResult,
 } from "./peerLink.ts";
-import { CoreWsRpcGroup, WS_METHODS } from "./rpc.ts";
+import { WS_METHODS, WsRpcGroup } from "./rpc.ts";
 
 const decodeAsPeerLink = Schema.decodeUnknownSync(PeerLink);
 const decodeAsCreateResult = Schema.decodeUnknownSync(PeerLinkCreateResult);
@@ -72,7 +72,7 @@ describe("PeerLinkReciprocalOffer is bounded", () => {
 });
 
 describe("the link-request answer RPC stays decodable across versions", () => {
-  const answerRpc = CoreWsRpcGroup.requests.get(WS_METHODS.peerLinksAnswerRequest);
+  const answerRpc = WsRpcGroup.requests.get(WS_METHODS.peerLinksAnswerRequest);
 
   it("encodes an answer without a result as null, which an older void client decodes", () => {
     expect(answerRpc).toBeDefined();

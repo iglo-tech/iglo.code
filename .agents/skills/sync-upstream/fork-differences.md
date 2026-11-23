@@ -182,17 +182,6 @@ current when an authorized change replaces a decision.
   ([PeerLinks.testkit.ts](../../../apps/server/src/peer/PeerLinks.testkit.ts)).
   Drop this entry wholesale once upstream ships its own two-way linking and the
   fork moves onto it.
-- **Plugin and workflow extensions.** Preserve the fork's compiled plugin host,
-  Reports fixture, and [workflow plugin](../../../packages/plugin-workflows/src/server.ts),
-  including provider/model/skill choices, parallel reviews, bounded rework,
-  human decisions, and durable recovery. Reconcile their contracts, migrations,
-  permission scopes, MCP tools, scheduler integration, and client contributions
-  together. Preserve private plugin state and independently built client/server
-  compatibility. The boundary and recovery constraints live in
-  [plugins.md](../../../docs/internals/plugins.md).
-  Upstream's script-based durable workflows (Labs setting `workflowsEnabled`, `iglo.code workflow`) are a
-  separate feature that coexists with the plugin; [workflows.md](../../../docs/user/workflows.md)
-  documents both in separate sections, and neither replaces the other.
 - **Provider skills and automation delivery.** Preserve fresh workspace-scoped
   skill discovery and explicit invocation availability in the composer; see
   [providerSkills.ts](../../../packages/client-runtime/src/providerSkills.ts).
@@ -239,9 +228,6 @@ current when an authorized change replaces a decision.
     environment member; All projects always opens the picker, even with one open
     project (upstream starts in that project). The button and the `chat.new`
     shortcut share `resolveNewThreadTarget`.
-  - **Needs attention.** Plugin attention renders as a collapsible section at the
-    top of the thread list, not in the sidebar footer
-    ([PluginSlots.tsx](../../../apps/web/src/plugins/PluginSlots.tsx)).
   - **Scheduled.** A collapsible Scheduled section below Working lists the scoped
     projects' scheduled tasks, soonest first; a row opens the task's own page
     (`/scheduled/$environmentId/$taskId`, `ScheduledTaskPage`) in the main pane with

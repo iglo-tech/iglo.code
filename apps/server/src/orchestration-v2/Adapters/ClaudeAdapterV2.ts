@@ -243,7 +243,6 @@ import {
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
 import { providerMessageTextWithAttachmentPaths } from "@t3tools/provider-core/server/attachmentPrompt";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
-import { coreMcpToolNames } from "../../mcp/coreMcpToolNames.ts";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriverCreateInput,
@@ -2781,13 +2780,12 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
 // request_secret can wait an hour; exceed Claude's default 60 s timeout.
 export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 
-// allowedTools pre-approves calls; tools controls availability. Supervised queries keep core grants and
-// explicitly allowed plugin tools; read-only sandboxes keep their narrower allowlist for headless modes.
+// allowedTools pre-approves calls; tools controls availability. Pre-approve T3 tools for headless modes,
+// limited to annotated read-only tools in read-only sandboxes.
 
 export function claudeMcpQueryOverrides(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly readOnlySandbox: boolean;
-  readonly supervised?: boolean;
   readonly allowedTools?: ReadonlyArray<string>;
 }): {
   readonly allowedTools?: ReadonlyArray<string>;
@@ -2798,15 +2796,8 @@ export function claudeMcpQueryOverrides(input: {
     return input.allowedTools === undefined ? {} : { allowedTools: input.allowedTools };
   }
   const mcpAllowedTools = input.readOnlySandbox
-    ? [
-        ...CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS,
-        ...(session.readOnlyPluginTools ?? []).map((id) => `mcp__iglo-code__${id}`),
-      ]
-    : input.supervised
-      ? [...coreMcpToolNames, ...(session.readOnlyPluginTools ?? [])].map(
-          (id) => `mcp__iglo-code__${id}`,
-        )
-      : [CLAUDE_T3_MCP_TOOL_WILDCARD];
+    ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
+    : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
     allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),
     mcpServers: {
@@ -13402,9 +13393,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           nativeThreadId: string,
           queryPolicy: Effect.Success<ReturnType<typeof queryPolicyForTurn>>,
         ) {
-          const credential = yield* mcpSessions.read(turnInput.threadId);
-          const policyOwner =
-            credential?.providerInstanceId === adapterOptions.instanceId ? credential : undefined;
+          const mcpSession = yield* mcpSessions.read(turnInput.threadId);
           // Claude Code defers its goal Stop hook only for its own background tasks, so a goal
           // re-prompts in a loop while T3 work that will wake this thread is still running.
           const onStop: HookCallback = () =>
@@ -13416,8 +13405,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               }),
             );
           const mcpOverrides = claudeMcpQueryOverrides({
-            mcpSession: credential,
-            supervised: queryPolicy.installPermissionCallback,
+            mcpSession,
             readOnlySandbox:
               sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",
             ...(queryPolicy.allowedTools === undefined
@@ -13528,7 +13516,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             // A denied ExitPlanMode leaves Claude in plan mode. Restore only from plan:
             // Auto/default may reflect a policy restriction that forbids restoring bypass.
             if (existing.permissionMode === "plan" && existing.openedPermissionMode !== "plan") {
-              yield* mcpSessions.invalidateRuntimePolicy(policyOwner);
               existing.permissionMode = yield* existing.query
                 .setPermissionMode(existing.openedPermissionMode)
                 .pipe(
@@ -13543,7 +13530,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   }),
                 );
             }
-            yield* mcpSessions.updateRuntimePolicy(policyOwner, turnInput.runtimePolicy);
             return existing;
           }
 
@@ -13635,7 +13621,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(mcpOverrides.mcpServers === undefined
               ? {}
               : { mcpServers: mcpOverrides.mcpServers }),
-            deviceToolsAvailable: credential?.capabilities?.has("device") === true,
+            deviceToolsAvailable: mcpSession?.capabilities?.has("device") === true,
             permissionMode: queryPolicy.permissionMode,
             ...(queryPolicy.allowDangerouslySkipPermissions === undefined
               ? {}
@@ -13650,7 +13636,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(appendSystemPromptFileText === undefined ? {} : { appendSystemPromptFileText }),
             ...(toolSearchOverride === undefined ? {} : { toolSearchOverride }),
           });
-          yield* mcpSessions.invalidateRuntimePolicy(policyOwner);
           const resolvedTurnCwd = yield* fileSystem
             .realPath(turnInput.runtimePolicy.cwd ?? ".")
             .pipe(Effect.orElseSucceed(() => turnInput.runtimePolicy.cwd));
@@ -13684,7 +13669,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 : Effect.void,
             ),
           );
-          yield* mcpSessions.updateRuntimePolicy(policyOwner, turnInput.runtimePolicy);
           // Mark only successful opens; retries must not resume sessions that failed to create.
           yield* Ref.update(openedNativeThreads, (current) => {
             if (current.has(nativeThreadId)) {
