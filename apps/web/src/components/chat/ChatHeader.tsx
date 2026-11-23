@@ -412,7 +412,7 @@ export const ChatHeader = memo(function ChatHeader({
           ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
-      {activeProject === null ? null : isServerThread ? (
+      {activeProject !== null && isServerThread ? (
         <PluginThreadContext
           target={{
             environmentId: activeThreadEnvironmentId,
@@ -420,7 +420,8 @@ export const ChatHeader = memo(function ChatHeader({
             threadId: activeThreadId,
           }}
         />
-      ) : (
+      ) : null}
+      {activeProject === null ? null : (
         <PluginProjectActions
           environmentId={activeThreadEnvironmentId}
           projectId={activeProject.id}

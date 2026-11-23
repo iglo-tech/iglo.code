@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { Attempt, Definition, Run } from "../contracts.ts";
 import { developmentReview } from "../examples.ts";
 import { flowGraph } from "./flowGraph.ts";
-import { repeatEvidence, repeatLimit, stepStates, takenEdges } from "./run.ts";
+import { repeatEvidence, repeatLimit, stepStates, takenEdges, withStartDialog } from "./run.ts";
 
 type Visit = Pick<Attempt, "nodeId" | "branchId" | "phase" | "generation">;
 type Routed = Pick<
@@ -370,5 +370,18 @@ describe("persisted route identity with legacy evidence", () => {
         { ...item, repeat: { ...item.repeat!, exhausted: true, outcome: "limit" } },
       ]),
     ]).toEqual(["human:changes.repeat"]);
+  });
+});
+
+describe("withStartDialog", () => {
+  it("keeps the run inspection across opening and dismissing the start dialog", () => {
+    const inspection = { run: "run-1", node: "reviews", branch: "code", attempt: "a-2" };
+    const opened = withStartDialog({ ...inspection, focus: "route" }, true);
+    expect(opened).toEqual({ ...inspection, focus: "route", start: "1" });
+    expect(withStartDialog({ ...opened, workflow: "review" }, false)).toEqual({
+      ...inspection,
+      focus: "route",
+    });
+    expect(withStartDialog({ start: "1", workflow: "review" }, false)).toEqual({});
   });
 });

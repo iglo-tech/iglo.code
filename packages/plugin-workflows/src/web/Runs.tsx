@@ -14,7 +14,7 @@ import {
 import { RunStateIcon } from "./kinds.tsx";
 import { RunView } from "./RunView.tsx";
 import { StartDialog } from "./Start.tsx";
-import { formatTime, nextAction, runStateLabels, runStateVariant } from "./run.ts";
+import { formatTime, nextAction, runStateLabels, runStateVariant, withStartDialog } from "./run.ts";
 
 export function RunsPageView(props: PageProps) {
   return <Runs key={`${props.environmentId}:${props.projectId}`} {...props} />;
@@ -46,7 +46,7 @@ function Runs(props: PageProps) {
           props.navigate({
             pageId: "workflows.runs",
             projectId,
-            state: { ...(runId === null ? {} : { run: runId }), start: "1" },
+            state: withStartDialog(pageState, true),
           })
         }
       >
@@ -66,13 +66,14 @@ function Runs(props: PageProps) {
         }
         workflow={pageState.workflow}
         permissions={permissions}
-        onClose={() =>
+        onClose={() => {
+          const state = withStartDialog(pageState, false);
           props.navigate({
             pageId: "workflows.runs",
             projectId,
-            ...(runId === null ? {} : { state: { run: runId } }),
-          })
-        }
+            ...(Object.keys(state).length === 0 ? {} : { state }),
+          });
+        }}
       />
     );
   if (projectId !== null && runId !== null)
