@@ -4,6 +4,7 @@ import type {
   PluginWebContext,
 } from "@t3tools/plugin-host-contract/web";
 import type { ProjectId } from "@t3tools/plugin-host-contract/schema";
+import { InboxIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type {
   Definition,
@@ -130,6 +131,29 @@ export function projectCrumb(
     options: (projects ?? []).map((project) => ({ value: project.id, label: name(project) })),
     onChange: (value) => props.navigate({ pageId, projectId: value as ProjectId }),
   };
+}
+
+/** Opens the attention view in the page's project, or across projects when it has none. */
+export function AttentionButton({ props }: { readonly props: PageProps }) {
+  const { projectId, Button } = props;
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      ariaLabel="Attention"
+      tooltip="Attention"
+      onClick={() =>
+        props.navigate(
+          projectId === null
+            ? { pageId: "workflows.attention" }
+            : { pageId: "workflows.attention", projectId },
+        )
+      }
+    >
+      <InboxIcon />
+      <span className="sr-only sm:not-sr-only">Attention</span>
+    </Button>
+  );
 }
 
 /** A failed project list, with Retry; shown even when the page already has a project. */
