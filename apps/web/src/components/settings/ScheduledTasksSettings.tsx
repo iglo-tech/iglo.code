@@ -7,7 +7,6 @@ import {
   ChevronDownIcon,
   Clock3Icon,
   CopyIcon,
-  HistoryIcon,
   InboxIcon,
   MessageSquareIcon,
   MoreHorizontalIcon,
@@ -96,16 +95,6 @@ import { SidebarInset } from "../ui/sidebar";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { isElectron } from "../../env";
-import { usePluginScheduleTargets } from "../../plugins/ScheduleTargets";
-import {
-  type PluginSchedulePayload,
-  newPluginScheduleId,
-  pluginScheduleOwner,
-  scheduleRevision,
-  pluginScheduleSubmission,
-  unavailableTargetText,
-  webhookAvailable,
-} from "../../plugins/scheduleTargetLogic";
 import { EnvironmentRow, useEnvironmentTransportLabel } from "./EnvironmentRow";
 import { SettingsGroup } from "./SettingsGroup";
 import { settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
@@ -622,14 +611,15 @@ function ScheduledTaskEnvironmentList({
                 {connectionStatusTitle(environment.connection, messages)}
               </span>
             </EnvironmentRow>
-            {tasks ? (
-              <ScheduledTaskEnvironmentRows
+            {tasks?.map((task) => (
+              <ScheduledTaskRow
+                key={task.id}
                 environmentId={environment.environmentId}
-                tasks={tasks}
+                task={task}
                 timeZone={timeZone}
-                onEdit={onEdit}
+                onEdit={() => onEdit(environment.environmentId, task)}
               />
-            ) : null}
+            ))}
           </div>
         );
       })}
@@ -671,31 +661,6 @@ function ScheduledTaskEnvironmentList({
       })}
     </SettingsGroup>
   );
-}
-
-/** One environment's task rows, resolving that environment's plugin schedule targets. */
-function ScheduledTaskEnvironmentRows({
-  environmentId,
-  tasks,
-  timeZone,
-  onEdit,
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly tasks: ReadonlyArray<ScheduledTask>;
-  readonly timeZone: string | undefined;
-  readonly onEdit: (environmentId: EnvironmentId, task: ScheduledTask) => void;
-}) {
-  const scheduleTargets = usePluginScheduleTargets(environmentId);
-  return tasks.map((task) => (
-    <ScheduledTaskRow
-      key={task.id}
-      environmentId={environmentId}
-      task={task}
-      scheduleTargets={scheduleTargets}
-      timeZone={timeZone}
-      onEdit={() => onEdit(environmentId, task)}
-    />
-  ));
 }
 
 function ScheduledTaskEnvironmentSubtitle({
@@ -742,7 +707,6 @@ function ScheduledTaskEnvironmentSection({
     matchesScheduledTaskScope(scope, environment.environmentId, task.projectId),
   );
   const linkedTask = tasks?.find((task) => task.id === taskId);
-  const scheduleTargets = usePluginScheduleTargets(environment.environmentId);
   return (
     <SettingsSection
       title={environment.label}
@@ -787,7 +751,6 @@ function ScheduledTaskEnvironmentSection({
                 key={task.id}
                 environmentId={environment.environmentId}
                 task={task}
-                scheduleTargets={scheduleTargets}
                 timeZone={tasksQuery.data?.timeZone}
                 onEdit={() => onEdit(environment.environmentId, task)}
               />
@@ -802,28 +765,17 @@ function ScheduledTaskEnvironmentSection({
 function ScheduledTaskRow({
   environmentId,
   task,
-  scheduleTargets,
   timeZone,
   onEdit,
 }: {
   readonly environmentId: EnvironmentId;
   readonly task: ScheduledTask;
-  readonly scheduleTargets: ReturnType<typeof usePluginScheduleTargets>;
   readonly timeZone: string | undefined;
   readonly onEdit: () => void;
 }) {
   const messages = useMessages();
   const locale = useLocale();
   const gt = useGT();
-  const owner = pluginScheduleOwner(task);
-  const target =
-    owner === null
-      ? null
-      : (scheduleTargets.targets.find(
-          (item) => item.id === owner.targetId && item.pluginId === owner.pluginId,
-        ) ?? null);
-  const historyId = target === null ? null : owner?.scheduleId;
-  const [historyOpen, setHistoryOpen] = useState(false);
   const canOperate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(environmentId),
   );
@@ -870,15 +822,7 @@ function ScheduledTaskRow({
   return (
     <SettingsRow
       title={task.title}
-      description={
-        <span className="line-clamp-2">
-          {task.dispatchTarget === undefined
-            ? task.prompt
-            : target !== null
-              ? target.title
-              : unavailableTargetText(scheduleTargets.status, task.dispatchTarget.id, messages)}
-        </span>
-      }
+      description={<span className="line-clamp-2">{task.prompt}</span>}
       status={
         <div className="flex flex-wrap items-center gap-2">
           <span>
@@ -932,7 +876,7 @@ function ScheduledTaskRow({
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  disabled={busy || (!canOperate && !historyId)}
+                  disabled={busy || !canOperate}
                   aria-label={gt("Actions for {title}", { title: task.title })}
                 />
               }
@@ -944,12 +888,6 @@ function ScheduledTaskRow({
                 <PencilIcon />
                 <T>Edit</T>
               </MenuItem>
-              {historyId ? (
-                <MenuItem onClick={() => setHistoryOpen(true)}>
-                  <HistoryIcon />
-                  <T>Run history</T>
-                </MenuItem>
-              ) : null}
               {isWebhook ? (
                 <MenuItem onClick={() => setDeliveriesOpen(true)}>
                   <InboxIcon />
@@ -968,39 +906,6 @@ function ScheduledTaskRow({
               </MenuItem>
             </MenuPopup>
           </Menu>
-          {historyOpen && target !== null && historyId ? (
-            <Dialog
-              open
-              onOpenChange={(next) => {
-                if (!next) setHistoryOpen(false);
-              }}
-            >
-              <DialogPopup className="max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>
-                    <T>
-                      Run history · <Var>{task.title}</Var>
-                    </T>
-                  </DialogTitle>
-                  <DialogDescription>
-                    <T>Each occurrence's dispatch, and the run it started.</T>
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogPanel>
-                  {target.renderHistory({
-                    projectId: task.projectId,
-                    scheduleId: historyId,
-                    revision: scheduleRevision(task),
-                  })}
-                </DialogPanel>
-                <DialogFooter>
-                  <DialogClose render={<Button size="sm" />}>
-                    <T>Done</T>
-                  </DialogClose>
-                </DialogFooter>
-              </DialogPopup>
-            </Dialog>
-          ) : null}
           {deliveriesOpen ? (
             <WebhookDeliveriesDialog
               environmentId={environmentId}
@@ -1618,18 +1523,6 @@ function ScheduledTaskEditorForm({
     )
     .sort((left, right) => Number(right.pinnedAt != null) - Number(left.pinnedAt != null));
   const submissionPending = useRef(false);
-  // A plugin target replaces the prompt; the host keeps timing, project and enabled state.
-  const scheduleTargets = usePluginScheduleTargets(environmentId, true);
-  const owner = task === null ? null : pluginScheduleOwner(task);
-  const [targetId, setTargetId] = useState<string | null>(owner?.targetId ?? null);
-  const [pluginScheduleId] = useState(() => owner?.scheduleId ?? newPluginScheduleId());
-  const [targetPayload, setTargetPayload] = useState<PluginSchedulePayload | null>(null);
-  const activeTarget =
-    targetId === null || (owner !== null && owner.scheduleId === null)
-      ? null
-      : (scheduleTargets.targets.find(
-          (item) => item.id === targetId && (owner === null || item.pluginId === owner.pluginId),
-        ) ?? null);
   const editingTaskMissing =
     draft.editingId !== null &&
     tasksQuery.data !== null &&
@@ -1705,51 +1598,9 @@ function ScheduledTaskEditorForm({
       editingTaskMissing ||
       !connected ||
       tasksQuery.data === null ||
-      (activeTarget !== null && scheduleTargets.status !== "connected") ||
       automaticBaseRefLoading
     )
       return;
-    if (task === null && targetId !== null && activeTarget === null) {
-      reportFailure(
-        gt("Schedule target is unavailable"),
-        unavailableTargetText(scheduleTargets.status, targetId, messages),
-      );
-      return;
-    }
-    if (activeTarget !== null) {
-      const submission = pluginScheduleSubmission(
-        {
-          scheduleId: pluginScheduleId,
-          title: draft.title,
-          projectId: projects.some((project) => project.id === selectedProjectId)
-            ? (selectedProjectId as ProjectId)
-            : null,
-          schedule: scheduleFromDraft(draft),
-          enabled: draft.enabled,
-          payload: targetPayload,
-        },
-        messages,
-      );
-      if (!submission.ok) {
-        reportFailure(submission.title, submission.description);
-        return;
-      }
-      submissionPending.current = true;
-      setSaving(true);
-      try {
-        // Saved through the plugin so its server validates the target; the id makes a retry
-        // after a lost response edit the same schedule instead of creating another.
-        await activeTarget.save(submission.input);
-      } catch (error) {
-        submissionPending.current = false;
-        setSaving(false);
-        reportFailure(gt("Could not save scheduled task"), error);
-        return;
-      }
-      setSaving(false);
-      onClose();
-      return;
-    }
     const selection = activeSelection;
     if (
       !draft.title.trim() ||
@@ -1826,7 +1677,6 @@ function ScheduledTaskEditorForm({
       ...(draft.editingId ? { id: draft.editingId as ScheduledTaskId, requireExisting: true } : {}),
       title: draft.title.trim(),
       prompt: draft.prompt.trim(),
-      // A plugin schedule edited here keeps its saved target: the server retains it.
       enabled: draft.enabled,
       schedule,
       projectId: selectedProjectId as ProjectId,
@@ -1899,8 +1749,8 @@ function ScheduledTaskEditorForm({
           <DialogTitle>{draft.editingId ? gt("Edit task") : gt("New task")}</DialogTitle>
           <DialogDescription>
             <T>
-              Run a prompt, or an action a plugin offers, automatically: on an interval, at a fixed
-              time, once at a set date, or when a webhook is called.
+              Run a prompt automatically on an interval, at a fixed time, once at a set date, or
+              when a webhook is called.
             </T>
           </DialogDescription>
         </Header>
@@ -1922,8 +1772,6 @@ function ScheduledTaskEditorForm({
                 const next = connectedEnvironments.find((entry) => entry.environmentId === id);
                 if (!next) return;
                 setEnvironmentId(next.environmentId);
-                setTargetId(null);
-                setTargetPayload(null);
                 setDraft((current) => ({
                   ...unbindDraftFromThread(current),
                   projectId: defaultScheduledTaskProjectId(projectsOn(next.environmentId), scope),
@@ -2023,176 +1871,104 @@ function ScheduledTaskEditorForm({
             }
           />
 
-          {task === null && scheduleTargets.targets.length > 0 ? (
-            <Field label={gt("Runs")} htmlFor="scheduled-task-target">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {projectField}
+
+            <Field label={gt("Workspace")} htmlFor="scheduled-task-workspace">
               <Select
-                value={targetId ?? "prompt"}
-                onValueChange={(value) => {
-                  const next = value === "prompt" || value === null ? null : value;
-                  setTargetId(next);
-                  setTargetPayload(null);
-                  // Plugin targets run at a time or on an interval, not from a webhook.
-                  if (!webhookAvailable(next))
-                    setDraft((current) =>
-                      current.scheduleMode === "webhook"
-                        ? { ...current, scheduleMode: "fixed" }
-                        : current,
-                    );
-                }}
+                value={draft.workspaceMode}
+                onValueChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    workspaceMode: value as WorkspaceMode,
+                  }))
+                }
               >
-                <SelectTrigger size="sm" id="scheduled-task-target">
-                  <SelectValue>
-                    {activeTarget?.title ?? (targetId === null ? gt("A prompt") : targetId)}
-                  </SelectValue>
+                <SelectTrigger size="sm" id="scheduled-task-workspace">
+                  <SelectValue>{messages(WORKSPACE_MODE_LABELS[draft.workspaceMode])}</SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
-                  <SelectItem value="prompt">{gt("A prompt")}</SelectItem>
-                  {scheduleTargets.targets.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.title}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="worktree">
+                    <T>Create a new worktree</T>
+                  </SelectItem>
+                  <SelectItem value="root">
+                    <T>Use the project checkout</T>
+                  </SelectItem>
+                  <SelectItem value="existing_worktree">
+                    <T>Use a specific checkout</T>
+                  </SelectItem>
                 </SelectPopup>
               </Select>
             </Field>
+          </div>
+
+          {draft.workspaceMode === "worktree" ? (
+            <Field label={gt("Base branch")} htmlFor="scheduled-task-base-ref">
+              <WorktreeBaseBranchPicker
+                key={`${environmentId}:${selectedProjectId}`}
+                id="scheduled-task-base-ref"
+                environmentId={environmentId}
+                cwd={selectedProject?.workspaceRoot ?? null}
+                value={automaticBaseRefLoading ? "" : worktreeBaseRef}
+                onValueChange={(baseRef) => setDraft((current) => ({ ...current, baseRef }))}
+                startFromOrigin={draft.startFromOrigin}
+                onStartFromOriginChange={(startFromOrigin) =>
+                  setDraft((current) => ({ ...current, startFromOrigin }))
+                }
+                disabled={saving || !connected}
+              />
+            </Field>
           ) : null}
-          {targetId !== null ? (
-            activeTarget !== null ? (
-              <>
-                {task === null ? null : (
-                  <p className="text-sm text-muted-foreground">
-                    {gt("Runs: {title}", { title: activeTarget.title })}
-                  </p>
-                )}
-                {projectField}
-                {projects.some((project) => project.id === selectedProjectId) ? (
-                  activeTarget.renderEditor({
-                    projectId: selectedProjectId as ProjectId,
-                    payload:
-                      task !== null && task.projectId === selectedProjectId
-                        ? (task.dispatchTarget?.payload ?? null)
-                        : null,
-                    onChange: setTargetPayload,
-                  })
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    <T>Choose a project.</T>
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground" role="status">
-                {unavailableTargetText(scheduleTargets.status, targetId, messages)}
-              </p>
-            )
-          ) : task?.dispatchTarget === undefined ? (
-            <>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {projectField}
+          {draft.workspaceMode === "existing_worktree" ? (
+            <Field label={gt("Checkout path")} htmlFor="scheduled-task-checkout">
+              <Input
+                id="scheduled-task-checkout"
+                value={draft.existingWorktreePath}
+                placeholder="/path/to/checkout"
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    existingWorktreePath: resolvePastedPath(
+                      current.existingWorktreePath,
+                      event.target.value,
+                    ),
+                  }))
+                }
+              />
+            </Field>
+          ) : null}
 
-                <Field label={gt("Workspace")} htmlFor="scheduled-task-workspace">
-                  <Select
-                    value={draft.workspaceMode}
-                    onValueChange={(value) =>
-                      setDraft((current) => ({
-                        ...current,
-                        workspaceMode: value as WorkspaceMode,
-                      }))
-                    }
-                  >
-                    <SelectTrigger size="sm" id="scheduled-task-workspace">
-                      <SelectValue>
-                        {messages(WORKSPACE_MODE_LABELS[draft.workspaceMode])}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      <SelectItem value="worktree">
-                        <T>Create a new worktree</T>
-                      </SelectItem>
-                      <SelectItem value="root">
-                        <T>Use the project checkout</T>
-                      </SelectItem>
-                      <SelectItem value="existing_worktree">
-                        <T>Use a specific checkout</T>
-                      </SelectItem>
-                    </SelectPopup>
-                  </Select>
-                </Field>
-              </div>
+          <Field label={gt("Prompt")} htmlFor="scheduled-task-prompt">
+            <Textarea
+              id="scheduled-task-prompt"
+              className="max-h-64 overflow-y-auto"
+              placeholder={gt("What should the agent do each time this runs?")}
+              value={draft.prompt}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, prompt: event.target.value }))
+              }
+            />
+          </Field>
 
-              {draft.workspaceMode === "worktree" ? (
-                <Field label={gt("Base branch")} htmlFor="scheduled-task-base-ref">
-                  <WorktreeBaseBranchPicker
-                    key={`${environmentId}:${selectedProjectId}`}
-                    id="scheduled-task-base-ref"
-                    environmentId={environmentId}
-                    cwd={selectedProject?.workspaceRoot ?? null}
-                    value={automaticBaseRefLoading ? "" : worktreeBaseRef}
-                    onValueChange={(baseRef) => setDraft((current) => ({ ...current, baseRef }))}
-                    startFromOrigin={draft.startFromOrigin}
-                    onStartFromOriginChange={(startFromOrigin) =>
-                      setDraft((current) => ({ ...current, startFromOrigin }))
-                    }
-                    disabled={saving || !connected}
-                  />
-                </Field>
-              ) : null}
-              {draft.workspaceMode === "existing_worktree" ? (
-                <Field label={gt("Checkout path")} htmlFor="scheduled-task-checkout">
-                  <Input
-                    id="scheduled-task-checkout"
-                    value={draft.existingWorktreePath}
-                    placeholder="/path/to/checkout"
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        existingWorktreePath: resolvePastedPath(
-                          current.existingWorktreePath,
-                          event.target.value,
-                        ),
-                      }))
-                    }
-                  />
-                </Field>
-              ) : null}
-
-              <Field label={gt("Prompt")} htmlFor="scheduled-task-prompt">
-                <Textarea
-                  id="scheduled-task-prompt"
-                  className="max-h-64 overflow-y-auto"
-                  placeholder={gt("What should the agent do each time this runs?")}
-                  value={draft.prompt}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, prompt: event.target.value }))
-                  }
-                />
-              </Field>
-
-              <Field label={gt("Model")}>
-                <div>
-                  <ProviderModelPicker
-                    environmentId={environmentId}
-                    // The saved selection only seeds new threads; bound runs ignore it.
-                    disabled={saving || !connected || draft.threadId !== ""}
-                    activeInstanceId={shownInstanceId}
-                    model={shownModel}
-                    lockedProvider={null}
-                    instanceEntries={instanceEntries}
-                    modelOptionsByInstance={modelOptionsByInstance}
-                    isComposerOwned={false}
-                    triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                    onInstanceModelChange={(instanceId, model) =>
-                      setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
-                    }
-                  />
-                </div>
-              </Field>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              <T>This schedule runs a plugin action. Manage the action in its plugin page.</T>
-            </p>
-          )}
+          <Field label={gt("Model")}>
+            <div>
+              <ProviderModelPicker
+                environmentId={environmentId}
+                // The saved selection only seeds new threads; bound runs ignore it.
+                disabled={saving || !connected || draft.threadId !== ""}
+                activeInstanceId={shownInstanceId}
+                model={shownModel}
+                lockedProvider={null}
+                instanceEntries={instanceEntries}
+                modelOptionsByInstance={modelOptionsByInstance}
+                isComposerOwned={false}
+                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                onInstanceModelChange={(instanceId, model) =>
+                  setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
+                }
+              />
+            </div>
+          </Field>
           <div className="space-y-3">
             {task?.schedule.type === "interval" &&
             task.schedule.everyMs < MIN_SCHEDULED_TASK_INTERVAL_MS ? (
@@ -2253,14 +2029,12 @@ function ScheduledTaskEditorForm({
                 <Toggle value="interval">
                   <T>Every interval</T>
                 </Toggle>
-                {webhookAvailable(targetId) ? (
-                  <Toggle
-                    value="webhook"
-                    disabled={webhookDenial !== undefined && draft.scheduleMode !== "webhook"}
-                  >
-                    <T>On webhook</T>
-                  </Toggle>
-                ) : null}
+                <Toggle
+                  value="webhook"
+                  disabled={webhookDenial !== undefined && draft.scheduleMode !== "webhook"}
+                >
+                  <T>On webhook</T>
+                </Toggle>
               </ToggleGroup>
             </div>
 
@@ -2586,9 +2360,6 @@ function ScheduledTaskEditorForm({
             editingTaskMissing ||
             !connected ||
             !tasksQuery.data ||
-            (task === null && targetId !== null && activeTarget === null) ||
-            (activeTarget !== null &&
-              (scheduleTargets.status !== "connected" || targetPayload === null)) ||
             automaticBaseRefLoading ||
             (draft.enabled && draft.scheduleMode === "webhook" && webhookDenial !== undefined)
           }
@@ -2639,7 +2410,6 @@ export function ScheduledTaskPage({
   }
   const shown = retained?.key === taskKey ? retained : null;
   const task = listedTask === undefined ? (shown?.task ?? null) : listedTask;
-  const scheduleTargets = usePluginScheduleTargets(environmentId, true);
   const [saving, setSaving] = useState(false);
   // A save remounts the form so its draft and submit lock restart from the saved task. The save
   // can resolve before the live list shows it, so the remount waits for the task's next revision.
@@ -2698,7 +2468,6 @@ export function ScheduledTaskPage({
                 <ScheduledTaskRow
                   environmentId={environmentId}
                   task={task}
-                  scheduleTargets={scheduleTargets}
                   timeZone={shown?.timeZone}
                   onEdit={() => document.getElementById("scheduled-task-title")?.focus()}
                 />

@@ -273,8 +273,7 @@ export const replayServer = (
     });
   });
 
-/** The 2.x adapter over a replayed server. */
-export const makeReplayAdapter = (
+const makeReplayAdapter = (
   transcript: ProviderReplayTranscript,
   options?: {
     readonly external?: boolean;

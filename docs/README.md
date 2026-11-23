@@ -57,7 +57,6 @@ anything.
 - [16 · Performance regression checks](./internals/16_performance-regressions.md)
 - [17 · Scripts](./internals/17_scripts.md)
 - [Bun runtime boundaries](./internals/bun-runtime.md)
-- [Plugins and workflows](./internals/plugins.md)
 
 ### Runbooks
 

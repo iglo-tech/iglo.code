@@ -1,5 +1,4 @@
 import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
-import type { ProviderAdapterV2RuntimePolicy } from "./ProviderAdapter.ts";
 import type * as Effect from "effect/Effect";
 
 /**
@@ -18,9 +17,6 @@ export interface McpProviderSessionConfig {
   /** Omit preview_* instructions when the user withholds agent browser access. */
   readonly browserToolsAvailable: boolean;
   readonly capabilities?: ReadonlySet<string>;
-  readonly readOnlyPluginTools?: ReadonlyArray<string>;
-  /** The policy applied to the native session, including sandbox overrides. */
-  readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
   /** True while a delegated task this thread started will wake it with its result. */
   readonly hasPendingWake?: Effect.Effect<boolean>;

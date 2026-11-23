@@ -2522,27 +2522,6 @@ export const layerWithOptions = (
       ): ProviderAdapter.ProviderAdapterV2SessionRuntime => {
         const providerSessionId = runtime.providerSessionId;
         const subscribeEvents = makeEventSubscription(eventSubscribers);
-        const policyOwner = Effect.fn("ProviderSessionManager.policyOwner")(function* (
-          threadId: ThreadId,
-        ) {
-          const entry = (yield* Ref.get(sessions)).get(sessionKey(providerSessionId));
-          const credential = yield* mcpSessions.read(threadId);
-          return entry?.runtime === runtime &&
-            entry.mcpCredentialIdByThread.get(threadId) === credential?.providerSessionId
-            ? credential
-            : undefined;
-        });
-        const invalidatePolicy = (threadId: ThreadId) =>
-          policyOwner(threadId).pipe(
-            Effect.tap((owner) => mcpSessions.invalidateRuntimePolicy(owner)),
-            Effect.asVoid,
-          );
-        const publishesNativePolicy =
-          runtime.driver === "claudeAgent" || runtime.driver === "opencode2";
-        // Codex thread RPCs omit turn permission overrides. Treat their policy
-        // as unknown until a turn applies it, including while the RPC is pending.
-        const invalidateThreadPolicy = (threadId: ThreadId) =>
-          runtime.driver === "codex" ? invalidatePolicy(threadId) : Effect.void;
         const turnMetrics = (operation: string, model?: string) =>
           withMetrics({
             counter: providerTurnsTotal,
@@ -2572,7 +2551,6 @@ export const layerWithOptions = (
                 providerInstanceId: runtime.instanceId,
               }),
             ).pipe(
-              Effect.andThen(invalidateThreadPolicy(input.threadId)),
               Effect.andThen(loadNatively(runtime.ensureThread(input))),
               Effect.tap(({ loaded: providerThread, linkedEnvironments }) =>
                 markProviderThreadLoaded({
@@ -2633,9 +2611,7 @@ export const layerWithOptions = (
                       loaded: input.providerThread,
                       linkedEnvironments: undefined,
                     })
-                  : invalidateThreadPolicy(threadId).pipe(
-                      Effect.andThen(loadNatively(runtime.resumeThread(input))),
-                    ),
+                  : loadNatively(runtime.resumeThread(input)),
               ),
               Effect.tap(({ loaded: providerThread, linkedEnvironments }) =>
                 markProviderThreadLoaded({
@@ -2666,7 +2642,6 @@ export const layerWithOptions = (
                 providerInstanceId: runtime.instanceId,
               }),
             ).pipe(
-              Effect.andThen(invalidateThreadPolicy(input.targetThreadId)),
               Effect.andThen(loadNatively(runtime.forkThread(input))),
               Effect.tap(({ loaded: providerThread, linkedEnvironments }) =>
                 markProviderThreadLoaded({
@@ -2734,16 +2709,12 @@ export const layerWithOptions = (
                     ),
                   ),
                   () =>
-                    Effect.gen(function* () {
-                      // Retain the credential owner across native I/O so an old
-                      // session cannot publish policy into its replacement.
-                      const owner = yield* policyOwner(input.threadId);
-                      if (!publishesNativePolicy) yield* mcpSessions.invalidateRuntimePolicy(owner);
-                      const agentFeedback = yield* agentFeedbackMode;
-                      yield* runtime.startTurn({ ...input, agentFeedback });
-                      if (!publishesNativePolicy)
-                        yield* mcpSessions.updateRuntimePolicy(owner, input.runtimePolicy);
-                    }).pipe(turnMetrics("send", input.modelSelection.model)),
+                    agentFeedbackMode.pipe(
+                      Effect.flatMap((agentFeedback) =>
+                        runtime.startTurn({ ...input, agentFeedback }),
+                      ),
+                      turnMetrics("send", input.modelSelection.model),
+                    ),
                   (_, exit) =>
                     Exit.isFailure(exit)
                       ? observeActivity(

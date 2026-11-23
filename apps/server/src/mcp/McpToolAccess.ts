@@ -155,14 +155,6 @@ export const reads = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>)
 export const readsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) => requireThreadCaller.pipe(Effect.flatMap(() => handle(params))), undefined);
 
-/**
- * Records private plugin state for the calling thread, including its final
- * report after execution settles. The host adapter checks the plugin permission and the active provider credential before recording the report.
- */
-export const writesPluginStateAsCaller = <P, A, E, R>(
-  handle: (params: P) => Effect.Effect<A, E, R>,
-) =>
-  declare((params: P) => requireThreadCaller.pipe(Effect.flatMap(() => handle(params))), undefined);
 export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare(
     (params: P) =>

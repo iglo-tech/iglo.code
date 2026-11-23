@@ -308,14 +308,6 @@ export class OrchestratorSubagentThreadReadOnlyError extends Schema.TaggedError<
   }
 }
 
-export class OrchestratorWorkspacePreparationPendingError extends Schema.TaggedError<OrchestratorWorkspacePreparationPendingError>()(
-  "OrchestratorWorkspacePreparationPendingError",
-  { commandId: CommandId, threadId: ThreadId },
-) {
-  override get message(): string {
-    return "Workspace preparation has not released this thread. Retry workspace preparation before sending more instructions.";
-  }
-}
 export class OrchestratorThreadAboveModeLimitError extends Schema.TaggedError<OrchestratorThreadAboveModeLimitError>()(
   "OrchestratorThreadAboveModeLimitError",
   {
@@ -394,7 +386,6 @@ export class OrchestratorCommandIdConflictError extends Schema.TaggedError<Orche
 }
 
 export const OrchestratorV2Error = Schema.Union([
-  OrchestratorWorkspacePreparationPendingError,
   OrchestratorDispatchError,
   OrchestratorThreadAlreadyExistsError,
   OrchestratorCommandRejectedError,
@@ -7358,28 +7349,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
   ) {
-    // Held initial instructions create preparation; ordinary sends require its
-    // durable release. Check under the command lock, without retiring a retryable ID.
-    if (
-      command.dispatchMode.type !== "defer_start" &&
-      (yield* commandReceipts
-        .hasPendingWorkspacePreparation(command.threadId, command.commandId)
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestratorDispatchError({
-                commandId: command.commandId,
-                commandType: command.type,
-                cause,
-              }),
-          ),
-        ))
-    )
-      return yield* new OrchestratorWorkspacePreparationPendingError({
-        commandId: command.commandId,
-        threadId: command.threadId,
-      });
-
     // A compacted thread reads every run, but attempts, nodes, messages, provider turns and prompts
     // only for its recent runs and the runs this command names. An idle compaction reads in full:
     // its busy check below looks for a delegated result's message under any old run.
@@ -16702,7 +16671,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           // Refusals depend on modes the user can change; a recorded rejection would block the retry.
           if (
             cause._tag === "OrchestratorThreadAboveModeLimitError" ||
-            cause._tag === "OrchestratorWorkspacePreparationPendingError" ||
             cause._tag === "OrchestratorRuntimeModeAboveCeilingError"
           ) {
             return yield* cause;

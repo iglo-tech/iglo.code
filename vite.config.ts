@@ -99,10 +99,7 @@ const loadWebReactCompiler = async (): Promise<Plugin> => {
     transform: {
       filter: {
         id: {
-          include: [
-            /\/apps\/web\/src\/.*\.tsx$/,
-            /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/,
-          ],
+          include: [/\/apps\/web\/src\/.*\.tsx$/],
           exclude: [/\.test\.tsx$/, /\/node_modules\//],
         },
         code: /\b[A-Z]|\buse/,
@@ -313,38 +310,6 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: ["packages/plugin-*/src/**"],
-        excludeFiles: ["packages/plugin-host-adapter/**", "packages/plugin-host-contract/**"],
-        rules: {
-          "eslint/no-restricted-imports": [
-            "error",
-            {
-              patterns: [
-                {
-                  group: [
-                    "**/apps/**",
-                    "**/client-runtime/**",
-                    "**/plugin-host-adapter/**",
-                    "**/contracts/**",
-                    "**/shared/**",
-                    "@t3tools/client-runtime",
-                    "@t3tools/client-runtime/**",
-                    "@t3tools/plugin-host-adapter",
-                    "@t3tools/plugin-host-adapter/**",
-                    "@t3tools/contracts",
-                    "@t3tools/contracts/**",
-                    "@t3tools/shared",
-                    "@t3tools/shared/**",
-                  ],
-                  message:
-                    "Plugins use @t3tools/plugin-host-contract and their own contracts. T3 implementation dependencies belong in the host adapter.",
-                },
-              ],
-            },
-          ],
-        },
-      },
-      {
         files: [
           "**/*.{test,spec,testkit}.{ts,tsx}",
           "**/{test,tests,testkit,testing,fixtures,integration}/**",
@@ -360,9 +325,6 @@ export default defineConfig({
       },
       {
         files: ["apps/web/**/*.test.{ts,tsx}"],
-        // The fork's plugin tests render through react-test-renderer and jsdom, outside the
-        // browser runner that apps/web/test/render.tsx serves.
-        excludeFiles: ["apps/web/integration/**", "apps/web/src/plugins/workflowsEditor.test.tsx"],
         rules: { "t3code/require-disposable-render": "error" },
       },
       {

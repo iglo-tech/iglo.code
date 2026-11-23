@@ -1,6 +1,6 @@
 ---
 name: sync-upstream
-description: Import T3 Code upstream changes into iglo.code while preserving its web-only scope, Bun runtime, fork distribution, plugin workflows, and local-only checks. Use for upstream merges, snapshot imports, or removing restored desktop/mobile apps and devcontainer setup.
+description: Import T3 Code upstream changes into iglo.code while preserving its web-only scope, Bun runtime, fork distribution, and local-only checks. Use for upstream merges, snapshot imports, or removing restored desktop/mobile apps and devcontainer setup.
 ---
 
 # Sync upstream into iglo.code

@@ -1,6 +1,4 @@
 import * as Cache from "effect/Cache";
-import * as PluginMcp from "@t3tools/plugin-host-adapter/mcp";
-import * as PluginMcpTool from "../../../../packages/plugin-host-adapter/src/McpTool.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -1442,67 +1440,7 @@ export const layerMcpTransport = <RA, RE, RR>(registrations: Layer.Layer<RA, RE,
     registrations,
   }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
-const isMcpCallToolResult = Schema.is(McpSchema.CallToolResult);
-
-const layerPluginToolkitRegistration = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const server = yield* McpServer.McpServer;
-    const threads = yield* ThreadManagementService.ThreadManagementService;
-    yield* PluginMcp.register((definition, handle) =>
-      Effect.gen(function* () {
-        const tool = Tool.make(definition.id, {
-          parameters: Schema.Record(Schema.String, Schema.Unknown),
-          success: McpSchema.CallToolResult,
-          failure: OrchestratorMcpFailure,
-          dependencies: [
-            McpInvocationContext.McpInvocationContext,
-            ThreadManagementService.ThreadManagementService,
-          ],
-        }).annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
-        const toolkit = Toolkit.make(tool);
-        const declare = definition.permission.readOnly
-          ? McpToolAccess.readsAsCaller
-          : McpToolAccess.writesPluginStateAsCaller;
-        const handlers = McpToolAccess.toLayer(toolkit, { [definition.id]: declare(handle) });
-        const context = yield* Layer.build(McpToolAccess.HandlersLayer.layer(handlers));
-        const built = yield* toolkit.pipe(Effect.provide(context));
-        yield* server.addTool({
-          tool: PluginMcpTool.make(definition),
-          annotations: tool.annotations,
-          handle: (payload) =>
-            Effect.withFiber((fiber) =>
-              built.handle(definition.id, payload).pipe(
-                Stream.unwrap,
-                Stream.run(Sink.last()),
-                Effect.flatMap(Effect.fromOption),
-                Effect.flatMap(({ result }) =>
-                  isMcpCallToolResult(result) ? Effect.succeed(result) : Effect.fail(result),
-                ),
-                Effect.provideService(ThreadManagementService.ThreadManagementService, threads),
-                Effect.provideService(
-                  McpInvocationContext.McpInvocationContext,
-                  Context.getUnsafe(fiber.context, McpInvocationContext.McpInvocationContext),
-                ),
-                Effect.catchTags({
-                  OrchestratorMcpFailure: (error) =>
-                    Effect.succeed(
-                      new McpSchema.CallToolResult({
-                        isError: true,
-                        structuredContent: { error: { code: error.code, message: error.message } },
-                        content: [{ type: "text", text: error.message }],
-                      }),
-                    ),
-                }),
-                Effect.orDie,
-              ),
-            ),
-        });
-      }),
-    );
-  }).pipe(Effect.forkScoped, Effect.asVoid),
-);
-
-/** Every built-in tool the T3 MCP server advertises. AgentContextBudget.test.ts measures this set. */
+/** Every tool the T3 MCP server advertises. AgentContextBudget.test.ts measures this set. */
 export const layerTools = Layer.mergeAll(
   layerPreviewToolkit,
   layerOrchestratorToolkit,
@@ -1632,5 +1570,5 @@ export const layerMilestoneEvents = Layer.effectDiscard(
 );
 
 export const layer = layerMcpTransport(
-  Layer.mergeAll(layerPluginToolkitRegistration, layerTools, layerToolSearch, layerMilestoneEvents),
+  Layer.mergeAll(layerTools, layerToolSearch, layerMilestoneEvents),
 );

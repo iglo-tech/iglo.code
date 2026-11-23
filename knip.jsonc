@@ -124,15 +124,11 @@
       ],
     },
     "apps/web": {
-      // The fork's plugin integration tests load this through createRequire.
-      "ignoreDependencies": ["jsdom"],
       // Worktree setup (scripts/setup-worktree.ts) runs this directly, and evidence
       // fixtures run under node.
       "entry": [
         "scripts/warm-dep-cache.ts",
         "scripts/verify-built-boot.ts",
-        "integration/setup.ts",
-        "integration/vite.config.ts",
         "test/fixtures/**/*.mjs",
       ],
       // UI component modules are copied and adapted as cohesive sets. Keep their

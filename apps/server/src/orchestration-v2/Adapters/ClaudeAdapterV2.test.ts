@@ -92,7 +92,6 @@ import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import { T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH } from "@t3tools/provider-core/server/orchestrationInstructions";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
-import { makePluginToolFixture } from "../../plugins/PluginHost.testkit.ts";
 import { PreviewControlsToolkit } from "../../mcp/toolkits/previewControls/tools.ts";
 import { HtmlToolkit } from "../../mcp/toolkits/html/tools.ts";
 import { MessageToolkit } from "../../mcp/toolkits/message/tools.ts";
@@ -775,23 +774,6 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     assert.deepEqual(overrides.allowedTools, [
       ...ClaudeAdapterV2.CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS,
     ]);
-  });
-
-  it("explicitly allows the mutating report tool in a read-only session", () => {
-    const threadId = ThreadId.make("plugin-read-only");
-    const mcpSession: McpProviderSession.McpProviderSessionConfig = {
-      environmentId: EnvironmentId.make("plugin-environment"),
-      threadId,
-      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
-      providerSessionId: "plugin-session",
-      endpoint: "http://127.0.0.1:3773/mcp",
-      authorizationHeader: "Bearer plugin",
-      browserToolsAvailable: false,
-      readOnlyPluginTools: ["plugin_fixture_report"],
-    };
-    const policy = ClaudeAdapterV2.claudeMcpQueryOverrides({ mcpSession, readOnlySandbox: true });
-    assert.include(policy.allowedTools ?? [], "mcp__iglo-code__plugin_fixture_report");
-    assert.notInclude(policy.allowedTools ?? [], "mcp__iglo-code__*");
   });
 
   it("keys live-query reuse on the MCP-derived pre-approvals", () => {
@@ -3509,10 +3491,6 @@ describe("ClaudeAdapterV2 native session identity", () => {
   const openTurnWithOrdinal = (
     providerTurnOrdinal: number,
     nativeThreadHasTurns?: boolean,
-    plugin?: {
-      readonly credential: McpProviderSession.McpProviderSessionConfig;
-      readonly mcpSessions: McpProviderSessions.McpProviderSessions["Service"];
-    },
     importedNativeThreadId?: string,
   ) =>
     Effect.scoped(
@@ -3577,10 +3555,7 @@ describe("ClaudeAdapterV2 native session identity", () => {
             assertComplete: Effect.void,
           },
         });
-        const threadId =
-          plugin?.credential.threadId ?? ThreadId.make("thread-claude-session-identity");
-        if (plugin !== undefined)
-          yield* (yield* McpProviderSessions.McpProviderSessions).set(plugin.credential);
+        const threadId = ThreadId.make("thread-claude-session-identity");
         const providerSessionId = ProviderSessionId.make("provider-session-claude-identity");
         const runtime = yield* adapter.openSession({
           threadId,
@@ -3648,69 +3623,13 @@ describe("ClaudeAdapterV2 native session identity", () => {
         Effect.provide(
           Layer.mergeAll(
             IdAllocator.layer,
-            // A plugin credential must land in the session map its environment's tools read.
-            plugin === undefined
-              ? McpProviderSessions.layer
-              : Layer.succeed(McpProviderSessions.McpProviderSessions, plugin.mcpSessions),
+            McpProviderSessions.layer,
             Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
             NodeCrypto.layer,
           ),
         ),
       ),
     );
-
-  it.live(
-    "injects plugin reporting tools on new and resumed sessions with refreshed credentials",
-    () =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const fixture = yield* makePluginToolFixture(
-            "claudeAgent",
-            ThreadId.make("thread-claude-session-identity"),
-            { workflow: true, runtimeMode: CLAUDE_TEST_RUNTIME_POLICY.runtimeMode },
-          );
-          const initialCredential = yield* fixture.issue;
-          const first = yield* openTurnWithOrdinal(1, undefined, {
-            credential: initialCredential,
-            mcpSessions: fixture.mcpSessions,
-          });
-          assert.equal(first[0]?.options.sessionId, "native-session-identity");
-          const firstConnection = first[0]?.options.mcpServers?.["iglo-code"];
-          if (firstConnection === undefined || !("url" in firstConnection))
-            return yield* Effect.die("Missing managed MCP connection");
-          assert.equal(
-            firstConnection.headers?.Authorization,
-            initialCredential.authorizationHeader,
-          );
-          yield* fixture.report(
-            { url: firstConnection.url, headers: { ...firstConnection.headers } },
-            "first",
-          );
-          const freshCredential = yield* fixture.issue;
-          assert.notEqual(
-            initialCredential.authorizationHeader,
-            freshCredential.authorizationHeader,
-          );
-          const resumed = yield* openTurnWithOrdinal(2, undefined, {
-            credential: freshCredential,
-            mcpSessions: fixture.mcpSessions,
-          });
-          assert.equal(resumed[0]?.options.resume, "native-session-identity");
-          const resumedConnection = resumed[0]?.options.mcpServers?.["iglo-code"];
-          if (resumedConnection === undefined || !("url" in resumedConnection))
-            return yield* Effect.die("Missing resumed MCP connection");
-          assert.equal(
-            resumedConnection.headers?.Authorization,
-            freshCredential.authorizationHeader,
-          );
-          yield* fixture.report(
-            { url: resumedConnection.url, headers: { ...resumedConnection.headers } },
-            "resumed",
-          );
-          assert.include(resumed[0]?.options.allowedTools ?? [], "mcp__iglo-code__*");
-        }),
-      ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
-  );
 
   it.effect("creates the native session on the first provider turn", () =>
     Effect.gen(function* () {
@@ -3744,12 +3663,7 @@ describe("ClaudeAdapterV2 native session identity", () => {
 
   it.effect("resumes an imported native session on its first T3 turn", () =>
     Effect.gen(function* () {
-      const openedQueries = yield* openTurnWithOrdinal(
-        1,
-        false,
-        undefined,
-        "imported-native-session",
-      );
+      const openedQueries = yield* openTurnWithOrdinal(1, false, "imported-native-session");
       assert.equal(openedQueries.length, 1);
       assert.equal(openedQueries[0]?.options.resume, "imported-native-session");
       assert.equal(openedQueries[0]?.options.sessionId, undefined);

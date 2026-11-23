@@ -43,7 +43,6 @@ import {
   type ProviderInstanceId,
   type RunId,
   type RuntimeRequestId,
-  ThreadId,
 } from "@t3tools/contracts";
 import type * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -437,32 +436,13 @@ export const t3McpServerName = Effect.fn("t3McpServerName")(function* (threadId:
   return `iglo-code-${Hex.encode(digest).slice(0, 16)}`;
 });
 
-// Last match wins: deny all threads' T3 servers, then allow only this thread's. Supervised plugin
-// mutations ask unless explicitly allowed; a subagent's session inherits the thread's rules.
-const mcpRules = (
-  mcpServerName: string | null,
-  readOnlyPluginTools: ReadonlyArray<string>,
-  policy: RulesPolicy,
-): ReadonlyArray<Rule> =>
+// Last match wins: deny all threads' T3 servers, then allow only this thread's.
+const mcpRules = (mcpServerName: string | null): ReadonlyArray<Rule> =>
   mcpServerName === null
     ? []
     : [
         { action: "iglo-code-*", resource: "*", effect: "deny" },
         { action: `${mcpServerName}_*`, resource: "*", effect: "allow" },
-        ...(policy.runtimeMode === "full-access"
-          ? []
-          : [
-              {
-                action: `${mcpServerName}_plugin_*`,
-                resource: "*",
-                effect: "ask" as const,
-              },
-            ]),
-        ...readOnlyPluginTools.map((id) => ({
-          action: `${mcpServerName}_${id}`,
-          resource: "*",
-          effect: "allow" as const,
-        })),
       ];
 
 const sessionRules = (
@@ -470,7 +450,6 @@ const sessionRules = (
   paths: ReadonlyArray<Rule>,
   grants: ReadonlyArray<Rule>,
   mcpServerName: string | null,
-  readOnlyPluginTools: ReadonlyArray<string>,
 ): ReadonlyArray<Rule> => [
   ...(policy.runtimeMode === "full-access"
     ? [rule("*", "allow")]
@@ -492,7 +471,7 @@ const sessionRules = (
   // Plan edits are re-allowed only for plan paths; free-tier sessions refuse denied shell/read.
   ...(policy.interactionMode === "plan" ? [rule("edit", "deny")] : []),
   ...paths,
-  ...mcpRules(mcpServerName, readOnlyPluginTools, policy),
+  ...mcpRules(mcpServerName),
 ];
 
 const sameRules = (left: ReadonlyArray<Rule> | undefined, right: ReadonlyArray<Rule>) =>
@@ -4123,20 +4102,10 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         paths,
         policy.runtimeMode === "full-access" ? [] : thread.grants,
         appThreadId === null ? null : yield* mcpServerNameFor(appThreadId),
-        appThreadId === null
-          ? []
-          : ((yield* mcpSessions.read(ThreadId.make(appThreadId)))?.readOnlyPluginTools ?? []),
       );
     });
 
     const writeRules = Effect.fnUntraced(function* (state: ThreadState, policy: RulesPolicy) {
-      const threadId = state.providerThread.appThreadId;
-      const credential =
-        state.subagent === undefined && threadId !== null
-          ? yield* mcpSessions.read(threadId)
-          : undefined;
-      const owner = credential?.providerInstanceId === instanceId ? credential : undefined;
-      yield* mcpSessions.invalidateRuntimePolicy(owner);
       // A subagent's session may use its thread's T3 server, the root's.
       const rules = yield* rulesFor(state, policy, rootOf(state).providerThread.appThreadId);
       if (!sameRules(state.rules, rules)) {
@@ -4147,11 +4116,6 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         state.rules = rules;
       }
       state.policy = policy;
-      // Resume and compaction apply rules without the manager's startTurn hook.
-      yield* mcpSessions.updateRuntimePolicy(owner, {
-        ...policy,
-        cwd: state.directory,
-      });
     });
 
     const writeTitle = Effect.fnUntraced(function* (state: ThreadState, title: string) {
