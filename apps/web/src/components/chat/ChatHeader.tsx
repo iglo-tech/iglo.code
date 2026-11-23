@@ -43,7 +43,6 @@ import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { useClientSettings } from "../../hooks/useSettings";
-import { PluginProjectActions, PluginThreadContext } from "../../plugins/PluginSlots";
 import { GuestShareIndicator } from "./GuestShareControls";
 
 interface ChatHeaderProps {
@@ -412,21 +411,6 @@ export const ChatHeader = memo(function ChatHeader({
           ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
-      {activeProject !== null && isServerThread ? (
-        <PluginThreadContext
-          target={{
-            environmentId: activeThreadEnvironmentId,
-            projectId: activeProject.id,
-            threadId: activeThreadId,
-          }}
-        />
-      ) : null}
-      {activeProject === null ? null : (
-        <PluginProjectActions
-          environmentId={activeThreadEnvironmentId}
-          projectId={activeProject.id}
-        />
-      )}
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
     </div>
   );

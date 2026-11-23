@@ -32,7 +32,6 @@ import {
   RpcScopeAuthorization,
   WS_METHODS,
   WsRpcGroup,
-  COMPILED_PLUGIN_RPC_SCOPES,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -43,7 +42,6 @@ import { isProviderSignOutPrompt } from "../orchestration-v2/CommandPolicy.ts";
 type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
 export const RPC_REQUIRED_SCOPES = {
-  ...COMPILED_PLUGIN_RPC_SCOPES,
   ...CLIENT_GUARDED_RPC_SCOPES,
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: AuthOrchestrationReadScope,

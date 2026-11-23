@@ -8,14 +8,6 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 
 import type { McpProviderSessionConfig } from "./mcpSession.ts";
-import type { ProviderAdapterV2RuntimePolicy } from "./ProviderAdapter.ts";
-
-const isSameSession = (
-  session: McpProviderSessionConfig | undefined,
-  owner: McpProviderSessionConfig,
-): session is McpProviderSessionConfig =>
-  session?.providerInstanceId === owner.providerInstanceId &&
-  session.providerSessionId === owner.providerSessionId;
 
 // Other providers may never consume these references.
 const MAX_KEPT_HTML_RENDERS = 64;
@@ -42,14 +34,6 @@ export class McpProviderSessions extends Context.Service<
     readonly set: (config: McpProviderSessionConfig) => Effect.Effect<void>;
     readonly read: (threadId: ThreadId) => Effect.Effect<McpProviderSessionConfig | undefined>;
     readonly clear: (threadId: ThreadId) => Effect.Effect<void>;
-    /** Capture `owner` before native I/O so a retired query cannot change its replacement. */
-    readonly updateRuntimePolicy: (
-      owner: McpProviderSessionConfig | undefined,
-      runtimePolicy: ProviderAdapterV2RuntimePolicy | undefined,
-    ) => Effect.Effect<void>;
-    readonly invalidateRuntimePolicy: (
-      owner: McpProviderSessionConfig | undefined,
-    ) => Effect.Effect<void>;
     readonly recordHtmlRender: (
       threadId: ThreadId,
       input: {
@@ -195,27 +179,6 @@ const make = Effect.gen(function* () {
             next.set(threadId, rest);
           }
           return [kept[index]!.reference, next];
-        });
-      },
-    ),
-    updateRuntimePolicy: Effect.fn("McpProviderSessions.updateRuntimePolicy")(
-      function (owner, runtimePolicy) {
-        if (owner === undefined || runtimePolicy === undefined) return Effect.void;
-        return Ref.update(sessions, (current) => {
-          const session = current.get(owner.threadId);
-          if (!isSameSession(session, owner)) return current;
-          return new Map(current).set(owner.threadId, { ...session, runtimePolicy });
-        });
-      },
-    ),
-    invalidateRuntimePolicy: Effect.fn("McpProviderSessions.invalidateRuntimePolicy")(
-      function (owner) {
-        if (owner === undefined) return Effect.void;
-        return Ref.update(sessions, (current) => {
-          const session = current.get(owner.threadId);
-          if (!isSameSession(session, owner)) return current;
-          const { runtimePolicy: _runtimePolicy, ...config } = session;
-          return new Map(current).set(owner.threadId, config);
         });
       },
     ),

@@ -79,11 +79,6 @@ export interface CommandReceiptStoreV2Shape {
   readonly getProjectByCommandId: (
     commandId: CommandId,
   ) => Effect.Effect<Option.Option<ProjectCommandReceiptV2>, CommandReceiptStoreV2Error>;
-  readonly hasPendingWorkspacePreparation: (
-    threadId: ThreadId,
-    commandId: CommandId,
-    includeNativePreparations?: boolean,
-  ) => Effect.Effect<boolean, CommandReceiptStoreV2Error>;
 }
 
 export class CommandReceiptStoreV2 extends Context.Service<
@@ -142,10 +137,6 @@ const layerBase: Layer.Layer<
     const receipts = yield* OrchestrationCommandReceipts.OrchestrationCommandReceiptRepository;
 
     return CommandReceiptStoreV2.of({
-      hasPendingWorkspacePreparation: (threadId, commandId, includeNativePreparations) =>
-        receipts
-          .hasPendingWorkspacePreparation(threadId, includeNativePreparations)
-          .pipe(Effect.mapError((cause) => new CommandReceiptStoreReadError({ commandId, cause }))),
       insertIfAbsent: (receipt) =>
         receipts.insertIfAbsent(toApplicationReceipt(receipt)).pipe(
           Effect.mapError(

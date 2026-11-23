@@ -136,7 +136,6 @@ import { useLocalStorage } from "../hooks/useLocalStorage";
 import { SidebarScheduledShelf, type SidebarScheduledEntry } from "./sidebar/SidebarScheduledShelf";
 import { scheduledTasksListAtom } from "../state/scheduledTasks";
 import { environmentIdsKey } from "../state/environmentAtomList";
-import { PluginSidebarAttention } from "../plugins/PluginSlots";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
   useEnvironmentIdentities,
@@ -3080,7 +3079,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             }
           >
             <SidebarGroup className="flex-1" role="presentation">
-              {isSearchingThreads ? null : <PluginSidebarAttention />}
               {isSearchingThreads ? (
                 threadSearchResults.length > 0 ? (
                   <TooltipProvider

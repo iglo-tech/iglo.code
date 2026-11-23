@@ -141,7 +141,6 @@ Read the matching doc before changing code in that area; code review enforces th
 | Wire budgets & perf                        | [16_performance-regressions.md](docs/internals/16_performance-regressions.md)                            |
 | Repo & package scripts                     | [17_scripts.md](docs/internals/17_scripts.md)                                                            |
 | Bun runtime and platform adapters          | [bun-runtime.md](docs/internals/bun-runtime.md)                                                          |
-| Plugin host and workflow plugin            | [plugins.md](docs/internals/plugins.md)                                                                  |
 
 ## Taste
 

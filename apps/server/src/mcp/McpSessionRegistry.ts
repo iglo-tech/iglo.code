@@ -12,7 +12,6 @@ import * as NetAddress from "effect/net/NetAddress";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
-import * as McpToolPolicy from "./McpToolPolicy.ts";
 
 export interface McpCredentialRequest {
   readonly threadId: ThreadId;
@@ -95,7 +94,6 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const digest = yield* Digest.Digest;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const environmentId = yield* environment.getEnvironmentId;
-  const pluginPolicy = yield* Effect.serviceOption(McpToolPolicy.McpToolPolicy);
   const httpServer = yield* HttpServer.HttpServer;
   const state = yield* SynchronizedRef.make<RegistryState>({ records: new Map() });
   const { now } = options;
@@ -161,8 +159,6 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           authorizationHeader: `Bearer ${rawToken}`,
           browserToolsAvailable: scope.capabilities.has("preview"),
           capabilities: scope.capabilities,
-          readOnlyPluginTools:
-            pluginPolicy._tag === "Some" ? yield* pluginPolicy.value.readOnlyPluginTools : [],
         },
       };
     },

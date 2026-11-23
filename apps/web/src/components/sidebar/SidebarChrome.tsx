@@ -21,7 +21,6 @@ import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
-import { PluginSidebarItems } from "../../plugins/PluginSlots";
 
 function SidebarUtilityItem({
   icon,
@@ -92,8 +91,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   };
 
   return (
-    // Plugin entries add icons; narrow sidebars wrap them instead of pushing past the edge.
-    <SidebarMenu className="flex-row flex-wrap items-center">
+    <SidebarMenu className="flex-row items-center">
       {isOnUtilityPage ? (
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
@@ -129,7 +127,6 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label={gt("Usage")}
             onClick={handleUsageClick}
           />
-          <PluginSidebarItems />
         </>
       )}
       <SidebarThreadUndoNotice />

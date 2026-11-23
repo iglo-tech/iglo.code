@@ -107,9 +107,6 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsRpcGroup,
-  CoreWsRpcGroup,
-  CompiledPluginRpcGroup,
-  RpcScopeAuthorization,
 } from "@t3tools/contracts";
 import {
   HttpRouter,
@@ -135,8 +132,6 @@ import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
-import * as PluginRegistry from "@t3tools/plugin-host-adapter/registry";
-import * as CompiledPlugins from "./plugins/compiled.ts";
 import * as Workflows from "./workflows/Workflows.ts";
 import * as WorkflowRuntime from "./workflows/WorkflowRuntime.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
@@ -733,18 +728,12 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
-// Handlers are keyed per RPC, so the core and compiled plugin halves are built as
-// separate layers; one group spanning both exceeds TypeScript's instantiation depth.
-const ServerCoreWsRpcGroup =
-  CoreWsRpcGroup.middleware(RpcScopeAuthorization).middleware(RpcInstrumentation);
-const ServerPluginWsRpcGroup =
-  CompiledPluginRpcGroup.middleware(RpcScopeAuthorization).middleware(RpcInstrumentation);
 
 // RpcGroup.toLayer derives each handler's requirements by scanning every RPC in
 // the group, so its type cost grows with handlers × RPCs. Near 200 methods that
 // crosses TypeScript's instantiation limit and the layer's requirements degrade to
 // `any`, so the core handlers are registered as two disjoint, smaller groups.
-type ServerWsRpc = RpcGroup.Rpcs<typeof ServerCoreWsRpcGroup>;
+type ServerWsRpc = RpcGroup.Rpcs<typeof ServerWsRpcGroup>;
 const SPLIT_WS_RPC_PREFIXES = [
   "server",
   "pullRequests",
@@ -761,7 +750,7 @@ const isSplitWsRpc = (rpc: ServerWsRpc): rpc is SplitWsRpc =>
   SPLIT_WS_RPC_PREFIXES.some((prefix) => rpc._tag.startsWith(`${prefix}.`));
 const isOtherWsRpc = (rpc: ServerWsRpc): rpc is Exclude<ServerWsRpc, SplitWsRpc> =>
   !isSplitWsRpc(rpc);
-const serverWsRpcs = Array.from(ServerCoreWsRpcGroup.requests.values());
+const serverWsRpcs = Array.from(ServerWsRpcGroup.requests.values());
 const SplitWsRpcGroup = RpcGroup.make(...serverWsRpcs.filter(isSplitWsRpc));
 const OtherWsRpcGroup = RpcGroup.make(...serverWsRpcs.filter(isOtherWsRpc));
 function toAuthAccessStreamEvent(
@@ -2018,7 +2007,7 @@ export const layerWsRpc = (
         return yield* mutateProjectWithClone(projectService, projectCloneTracker, mutation);
       });
 
-      const handlers = ServerCoreWsRpcGroup.of({
+      const handlers = ServerWsRpcGroup.of({
         [WS_METHODS.issuesList]: (input) => issues.list(input),
         [WS_METHODS.issuesDetail]: (input) => issues.detail(input),
         [WS_METHODS.issuesComments]: (input) => issues.comments(input),
@@ -3737,15 +3726,6 @@ export const layerWsRpc = (
         yield* OtherWsRpcGroup.toHandlers(otherHandlers),
       );
     }),
-  ).pipe(
-    Layer.merge(
-      ServerPluginWsRpcGroup.toLayer(
-        Effect.gen(function* () {
-          const registry = yield* PluginRegistry.PluginRegistry;
-          return ServerPluginWsRpcGroup.of(CompiledPlugins.handlers(registry));
-        }),
-      ),
-    ),
   );
 
 // Default socket-level Defect frames end every pending client request.

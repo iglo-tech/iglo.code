@@ -3,7 +3,6 @@ import { toolOutputImages } from "@t3tools/shared/toolOutput";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { makePluginToolFixture } from "../../plugins/PluginHost.testkit.ts";
 import {
   ChatAttachmentId,
   ChatFileAttachment,
@@ -43,7 +42,6 @@ import { TestClock } from "effect/testing";
 
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
-import type { McpProviderSessionConfig } from "@t3tools/provider-core/server/mcpSession";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -99,10 +97,6 @@ const durable = { durable: { aggregateID: SESSION, seq: 1, version: 1 } };
 const mcpRules = [
   { action: "iglo-code-*", resource: "*", effect: "deny" },
   { action: "iglo-code-thread_opencode2-adapter_*", resource: "*", effect: "allow" },
-];
-const supervisedMcpRules = [
-  ...mcpRules,
-  { action: "iglo-code-thread_opencode2-adapter_plugin_*", resource: "*", effect: "ask" },
 ];
 const t3Rules = [{ action: "*", resource: "*", effect: "allow" }, ...mcpRules];
 const TITLE = "Prime check";
@@ -297,7 +291,7 @@ const supervisedRules = [
   { action: "edit", resource: "*", effect: "ask" },
   { action: "external_directory", resource: "*", effect: "ask" },
   ...buildPaths,
-  ...supervisedMcpRules,
+  ...mcpRules,
 ];
 
 const shellAsk = {
@@ -1592,7 +1586,7 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         reply("session.update", null),
         out("session.update", {
           sessionID: CHILD,
-          permissions: [...supervisedRules.slice(0, 3), ...supervisedMcpRules],
+          permissions: [...supervisedRules.slice(0, 3), ...mcpRules],
         }),
         reply("session.update", null),
         out("session.prompt", { sessionID: SESSION, text: "<any>" }),
@@ -3340,7 +3334,7 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
               ...supervisedRules.slice(0, 3),
               { action: "shell", resource: "echo *", effect: "allow" },
               // A subagent's session may use its thread's T3 MCP server.
-              ...supervisedMcpRules,
+              ...mcpRules,
             ],
           }),
           reply("session.update", null),
@@ -3506,7 +3500,7 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         }),
         out("session.update", {
           sessionID: CHILD,
-          permissions: [...supervisedRules.slice(0, 3), ...supervisedMcpRules],
+          permissions: [...supervisedRules.slice(0, 3), ...mcpRules],
         }),
         reply("session.update", null),
         event("session.execution.started", { sessionID: CHILD }),
@@ -5747,128 +5741,6 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         assert.equal((yield* Fiber.join(terminal))?.status, "completed");
         yield* runtime.unloadThread!({ providerThread: thread });
       }).pipe(Effect.scoped),
-  );
-
-  // A real environment serves the reports, so this runs on the live clock.
-  it.effect.each(["full-access", "approval-required"] as const)(
-    "injects plugin reporting permission on new and resumed managed sessions with refreshed credentials in %s",
-    (runtimeMode) =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const fixture = yield* makePluginToolFixture("opencode", threadId, {
-            workflow: true,
-            runtimeMode: policy(runtimeMode).runtimeMode,
-          });
-          const workflowThreadId = fixture.threadId;
-          const server = yield* t3McpServerName(workflowThreadId);
-          const pluginRule = {
-            action: `${server}_plugin_fixture_report`,
-            resource: "*",
-            effect: "allow",
-          };
-          const paths =
-            runtimeMode === "full-access"
-              ? []
-              : [out("agent.list", "<any>"), reply("agent.list", agentList)];
-          const permissions = [
-            ...(runtimeMode === "full-access" ? t3Rules : supervisedRules).map((rule) => ({
-              ...rule,
-              action: rule.action.replace("iglo-code-thread_opencode2-adapter", server),
-            })),
-            pluginRule,
-            { action: `${server}_plugin_workflows_report`, resource: "*", effect: "allow" },
-          ];
-          const firstCredential = yield* fixture.issue;
-          const injection = (credential: McpProviderSessionConfig) => [
-            out("mcp.add", {
-              server,
-              "location[directory]": WORK,
-              config: {
-                type: "remote",
-                url: credential.endpoint,
-                headers: { Authorization: credential.authorizationHeader },
-                oauth: false,
-              },
-            }),
-            reply("mcp.add", null),
-            out("session.prompt", { sessionID: SESSION, text: "<any>" }),
-            promptAccepted,
-            event("session.execution.succeeded", { sessionID: SESSION }),
-            out("mcp.remove", { server, "location[directory]": WORK }),
-            reply("mcp.remove", null),
-          ];
-          const first = yield* openCode2ReplayRuntimeWithInstructions(
-            [
-              ...opening,
-              ...paths,
-              out("session.create", {
-                id: null,
-                parentID: null,
-                title: null,
-                agent: null,
-                location: { directory: WORK },
-                model: { providerID: "opencode", id: "big-pickle" },
-                metadata: null,
-                permissions,
-              }),
-              replyData("session.create", sessionInfo({ permissions })),
-              ...injection(firstCredential),
-            ],
-            { threadId: workflowThreadId },
-          ).pipe(
-            Effect.provideService(McpProviderSessions.McpProviderSessions, fixture.mcpSessions),
-          );
-          const created = yield* first.ensureThread({
-            threadId: workflowThreadId,
-            modelSelection: bigPickle,
-            runtimePolicy: policy(runtimeMode),
-          });
-          const initialTerminal = yield* terminalOf(first).pipe(Effect.forkScoped);
-          yield* first.startTurn(turnInput(created, bigPickle, runtimeMode));
-          assert.equal((yield* Fiber.join(initialTerminal))?.status, "completed");
-          yield* fixture.report(
-            {
-              url: firstCredential.endpoint,
-              headers: { Authorization: firstCredential.authorizationHeader },
-            },
-            "first",
-          );
-          const freshCredential = yield* fixture.issue;
-          assert.notEqual(firstCredential.authorizationHeader, freshCredential.authorizationHeader);
-          const second = yield* openCode2ReplayRuntimeWithInstructions(
-            [
-              ...opening,
-              out("session.get", { sessionID: SESSION }),
-              replyData("session.get", sessionInfo({ permissions })),
-              ...noOpenRequests,
-              ...paths,
-              ...injection(freshCredential),
-            ],
-            { threadId: workflowThreadId },
-          ).pipe(
-            Effect.provideService(McpProviderSessions.McpProviderSessions, fixture.mcpSessions),
-          );
-          const resumedThread = yield* second.resumeThread({
-            providerThread: created,
-            threadId: workflowThreadId,
-            modelSelection: bigPickle,
-            runtimePolicy: policy(runtimeMode),
-          });
-          const resumedTerminal = yield* terminalOf(second).pipe(Effect.forkScoped);
-          yield* second.startTurn(turnInput(resumedThread, bigPickle, runtimeMode));
-          assert.equal((yield* Fiber.join(resumedTerminal))?.status, "completed");
-          yield* fixture.report(
-            {
-              url: freshCredential.endpoint,
-              headers: { Authorization: freshCredential.authorizationHeader },
-            },
-            "resumed",
-          );
-        }),
-      ).pipe(
-        Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-        TestClock.withLive,
-      ),
   );
 
   // regression: #37816

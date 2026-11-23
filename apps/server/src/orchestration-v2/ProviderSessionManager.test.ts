@@ -490,7 +490,6 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
     readonly startTurn?: Effect.Effect<void, ProviderAdapter.ProviderAdapterProtocolError>;
     readonly interruptTurn?: Effect.Effect<void>;
     readonly beforeUnload?: Effect.Effect<void>;
-    readonly beforeResume?: Effect.Effect<void, ProviderAdapter.ProviderAdapterProtocolError>;
     readonly unloads?: Queue.Queue<string>;
     readonly archive?: Effect.Effect<void, ProviderAdapter.ProviderAdapterProtocolError>;
     readonly spawnBeforeOpen?: boolean;
@@ -607,15 +606,10 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
               }),
           ensureThread: () => unimplemented("ensureThread unused in test"),
           resumeThread: (threadInput) =>
-            (options.beforeResume ?? Effect.void).pipe(
-              Effect.andThen(
-                Ref.update(state, (current) => ({
-                  ...current,
-                  resumeCount: current.resumeCount + 1,
-                })),
-              ),
-              Effect.as(threadInput.providerThread),
-            ),
+            Ref.update(state, (current) => ({
+              ...current,
+              resumeCount: current.resumeCount + 1,
+            })).pipe(Effect.as(threadInput.providerThread)),
           startTurn: () => options.startTurn ?? Effect.void,
           steerTurn: () => Effect.void,
           interruptTurn: () =>
@@ -684,7 +678,6 @@ function layerTest(input: {
   readonly startTurn?: Effect.Effect<void, ProviderAdapter.ProviderAdapterProtocolError>;
   readonly interruptTurn?: Effect.Effect<void>;
   readonly beforeUnload?: Effect.Effect<void>;
-  readonly beforeResume?: Effect.Effect<void, ProviderAdapter.ProviderAdapterProtocolError>;
   readonly unloads?: Queue.Queue<string>;
   readonly archive?: Effect.Effect<void, ProviderAdapter.ProviderAdapterProtocolError>;
   readonly spawnBeforeOpen?: boolean;
@@ -737,7 +730,6 @@ function layerTest(input: {
       ...(input.startTurn === undefined ? {} : { startTurn: input.startTurn }),
       ...(input.interruptTurn === undefined ? {} : { interruptTurn: input.interruptTurn }),
       ...(input.beforeUnload === undefined ? {} : { beforeUnload: input.beforeUnload }),
-      ...(input.beforeResume === undefined ? {} : { beforeResume: input.beforeResume }),
       ...(input.unloads === undefined ? {} : { unloads: input.unloads }),
       ...(input.archive === undefined ? {} : { archive: input.archive }),
       ...(input.spawnBeforeOpen === undefined ? {} : { spawnBeforeOpen: input.spawnBeforeOpen }),
@@ -2611,12 +2603,6 @@ it.effect(
       const mcpConfigs = yield* Ref.make<
         ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
       >([]);
-      const resumeEntered = yield* Deferred.make<void>();
-      const rejectResume = yield* Deferred.make<
-        void,
-        ProviderAdapter.ProviderAdapterProtocolError
-      >();
-      let failingResume = false;
       const effect = Effect.gen(function* () {
         const eventSink = yield* EventSink.EventSinkV2;
         const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -2633,7 +2619,7 @@ it.effect(
         yield* eventSink.write({
           events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
         });
-        const runtime = yield* manager.open({
+        yield* manager.open({
           threadId,
           providerSessionId,
           modelSelection,
@@ -2645,7 +2631,6 @@ it.effect(
         assert.equal(captured?.threadId, threadId);
         assert.equal(captured?.providerInstanceId, modelSelection.instanceId);
         assert.equal(captured?.endpoint, "http://127.0.0.1:43123/mcp");
-        assert.isUndefined((yield* mcpSessions.read(threadId))?.runtimePolicy);
         const token = captured?.authorizationHeader.replace(/^Bearer\s+/, "");
         assert.isDefined(token);
         const resolved = yield* registry.resolve(token!);
@@ -2656,87 +2641,6 @@ it.effect(
         );
 
         assert.isFalse(yield* captured!.hasPendingWake!);
-
-        const providerThread = makeProviderThread({
-          idAllocator,
-          threadId,
-          providerSessionId,
-          now,
-        });
-        const readOnlyPolicy = { ...runtimePolicy, sandboxPolicy: { type: "readOnly" } };
-        yield* runtime.resumeThread({ providerThread, threadId, runtimePolicy: readOnlyPolicy });
-        assert.isUndefined((yield* mcpSessions.read(threadId))?.runtimePolicy);
-        yield* runtime.resumeThread({ providerThread, threadId });
-        assert.isUndefined((yield* mcpSessions.read(threadId))?.runtimePolicy);
-        yield* runtime.resumeThread({ providerThread, threadId, runtimePolicy: readOnlyPolicy });
-
-        const projection = yield* (yield* ProjectionStore.ProjectionStoreV2).getThreadProjection(
-          threadId,
-        );
-        const runId = idAllocator.derive.run({ threadId, ordinal: 1 });
-        const writablePolicy = { ...runtimePolicy, sandboxPolicy: { type: "workspaceWrite" } };
-        const turnInput = {
-          appThread: projection.thread,
-          threadId,
-          runId,
-          runOrdinal: 1,
-          providerTurnOrdinal: 1,
-          attemptId: idAllocator.derive.runAttempt({ runId, attemptOrdinal: 1 }),
-          rootNodeId: idAllocator.derive.rootNode({ runId }),
-          providerThread,
-          message: {
-            createdBy: "user",
-            creationSource: "web",
-            messageId: yield* idAllocator.allocate.message({ threadId, ordinal: 1 }),
-            text: "Apply the writable policy",
-            attachments: [],
-          },
-          modelSelection,
-          runtimePolicy: writablePolicy,
-        } satisfies Parameters<typeof runtime.startTurn>[0];
-        yield* runtime.startTurn({ ...turnInput, runtimePolicy: readOnlyPolicy });
-        yield* manager.open({
-          threadId,
-          providerSessionId,
-          modelSelection,
-          runtimePolicy: writablePolicy,
-        });
-        assert.deepEqual((yield* mcpSessions.read(threadId))?.runtimePolicy, readOnlyPolicy);
-        failingResume = true;
-        const resume = yield* runtime
-          .resumeThread({ providerThread, threadId, modelSelection, runtimePolicy: writablePolicy })
-          .pipe(Effect.result, Effect.forkScoped);
-        yield* Deferred.await(resumeEntered);
-        assert.isUndefined((yield* mcpSessions.read(threadId))?.runtimePolicy);
-        yield* Deferred.fail(
-          rejectResume,
-          new ProviderAdapter.ProviderAdapterProtocolError({
-            driver: CODEX_DRIVER,
-            detail: "Native resume rejected",
-          }),
-        );
-        assert.equal((yield* Fiber.join(resume))._tag, "Failure");
-        assert.isUndefined((yield* mcpSessions.read(threadId))?.runtimePolicy);
-        yield* runtime.startTurn(turnInput);
-        assert.deepEqual((yield* mcpSessions.read(threadId))?.runtimePolicy, writablePolicy);
-        const resumes = (yield* Ref.get(state)).resumeCount;
-        yield* runtime.resumeThread({ providerThread, threadId, runtimePolicy: readOnlyPolicy });
-        assert.equal((yield* Ref.get(state)).resumeCount, resumes);
-        assert.deepEqual((yield* mcpSessions.read(threadId))?.runtimePolicy, writablePolicy);
-        failingResume = false;
-        yield* runtime.resumeThread({
-          providerThread,
-          threadId,
-          modelSelection,
-          runtimePolicy: writablePolicy,
-        });
-        assert.isUndefined((yield* mcpSessions.read(threadId))?.runtimePolicy);
-        yield* runtime.startTurn(turnInput);
-        assert.deepEqual((yield* mcpSessions.read(threadId))?.runtimePolicy, writablePolicy);
-        assert.equal(
-          (yield* mcpSessions.read(threadId))?.providerSessionId,
-          captured?.providerSessionId,
-        );
 
         yield* manager.close(providerSessionId);
         assert.isUndefined(yield* mcpSessions.read(threadId));
@@ -2749,13 +2653,6 @@ it.effect(
             state,
             idleTimeoutMs: 1_000,
             mcpConfigs,
-            beforeResume: Effect.suspend(() =>
-              failingResume
-                ? Deferred.succeed(resumeEntered, undefined).pipe(
-                    Effect.andThen(Deferred.await(rejectResume)),
-                  )
-                : Effect.void,
-            ),
           }),
         ),
       );

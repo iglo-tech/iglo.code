@@ -217,15 +217,6 @@ export type ScheduledTaskUpsertSchedule = typeof ScheduledTaskUpsertSchedule.Typ
 export const ScheduledTaskRunStatus = Schema.Literals(["never", "running", "succeeded", "failed"]);
 export type ScheduledTaskRunStatus = typeof ScheduledTaskRunStatus.Type;
 
-export const ScheduledTaskDispatchTarget = Schema.Struct({
-  id: TrimmedNonEmptyString,
-  payload: Schema.Json,
-  /** The authenticated ceiling retained by this target and its occurrence. */
-  dispatchLimits: Schema.optional(
-    Schema.Struct({ runtimeMode: RuntimeMode, interactionMode: ProviderInteractionMode }),
-  ),
-});
-export type ScheduledTaskDispatchTarget = typeof ScheduledTaskDispatchTarget.Type;
 export const ScheduledTaskWebhookEndpoint = Schema.Struct({
   path: TrimmedNonEmptyString,
   url: Schema.NullOr(TrimmedNonEmptyString),
@@ -251,7 +242,6 @@ export const ScheduledTask = Schema.Struct({
   id: ScheduledTaskId,
   title: TrimmedNonEmptyString,
   prompt: TrimmedNonEmptyString,
-  dispatchTarget: Schema.optional(ScheduledTaskDispatchTarget),
   enabled: Schema.Boolean,
   schedule: ScheduledTaskSchedule,
   projectId: ProjectId,
@@ -298,7 +288,6 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   commandId: Schema.optional(CommandId),
   title: TrimmedNonEmptyString,
   prompt: TrimmedNonEmptyString,
-  dispatchTarget: Schema.optional(ScheduledTaskDispatchTarget),
   enabled: Schema.Boolean,
   schedule: ScheduledTaskUpsertSchedule,
   projectId: ProjectId,
@@ -330,8 +319,6 @@ export type ScheduledTaskDeleteInput = typeof ScheduledTaskDeleteInput.Type;
 
 export const ScheduledTaskRunNowInput = Schema.Struct({
   id: ScheduledTaskId,
-  /** Retry identity for plugin dispatch targets; prompt schedules reject it. */
-  occurrenceId: Schema.optional(TrimmedNonEmptyString),
 });
 export type ScheduledTaskRunNowInput = typeof ScheduledTaskRunNowInput.Type;
 
