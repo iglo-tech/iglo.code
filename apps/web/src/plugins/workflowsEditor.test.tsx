@@ -1141,3 +1141,29 @@ it.each(["save", "replace"] as const)(
     });
   },
 );
+
+it.each([
+  ["workflows.library", projectId],
+  ["workflows.library", null],
+  ["workflows.runs", projectId],
+  ["workflows.runs", null],
+] as const)("%s header opens attention scoped to project %s", async (pageId, scope) => {
+  const { props } = await open("save");
+  await act(async () => renderer!.unmount());
+  const PageView = web.pages.find((page) => page.id === pageId)!.component;
+  const pending = () => new Promise<never>(() => {});
+  const client = { ...props.client, library: pending, subscribeRuns: () => () => {} };
+  await act(async () => {
+    renderer = create(
+      <Suspense fallback={null}>
+        <PageView {...props} client={client} projectId={scope} pageState={{}} />
+      </Suspense>,
+    );
+  });
+  await click("Attention");
+  expect(props.navigate).toHaveBeenLastCalledWith(
+    scope === null
+      ? { pageId: "workflows.attention" }
+      : { pageId: "workflows.attention", projectId: scope },
+  );
+});

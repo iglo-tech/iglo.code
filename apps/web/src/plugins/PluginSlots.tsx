@@ -4,6 +4,7 @@ import type { EnvironmentId, PluginPageState, PluginTarget, ProjectId } from "@t
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
+import { ArrowUpRightIcon } from "lucide-react";
 import { msg, useGT } from "gt-react";
 import { Fragment, useEffect, useState } from "react";
 import { m } from "~/i18n/messages";
@@ -215,14 +216,34 @@ function EnvironmentPluginAttention({
       plugin.context.navigate(link);
     };
     return [
-      <li key={`${summary.pluginId}:header`} className="mx-0.5 list-none">
-        <CollapsibleSectionHeader
-          expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-          accessory={<span className="font-normal tabular-nums">{count ?? "100+"}</span>}
-        >
-          {label}
-        </CollapsibleSectionHeader>
+      <li key={`${summary.pluginId}:header`} className="mx-0.5 flex list-none items-center gap-0.5">
+        <div className="min-w-0 flex-1">
+          <CollapsibleSectionHeader
+            expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            accessory={<span className="font-normal tabular-nums">{count ?? "100+"}</span>}
+          >
+            {label}
+          </CollapsibleSectionHeader>
+        </div>
+        {/* The full view stays reachable when every item already fits in the sidebar. */}
+        {target === null ? null : (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={gt("View all: {section}", { section: label })}
+                  onClick={() => open(target.link)}
+                >
+                  <ArrowUpRightIcon />
+                </Button>
+              }
+            />
+            <TooltipPopup side="top">{gt("View all")}</TooltipPopup>
+          </Tooltip>
+        )}
       </li>,
       ...(!expanded
         ? []

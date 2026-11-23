@@ -16,6 +16,7 @@ import {
 import { useEffect, useState } from "react";
 import type { Definition, LibraryEntry, LibraryPage, WorkflowPermissions } from "../contracts.ts";
 import {
+  AttentionButton,
   draftKey,
   ProjectsAlert,
   noPermissions,
@@ -203,6 +204,7 @@ function Library(props: PageProps) {
 
   const header = (
     <PageHeader breadcrumb={[projectCrumb(props, projects.projects), { label: "Workflows" }]}>
+      <AttentionButton props={props} />
       {projectId === null ? null : (
         <>
           <Button

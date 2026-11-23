@@ -4,6 +4,7 @@ import { FolderIcon, HistoryIcon, PlayIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { RunSummary } from "../contracts.ts";
 import {
+  AttentionButton,
   ProjectsAlert,
   errorMessage,
   projectCrumb,
@@ -103,7 +104,10 @@ function Runs(props: PageProps) {
     );
   return (
     <>
-      <PageHeader breadcrumb={[...crumbs, { label: "Runs" }]}>{start(true)}</PageHeader>
+      <PageHeader breadcrumb={[...crumbs, { label: "Runs" }]}>
+        <AttentionButton props={props} />
+        {start(true)}
+      </PageHeader>
       <div className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 pt-6 pb-12 sm:px-6">
           <ProjectsAlert props={props} projects={projects} />
