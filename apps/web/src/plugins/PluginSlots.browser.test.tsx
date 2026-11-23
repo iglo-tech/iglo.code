@@ -23,7 +23,11 @@ vi.mock(import("../state/environments"), async (original) => ({
 // The real workflow contributions, without the client that would open a connection.
 vi.mock(import("./compiled"), async () => {
   const { bind } = await import("./contributions");
-  return { compiledWebPlugins: [{ manifest: web.manifest, bind: () => bind(web, null as never) }] };
+  return {
+    compiledWebPlugins: [
+      { manifest: web.manifest, navigation: web.navigation, bind: () => bind(web, null as never) },
+    ],
+  };
 });
 vi.mock(import("./runtime"), async () => {
   const { AsyncResult, Atom } = await import("effect/reactivity");

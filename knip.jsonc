@@ -26,6 +26,7 @@
     "packages/client-runtime/src/state/pullRequests.ts": ["exports"],
     "packages/client-runtime/src/state/shell.ts": ["exports"],
     "packages/client-runtime/src/state/shellPullRequests.ts": ["exports"],
+    "packages/client-runtime/src/state/subagentRuntime.ts": ["exports"],
     "packages/client-runtime/src/state/terminalOutput.ts": ["exports"],
     "packages/client-runtime/src/state/terminalSession.ts": ["exports"],
     "packages/client-runtime/src/state/threadState.ts": ["exports"],
