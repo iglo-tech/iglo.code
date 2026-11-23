@@ -120,6 +120,15 @@ const createThread = (s: Effect.Success<ReturnType<typeof setup>>, threadId: Thr
     creationSource: "web",
   });
 
+const threadRuntimePolicy = Layer.succeed(RuntimePolicy.RuntimePolicyV2, {
+  resolve: (input) =>
+    Effect.succeed({
+      runtimeMode: input.thread.runtimeMode,
+      interactionMode: input.thread.interactionMode,
+      cwd: input.thread.worktreePath,
+    }),
+});
+
 it.live("inspection excludes abandoned background work after native rollback", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -513,7 +522,7 @@ it.live("inspection excludes abandoned background work after native rollback", (
         ),
       ).pipe(Effect.provide(context.pipe(Context.merge(ingestor))));
       const rollbackContext = yield* Layer.build(
-        Layer.fresh(Rollback.layer).pipe(Layer.provide(RuntimePolicy.layer)),
+        Layer.fresh(Rollback.layer).pipe(Layer.provide(threadRuntimePolicy)),
       ).pipe(
         Effect.provide(context.pipe(Context.merge(managerContext))),
         Effect.provideService(Ids.IdAllocatorV2, Context.get(deps, Ids.IdAllocatorV2)),

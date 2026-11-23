@@ -3,7 +3,7 @@
 T3 Code is a project built by and for the community of agentic devs pushing the absolute limits of
 modern AI tools.
 
-See the [development runbook](docs/operations/development.md#first-checkout) for the initial checkout,
+See the [development runbook](docs/operations/00_development.md#first-checkout) for the initial checkout,
 development commands, and tests.
 
 T3 Code is built and maintained by a small team with a clear vision. We are explicitly NOT INTERESTED
@@ -141,4 +141,4 @@ the old one.
 
 ## Setup
 
-See the [development runbook](docs/operations/development.md#first-checkout).
+See the [development runbook](docs/operations/00_development.md#first-checkout).

@@ -105,6 +105,20 @@ and lifecycle fixtures supply neither. Preserve same-protocol IPC, handoff and r
 
 Reopen either for an in-scope defect or resolved parent cost, using the qualifying test in [#23](https://github.com/iglo-tech/iglo.code/issues/23).
 
+## Device tools and the resource monitor
+
+The Device panel's two external tools, [expo-device-hub](../../apps/server/src/device/LocalDeviceHost.ts)
+and [agent-device](../../apps/server/src/device/AgentDeviceShim.ts), are installed with Bun at a
+pinned version into the iglo.code home after their Device panel consent step, and run with the
+environment's Bun interpreter, including the one shipped in a compiled archive. Installs are staged
+and versioned so first use after a reboot does not depend on the registry, and remote device-host
+checks use the same supported Bun. The hub stays a supervised child (it loads private CoreSimulator
+frameworks through a native addon) and binds loopback; the only way in is the authenticating
+[proxy](../../apps/server/src/device/DeviceHubProxy.ts). The Rust
+[resource monitor](../../native/resource-monitor/src/main.rs) is a separate child process too, so
+neither depends on a Node/Bun addon ABI. The server is headless here, so host power data stays
+unknown.
+
 ## Diagnostics and APIs already backed by Bun
 
 `node:` imports execute inside Bun; their presence does not mean a Node process

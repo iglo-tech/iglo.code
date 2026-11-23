@@ -31,33 +31,36 @@
 
 ## Working on iglo.code
 
-Start with the [development runbook](./operations/development.md) and
+Start with the [development runbook](./operations/00_development.md) and
 [contribution policy](../CONTRIBUTING.md).
 
-Internal notes preserve architectural decisions, constraints, and implementation traps that the
-source alone does not explain. Most code changes do not need an internal documentation update. Follow the
-[documentation rules](../AGENTS.md#documentation) before adding one.
+Internal docs preserve architectural decisions, trust boundaries, conventions, and cross-cutting
+traps that the source alone does not explain. Most code changes do not need an internal
+documentation update. Follow the [documentation rules](../AGENTS.md#documentation) before adding
+anything.
 
-- [Architecture overview](./internals/overview.md)
-- [Glossary](./internals/glossary.md)
-- [Connection runtime](./internals/connection-runtime.md)
-- [Providers](./internals/providers.md)
-- [Adding a provider](./internals/adding-a-provider.md)
-- [Pull request file revisions](./internals/pull-request-file-revisions.md)
-- [Model classification](./internals/model-manifest.md)
-- [Remote environments](./internals/remote.md)
-- [Server updates](./internals/server-updates.md)
-- [Resource telemetry](./internals/resource-telemetry.md)
-- [Product analytics](./internals/product-analytics.md)
-- [Environment auth](./internals/environment-auth.md)
-- [T3 Connect (upstream, disabled here)](./internals/t3-connect.md)
-- [Assistant citations](./internals/assistant-citations.md)
-- [Terminal runtime](./internals/terminal-runtime.md)
-- [Devices](./internals/devices.md)
-- [Voice input](./internals/voice-input.md)
+### Internals (in reading order)
+
+- [00 · Glossary](./internals/00_glossary.md)
+- [01 · Architecture](./internals/01_architecture.md)
+- [02 · Effect services](./internals/02_effect-services.md)
+- [03 · Providers](./internals/03_providers.md)
+- [04 · Environment auth](./internals/04_environment-auth.md)
+- [05 · Remote environments](./internals/05_remote.md)
+- [06 · T3 Connect (upstream, disabled here)](./internals/06_t3-connect.md)
+- [07 · Server updates](./internals/07_server-updates.md)
+- [08 · Product analytics](./internals/08_product-analytics.md)
+- [09 · Connection runtime](./internals/09_connection-runtime.md)
+- [10 · Web UI](./internals/10_web-ui.md)
+- [14 · Translating the UI (i18n)](./internals/14_i18n.md)
+- [15 · Testing](./internals/15_testing.md)
+- [16 · Performance regression checks](./internals/16_performance-regressions.md)
+- [17 · Scripts](./internals/17_scripts.md)
+- [Bun runtime boundaries](./internals/bun-runtime.md)
+- [Plugins and workflows](./internals/plugins.md)
 
 ### Runbooks
 
-- [Development and local builds](./operations/development.md)
-- [Release](./operations/release.md)
-- [Observability](./operations/observability.md)
+- [00 · Development and local builds](./operations/00_development.md)
+- [03 · Release](./operations/03_release.md)
+- [04 · Observability](./operations/04_observability.md)

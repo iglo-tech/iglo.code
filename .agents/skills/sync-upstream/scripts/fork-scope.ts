@@ -14,6 +14,7 @@ export const REMOVED_PATHS = [
   "scripts/export-android-icons.*",
   "scripts/legend-list-initial-reveal.*",
   "docs/internals/mobile-*",
+  "docs/internals/*_mobile-*",
   ".github/scripts/mobile-*",
   "docs/internals/images/mobile-*",
   "docs/operations/mobile-*",
@@ -27,6 +28,7 @@ export const REMOVED_PATHS = [
   "apps/desktop",
   ".devcontainer",
   "docs/internals/devcontainer.md",
+  "docs/operations/*_devcontainer.md",
   "native/browser-secret",
   "native/apple-speech",
   "native/hyprland-snap-shot",
@@ -66,6 +68,8 @@ export const REMOVED_PATHS = [
   "scripts/lib/server-compile-cache.*",
   "scripts/test-cached.*",
   "scripts/lib/cached-tests.*",
+  // Node/V8-inspector server benchmark; the fork's server runs on Bun.
+  "scripts/server-metrics*",
   // Upstream's e2e scenarios drive the mobile simulator as well as the web client.
   "scripts/scenarios",
   "scripts/e2e.config.*",
@@ -79,6 +83,8 @@ export const REMOVED_PATHS = [
   "docs/user/t3-connect-troubleshooting.md",
   "docs/user/guest-links.md",
   "docs/operations/relay-observability.md",
+  "docs/operations/*_relay-observability.md",
+  "docs/operations/*_connect-setup.md",
   // Mobile app pairing row and npm release lookup for removed clients and npm installs.
   "apps/web/src/components/settings/MobileAppSettingsRow.tsx",
   "apps/web/src/state/npmRelease.ts",

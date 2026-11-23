@@ -164,6 +164,8 @@ export const PeerLinkRemoveResult = Schema.Struct({
   removed: Schema.Boolean,
   /** What came of asking the peer to forget its link back, when a token was still held. */
   remote: Schema.optionalKey(PeerLinkTeardownOutcome),
+  // Whether the peer ended the link's session. Older servers never ask it to.
+  endedThere: Schema.optionalKey(Schema.Boolean),
 });
 export type PeerLinkRemoveResult = typeof PeerLinkRemoveResult.Type;
 

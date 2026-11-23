@@ -1,17 +1,18 @@
 # Evals
 
-An eval runs a real model against T3 Code's real text or code and scores what the model does. Use one where a unit test cannot help: model output changes from run to run, and a small copy change can move it.
+An eval runs a real model against iglo.code's real text or code and scores what the model does. Use one where a unit test cannot help: model output changes from run to run, and a small copy change can move it.
 
 Write or run an eval when a change affects what a model sees or does: agent instructions, MCP tool descriptions and schemas, tool results, generated titles, or the guidance an agent gets for a feature such as Device Manager.
 
-| Eval                                  | Measures                                                                                             |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| [mcp-tool-use](mcp-tool-use/)         | Whether agents use T3's MCP tools correctly, including device routing and recovery, in fake threads. |
-| [thread-titles](thread-titles/)       | Whether generated thread titles name the right subject.                                              |
-| [pr-content](pr-content/)             | Whether PR generation describes the diff when project instructions try to redirect it.               |
-| [voice-cleanup](voice-cleanup/)       | Whether optional dictation cleanup edits only the spoken text and preserves its meaning.             |
-| [test-signal](test-signal/)           | Whether a cheap model running the test-signal check flags low-signal tests.                          |
-| [background-waits](background-waits/) | Whether T3 marks an agent's background wait as Waiting and leaves servers and watchers alone.        |
+| Eval                                      | Measures                                                                                             |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [mcp-tool-use](mcp-tool-use/)             | Whether agents use the MCP tools correctly, including device routing and recovery, in fake threads.  |
+| [thread-titles](thread-titles/)           | Whether generated thread titles name the right subject.                                              |
+| [pr-content](pr-content/)                 | Whether PR generation describes the diff when project instructions try to redirect it.               |
+| [voice-cleanup](voice-cleanup/)           | Whether optional dictation cleanup edits only the spoken text and preserves its meaning.             |
+| [test-signal](test-signal/)               | Whether a cheap model running the test-signal check flags low-signal tests.                          |
+| [background-waits](background-waits/)     | Whether iglo.code marks an agent's background wait as Waiting and leaves servers and watchers alone. |
+| [workflow-authoring](workflow-authoring/) | Whether a model writes a working workflow file from the `t3-workflows` skill alone.                  |
 
 ## Run an eval
 
@@ -21,7 +22,7 @@ Write or run an eval when a change affects what a model sees or does: agent inst
 
 Each eval's README lists its models, flags, and cost. Start with one case and one sample to check the setup.
 
-Evals call paid models, so CI does not run them. CI typechecks this package and runs the graders' unit tests.
+Evals call paid models, so they only run on request. This fork has no check CI: run the graders' unit tests locally.
 
 ## The shape of an eval
 
@@ -33,13 +34,13 @@ Every eval follows the same shape, so a new one is easy to write and an old one 
 - The eval imports the code under test from source. Never copy prompts, tool descriptions, or schemas into an eval. Then the eval always tests the current text.
 - Flags: `--out <dir>` (required), `--model <id>`, and `--baseline <earlier results>` to compare. Add `--case <ids>` when a full run is slow or costly.
 - A run writes results rows to `--out`, plus a summary or review file for a person.
-- When the eval grades itself, `run.test.ts` tests the grader, which is plain logic. It runs in CI. When a person grades, the run hides which output is new.
+- When the eval grades itself, `run.test.ts` tests the grader, which is plain logic. It runs with the unit tests. When a person grades, the run hides which output is new.
 
 ## Rules for cases
 
 - A case reproduces a real bad experience, or guards a real good one. Name its source.
 - Add the case before the fix. It must fail on the old text and pass on the new text.
-- If you change a case, the changed case must still fail on the text it was written against. Prefer to fix T3 Code over loosening a case.
+- If you change a case, the changed case must still fail on the text it was written against. Prefer to fix iglo.code over loosening a case.
 - Add controls: cases where the correct action is ordinary work. They catch a fix that overcorrects.
 - Model output varies. Run each case several times. A case fails when half or more of its samples fail. Compare against a baseline on the same model, not against an absolute score.
 - No user data in cases, fixtures, or templates. Use `/home/user` and `acme/app`. Read every captured fixture before you commit it.

@@ -218,7 +218,7 @@ const handlers = {
   t3_environment_unlink: McpToolAccess.writesEnvironment(({ environmentId }) =>
     Effect.gen(function* () {
       const links = yield* PeerLinks.PeerLinks;
-      const { removed, remote } = yield* links
+      const { removed, endedThere, remote } = yield* links
         .unlink(environmentId)
         .pipe(
           Effect.mapError(
@@ -230,6 +230,7 @@ const handlers = {
       return {
         environmentId,
         removed,
+        endedThere,
         ...(remote === undefined ? {} : { remote }),
       };
     }),

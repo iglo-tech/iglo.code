@@ -162,7 +162,10 @@ it.effect("routes peer reads to readers and sees uncommitted link updates", () =
         expect((yield* links.list)[0]?.label).toBe("Uncommitted box");
       }),
     );
-    expect((yield* links.unlink(box.environmentId)).removed).toBe(true);
+    expect(yield* links.unlink(box.environmentId)).toMatchObject({
+      removed: true,
+      endedThere: false,
+    });
     expect(yield* links.list).toEqual([]);
   }),
 );
@@ -211,6 +214,23 @@ it.effect("links with a pairing code, and the peer holds its agents to the limit
       // A refusal keeps the peer's reason.
       const notFound = yield* probe(a, undefined, "refuse").pipe(Effect.flip);
       expect(notFound).toMatchObject({ code: "thread_not_found", message: "No such thread." });
+
+      // Unlinking ends the session on B too, instead of leaving a live credential behind.
+      expect(yield* a.links.unlink(box.environmentId)).toMatchObject({
+        removed: true,
+        endedThere: true,
+      });
+      expect(yield* linkedSessions(b)).toEqual([]);
+
+      // An address that now answers as another environment never receives the token.
+      const other = yield* serveApart(descriptorOf("environment-other", "Other"));
+      const relink = yield* b.auth.issuePairingCredential({ access: "auto", purpose: "peer-link" });
+      yield* a.links.link({ url: b.url, pairingCode: relink.credential, access: "auto" });
+      yield* a.sql`UPDATE peer_environment_links SET urls_json = ${JSON.stringify([other.url])}`;
+      expect(yield* a.links.unlink(box.environmentId)).toMatchObject({
+        removed: true,
+        endedThere: false,
+      });
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -968,7 +988,7 @@ it.effect("one link serves both directions, and forgetting removes both sides", 
       ]);
       // Forgetting here ends both halves: the row on each side, and the session each held there.
       const removed = yield* a.links.unlink(box.environmentId);
-      expect(removed).toEqual({ removed: true, remote: { kind: "removed" } });
+      expect(removed).toEqual({ removed: true, endedThere: true, remote: { kind: "removed" } });
       expect(yield* a.links.list).toEqual([]);
       expect(yield* b.links.list).toEqual([]);
       expect(yield* linkedSessions(b)).toEqual([]);
@@ -1013,7 +1033,7 @@ it.effect("unlinking a one-way link reports the peer's side as already gone, not
       });
       // B never linked back, so its teardown finds no row there.
       const removed = yield* a.links.unlink(box.environmentId);
-      expect(removed).toEqual({ removed: true, remote: { kind: "removed" } });
+      expect(removed).toEqual({ removed: true, endedThere: true, remote: { kind: "removed" } });
       expect(yield* a.links.list).toEqual([]);
       expect(yield* b.links.list).toEqual([]);
       // The session B held for this side still went with the link.
@@ -1413,6 +1433,7 @@ it.effect(
         const removed = yield* a.links.unlink(box.environmentId);
         expect(removed).toEqual({
           removed: true,
+          endedThere: true,
           remote: { kind: "kept", message: expect.stringContaining("Sharing & access") },
         });
         expect(yield* a.links.list).toEqual([]);
@@ -1423,7 +1444,7 @@ it.effect(
 );
 
 it.effect(
-  "an old peer without the reciprocal endpoint is told how to end this side's session there",
+  "an old peer without the reciprocal endpoint revokes this side's session there by token",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -1440,10 +1461,11 @@ it.effect(
         yield* Ref.set(b.bearers, []);
         const removed = yield* a.links.unlink(older.environmentId);
         expect(removed.removed).toBe(true);
+        expect(removed.endedThere).toBe(true);
         expect(removed.remote?.kind).toBe("off");
         if (removed.remote?.kind === "off") {
           expect(removed.remote.message).toContain("runs a T3 Code version");
-          expect(removed.remote.message).toContain("Sharing & access");
+          expect(removed.remote.message).toContain("Connections");
         }
         // No teardown call was made: the old peer has no such route.
         expect(yield* Ref.get(b.bearers)).toEqual([]);

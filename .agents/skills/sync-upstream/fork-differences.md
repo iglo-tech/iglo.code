@@ -52,8 +52,10 @@ current when an authorized change replaces a decision.
   relay/Clerk defines out of the Vite configs, and keep `infra/relay`, its catalog
   entries, and its patches removed.
 - **Local development.** The maintainer uses the local toolchain. Keep
-  `.devcontainer/` and `docs/internals/devcontainer.md` removed, along with their
-  configuration and documentation references.
+  `.devcontainer/` and its numbered internals/operations docs removed, along with their
+  configuration and documentation references. Upstream's pruned numbered docs
+  (`docs/internals/00_*`, `docs/operations/00_*`) carry the fork's decisions; mobile,
+  devcontainer, Connect-setup, and relay-observability docs stay removed.
 - **Bun application runtime.** The server and first-party JavaScript helpers run
   on Bun. Preserve the minimum-version checks and align `.bun-version`,
   [bunRuntime.ts](../../../packages/shared/src/bunRuntime.ts), the server engine,
@@ -71,7 +73,7 @@ current when an authorized change replaces a decision.
   Keep native assets, disk-backed SDK/browser dependencies, web assets, resource
   monitoring, and signing. Packaging remains available for manual use through
   [CLI staging](../../../scripts/lib/cli-stage.ts) and
-  [manual release procedures](../../../docs/operations/release.md).
+  [manual release procedures](../../../docs/operations/03_release.md).
 - **Bun compatibility boundaries.** Retain working Node-compatible APIs and
   Effect services. Keep Bun PTY selection, SQLite boolean normalization, and
   supported stall diagnostics rather than restoring Node-only assumptions.
@@ -180,6 +182,9 @@ current when an authorized change replaces a decision.
   together. Preserve private plugin state and independently built client/server
   compatibility. The boundary and recovery constraints live in
   [plugins.md](../../../docs/internals/plugins.md).
+  Upstream's script-based durable workflows (Labs setting `workflowsEnabled`, `iglo.code workflow`) are a
+  separate feature that coexists with the plugin; [workflows.md](../../../docs/user/workflows.md)
+  documents both in separate sections, and neither replaces the other.
 - **Provider skills and automation delivery.** Preserve fresh workspace-scoped
   skill discovery and explicit invocation availability in the composer; see
   [providerSkills.ts](../../../packages/client-runtime/src/providerSkills.ts).
@@ -193,7 +198,7 @@ current when an authorized change replaces a decision.
   `release.yml` and `ci.yml`. Checks run locally before pushing:
   `vp fmt --check`, `vp run lint`, `vp run i18n:check`,
   `vp run --parallel --filter 't3...' --concurrency-limit 2 typecheck`, the smoke tests in
-  [development checks](../../../docs/operations/development.md#checks), and
+  [development checks](../../../docs/operations/00_development.md#pre-push-checks), and
   `vp run --filter t3 build`. Importing upstream is not a request to restore check CI.
   When upstream changes archive building, reconcile it into `iglo-release.yml`.
   `.github/scripts/ci-changes.cjs` stays because `vp run check:changed` uses it. Upstream's

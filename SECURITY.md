@@ -3,17 +3,17 @@
 Report vulnerabilities to [security@t3.codes](mailto:security@t3.codes). The
 [security policy](.github/SECURITY.md) covers disclosure and safe harbor.
 
-The rest of this file is for agents and maintainers auditing T3 Code or triaging
+The rest of this file is for agents and maintainers auditing iglo.code or triaging
 a report. It says who is trusted with what, which boundaries a real finding
 crosses, and what is intended. The reasoning behind each boundary lives in
-[environment auth](docs/internals/environment-auth.md),
-[T3 Connect](docs/internals/t3-connect.md), and
-[remote environments](docs/internals/remote.md). Read those before you report a
+[environment auth](docs/internals/04_environment-auth.md),
+[T3 Connect](docs/internals/06_t3-connect.md), and
+[remote environments](docs/internals/05_remote.md). Read those before you report a
 finding in their area.
 
 ## The model in one paragraph
 
-An environment is a T3 server running as an OS user. It is not a sandbox: it
+An environment is an iglo.code server running as an OS user. It is not a sandbox: it
 runs agents and terminals with that user's privileges, on purpose. Clients get
 authority by pairing, which issues a scoped session. A full-scope session is
 equivalent to a shell as the server's user, because `terminal:operate` opens a
@@ -24,19 +24,19 @@ once it has one.
 
 ## Principals
 
-| Principal                                                                                        | How it gets in                              | What it may do                                                                                                                                                                             |
-| ------------------------------------------------------------------------------------------------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Anyone who reaches the port                                                                      | Network                                     | Read the environment descriptor, pair with a valid one-time credential, run OAuth flows. Nothing else.                                                                                     |
-| Full-scope client (desktop, paired browser or phone, `t3 auth session issue`, T3 Connect device) | Pairing, token exchange, Connect mint       | Everything the server's OS user can do. This is the default grant.                                                                                                                         |
-| Narrow client                                                                                    | Pairing link with explicit scopes           | Only the RPCs and routes its scopes allow. Can never widen its own grant.                                                                                                                  |
-| MCP client (outside agent, subject `mcp-client`)                                                 | OAuth on `/mcp`                             | Only `/mcp`, within a read-only grant or a runtime-mode ceiling. Every other route rejects it.                                                                                             |
-| Linked environment (peer link)                                                                   | OAuth client `t3code-peer-link`             | Work it starts carries an immutable `linkOrigin` and never exceeds the access it was paired with.                                                                                          |
-| Agent run by T3                                                                                  | Thread's runtime mode and thread credential | Within its runtime mode, managed policy, and the MCP access declared per tool.                                                                                                             |
-| Guest link                                                                                       | HMAC token for one share                    | Read one thread and propose messages. Never a session; no RPC, WebSocket, or MCP path accepts it.                                                                                          |
-| Signed asset URL                                                                                 | Minted with `filesystem:read`               | One file, by device and inode identity, until it expires.                                                                                                                                  |
-| T3 Connect relay                                                                                 | Environment link                            | Trusted broker for mint requests. It never sees environment session tokens. With `requireConnectDeviceApproval` on, a new device key also needs approval from someone with `access:write`. |
-| Managed policy                                                                                   | Admin-deployed file, read at startup        | Ceilings and locks the server enforces for every client.                                                                                                                                   |
-| Preview pages, HTML renders, file previews, agent output                                         | Rendered by clients                         | Untrusted content. It must never run script in the app's origin or reach Electron IPC or Node.                                                                                             |
+| Principal                                                                                      | How it gets in                              | What it may do                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Anyone who reaches the port                                                                    | Network                                     | Read the environment descriptor, pair with a valid one-time credential, run OAuth flows. Nothing else.                                                                                     |
+| Full-scope client (paired browser or phone, `iglo.code auth session issue`, T3 Connect device) | Pairing, token exchange, Connect mint       | Everything the server's OS user can do. This is the default grant.                                                                                                                         |
+| Narrow client                                                                                  | Pairing link with explicit scopes           | Only the RPCs and routes its scopes allow. Can never widen its own grant.                                                                                                                  |
+| MCP client (outside agent, subject `mcp-client`)                                               | OAuth on `/mcp`                             | Only `/mcp`, within a read-only grant or a runtime-mode ceiling. Every other route rejects it.                                                                                             |
+| Linked environment (peer link)                                                                 | OAuth client `t3code-peer-link`             | Work it starts carries an immutable `linkOrigin` and never exceeds the access it was paired with.                                                                                          |
+| Agent run by T3                                                                                | Thread's runtime mode and thread credential | Within its runtime mode, managed policy, and the MCP access declared per tool.                                                                                                             |
+| Guest link                                                                                     | HMAC token for one share                    | Read one thread and propose messages. Never a session; no RPC, WebSocket, or MCP path accepts it.                                                                                          |
+| Signed asset URL                                                                               | Minted with `filesystem:read`               | One file, by device and inode identity, until it expires.                                                                                                                                  |
+| T3 Connect relay                                                                               | Environment link                            | Trusted broker for mint requests. It never sees environment session tokens. With `requireConnectDeviceApproval` on, a new device key also needs approval from someone with `access:write`. |
+| Managed policy                                                                                 | Admin-deployed file, read at startup        | Ceilings and locks the server enforces for every client.                                                                                                                                   |
+| Preview pages, HTML renders, file previews, agent output                                       | Rendered by clients                         | Untrusted content. It must never run script in the app's origin or reach Electron IPC or Node.                                                                                             |
 
 ## A real finding crosses one of these
 
@@ -76,7 +76,7 @@ once it has one.
   others" removes them.
 - `filesystem:read` reads anything the server's user can read, including paths
   outside projects.
-- Plain HTTP on a LAN or tailnet is the user's choice. `t3 serve` warns when it
+- Plain HTTP on a LAN or tailnet is the user's choice. `iglo.code serve` warns when it
   advertises a non-loopback HTTP address. The iOS app allows arbitrary loads so
   it can reach these addresses.
 - `access-control-allow-origin: *` on the environment API. Auth is a bearer
@@ -98,8 +98,7 @@ once it has one.
 - Guest links: [`guest/GuestShareService.ts`](apps/server/src/guest/GuestShareService.ts)
 - Files and assets: [`workspace/WorkspaceFileSystem.ts`](apps/server/src/workspace/WorkspaceFileSystem.ts), [`assets/AssetAccess.ts`](apps/server/src/assets/AssetAccess.ts)
 - Managed policy: [`apps/server/src/policy`](apps/server/src/policy)
-- T3 Connect: [`cloud/CloudLink.ts`](apps/server/src/cloud/CloudLink.ts), [`EnvironmentConnector.ts`](infra/relay/src/environments/EnvironmentConnector.ts)
-- Desktop preview isolation: [`preview/WebviewPreferences.ts`](apps/desktop/src/preview/WebviewPreferences.ts)
+- T3 Connect: [`cloud/CloudLink.ts`](apps/server/src/cloud/CloudLink.ts), [`EnvironmentConnector.ts`](https://github.com/pingdotgg/t3code/blob/main/infra/relay/src/environments/EnvironmentConnector.ts) (upstream; disabled in iglo.code)
 
 ## How to audit and triage
 

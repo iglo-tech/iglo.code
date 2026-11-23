@@ -18,4 +18,4 @@ The rest of the fork is for small fixes and personal preferences: changes to ski
 
 This fork ships only the server and the web client it hosts. Upstream's native apps, hosted web app, tunnel service, and their build tooling are removed so agents focus on what I use. It installs side by side with T3 Code: its own `iglo.code` command, `~/.iglo.code` home, and port 4773. To bring in upstream improvements and reapply those removals, use the repo-local [$sync-upstream](./.agents/skills/sync-upstream/SKILL.md) skill.
 
-[Install](./docs/user/install.md) · [Local setup and development](./docs/operations/development.md) · [User guides](./docs) · [MIT license](./LICENSE)
+[Install](./docs/user/install.md) · [Local setup and development](./docs/operations/00_development.md) · [User guides](./docs) · [MIT license](./LICENSE)

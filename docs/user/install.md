@@ -77,7 +77,7 @@ Add `--base-dir <dir>` to keep this server's data apart from an installed
 iglo.code, and `--no-browser` to skip opening the web app. For the development
 web client, use `vp run dev` and open its printed pairing URL. Vite+ and pnpm may
 use Node internally; that is separate from the Bun application runtime. See
-[Development](../operations/development.md) for setup.
+[Development](../operations/00_development.md) for setup.
 
 Source runs are updated with `git pull` and a rebuild; installed archives use
 `iglo.code update`.

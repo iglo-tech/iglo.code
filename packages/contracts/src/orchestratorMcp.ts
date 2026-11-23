@@ -112,7 +112,7 @@ export const OrchestratorMcpTarget = Schema.Struct({
   options: Schema.optional(
     OrchestratorMcpTargetOptions.annotate({
       description:
-        "Options from `orchestrator_capabilities`, such as {effort:'max'}. Given values override inherited. [] or {} clears.",
+        "Ids vary by provider; see `orchestrator_capabilities`. Given values override inherited. [] or {} clears.",
     }),
   ),
   environmentId: Schema.optional(
@@ -970,6 +970,7 @@ export const OrchestratorMcpEnvironmentUnlinkResult = Schema.Struct({
   removed: Schema.Boolean,
   /** What came of asking the peer to forget its link back, when a token was held. */
   remote: Schema.optionalKey(PeerLinkTeardownOutcome),
+  endedThere: Schema.Boolean,
 });
 export type OrchestratorMcpEnvironmentUnlinkResult =
   typeof OrchestratorMcpEnvironmentUnlinkResult.Type;

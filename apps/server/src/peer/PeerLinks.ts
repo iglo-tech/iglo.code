@@ -141,7 +141,7 @@ export class PeerLinks extends Context.Service<
      */
     readonly unlink: (
       environmentId: EnvironmentId,
-    ) => Effect.Effect<PeerLinkRemoveResult, PeerLinkError>;
+    ) => Effect.Effect<PeerLinkRemoveResult & { readonly endedThere: boolean }, PeerLinkError>;
     /**
      * A linked peer's offer to link back to it. The caller is the session the
      * peer's forward link holds here, and may only offer its own environment.
@@ -1066,10 +1066,26 @@ const make = Effect.gen(function* () {
           ),
         ).pipe(Effect.option);
 
+  /** Ends this side's session at a peer too old to forget a link; RFC 7009 answers 200 either way. */
+  const revokeAt = (url: string, token: string) =>
+    clientFor(url).pipe(
+      Effect.flatMap((client) =>
+        client.mcpOAuth
+          .revoke({ payload: { token: Redacted.make(token) } })
+          .pipe(Effect.timeout(probeTimeout(url))),
+      ),
+      Effect.as(true),
+      Effect.catchCause((cause) =>
+        Effect.logDebug("The unlinked peer did not revoke the link's session", { cause }).pipe(
+          Effect.as(false),
+        ),
+      ),
+    );
+
   const unlink: PeerLinks["Service"]["unlink"] = Effect.fn("PeerLinks.unlink")(
     function* (environmentId) {
       const row = yield* readRow(environmentId);
-      if (Option.isNone(row)) return { removed: false };
+      if (Option.isNone(row)) return { removed: false, endedThere: false };
       const link = yield* toLink(row.value);
       const self = yield* environment.getDescriptor;
       const stored = yield* secrets.get(row.value.secret_name).pipe(Effect.catch(failStorage));
@@ -1085,11 +1101,12 @@ const make = Effect.gen(function* () {
           .revokeSession(AuthSessionId.make(row.value.peer_session_id))
           .pipe(Effect.ignoreCause({ log: true }));
       }
-      if (!removed) return { removed: false };
+      if (!removed) return { removed: false, endedThere: false };
       if (Option.isNone(stored)) {
         // This side held no token, so it never asked the peer anything.
         return {
           removed: true,
+          endedThere: false,
           remote: {
             kind: "off",
             message: `${link.label} was not asked: forget its link back there, in its Connections.`,
@@ -1099,30 +1116,37 @@ const make = Effect.gen(function* () {
       if (Option.isNone(answered)) {
         return {
           removed: true,
+          endedThere: false,
           remote: {
             kind: "off",
             message: `${link.label} did not answer. Forget its link there, in its Connections, and revoke "T3 Code · ${self.label}" in ${link.label}'s Sharing & access to end this side's session there.`,
           } satisfies PeerLinkTeardownOutcome,
         };
       }
-      // An older peer has no teardown endpoint at all; only its Sharing & access can end this side's session there.
+      const token = new TextDecoder().decode(stored.value);
+      // An older peer has no teardown endpoint, but may still revoke the token it issued.
       if (answered.value.peer.capabilities.peerLinkReciprocal !== true) {
+        const endedThere = yield* revokeAt(answered.value.url, token);
         return {
           removed: true,
+          endedThere,
           remote: {
             kind: "off",
-            message: `${link.label} runs a T3 Code version that cannot forget a link from here. Revoke "T3 Code · ${self.label}" in ${link.label}'s Sharing & access to end this side's session there.`,
+            message: endedThere
+              ? `${link.label} ended this side's session there, but runs a T3 Code version that cannot forget a link from here. Forget its link back in its Connections.`
+              : `${link.label} runs a T3 Code version that cannot forget a link from here. Revoke "T3 Code · ${self.label}" in ${link.label}'s Sharing & access to end this side's session there.`,
           } satisfies PeerLinkTeardownOutcome,
         };
       }
       const remote = yield* teardownAt({
         environmentId: self.environmentId,
         url: answered.value.url,
-        token: new TextDecoder().decode(stored.value),
+        token,
         label: link.label,
         selfLabel: self.label,
       });
-      return { removed: true, remote };
+      // A teardown that reached the peer ends the session it came over, kept link or not.
+      return { removed: true, endedThere: remote.kind !== "off", remote };
     },
   );
 

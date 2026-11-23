@@ -60,6 +60,10 @@
       // CodeRabbit loads its configuration by filename.
       "entry": [".coderabbit.config.ts"],
     },
+    "evals": {
+      // The grader loads these answers by path, as the server loads a definitions file.
+      "entry": ["workflow-authoring/fixtures/*.ts"],
+    },
     "scripts": {
       // Knip loads its preprocessor through a CLI option; worktree setup (from iglo.code.json) run directly.
       "entry": [

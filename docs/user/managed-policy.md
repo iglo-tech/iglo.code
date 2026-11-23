@@ -212,6 +212,7 @@ so restart iglo.code after that.
 
 - `webhookTasks: false`: scheduled tasks cannot use webhook triggers. Existing webhook tasks stay
   but do not run, and cannot be turned back on. Users can still edit or delete them.
+  Workflow webhooks are refused too.
 - `browserCookieImport: false`: users cannot import cookies from another browser into iglo.code's
   browser.
 - `previewTunnel: false`: other devices cannot load this machine's `localhost` pages themselves;
