@@ -9935,6 +9935,7 @@
   "2f28c17802ca1809": "Reconnectez {environment} pour afficher cette tâche.",
   "1baf758ced0ffc50": "Chargement de la tâche planifiée…",
   "19a3718795d3eab4": "Cette tâche a été supprimée.",
+  "a538817f93b0af10": "{environment} est déconnecté. Vos modifications sont conservées et pourront être enregistrées dès sa reconnexion.",
   "c7d8f7eb12735b71": "Tâche planifiée",
   "66444460b16cdb7f": "Tâche enregistrée",
   "5baf27d764acc26d": "N’exécute que si tous les filtres correspondent. Les autres requêtes sont journalisées comme filtrées. Séparez les valeurs « fait partie de » par des virgules ; une valeur ne peut pas contenir de virgule.",

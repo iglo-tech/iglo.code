@@ -2618,22 +2618,62 @@ export function ScheduledTaskPage({
   const tasksQuery = useEnvironmentQuery(
     connected ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} }) : null,
   );
-  const task = tasksQuery.data?.tasks.find((candidate) => candidate.id === taskId) ?? null;
-  const scheduleTargets = usePluginScheduleTargets(environmentId);
+  const taskKey = `${environmentId}:${taskId}`;
+  const listedTask = tasksQuery.data
+    ? (tasksQuery.data.tasks.find((candidate) => candidate.id === taskId) ?? null)
+    : undefined;
+  // While the list is unavailable the page keeps the last loaded task, so a disconnect does not
+  // unmount the editor and its unsaved draft. Only a loaded list can say the task was deleted.
+  const [retained, setRetained] = useState<{
+    readonly key: string;
+    readonly task: ScheduledTask;
+    readonly timeZone: string | undefined;
+  } | null>(null);
+  if (
+    listedTask &&
+    (retained?.key !== taskKey ||
+      retained.task !== listedTask ||
+      retained.timeZone !== tasksQuery.data?.timeZone)
+  ) {
+    setRetained({ key: taskKey, task: listedTask, timeZone: tasksQuery.data?.timeZone });
+  }
+  const shown = retained?.key === taskKey ? retained : null;
+  const task = listedTask === undefined ? (shown?.task ?? null) : listedTask;
+  const scheduleTargets = usePluginScheduleTargets(environmentId, true);
   const [saving, setSaving] = useState(false);
-  // A save remounts the form so its draft and submit lock restart from the saved task.
-  const [savedCount, setSavedCount] = useState(0);
-  const status = !connected
-    ? gt("Reconnect {environment} to view this task.", {
-        environment: environment?.label ?? gt("this environment"),
-      })
-    : tasksQuery.error
-      ? tasksQuery.error
-      : !tasksQuery.data
-        ? gt("Loading scheduled task…")
-        : task === null
-          ? gt("This task was deleted.")
-          : null;
+  // A save remounts the form so its draft and submit lock restart from the saved task. The save
+  // can resolve before the live list shows it, so the remount waits for the task's next revision.
+  const [formGeneration, setFormGeneration] = useState(0);
+  const [pendingSave, setPendingSave] = useState<{
+    readonly fromUpdatedAt: string;
+    readonly saved: boolean;
+  } | null>(null);
+  if (pendingSave?.saved && task !== null && task.updatedAt !== pendingSave.fromUpdatedAt) {
+    setPendingSave(null);
+    setFormGeneration((generation) => generation + 1);
+  }
+  const environmentLabel = environment?.label ?? gt("this environment");
+  const status =
+    task !== null
+      ? null
+      : !connected
+        ? gt("Reconnect {environment} to view this task.", { environment: environmentLabel })
+        : tasksQuery.error
+          ? tasksQuery.error
+          : !tasksQuery.data
+            ? gt("Loading scheduled task…")
+            : gt("This task was deleted.");
+  const notice =
+    task === null
+      ? null
+      : !connected
+        ? gt(
+            "{environment} is disconnected. Your edits are kept and can be saved once it reconnects.",
+            {
+              environment: environmentLabel,
+            },
+          )
+        : tasksQuery.error;
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <WorkspacePageHeader electron={isElectron}>
@@ -2643,31 +2683,39 @@ export function ScheduledTaskPage({
       </WorkspacePageHeader>
       <main className="scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
         <WorkspacePageContainer>
-          {status !== null || task === null ? (
+          {task === null ? (
             <p role="status" className="text-sm text-muted-foreground">
               {status}
             </p>
           ) : (
             <SettingsScopeProvider search={ALL_PROJECTS_SCOPE} onChange={() => {}}>
+              {notice ? (
+                <p role="status" className="mb-4 text-sm text-muted-foreground">
+                  {notice}
+                </p>
+              ) : null}
               <SettingsSection title={gt("Status")} hideTitle>
                 <ScheduledTaskRow
                   environmentId={environmentId}
                   task={task}
                   scheduleTargets={scheduleTargets}
-                  timeZone={tasksQuery.data?.timeZone}
+                  timeZone={shown?.timeZone}
                   onEdit={() => document.getElementById("scheduled-task-title")?.focus()}
                 />
               </SettingsSection>
               <div>
                 <ScheduledTaskEditorForm
-                  key={`${task.id}:${savedCount}`}
+                  key={`${taskKey}:${formGeneration}`}
                   layout="page"
                   initialEnvironmentId={environmentId}
                   task={task}
                   saving={saving}
-                  onSavingChange={setSaving}
+                  onSavingChange={(next) => {
+                    setSaving(next);
+                    if (next) setPendingSave({ fromUpdatedAt: task.updatedAt, saved: false });
+                  }}
                   onClose={() => {
-                    setSavedCount((count) => count + 1);
+                    setPendingSave((pending) => pending && { ...pending, saved: true });
                     toastManager.add(
                       stackedThreadToast({ type: "success", title: gt("Task saved") }),
                     );

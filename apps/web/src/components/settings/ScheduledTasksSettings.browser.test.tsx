@@ -15,8 +15,9 @@ import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 import { act, render } from "../../../test/render";
-import { ScheduledTasksSettings } from "./ScheduledTasksSettings";
+import { ScheduledTaskPage, ScheduledTasksSettings } from "./ScheduledTasksSettings";
 import { ConfirmDialogHost } from "../ConfirmDialogHost";
+import { toastManager } from "../ui/toast";
 
 const environmentId = EnvironmentId.make("laptop");
 const projectId = ProjectId.make("project");
@@ -58,8 +59,10 @@ const threadFamilyRead = {
 const state = vi.hoisted(() => ({
   connected: true,
   tasksLoaded: true,
+  listedTask: null as ScheduledTask | null,
   secondary: false,
   remove: vi.fn(),
+  upsert: vi.fn(),
 }));
 const secondaryId = EnvironmentId.make("secondary");
 const permissions = new Map<string, Atom.Writable<boolean>>();
@@ -67,7 +70,9 @@ const permissions = new Map<string, Atom.Writable<boolean>>();
 function setup() {
   state.connected = true;
   state.tasksLoaded = true;
+  state.listedTask = task;
   state.remove.mockReset().mockReturnValue(Effect.succeed({ id: task.id }));
+  state.upsert.mockReset().mockReturnValue(Effect.succeed({ task }));
   state.secondary = false;
   permissions.clear();
   permissions.set(environmentId, Atom.make(true));
@@ -129,6 +134,7 @@ vi.mock(import("../../state/server"), async (original) => {
       },
       upsertScheduledTask: {
         ...actual.serverEnvironment.upsertScheduledTask,
+        run: state.upsert,
         permissionAtom: (id: string | null) => permissions.get(id ?? "")!,
       },
     },
@@ -148,7 +154,7 @@ vi.mock(import("../../state/query"), async (original) => ({
     data:
       request === null || request === threadFamilyRead
         ? request
-        : { tasks: state.tasksLoaded ? [task] : [] },
+        : { tasks: state.tasksLoaded && state.listedTask ? [state.listedTask] : [] },
     error: null,
     isPending: false,
     refresh: vi.fn(),
@@ -161,7 +167,14 @@ vi.mock(import("../../state/environments"), async (original) => ({
 }));
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
-  useProjects: (() => [{ id: projectId, environmentId, title: "Project" }]) as never,
+  useProjects: (() => [
+    { id: projectId, environmentId, title: "Project", workspaceRoot: "/repo" },
+  ]) as never,
+}));
+// The suite registers no providers; a save still needs a model to send.
+vi.mock(import("./scheduledTasksSettings.logic"), async (original) => ({
+  ...(await original()),
+  scheduledTaskDefaultModel: () => task.modelSelection,
 }));
 vi.mock(import("../../hooks/useSettings"), async (original) => ({
   ...(await original()),
@@ -292,5 +305,68 @@ describe("ScheduledTasksSettings", () => {
 
     await expect.element(dialog).toHaveAttribute("data-open");
     await expect.element(name).toHaveValue("My draft");
+  });
+
+  it("keeps a task page's unsaved edits across a disconnect and saves them once reconnected", async () => {
+    setup();
+    const view = () => <ScheduledTaskPage environmentId={environmentId} taskId={task.id} />;
+    await using screen = await render(view());
+    const name = page.getByRole("textbox", { name: "Name" });
+    const save = page.getByRole("button", { name: "Save task" });
+    await expect.element(name).toHaveValue("Review issues");
+    await userEvent.fill(name, "Review stale issues");
+
+    state.connected = false;
+    await screen.rerender(view());
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent(
+        "Laptop is disconnected. Your edits are kept and can be saved once it reconnects.",
+      );
+    await expect.element(name).toHaveValue("Review stale issues");
+    await expect.element(save).toBeDisabled();
+
+    state.connected = true;
+    await screen.rerender(view());
+    await expect.element(page.getByRole("status")).not.toBeInTheDocument();
+    await expect.element(save).toBeEnabled();
+
+    // The save response arrives before the live list shows the saved task.
+    using toast = vi.spyOn(toastManager, "add");
+    await save.click();
+    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
+    await act(() => {});
+    expect(state.upsert).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
+      environmentId,
+      input: expect.objectContaining({ id: task.id, title: "Review stale issues" }),
+    });
+    expect(name.element()).toHaveProperty("value", "Review stale issues");
+
+    state.listedTask = {
+      ...task,
+      title: "Review stale issues",
+      updatedAt: "2026-09-18T00:00:00.000Z",
+    };
+    await screen.rerender(view());
+    await expect.element(name).toHaveValue("Review stale issues");
+    await expect.element(save).toBeEnabled();
+  });
+
+  it.each([
+    {
+      name: "opened while disconnected",
+      connected: false,
+      status: "Reconnect Laptop to view this task.",
+    },
+    { name: "deleted", connected: true, status: "This task was deleted." },
+  ])("explains a task page with no task to show: $name", async ({ connected, status }) => {
+    setup();
+    state.connected = connected;
+    state.listedTask = connected ? null : task;
+    await using _screen = await render(
+      <ScheduledTaskPage environmentId={environmentId} taskId={task.id} />,
+    );
+    await expect.element(page.getByRole("status")).toHaveTextContent(status);
+    await expect.element(page.getByRole("textbox", { name: "Name" })).not.toBeInTheDocument();
   });
 });

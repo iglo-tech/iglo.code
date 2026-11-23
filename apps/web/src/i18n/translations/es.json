@@ -9933,6 +9933,7 @@
   "2f28c17802ca1809": "Vuelve a conectar {environment} para ver esta tarea.",
   "1baf758ced0ffc50": "Cargando tarea programada…",
   "19a3718795d3eab4": "Esta tarea se eliminó.",
+  "a538817f93b0af10": "{environment} está desconectado. Tus cambios se conservan y podrás guardarlos cuando se vuelva a conectar.",
   "c7d8f7eb12735b71": "Tarea programada",
   "66444460b16cdb7f": "Tarea guardada",
   "5baf27d764acc26d": "Se ejecuta solo cuando coinciden todos los filtros. Las demás solicitudes se registran como filtradas. Separa los valores de «es uno de» con comas; un valor no puede contener una coma.",

@@ -9943,6 +9943,7 @@
   "2f28c17802ca1809": "Anslut {environment} igen för att visa den här uppgiften.",
   "1baf758ced0ffc50": "Läser in schemalagd uppgift…",
   "19a3718795d3eab4": "Den här uppgiften har tagits bort.",
+  "a538817f93b0af10": "{environment} är frånkopplad. Dina ändringar behålls och kan sparas när anslutningen återupprättas.",
   "c7d8f7eb12735b71": "Schemalagd uppgift",
   "66444460b16cdb7f": "Uppgiften sparades",
   "5baf27d764acc26d": "Kör bara när alla filter matchar. Andra begäranden loggas som filtrerade. Separera värden för ”är en av” med kommatecken; ett värde får inte innehålla kommatecken.",
