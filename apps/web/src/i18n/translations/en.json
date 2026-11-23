@@ -9945,6 +9945,7 @@
   "2f28c17802ca1809": "Reconnect {environment} to view this task.",
   "1baf758ced0ffc50": "Loading scheduled task…",
   "19a3718795d3eab4": "This task was deleted.",
+  "a538817f93b0af10": "{environment} is disconnected. Your edits are kept and can be saved once it reconnects.",
   "c7d8f7eb12735b71": "Scheduled task",
   "66444460b16cdb7f": "Task saved",
   "5baf27d764acc26d": "Run only when every filter matches. Other requests are logged as filtered. Separate “is one of” values with commas; a value can't contain a comma.",

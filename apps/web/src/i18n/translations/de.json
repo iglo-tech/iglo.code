@@ -9937,6 +9937,7 @@
   "2f28c17802ca1809": "Verbinde {environment} erneut, um diese Aufgabe anzuzeigen.",
   "1baf758ced0ffc50": "Geplante Aufgabe wird geladen…",
   "19a3718795d3eab4": "Diese Aufgabe wurde gelöscht.",
+  "a538817f93b0af10": "{environment} ist getrennt. Deine Änderungen bleiben erhalten und können gespeichert werden, sobald die Verbindung wiederhergestellt ist.",
   "c7d8f7eb12735b71": "Geplante Aufgabe",
   "66444460b16cdb7f": "Aufgabe gespeichert",
   "5baf27d764acc26d": "Nur ausführen, wenn alle Filter zutreffen. Andere Anfragen werden als gefiltert protokolliert. Trenne „ist eines von“-Werte mit Kommas; ein Wert darf kein Komma enthalten.",
