@@ -11,7 +11,7 @@ import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 
-import WorkflowsMigration from "../../apps/server/src/persistence/Migrations/110_Workflows.ts";
+import WorkflowsMigration from "../../apps/server/src/persistence/Migrations/113_Workflows.ts";
 import type { WorkflowDefinition } from "../../apps/server/src/workflows/workflow.ts";
 import {
   type AgentResult,
