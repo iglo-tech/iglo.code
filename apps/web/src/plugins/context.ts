@@ -20,6 +20,21 @@ const browserStorage = () => {
   }
 };
 
+/** The route that opens a plugin page in one environment. */
+export const pluginPageRoute = (
+  environmentId: EnvironmentId,
+  pluginId: string,
+  link: PluginPageLink,
+) => ({
+  to: "/plugins/$environmentId/$pluginId/$pageId" as const,
+  params: { environmentId, pluginId, pageId: link.pageId },
+  search: {
+    pluginProjectId: link.projectId,
+    pluginThreadId: link.threadId,
+    pluginState: link.state,
+  },
+});
+
 export function createPluginWebContext(input: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel?: string;
@@ -35,13 +50,7 @@ export function createPluginWebContext(input: {
   const { environmentId, descriptor, navigate } = input;
   const openPage = (link: PluginPageLink, options?: { readonly replace?: boolean }) => {
     void navigate({
-      to: "/plugins/$environmentId/$pluginId/$pageId",
-      params: { environmentId, pluginId: descriptor.manifest.id, pageId: link.pageId },
-      search: {
-        pluginProjectId: link.projectId,
-        pluginThreadId: link.threadId,
-        pluginState: link.state,
-      },
+      ...pluginPageRoute(environmentId, descriptor.manifest.id, link),
       ...(options?.replace ? { replace: true } : {}),
     });
   };

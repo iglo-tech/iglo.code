@@ -7,6 +7,7 @@ import { createWorkflowsClient } from "./workflowsClient";
 export const compiledWebPlugins = [
   {
     manifest: workflows.manifest,
+    navigation: workflows.navigation,
     bind: (environmentId: PluginWebContext["environmentId"]) =>
       bind(workflows, createWorkflowsClient(environmentId)),
   },
