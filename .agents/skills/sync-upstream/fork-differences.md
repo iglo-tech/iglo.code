@@ -277,3 +277,19 @@ current when an authorized change replaces a decision.
   threadActionMenu.logic.test.ts, commandPermissions.test.ts). Upstream has no
   equivalent yet; if it ships its own move, reconcile the contracts, menu, and
   dispatch semantics rather than carrying both paths.
+- **Versioned fork server defaults.** `iglo.code` wraps `ServerSettings.layer`
+  with `withForkSettingsDefaults` from
+  [forkSettingsDefaults.ts](../../../apps/server/src/forkSettingsDefaults.ts) in
+  [server.ts](../../../apps/server/src/server.ts) so server startup applies
+  `FORK_SERVER_DEFAULTS_STEPS` once per server home directory via
+  `updateSettings`, tracked in `<stateDir>/fork-defaults-version` beside
+  `settings.json`. Keep upstream's `ServerSettings.layer`,
+  [serverSettings.ts](../../../apps/server/src/serverSettings.ts), and
+  `DEFAULT_SERVER_SETTINGS` untouched. Never edit or renumber a shipped step:
+  append a new higher-numbered step so existing servers apply only newer steps
+  without overwriting manual edits (the marker alone decides; deleting it
+  re-applies every step). Managed-policy locked paths are skipped and corrupt
+  `settings.json` files stay untouched. Because `DEFAULT_SERVER_SETTINGS` stays
+  upstream, Settings reset buttons still reset to upstream values. Preserve the
+  focused suite in
+  [forkSettingsDefaults.test.ts](../../../apps/server/src/forkSettingsDefaults.test.ts).

@@ -130,6 +130,7 @@ import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerOwnership from "./serverOwnership.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
+import { withForkSettingsDefaults } from "./forkSettingsDefaults.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ManagedLimits from "./policy/managedLimits.ts";
 import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
@@ -299,7 +300,7 @@ const layerProviderEventLoggers = Layer.effect(
 
 const layerPtyAdapter = BunPtyAdapter.layer;
 
-const layerServerSettings = ServerSettings.layer.pipe(
+const layerServerSettings = withForkSettingsDefaults(ServerSettings.layer).pipe(
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(ManagedPolicy.layer),
   Layer.provideMerge(SqlitePersistence.layerConfig),

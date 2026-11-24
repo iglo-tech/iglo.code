@@ -61,6 +61,7 @@ The most common defect in this repo is a change that works on the path you teste
 - **Reverse states.** If you added a way in, add the way out and the way to see it. Snooze needs unsnooze. Close needs reopen. A one-way door is a bug.
 - **Connection modes.** Local, LAN, Tailscale, and SSH behave differently. Multi-device and multi-environment cases are real.
 - **Languages.** User-facing text ships in every locale: translate new keys in `apps/web/src/i18n/translations` after `vp run i18n:generate` (`vp run i18n:check` gates it). See [14_i18n.md](docs/internals/14_i18n.md).
+- **Fork differences.** Whenever you add, change, or remove fork-specific behavior, defaults, or tooling, update [fork-differences.md](.agents/skills/sync-upstream/fork-differences.md) in the same change so future upstream syncs preserve it.
 - **Docs.** Check whether the change makes existing guidance inaccurate. Apply the [documentation rules](#documentation) before adding anything.
 
 ## Dev servers and test data
