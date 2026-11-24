@@ -109,6 +109,12 @@ current when an authorized change replaces a decision.
   falls back to upstream. Sources are
   [release naming](../../../packages/shared/src/cliRelease.ts) and
   [the shared update action](../../../apps/web/src/components/ServerUpdateAction.tsx).
+  With no desktop updater, the web client stands in for it: the sidebar update
+  pill and Settings → About check the primary server's `server.release` on its
+  own track (on mount, every few minutes, and on click), feed a newer release to
+  Update everything as the servers' target, and offer Reload once the server
+  runs ahead of the page. See [appRelease.ts](../../../apps/web/src/state/appRelease.ts);
+  keep the web branches when upstream changes the desktop update UI.
 - **Device and remote features.** Retain the Device panel, local/SSH device hosts,
   `expo-device-hub`, `agent-device`, provider helpers, Browser streams, and
   local, LAN, Tailscale, and SSH connections. Device tool installation and execution

@@ -50,12 +50,14 @@ export function isHostedByThisApp(
 
 export type ReportLocalUpdateError = (title: string, description: string) => void;
 
-/** `channelSwitch` makes the run move the fleet to that release's track instead of updating it. */
+/** `channelSwitch` makes the run move the fleet to that release's track instead of updating it.
+ * `releaseVersion` is a newer published release; servers, this page's own included, update to it. */
 export function useUpdateEverything(
   localUpdateVersion: string | null,
   channelSwitch?: ChannelSwitchRelease,
+  releaseVersion?: string | null,
 ) {
-  const targetVersion = localUpdateVersion ?? APP_VERSION;
+  const targetVersion = localUpdateVersion ?? releaseVersion ?? APP_VERSION;
   const { environments } = useEnvironments();
   const resolve = useMessages();
   const environmentIds = environmentIdsKey(environments.map(({ environmentId }) => environmentId));

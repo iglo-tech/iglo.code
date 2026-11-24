@@ -125,6 +125,7 @@ import { AdvancedSettings } from "./AdvancedSettings";
 import { PullRequestLinksOpenInAppSetting } from "./IntegrationsSettings";
 import { StorageCleanupSections } from "./StorageSettings";
 import { UpdateTrackSwitchDialog } from "./UpdateTrackSwitchDialog";
+import { WebAppVersionRow } from "./WebAppVersionRow";
 import { environmentIdsKey } from "~/state/environmentAtomList";
 import { environmentSessionStatesAtom } from "~/state/session";
 import { useCheckProviderUpdates } from "../ProviderUpdatesAction";
@@ -341,29 +342,33 @@ function AboutVersionSection() {
 
   return (
     <>
-      <SettingsRow
-        id={setting("app-version").id}
-        title={<AboutVersionTitle />}
-        description={description}
-        managed={updatesDenial}
-        control={
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={buttonDisabled || isUpdateActionPending}
-                  onClick={handleButtonClick}
-                >
-                  {buttonLabel}
-                </Button>
-              }
-            />
-            {buttonTooltip ? <TooltipPopup>{buttonTooltip}</TooltipPopup> : null}
-          </Tooltip>
-        }
-      />
+      {hasDesktopBridge ? (
+        <SettingsRow
+          id={setting("app-version").id}
+          title={<AboutVersionTitle />}
+          description={description}
+          managed={updatesDenial}
+          control={
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={buttonDisabled || isUpdateActionPending}
+                    onClick={handleButtonClick}
+                  >
+                    {buttonLabel}
+                  </Button>
+                }
+              />
+              {buttonTooltip ? <TooltipPopup>{buttonTooltip}</TooltipPopup> : null}
+            </Tooltip>
+          }
+        />
+      ) : (
+        <WebAppVersionRow id={setting("app-version").id} />
+      )}
       {hasDesktopBridge ? (
         <SettingsRow
           {...setting("update-track")}
