@@ -91,6 +91,8 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: package.json
+          # v5 caches the packageManager automatically, before "Install dependencies" provides pnpm.
+          package-manager-cache: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
