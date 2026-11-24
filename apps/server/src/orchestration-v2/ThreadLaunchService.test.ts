@@ -3883,7 +3883,7 @@ it.live(
         path.join(shop, "iglo.code.json"),
         JSON.stringify({
           worktreeLayout: {
-            create: `echo create >> "${ran}" && git worktree add -q -b "$T3_WORKTREE_BRANCH" "$T3_WORKTREE_PROJECT_PATH"`,
+            create: `echo create >> "${ran}" && git worktree add -q -b "$IGLO_CODE_WORKTREE_BRANCH" "$IGLO_CODE_WORKTREE_PROJECT_PATH"`,
           },
         }),
       );

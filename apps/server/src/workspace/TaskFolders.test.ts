@@ -518,7 +518,7 @@ it.live("leaves a project's layout commands out for a request that may not run t
         path.join(shop, "iglo.code.json"),
         JSON.stringify({
           worktreeLayout: {
-            create: `echo create >> "${ran}" && mkdir -p "$T3_WORKTREE_PROJECT_PATH" && git -C "$T3_PROJECT_ROOT/api" worktree add -q -b "$T3_WORKTREE_BRANCH" "$T3_WORKTREE_PROJECT_PATH/api"`,
+            create: `echo create >> "${ran}" && mkdir -p "$IGLO_CODE_WORKTREE_PROJECT_PATH" && git -C "$IGLO_CODE_PROJECT_ROOT/api" worktree add -q -b "$IGLO_CODE_WORKTREE_BRANCH" "$IGLO_CODE_WORKTREE_PROJECT_PATH/api"`,
             remove: `echo remove >> "${ran}"`,
           },
         }),

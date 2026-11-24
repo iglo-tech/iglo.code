@@ -215,7 +215,7 @@ describe("remote helper lifecycle", () => {
           hub,
           `import http from 'node:http'; import fs from 'node:fs';
 if(fs.existsSync('fail-start-once')) {fs.unlinkSync('fail-start-once');process.exit(1);}
-const args=process.argv.slice(2); fs.writeFileSync('hub-args.json',JSON.stringify(args)); fs.writeFileSync('hub-camera-args',process.env.EXPO_DEVICE_HUB_EMULATOR_EXTRA_ARGS || ''); http.createServer((req,res)=>{res.statusCode=fs.existsSync('unhealthy-'+process.pid)?503:200;res.end('ok');}).listen(Number(args[args.indexOf('--port')+1]),'127.0.0.1');`,
+const args=process.argv.slice(2); fs.writeFileSync('hub-args.json',JSON.stringify(args)); fs.writeFileSync('hub-camera-args',process.env.EXPO_DEVICE_HUB_EMULATOR_EXTRA_ARGS || ''); http.createServer((req,res)=>{res.statusCode=fs.existsSync('unhealthy-'+process.pid)?503:200;res.end('ok');}).listen(Number(args[args.indexOf('--port')+1]),'127.0.0.1',()=>console.log('  Local:   http://localhost/?token=hub-token'));`,
         );
         await NodeFSP.writeFile(
           agent,
@@ -502,9 +502,10 @@ it.effect("starts the hub requiring a session token and reports the one it print
   Effect.gen(function* () {
     if ((yield* HostProcess.Platform) === "win32") return;
     yield* Effect.promise(async () => {
+      const bunExecutable = (await exec("which", [bunPath])).stdout.trim();
       const home = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-ssh-hub-"));
       const run = (mode: "start" | "stop") =>
-        NodeChildProcess.spawnSync(process.execPath, [], {
+        NodeChildProcess.spawnSync(bunExecutable, ["-"], {
           input: remoteDeviceScript("owner", mode),
           env: {
             HOME: home,
