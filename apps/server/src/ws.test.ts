@@ -2072,6 +2072,7 @@ it.effect(
           Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
           Layer.mock(ServerEnvironment.ServerEnvironment)({}),
           Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
+          Layer.mock(ThreadProjectMove.ThreadProjectMove)({}),
         );
         const server = yield* RpcServer.makeNoSerialization(WsRpcGroup, {
           ...WS_RPC_SERVER_OPTIONS,

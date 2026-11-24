@@ -32,6 +32,7 @@
     "packages/client-runtime/src/state/threadState.ts": ["exports"],
     "packages/client-runtime/src/textPaste.ts": ["exports"],
     "packages/client-runtime/src/voice-input/index.ts": ["exports"],
+    "packages/client-runtime/src/work-log/presentation.ts": ["exports"],
     "packages/client-runtime/src/zip/zipErrorMessages.ts": ["exports"],
     "packages/contracts/src/chatAttachment.ts": ["exports"],
     "packages/contracts/src/editor.ts": ["exports"],

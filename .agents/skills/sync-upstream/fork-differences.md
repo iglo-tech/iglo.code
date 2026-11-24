@@ -91,6 +91,8 @@ current when an authorized change replaces a decision.
   Upstream's Linux `ProcessLauncher` (`process-launcher.ts`, `processLauncherWorker.ts`)
   stays removed and the server keeps `NonBlockingSpawner`: it works around libuv forking the
   whole Node server per spawn and hands pipes back over Node IPC; Bun spawns without that fork.
+  Upstream code that asks the launcher for its PID (such as PortScanner's launcher-child checks)
+  stays out with it: agent CLIs are direct children of the server here.
   Executable bundling preserves one shared Effect context, leaves `ws` to Bun's
   compatibility module, and stages file-backed dependencies using the same
   [external-package boundary](../../../scripts/lib/cli-external-packages.ts).
