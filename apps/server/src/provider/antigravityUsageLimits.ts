@@ -12,6 +12,8 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
+import type { ProviderDriverError } from "./Errors.ts";
+
 import {
   makeUnavailableUsageLimits,
   makeUsageLimits,
@@ -41,7 +43,8 @@ const TokenFile = Schema.Struct({
   project_id: Schema.optional(Schema.String),
 });
 // The 1.5.x CLI never writes acp_token.json: it keeps its sign-in in the OS keyring, or in
-// antigravity-oauth-token without one or when T3 bypasses the keyring. It stores no OAuth client, so T3 cannot refresh it.
+// antigravity-oauth-token without one or when T3 bypasses the keyring. It stores no OAuth client, so T3 cannot
+// refresh it itself; starting a CLI session renews the saved access token (see `renewCliSignIn`).
 const CliToken = Schema.Struct({
   token: Schema.Struct({
     access_token: Schema.NonEmptyString,
@@ -317,10 +320,14 @@ function modelWindows(models: typeof Models.Type) {
   return [...windows.values()];
 }
 
+const CliSignInExpired = Symbol("AntigravityCliSignInExpired");
+
 export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(function* (input: {
   readonly profileDirectory: string;
   readonly authMethod: AntigravitySettings["authMethod"];
   readonly readKeyringSecret?: Effect.Effect<string | undefined, AntigravityKeyringError>;
+  /** Starts a CLI session, which renews an expired saved access token. No turn runs. */
+  readonly renewCliSignIn?: Effect.Effect<void, ProviderDriverError>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -373,14 +380,7 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
         });
       }
       const { token } = yield* decodeCliToken(stored);
-      if (!(Date.parse(token.expiry ?? "") > now + 60_000)) {
-        return makeUnavailableUsageLimits({
-          checkedAt,
-          reason: "probeFailed",
-          message:
-            "Antigravity's saved sign-in has expired. Start an Antigravity turn to renew it, then refresh limits.",
-        });
-      }
+      if (!(Date.parse(token.expiry ?? "") > now + 60_000)) return CliSignInExpired;
       accessToken = token.access_token;
       account = yield* request(
         HttpClientRequest.get("https://www.googleapis.com/oauth2/v2/userinfo").pipe(
@@ -482,9 +482,34 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     }
     return { ...makeUsageLimits({ checkedAt, windows }), credentialFingerprint: account };
   });
-  const probe = read.pipe(
+  const timedRead = read.pipe(
     Effect.provideService(Digest.Digest, crypto),
     Effect.timeout("30 seconds"),
+  );
+  const isLimits = <A>(limits: A | typeof CliSignInExpired): limits is A =>
+    limits !== CliSignInExpired;
+  const renewThenRead = input.renewCliSignIn
+    ? input.renewCliSignIn.pipe(
+        Effect.matchEffect({
+          onFailure: () => Effect.succeed(CliSignInExpired),
+          onSuccess: () => timedRead,
+        }),
+      )
+    : Effect.succeed(CliSignInExpired);
+  const probe = timedRead.pipe(
+    // The CLI's access token lasts an hour. Renewing it spawns the CLI, so it runs outside the
+    // read timeout and only when the saved token has expired.
+    Effect.filterOrElse(isLimits, () => renewThenRead),
+    Effect.filterOrElse(isLimits, () =>
+      Effect.gen(function* () {
+        return makeUnavailableUsageLimits({
+          checkedAt: DateTime.formatIso(yield* DateTime.now),
+          reason: "probeFailed",
+          message:
+            "Antigravity's saved sign-in has expired and could not be renewed. Start an Antigravity turn to renew it, then refresh limits.",
+        });
+      }),
+    ),
     Effect.catch(() =>
       Effect.gen(function* () {
         return makeUnavailableUsageLimits({

@@ -579,6 +579,10 @@ export const AntigravityDriver: ProviderDriver<
     const usage = yield* makeAntigravityUsageProbe({
       profileDirectory,
       authMethod: auth.authMethod,
+      // Starting a session renews the CLI's saved sign-in and republishes the model catalog.
+      renewCliSignIn: Effect.suspend((): Effect.Effect<void, ProviderDriverError> =>
+        refreshModels(),
+      ),
     }).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),

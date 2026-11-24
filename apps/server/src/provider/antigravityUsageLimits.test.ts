@@ -1,5 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Layer from "effect/Layer";
 import { describe, expect, it } from "@effect/vitest";
@@ -16,6 +17,7 @@ import {
   makeAntigravityUsageProbe,
   readWindowsCliCredential,
 } from "./antigravityUsageLimits.ts";
+import { ProviderDriverError } from "./Errors.ts";
 
 const summary = {
   groups: [
@@ -74,6 +76,7 @@ const fixture = Effect.fn("AntigravityUsageTest.fixture")(function* (
     keyringSecret?: string;
     /** Reads the OS keyring instead of `keyringSecret`. */
     nativeKeyring?: boolean;
+    renewCliSignIn?: Effect.Effect<void, ProviderDriverError>;
   } = {},
 ) {
   const fs = yield* FileSystem.FileSystem;
@@ -141,8 +144,10 @@ const fixture = Effect.fn("AntigravityUsageTest.fixture")(function* (
     profileDirectory,
     authMethod: options.authMethod ?? "oauth-personal",
     ...(options.nativeKeyring ? {} : { readKeyringSecret: Effect.succeed(options.keyringSecret) }),
+    ...(options.renewCliSignIn ? { renewCliSignIn: options.renewCliSignIn } : {}),
   }).pipe(Effect.provideService(HttpClient.HttpClient, http));
-  return { ...usage, requests, writeToken, tokenPath };
+  const cliTokenPath = path.join(profileDirectory, "antigravity-acp", "antigravity-oauth-token");
+  return { ...usage, requests, writeToken, tokenPath, cliTokenPath };
 });
 
 describe("Antigravity subscription limits", () => {
@@ -724,6 +729,82 @@ describe("Antigravity subscription limits", () => {
       });
       expect((yield* expired.probe).unavailable?.reason).toBe("probeFailed");
       expect(expired.requests).toEqual([]);
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
+
+  it.effect("renews an expired CLI sign-in by starting a session, then reads limits", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe("2026-10-09T12:00:00Z")));
+      const fs = yield* FileSystem.FileSystem;
+      const cliToken = (expiry: string) =>
+        JSON.stringify({ token: { access_token: "access-token", refresh_token: "r", expiry } });
+      let renewals = 0;
+      let cliTokenPath = "";
+      const renewed = yield* fixture({
+        missingToken: true,
+        userId: "google-user-1",
+        // The CLI rewrites its saved token when a session starts.
+        renewCliSignIn: Effect.suspend(() => {
+          renewals++;
+          return fs
+            .writeFileString(cliTokenPath, cliToken("2026-10-09T13:00:00Z"))
+            .pipe(Effect.orDie);
+        }),
+      });
+      cliTokenPath = renewed.cliTokenPath;
+      yield* fs.writeFileString(cliTokenPath, cliToken("2026-10-09T11:00:00Z"));
+      const limits = yield* renewed.probe;
+      expect(limits.unavailable).toBeUndefined();
+      expect(limits.windows).toHaveLength(4);
+      expect(renewals).toBe(1);
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
+
+  it.effect("reports an expired CLI sign-in when renewing it fails", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe("2026-10-09T12:00:00Z")));
+      const fs = yield* FileSystem.FileSystem;
+      const failed = yield* fixture({
+        missingToken: true,
+        renewCliSignIn: Effect.fail(
+          new ProviderDriverError({
+            driver: ProviderDriverKind.make("antigravity"),
+            instanceId: ProviderInstanceId.make("antigravity"),
+            detail: "Sign in to Antigravity.",
+          }),
+        ),
+      });
+      yield* fs.writeFileString(
+        failed.cliTokenPath,
+        JSON.stringify({ token: { access_token: "access-token", expiry: "2026-10-09T11:00:00Z" } }),
+      );
+      const limits = yield* failed.probe;
+      expect(limits.unavailable?.reason).toBe("probeFailed");
+      expect(limits.unavailable?.message).toBe(
+        "Antigravity's saved sign-in has expired and could not be renewed. Start an Antigravity turn to renew it, then refresh limits.",
+      );
+      expect(failed.requests).toEqual([]);
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
+
+  it.effect("does not renew a CLI sign-in that is still valid", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe("2026-10-09T12:00:00Z")));
+      const fs = yield* FileSystem.FileSystem;
+      let renewals = 0;
+      const valid = yield* fixture({
+        missingToken: true,
+        userId: "google-user-1",
+        renewCliSignIn: Effect.sync(() => {
+          renewals++;
+        }),
+      });
+      yield* fs.writeFileString(
+        valid.cliTokenPath,
+        JSON.stringify({ token: { access_token: "access-token", expiry: "2026-10-09T13:00:00Z" } }),
+      );
+      expect((yield* valid.probe).unavailable).toBeUndefined();
+      expect(renewals).toBe(0);
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
