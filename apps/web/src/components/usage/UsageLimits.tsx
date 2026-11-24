@@ -15,7 +15,6 @@ import {
   type LimitPace,
   effectiveUsageWindow,
   isStaleUsageLimits,
-  lastCheckedAt,
   paceOf,
   paceRemainingPercent,
   remainingPercent,
@@ -245,7 +244,12 @@ export function LimitWindows({
   const m = useMessages();
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const stale = limits !== undefined && isStaleUsageLimits(limits);
-  const checkedAt = limits !== undefined ? lastCheckedAt(limits) : null;
+  const checkedAt =
+    limits === undefined
+      ? null
+      : stale
+        ? (limits.stale?.since ?? limits.checkedAt)
+        : limits.checkedAt;
   return (
     <div className="flex flex-col gap-1">
       <div
@@ -280,7 +284,7 @@ export function LimitWindows({
       {checkedAt !== null ? (
         <span className="text-2xs text-muted-foreground">
           {stale
-            ? gt("Last checked {time} · stale", {
+            ? gt("Stale since {time}", {
                 time: formatUpcomingTimestamp(checkedAt, timestampFormat, now, undefined, m),
               })
             : gt("Last checked {time}", {

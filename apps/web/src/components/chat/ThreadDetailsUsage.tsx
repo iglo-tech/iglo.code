@@ -10,7 +10,6 @@ import {
   type LimitPoolWindow,
   effectiveUsageWindow,
   isStaleUsageLimits,
-  lastCheckedAt,
   paceOf,
   paceRemainingPercent,
   remainingPercent,
@@ -66,6 +65,8 @@ export function ThreadDetailsUsage({
   const now = Date.parse(`${nowMinute}:00Z`);
   const resolved = resolveThreadDetailsLimits(providerInstanceId, model, providers, sources, now);
   if (!resolved) return null;
+  // The grid renders the box, so the stale dim belongs here, not on a `display: contents` wrapper.
+  const dimmed = resolved.kind === "instance" && isStaleUsageLimits(resolved.limits);
 
   return (
     <ThreadDetailsSection
@@ -73,7 +74,12 @@ export function ThreadDetailsUsage({
       title={gt("Usage limits")}
       showHeading={false}
     >
-      <div className="grid grid-cols-[auto_minmax(3rem,1fr)_auto] gap-x-3 text-xs">
+      <div
+        className={cn(
+          "grid grid-cols-[auto_minmax(3rem,1fr)_auto] gap-x-3 text-xs",
+          dimmed && "opacity-60",
+        )}
+      >
         {resolved.kind === "pool" ? (
           resolved.windows.map((window) => <PoolRow key={window.id} window={window} now={now} />)
         ) : (
@@ -109,20 +115,20 @@ function InstanceRows({
   }
   const stale = isStaleUsageLimits(limits);
   const checkedAt = formatUpcomingTimestamp(
-    lastCheckedAt(limits),
+    stale ? (limits.stale?.since ?? limits.checkedAt) : limits.checkedAt,
     timestampFormat,
     now,
     undefined,
     m,
   );
   return (
-    <div className={cn("contents", stale && "opacity-60")}>
+    <div className="contents">
       {limits.windows.map((window) => (
         <LimitRow key={window.id} window={window} now={now} />
       ))}
       <span className="col-span-3 px-2.5 text-2xs text-muted-foreground">
         {stale
-          ? gt("Last checked {time} · stale", { time: checkedAt })
+          ? gt("Stale since {time}", { time: checkedAt })
           : gt("Last checked {time}", { time: checkedAt })}
       </span>
     </div>

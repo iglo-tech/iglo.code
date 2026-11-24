@@ -124,7 +124,7 @@ describe("UsageLimitsPooled stale readings and elapsed resets", () => {
             providers: [
               limitsProvider("antigravity", {
                 checkedAt: "2026-10-25T16:00:00.000Z",
-                staleSince: "2026-10-25T18:30:00.000Z",
+                stale: { since: "2026-10-25T18:30:00.000Z" },
                 windows: [
                   {
                     id: "gemini-5h",
@@ -146,7 +146,7 @@ describe("UsageLimitsPooled stale readings and elapsed resets", () => {
       <UsageLimitsPooled presentations={presentations} now={Date.parse("2026-10-25T22:00:00Z")} />,
     );
 
-    const staleLine = screen.getByText(/Last checked .* · stale/);
+    const staleLine = screen.getByText(/Stale since /);
     await expect.element(staleLine).toBeVisible();
     expect(staleLine.element().closest(".rounded-lg")).toHaveClass(/opacity-60/);
     // The exhausted-looking window reset at 21:10, so it reads as fully available again.

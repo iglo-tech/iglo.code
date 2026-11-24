@@ -105,8 +105,9 @@ describe("applyUsageLimitsUpdate", () => {
     });
   });
 
-  it("clears the stale marker when a streamed update moves a window, keeps it on a no-op", () => {
-    const stale = { ...published, staleSince: "2026-09-03T12:00:01.000Z" };
+  it("keeps the stale marker on a sparse streamed update, whether or not a window moved", () => {
+    const stale = { ...published, stale: { since: "2026-09-03T12:00:01.000Z" } };
+    // A single-window rate-limit tick must not make retained windows look fresh again.
     const moved = applyUsageLimitsUpdate({
       previous: stale,
       checkedAt: "2026-09-03T12:00:05.000Z",
@@ -115,6 +116,7 @@ describe("applyUsageLimitsUpdate", () => {
     expect(moved).toEqual({
       checkedAt: "2026-09-03T12:00:05.000Z",
       windows: [{ ...session, usedPercent: 55 }, weekly],
+      stale: { since: "2026-09-03T12:00:01.000Z" },
     });
     expect(
       applyUsageLimitsUpdate({
@@ -171,20 +173,43 @@ describe("resolveUsageLimitsAfterProbe", () => {
       unavailable: { reason: "probeFailed" as const },
     };
     const afterFailure = resolveUsageLimitsAfterProbe({ published, probed: failed });
-    expect(afterFailure).toEqual({ ...published, staleSince: failedAt });
+    expect(afterFailure).toEqual({ ...published, stale: { since: failedAt } });
     expect(afterFailure).not.toBe(published);
     // checkedAt still names the last good read, so fresher environments win the merge.
     expect(afterFailure?.checkedAt).toBe(checkedAt);
 
-    // Repeated failures keep the earliest staleSince, even when one arrives out of order.
+    // Repeated failures keep the earliest since, even when one arrives out of order.
     const laterFailure = { ...failed, checkedAt: "2026-09-03T13:00:00.000Z" };
     expect(resolveUsageLimitsAfterProbe({ published: afterFailure, probed: laterFailure })).toEqual(
-      { ...published, staleSince: failedAt },
+      { ...published, stale: { since: failedAt } },
     );
     const olderFailure = { ...failed, checkedAt: "2026-09-03T12:10:00.000Z" };
     expect(resolveUsageLimitsAfterProbe({ published: afterFailure, probed: olderFailure })).toEqual(
-      { ...published, staleSince: "2026-09-03T12:10:00.000Z" },
+      { ...published, stale: { since: "2026-09-03T12:10:00.000Z" } },
     );
+
+    // The failed probe's message is retained on the stale marker, not replaced by a generic one.
+    const explainedFailure = {
+      ...failed,
+      checkedAt: "2026-09-03T13:30:00.000Z",
+      unavailable: { reason: "probeFailed" as const, message: "Saved sign-in expired." },
+    };
+    expect(
+      resolveUsageLimitsAfterProbe({ published: afterFailure, probed: explainedFailure }),
+    ).toEqual({ ...published, stale: { since: failedAt, message: "Saved sign-in expired." } });
+    // A later failure without a message keeps the earlier one.
+    expect(resolveUsageLimitsAfterProbe({ published: afterFailure, probed: failed })).toEqual({
+      ...published,
+      stale: { since: failedAt },
+    });
+    const explained = resolveUsageLimitsAfterProbe({
+      published: afterFailure,
+      probed: explainedFailure,
+    });
+    expect(resolveUsageLimitsAfterProbe({ published: explained, probed: failed })).toEqual({
+      ...published,
+      stale: { since: failedAt, message: "Saved sign-in expired." },
+    });
 
     // A later successful probe clears the marker.
     const recovered = {
@@ -201,7 +226,7 @@ describe("resolveUsageLimitsAfterProbe", () => {
   });
 
   it("keeps the stale marker when an older successful probe does not replace the newer windows", () => {
-    const stalePublished = { ...published, staleSince: "2026-09-03T12:30:00.000Z" };
+    const stalePublished = { ...published, stale: { since: "2026-09-03T12:30:00.000Z" } };
     const olderProbe = {
       checkedAt: "2026-09-03T11:30:00.000Z",
       windows: [{ ...session, usedPercent: 10 }],
@@ -211,7 +236,7 @@ describe("resolveUsageLimitsAfterProbe", () => {
         ...olderProbe,
         checkedAt: stalePublished.checkedAt,
         windows: stalePublished.windows,
-        staleSince: stalePublished.staleSince,
+        stale: stalePublished.stale,
       },
     );
   });

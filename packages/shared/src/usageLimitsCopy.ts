@@ -10,6 +10,7 @@ import type { MFunctionType } from "gt-i18n/types";
 import {
   collectExternalUsageLinks as collectExternalUsageLinksWith,
   cursorUsageWindowDetails as cursorUsageWindowDetailsBase,
+  hubAccountName,
   type LimitPool,
   type LimitPresentations,
   providersWithLimits,
@@ -104,10 +105,8 @@ export function collectLimitNotices(
       const name = provider.displayName?.trim() || String(provider.driver);
       if (notice) notices.add(`${label(environmentLabel, name)}: ${notice}`);
       // Retained bars after failed checks stay on the cards, but say so here too.
-      else if (limits?.staleSince !== undefined && limits.windows.length > 0) {
-        notices.add(
-          `${label(environmentLabel, name)}: ${resolve(msg("Limits are stale; refresh to re-check."))}`,
-        );
+      else if (limits?.stale !== undefined && limits.windows.length > 0) {
+        notices.add(`${label(environmentLabel, name)}: ${staleNotice(limits.stale, resolve)}`);
       }
     }
     for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
@@ -124,13 +123,30 @@ export function collectLimitNotices(
       }
       for (const account of source.accounts) {
         const name = failedAccounts.get(account);
-        if (name === undefined) continue;
-        const notice = limitsNotice(account.usageLimits, resolve);
-        notices.add(`${label(environmentLabel, source.label)} · ${name}: ${notice}`);
+        if (name !== undefined) {
+          const notice = limitsNotice(account.usageLimits, resolve);
+          notices.add(`${label(environmentLabel, source.label)} · ${name}: ${notice}`);
+          continue;
+        }
+        // A hub account whose retained bars went stale gets the same notice as a native one.
+        if (account.usageLimits.stale !== undefined && account.usageLimits.windows.length > 0) {
+          const accountName = account.email ?? hubAccountName(account);
+          notices.add(
+            `${label(environmentLabel, source.label)} · ${accountName}: ${staleNotice(account.usageLimits.stale, resolve)}`,
+          );
+        }
       }
     }
   }
   return [...notices];
+}
+
+/** The probe's own failure reason when it reported one, else the generic stale copy. */
+function staleNotice(
+  stale: { readonly since: string; readonly message?: string | undefined },
+  resolve: MFunctionType,
+): string {
+  return stale.message ?? resolve(msg("Limits are stale; refresh to re-check."));
 }
 
 /** @public */

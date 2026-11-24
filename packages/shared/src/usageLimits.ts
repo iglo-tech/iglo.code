@@ -259,7 +259,8 @@ function accountKeyResolver(reports: Iterable<AccountReport>) {
   };
 }
 
-const hubAccountName = (account: { readonly id: string }) => account.id.replace(/\.json$/i, "");
+export const hubAccountName = (account: { readonly id: string }) =>
+  account.id.replace(/\.json$/i, "");
 
 function limitAccountKeyResolver(presentations: LimitPresentations) {
   return accountKeyResolver(
@@ -627,13 +628,16 @@ function poolMember(account: LimitAccount, reportedRaw: ServerProviderUsageWindo
   const reported = effectiveUsageWindow(reportedRaw, now);
   const spentWeekly =
     reported.kind === "session"
-      ? account.limits.windows.find(
-          (window) =>
+      ? account.limits.windows.find((raw) => {
+          // A weekly window whose own reset passed is refilled too, so it no longer suppresses.
+          const window = effectiveUsageWindow(raw, now);
+          return (
             window.usedPercent >= 100 &&
             (account.driver === "claudeAgent"
-              ? window.id === "seven_day"
-              : account.driver === "codex" && window.kind === "weekly"),
-        )
+              ? raw.id === "seven_day"
+              : account.driver === "codex" && raw.kind === "weekly")
+          );
+        })
       : undefined;
   if (!spentWeekly) return { account, window: reported, refillPercent: reported.usedPercent };
 
@@ -643,21 +647,23 @@ function poolMember(account: LimitAccount, reportedRaw: ServerProviderUsageWindo
   let resetsAt: string | undefined;
   let refillPercent = 0;
   // A stale or missing clock cannot tell us when blocked quota becomes usable.
-  if (
-    weeklyReset !== null &&
-    sessionReset !== null &&
-    weeklyReset > cutoff &&
-    sessionReset > cutoff
-  ) {
-    if (sessionReset <= weeklyReset) {
+  if (weeklyReset !== null && weeklyReset > cutoff) {
+    if (sessionReset !== null && sessionReset <= cutoff) {
+      // The session window already reset; the weekly cap is what still blocks, and its
+      // reset time is the known unblock time.
       resetsAt = spentWeekly.resetsAt;
       refillPercent = 100;
-    } else if (reported.usedPercent >= 100) {
-      resetsAt = reported.resetsAt;
-      refillPercent = 100;
-    } else {
-      resetsAt = spentWeekly.resetsAt;
-      refillPercent = 100 - Math.max(0, Math.min(100, reported.usedPercent));
+    } else if (sessionReset !== null && sessionReset > cutoff) {
+      if (sessionReset <= weeklyReset) {
+        resetsAt = spentWeekly.resetsAt;
+        refillPercent = 100;
+      } else if (reported.usedPercent >= 100) {
+        resetsAt = reported.resetsAt;
+        refillPercent = 100;
+      } else {
+        resetsAt = spentWeekly.resetsAt;
+        refillPercent = 100 - Math.max(0, Math.min(100, reported.usedPercent));
+      }
     }
   }
   return {
@@ -793,15 +799,7 @@ export function effectiveUsageWindow(
 
 /** A reading whose later checks failed; `checkedAt` still names the last good read. */
 export function isStaleUsageLimits(limits: ServerProviderUsageLimits): boolean {
-  return limits.staleSince !== undefined;
-}
-
-/** When the limits were last checked: the latest check, failed or not. */
-export function lastCheckedAt(limits: ServerProviderUsageLimits): string {
-  return limits.staleSince !== undefined &&
-    Date.parse(limits.staleSince) > Date.parse(limits.checkedAt)
-    ? limits.staleSince
-    : limits.checkedAt;
+  return limits.stale !== undefined;
 }
 
 export function elapsedShare(window: ServerProviderUsageWindow, now: number): number | null {

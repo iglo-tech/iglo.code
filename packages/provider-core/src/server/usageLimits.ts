@@ -83,6 +83,9 @@ export function applyUsageLimitsUpdate(input: {
     previous === undefined ? { reason: "probeFailed" as const } : previous.unavailable;
   return {
     ...makeUsageLimits({ checkedAt: input.checkedAt, windows: merged.values() }),
+    // A sparse streamed update is not a fresh probe; only a complete update or a successful
+    // probe (resolveUsageLimitsAfterProbe) may clear the stale marker.
+    ...(previous?.stale !== undefined ? { stale: previous.stale } : {}),
     ...(previous?.resetCredits !== undefined ? { resetCredits: previous.resetCredits } : {}),
     ...(previous?.zeroSpendCap ? { zeroSpendCap: true } : {}),
     ...(unavailable !== undefined ? { unavailable } : {}),
@@ -117,14 +120,24 @@ export function resolveUsageLimitsAfterProbe(input: {
   const { published, probed } = input;
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
     // Keep the last good bars, but never republish them as a fresh reading: the failed check
-    // is recorded in `staleSince` so clients can tell the numbers are outdated.
+    // is recorded in `stale` so clients can tell the numbers are outdated.
     if (published.windows.length === 0) return probed;
-    const staleSince =
-      published.staleSince !== undefined &&
-      Date.parse(published.staleSince) <= Date.parse(probed.checkedAt)
-        ? published.staleSince
+    const since =
+      published.stale !== undefined &&
+      Date.parse(published.stale.since) <= Date.parse(probed.checkedAt)
+        ? published.stale.since
         : probed.checkedAt;
-    return { ...published, staleSince };
+    return {
+      ...published,
+      stale: {
+        since,
+        ...(probed.unavailable.message !== undefined
+          ? { message: probed.unavailable.message }
+          : published.stale?.message !== undefined
+            ? { message: published.stale.message }
+            : {}),
+      },
+    };
   }
   if (
     published &&
@@ -137,7 +150,7 @@ export function resolveUsageLimitsAfterProbe(input: {
       ...probed,
       checkedAt: published.checkedAt,
       windows: published.windows,
-      ...(published.staleSince !== undefined ? { staleSince: published.staleSince } : {}),
+      ...(published.stale !== undefined ? { stale: published.stale } : {}),
     };
   }
   return probed;

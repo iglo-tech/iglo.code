@@ -29,7 +29,7 @@ describe("LimitWindows", () => {
   it("shows an elapsed reset as refilled and marks a stale reading with its last-checked time", async () => {
     const limits = {
       checkedAt: "2026-10-25T16:00:00.000Z",
-      staleSince: "2026-10-25T18:30:00.000Z",
+      stale: { since: "2026-10-25T18:30:00.000Z" },
       windows: [
         {
           id: "gemini-5h",
@@ -53,7 +53,7 @@ describe("LimitWindows", () => {
     // The window reset at 21:10, so the exhausted reading reads as 100% left again.
     await expect.element(screen.getByText("100% left")).toBeVisible();
     await expect.element(screen.getByText("reset").first()).toBeVisible();
-    const staleLine = screen.getByText(/Last checked .* · stale/);
+    const staleLine = screen.getByText(/Stale since /);
     await expect.element(staleLine).toBeVisible();
     expect(screen.getByText("100% left").element().closest(".opacity-60")).not.toBeNull();
   });

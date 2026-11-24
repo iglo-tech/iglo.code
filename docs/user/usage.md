@@ -150,9 +150,9 @@ model-specific weekly allowances keep their reported values.
 Opening Limits checks the selected connected environments automatically. Each client waits at
 least five minutes between automatic checks of an environment, including after a failed check.
 If a window still looks stale, refresh Limits to re-check every provider and hub. When a provider's
-checks keep failing, its limit cards are dimmed, say when they were last checked, and note that the
-limits are stale; a window whose reset time has already passed reads as reset rather than
-exhausted.
+checks keep failing, its limit cards are dimmed and say since when the reading is stale, and note
+the failure reason when the provider reported one; a window whose reset time has already passed
+reads as reset rather than exhausted.
 
 Pick `/usage-limits` from the composer's command menu, or send it as a message, to check the
 current model's limits without leaving the conversation. The result opens above the composer and

@@ -8,7 +8,6 @@ import {
   type LimitPool,
   type LimitPoolMember,
   type LimitPoolWindow,
-  lastCheckedAt,
   paceRemainingPercent,
   remainingPercent,
   type ResetCreditChoice,
@@ -617,15 +616,20 @@ function PoolWindowCard({
   const m = useMessages();
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const nextRefill = pool.resets.find((reset) => reset.at > now && reset.restoresPercent > 0);
-  // The card pools several accounts; it is stale only when every reading behind it is.
+  // The card pools several accounts; it is stale when any reading behind it went stale.
   const memberLimits = pool.columns.flatMap((column) =>
     column.window ? [column.account.limits] : [],
   );
-  const stale =
-    memberLimits.length > 0 && memberLimits.every((limits) => isStaleUsageLimits(limits));
-  const checkedAt =
-    memberLimits.length > 0
-      ? memberLimits.map(lastCheckedAt).reduce((latest, at) => (at > latest ? at : latest))
+  const staleMembers = memberLimits.filter((limits) => isStaleUsageLimits(limits));
+  const stale = staleMembers.length > 0;
+  const checkedAt = stale
+    ? staleMembers
+        .map((limits) => limits.stale?.since ?? limits.checkedAt)
+        .reduce((earliest, at) => (at < earliest ? at : earliest))
+    : memberLimits.length > 0
+      ? memberLimits
+          .map((limits) => limits.checkedAt)
+          .reduce((latest, at) => (at > latest ? at : latest))
       : null;
   return (
     <div
@@ -657,7 +661,7 @@ function PoolWindowCard({
         {checkedAt !== null ? (
           <span className="text-2xs text-muted-foreground">
             {stale
-              ? gt("Last checked {time} · stale", {
+              ? gt("Stale since {time}", {
                   time: formatUpcomingTimestamp(checkedAt, timestampFormat, now, undefined, m),
                 })
               : gt("Last checked {time}", {
