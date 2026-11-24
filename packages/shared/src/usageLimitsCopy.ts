@@ -16,6 +16,7 @@ import {
   providersWithLimits,
   type ResetCreditChoice,
   resetCountdown,
+  staleHubAccountsBehindFreshRows,
   unshownFailedHubAccounts,
 } from "./usageLimits.ts";
 
@@ -90,6 +91,8 @@ export function collectLimitNotices(
   const notices = new Set<string>();
   // A failed hub read needs no notice when another report already shows the account's row.
   const failedAccounts = unshownFailedHubAccounts(presentations);
+  // A stale hub reading deduped behind a fresher fresh native row needs no notice either.
+  const behindFreshRows = staleHubAccountsBehindFreshRows(presentations);
   for (const presentation of presentations.values()) {
     const environmentLabel = presentation.entry.target.label;
     for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
@@ -128,8 +131,13 @@ export function collectLimitNotices(
           notices.add(`${label(environmentLabel, source.label)} · ${name}: ${notice}`);
           continue;
         }
-        // A hub account whose retained bars went stale gets the same notice as a native one.
-        if (account.usageLimits.stale !== undefined && account.usageLimits.windows.length > 0) {
+        // A hub account whose retained bars went stale gets the same notice as a native one,
+        // unless a fresher native row of the same login already shows the account.
+        if (
+          account.usageLimits.stale !== undefined &&
+          account.usageLimits.windows.length > 0 &&
+          !behindFreshRows.has(account)
+        ) {
           const accountName = account.email ?? hubAccountName(account);
           notices.add(
             `${label(environmentLabel, source.label)} · ${accountName}: ${staleNotice(account.usageLimits.stale, resolve)}`,

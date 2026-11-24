@@ -196,7 +196,24 @@ it.effect("keeps an account's last good reading when the hub's next read of it i
     expect(good?.windows.map((window) => window.usedPercent)).toEqual([78]);
     expect(good?.unavailable).toBeUndefined();
     refused = true;
-    expect(yield* read).toEqual(good);
+    // The lent reading keeps the last good bars but is marked stale, with the refused read's reason.
+    expect(yield* read).toEqual({
+      ...good,
+      stale: {
+        since: good?.checkedAt,
+        message: "The provider refused the hub request (HTTP 429).",
+      },
+    });
+    // A successful hub read clears the stale marker again.
+    refused = false;
+    const recovered = yield* read;
+    expect(recovered?.stale).toBeUndefined();
+    expect(recovered?.windows.map((window) => window.usedPercent)).toEqual([78]);
+    refused = true;
+    expect(yield* read).toMatchObject({
+      windows: [{ usedPercent: 78 }],
+      stale: { message: "The provider refused the hub request (HTTP 429)." },
+    });
     // The same auth file now holds another login, whose reading is unknown.
     workspace = "account-b";
     expect(yield* read).toMatchObject({ windows: [], unavailable: { reason: "probeFailed" } });

@@ -357,6 +357,8 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       accounts.set(key, next);
       return;
     }
+    // Merges rank by checkedAt alone: a stale reading with a newer sparse tick can win here,
+    // and the winning row is what cards dim and label via `stale` (see ServerProviderUsageLimits).
     const fresher = Date.parse(next.limits.checkedAt) > Date.parse(previous.limits.checkedAt);
     const environments = [
       ...previous.environments,
@@ -483,6 +485,48 @@ export function unshownFailedHubAccounts(
     }
   }
   return failed;
+}
+
+/**
+ * Stale hub readings that a fresher, non-stale native row of the same login already shows, so
+ * they are deduped behind that row and need no notice of their own.
+ */
+export function staleHubAccountsBehindFreshRows(
+  presentations: LimitPresentations,
+): ReadonlySet<UsageLimitSourceAccount> {
+  const resolveKey = limitAccountKeyResolver(presentations);
+  const freshNative = new Map<string, number>();
+  for (const presentation of presentations.values()) {
+    for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
+      const limits = provider.usageLimits;
+      if (!limits || limitsNotice(limits) !== null || isStaleUsageLimits(limits)) continue;
+      const key = resolveKey(nativeReport(provider));
+      const at = Date.parse(limits.checkedAt);
+      if (key !== null && at > (freshNative.get(key) ?? Number.NEGATIVE_INFINITY)) {
+        freshNative.set(key, at);
+      }
+    }
+  }
+  const behind = new Set<UsageLimitSourceAccount>();
+  for (const presentation of presentations.values()) {
+    for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
+      for (const account of source.accounts) {
+        if (account.usageLimits.stale === undefined || account.usageLimits.windows.length === 0) {
+          continue;
+        }
+        const key = resolveKey(account);
+        // The native row wins the merge only when its reading is newer and not stale itself.
+        if (
+          key !== null &&
+          (freshNative.get(key) ?? Number.NEGATIVE_INFINITY) >
+            Date.parse(account.usageLimits.checkedAt)
+        ) {
+          behind.add(account);
+        }
+      }
+    }
+  }
+  return behind;
 }
 
 export interface LimitPoolMember {

@@ -154,6 +154,58 @@ describe("UsageLimitsPooled stale readings and elapsed resets", () => {
     await expect.element(screen.getByText("100%").first()).toBeVisible();
   });
 
+  it("dims a pooled card when only one of its two accounts is stale", async () => {
+    const presentations = new Map([
+      [
+        EnvironmentId.make("desk"),
+        {
+          entry: { target: { label: "Desk" } },
+          serverConfig: {
+            providers: [
+              limitsProvider("stale-account", {
+                checkedAt: "2026-10-25T16:00:00.000Z",
+                stale: { since: "2026-10-25T18:30:00.000Z" },
+                windows: [
+                  {
+                    id: "five_hour",
+                    kind: "session",
+                    label: "5-hour",
+                    usedPercent: 80,
+                    windowDurationMins: 300,
+                    resetsAt: "2026-10-25T23:00:00.000Z",
+                  },
+                ],
+              }),
+              limitsProvider("fresh-account", {
+                checkedAt: "2026-10-25T21:50:00.000Z",
+                windows: [
+                  {
+                    id: "five_hour",
+                    kind: "session",
+                    label: "5-hour",
+                    usedPercent: 20,
+                    windowDurationMins: 300,
+                    resetsAt: "2026-10-25T23:30:00.000Z",
+                  },
+                ],
+              }),
+            ],
+          },
+        },
+      ],
+    ]);
+    await using screen = await render(
+      <UsageLimitsPooled presentations={presentations} now={Date.parse("2026-10-25T22:00:00Z")} />,
+    );
+
+    // ANY stale member dims the card, not only when every member is stale.
+    const staleLine = screen.getByText(/Stale since /);
+    await expect.element(staleLine).toBeVisible();
+    expect(staleLine.element().closest(".rounded-lg")).toHaveClass(/opacity-60/);
+    // Both members still render their segments.
+    await expect.element(screen.getByText("5-hour").first()).toBeVisible();
+  });
+
   it("shows a fresh card with its last-checked time and no dimming", async () => {
     const presentations = new Map([
       [

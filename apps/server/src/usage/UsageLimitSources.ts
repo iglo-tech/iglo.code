@@ -12,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { antigravityWindowLimitsModel, hubRoutes } from "@t3tools/shared/usageLimits";
+import { resolveUsageLimitsAfterProbe } from "@t3tools/provider-core/server/usageLimits";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -55,7 +56,9 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
 
 /**
  * A refused read of one account keeps its last good reading, as provider probes keep their bars
- * (see ServerProviderUsageLimits); a reading with none to keep stays listed as unreadable.
+ * (see ServerProviderUsageLimits); the lent reading is marked stale through the same
+ * resolveUsageLimitsAfterProbe path, so it never republishes as fresh. A reading with none to
+ * keep stays listed as unreadable.
  */
 function keepLastGoodReadings(
   previous: ReadonlyArray<UsageLimitSourceSnapshot>,
@@ -83,8 +86,14 @@ function keepLastGoodReadings(
             candidate.workspaceId === account.workspaceId,
         );
         if (!last || last.usageLimits.unavailable) return account;
-        // Only the reading is lent; an unread model list stays unknown.
-        return { ...last, models: account.models };
+        // Only the reading is lent; an unread model list stays unknown. The failed read marks
+        // the lent one stale instead of letting it pass as a fresh reading.
+        const usageLimits =
+          resolveUsageLimitsAfterProbe({
+            published: last.usageLimits,
+            probed: account.usageLimits,
+          }) ?? account.usageLimits;
+        return { ...last, models: account.models, usageLimits };
       }),
     };
   });

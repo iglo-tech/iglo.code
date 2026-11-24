@@ -47,7 +47,12 @@ export type ServerProviderResetCredits = typeof ServerProviderResetCredits.Type;
 export const ServerProviderUsageLimits = Schema.Struct({
   checkedAt: IsoDateTime,
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
-  /** Set when a later check failed: `windows` are still the last good reading from `checkedAt`. */
+  /**
+   * Set when a later check failed. `windows` stay the last reading (sparse streamed updates may
+   * still advance individual windows) and `checkedAt` names the newest reading; cross-environment
+   * merges rank by `checkedAt` alone, so a stale reading can win a merge — clients dim and label
+   * it via this field.
+   */
   stale: Schema.optional(
     Schema.Struct({
       /** When the checks started failing. */

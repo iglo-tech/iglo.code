@@ -2202,6 +2202,78 @@ describe("stale readings and reset windows", () => {
     expect(notices).toEqual(["hub · work@example.com: Limits are stale; refresh to re-check."]);
   });
 
+  it("ranks merged accounts by checkedAt alone, so a stale reading with a newer tick wins and is labeled stale", () => {
+    // Documents the accepted caveat: no stale-aware tiebreak, the card labels the winner.
+    const staleNewer = provider({
+      auth: { status: "authenticated", email: "shared@example.com" },
+      usageLimits: {
+        checkedAt: "2026-09-03T12:30:00.000Z",
+        windows: [window],
+        stale: { since: "2026-09-03T12:30:00.000Z" },
+      },
+    });
+    const freshOlder = provider({
+      instanceId: ProviderInstanceId.make("codex-2"),
+      auth: { status: "authenticated", email: "shared@example.com" },
+      usageLimits: {
+        checkedAt: "2026-09-03T12:00:00.000Z",
+        windows: [{ ...window, usedPercent: 10 }],
+      },
+    });
+    const accounts = collectLimitAccounts(
+      new Map([
+        [
+          EnvironmentId.make("env-a"),
+          { entry: { target: { label: "A" } }, serverConfig: { providers: [staleNewer] } },
+        ],
+        [
+          EnvironmentId.make("env-b"),
+          { entry: { target: { label: "B" } }, serverConfig: { providers: [freshOlder] } },
+        ],
+      ]),
+    );
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]!.limits.checkedAt).toBe("2026-09-03T12:30:00.000Z");
+    expect(isStaleUsageLimits(accounts[0]!.limits)).toBe(true);
+  });
+
+  it("skips the stale hub notice when a fresher fresh native row shows the same login", () => {
+    const native = provider({
+      auth: { status: "authenticated", email: "work@example.com" },
+      usageLimits: { checkedAt: "2026-09-03T12:30:00.000Z", windows: [window] },
+    });
+    const staleHub = {
+      id: UsageLimitSourceId.make("hub"),
+      kind: "cliproxy" as const,
+      label: "hub",
+      checkedAt: "2026-09-03T11:00:00.000Z",
+      accounts: [
+        {
+          id: "work.json",
+          driver: ProviderDriverKind.make("codex"),
+          email: "work@example.com",
+          usageLimits: {
+            checkedAt: "2026-09-03T11:00:00.000Z",
+            windows: [window],
+            stale: { since: "2026-09-03T12:00:00.000Z" },
+          },
+        },
+      ],
+    };
+    const notices = collectLimitNotices(
+      new Map([
+        [
+          EnvironmentId.make("env-a"),
+          {
+            entry: { target: { label: "Laptop" } },
+            serverConfig: { providers: [native], usageLimitSources: [staleHub] },
+          },
+        ],
+      ]),
+    );
+    expect(notices).toEqual([]);
+  });
+
   it("pools a weekly-blocked session as refilled when both resets have passed", () => {
     // Stale snapshot: session and weekly both read 100% but both reset times are past.
     const accounts = [
