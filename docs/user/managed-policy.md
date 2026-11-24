@@ -137,6 +137,7 @@ A few settings need care:
     "webhookTasks": false,
     "browserCookieImport": false,
     "previewTunnel": false,
+    "worktreeLayoutCommands": false,
     "telemetry": false,
     "providers": {
       "allowedDrivers": ["claudeAgent", "codex"],
@@ -218,6 +219,11 @@ so restart iglo.code after that.
 - `previewTunnel: false`: other devices cannot load this machine's `localhost` pages themselves;
   browser tabs stream from it instead. This wins over the user's
   [Preview tunnel setting](./remote-access.md#browser-on-a-remote-environment).
+- `worktreeLayoutCommands: false`: iglo.code does not run the
+  [worktree layout commands](./multi-repo-projects.md#lay-the-folder-out-yourself) a project's
+  `iglo.code.json` declares, whether or not a user approved them. Such a project gets no new worktree
+  threads; existing thread folders are restored as plain checkouts and removed without the
+  project's `remove` command.
 - `telemetry: false`: the server sends no [product usage data](./telemetry.md). A policy cannot
   turn it on.
 

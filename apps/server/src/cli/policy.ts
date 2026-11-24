@@ -152,10 +152,11 @@ const templatesCommand = Command.make("templates", {
       if (profile._tag === "Invalid") {
         return yield* new CliError.UserError({ cause: document, userMessage: profile.reason });
       }
+      const outputDir = yield* expandHomePath(directory);
       const files = [
-        [path.join(directory, "windows", "iglocode.admx"), windowsAdmx()],
-        [path.join(directory, "windows", "en-US", "iglocode.adml"), windowsAdml()],
-        [path.join(directory, "macos", "iglocode.mobileconfig"), profile.profile],
+        [path.join(outputDir, "windows", "iglocode.admx"), windowsAdmx()],
+        [path.join(outputDir, "windows", "en-US", "iglocode.adml"), windowsAdml()],
+        [path.join(outputDir, "macos", "iglocode.mobileconfig"), profile.profile],
       ] as const;
       for (const [file, contents] of files) {
         yield* fs.makeDirectory(path.dirname(file), { recursive: true });
