@@ -9217,7 +9217,6 @@
   "fd5e987709679db9": "Mantiene actualizada la rama predeterminada de este proyecto cuando el checkout no tiene cambios ni commits locales.",
   "a8d6b69e67c6015e": "Mantiene actualizada la rama predeterminada cuando el checkout no tiene cambios ni commits locales. Los proyectos pueden anularlo.",
   "1a58c587c585a39e": "Restablecer el pull automático predeterminado al valor predeterminado",
-  "4f2a1d5aef3f73a5": "Restablecer el pull automático a desactivado",
   "0c8037e10e1354fa": "Pull automático predeterminado",
   "553f7007fe9693e2": "Quita las líneas de crédito de agentes reconocidas de los mensajes de fusión y squash en los hosts compatibles, manteniendo a los coautores humanos. Incluye la fusión automática. Excluye las colas de fusión, las fusiones de pilas y los commits existentes.",
   "f90a903847ac4a4d": "Restablecer la eliminación de créditos del agente al valor predeterminado",

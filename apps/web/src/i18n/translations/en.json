@@ -9227,7 +9227,6 @@
   "fd5e987709679db9": "Keeps this project's default branch current when the checkout has no local changes or commits.",
   "a8d6b69e67c6015e": "Keeps the default branch current when the checkout has no local changes or commits. Projects can override it.",
   "1a58c587c585a39e": "Reset default automatic pull to default",
-  "4f2a1d5aef3f73a5": "Reset automatic pull to off",
   "0c8037e10e1354fa": "Default automatic pull",
   "553f7007fe9693e2": "Remove recognized agent credit lines from merge and squash messages on hosts that support it, keeping human co-authors. Includes auto-merge. Excludes merge queues, stack merges, and existing commits.",
   "f90a903847ac4a4d": "Reset agent credit removal to default",

@@ -9225,7 +9225,6 @@
   "fd5e987709679db9": "Håller projektets standardgren aktuell när utcheckningen inte har några lokala ändringar eller commits.",
   "a8d6b69e67c6015e": "Håller standardgrenen aktuell när utcheckningen inte har några lokala ändringar eller commits. Projekt kan åsidosätta det.",
   "1a58c587c585a39e": "Återställ automatisk pull som standard till standard",
-  "4f2a1d5aef3f73a5": "Återställ automatisk pull till av",
   "0c8037e10e1354fa": "Automatisk pull som standard",
   "553f7007fe9693e2": "Ta bort igenkända agentrader för medförfattare från merge- och squash-meddelanden hos värdar som stöder det, och behåll mänskliga medförfattare. Gäller även automatisk merge. Gäller inte merge-köer, stack-merges och befintliga commits.",
   "f90a903847ac4a4d": "Återställ borttagning av agentkrediter till standard",

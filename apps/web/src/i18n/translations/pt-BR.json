@@ -9218,7 +9218,6 @@
   "fd5e987709679db9": "Mantém o branch padrão deste projeto atualizado quando o checkout não tem alterações ou commits locais.",
   "a8d6b69e67c6015e": "Mantém o branch padrão atualizado quando o checkout não tem alterações ou commits locais. Os projetos podem substituir isso.",
   "1a58c587c585a39e": "Redefinir o pull automático padrão para o padrão",
-  "4f2a1d5aef3f73a5": "Redefinir pull automático para desativado",
   "0c8037e10e1354fa": "Pull automático padrão",
   "553f7007fe9693e2": "Remove as linhas de crédito de agentes reconhecidas das mensagens de merge e squash nos hosts que oferecem suporte, mantendo os coautores humanos. Inclui o auto-merge. Exclui merge queues, merges de stack e commits existentes.",
   "f90a903847ac4a4d": "Redefinir a remoção de créditos de agentes para o padrão",

@@ -1,4 +1,9 @@
-import { ServerSettingsError, type ServerSettingsPatch } from "@t3tools/contracts";
+import {
+  FORK_SERVER_DEFAULTS_STEPS,
+  type ForkServerDefaultsStep,
+  ServerSettingsError,
+  type ServerSettingsPatch,
+} from "@t3tools/contracts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -9,40 +14,6 @@ import * as Semaphore from "effect/Semaphore";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerSettingsModule from "./serverSettings.ts";
-
-export interface ForkServerDefaultsStep {
-  readonly version: number;
-  readonly patch: ServerSettingsPatch;
-}
-
-/**
- * Versioned fork defaults applied once per server home directory. Never edit or renumber a shipped
- * step; append a new step with a higher version so existing servers pick it up once while
- * preserving any manual edits the user made afterward.
- */
-const FORK_SERVER_DEFAULTS_STEPS = [
-  {
-    version: 1,
-    patch: {
-      defaultThreadEnvMode: "worktree",
-      reviewGuidesEnabled: true,
-      defaultAutoPull: true,
-      worktreeCleanup: null,
-      storageCleanup: {
-        worktreeOnDelete: true,
-        worktreeOnMerge: true,
-        worktreeAfterDays: 8,
-        worktreeSettledAfterDays: 8,
-        worktreeUnchanged: true,
-      },
-      branchNamingMode: "custom",
-      branchNameInstructions: 'Use "iglo-code/" followed by the issue ID and a short description.',
-      linkedEnvironmentsEnabled: true,
-      workflowsEnabled: true,
-      promptSuggestionsEnabled: true,
-    },
-  },
-] as const satisfies ReadonlyArray<ForkServerDefaultsStep>;
 
 export const FORK_SERVER_DEFAULTS_VERSION =
   FORK_SERVER_DEFAULTS_STEPS[FORK_SERVER_DEFAULTS_STEPS.length - 1]?.version ?? 0;

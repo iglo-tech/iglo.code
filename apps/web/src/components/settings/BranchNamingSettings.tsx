@@ -1,6 +1,10 @@
 import { msg, useGT, useMessages } from "gt-react";
 import { useRef } from "react";
-import { BranchNamingMode, DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import {
+  BranchNamingMode,
+  DEFAULT_SERVER_SETTINGS,
+  DEFAULT_UNIFIED_SETTINGS,
+} from "@t3tools/contracts";
 
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -49,11 +53,11 @@ export function BranchNamingSettings() {
             : undefined
         }
         resetAction={
-          settings.branchNamingMode !== DEFAULT_SERVER_SETTINGS.branchNamingMode || modeMixed ? (
+          settings.branchNamingMode !== DEFAULT_UNIFIED_SETTINGS.branchNamingMode || modeMixed ? (
             <SettingResetButton
               ariaLabel={gt("Reset branch naming to default")}
               onClick={() =>
-                updateSettings({ branchNamingMode: DEFAULT_SERVER_SETTINGS.branchNamingMode })
+                updateSettings({ branchNamingMode: DEFAULT_UNIFIED_SETTINGS.branchNamingMode })
               }
             />
           ) : null

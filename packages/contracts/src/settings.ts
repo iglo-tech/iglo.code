@@ -53,6 +53,7 @@ import {
   ProviderInstanceId,
   ProviderDriverKind,
 } from "./providerInstance.ts";
+import { withForkServerDefaults } from "./forkSettingsDefaults.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
 import {
   CloudSpeechModelId,
@@ -1832,7 +1833,8 @@ export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>
 
 export type UnifiedSettings = Omit<ServerSettings, keyof ModelPreferences> & ClientSettings;
 export const DEFAULT_UNIFIED_SETTINGS: UnifiedSettings = {
-  ...DEFAULT_SERVER_SETTINGS,
+  // iglo.code: Settings resets to the fork defaults; the server keeps upstream's.
+  ...withForkServerDefaults(DEFAULT_SERVER_SETTINGS),
   ...DEFAULT_CLIENT_SETTINGS,
 };
 

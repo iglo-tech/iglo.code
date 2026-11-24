@@ -1,6 +1,13 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import type { ManagedPolicyDocument } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  FORK_SERVER_DEFAULTS_STEPS,
+  type ForkServerDefaultsStep,
+  type ManagedPolicyDocument,
+  withForkServerDefaults,
+} from "@t3tools/contracts";
+import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -13,7 +20,6 @@ import {
   FORK_SERVER_DEFAULTS_VERSION,
   forkDefaultsVersionPath,
   withForkSettingsDefaults,
-  type ForkServerDefaultsStep,
 } from "./forkSettingsDefaults.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
@@ -189,3 +195,20 @@ it.effect("applies only steps newer than the recorded version", () =>
     }).pipe(Effect.provide(makeServerSettingsLayer(baseDir, { steps })));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it("Settings resets to what the server applies", () => {
+  const applied = FORK_SERVER_DEFAULTS_STEPS.reduce(
+    (settings, step) => applyServerSettingsPatch(settings, step.patch),
+    DEFAULT_SERVER_SETTINGS,
+  );
+  const shown = withForkServerDefaults(DEFAULT_SERVER_SETTINGS);
+  for (const key of new Set(
+    FORK_SERVER_DEFAULTS_STEPS.flatMap((step) => Object.keys(step.patch)),
+  )) {
+    assert.deepStrictEqual(
+      shown[key as keyof typeof shown],
+      applied[key as keyof typeof applied],
+      key,
+    );
+  }
+});

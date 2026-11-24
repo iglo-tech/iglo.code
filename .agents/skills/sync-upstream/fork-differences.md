@@ -277,19 +277,26 @@ current when an authorized change replaces a decision.
   threadActionMenu.logic.test.ts, commandPermissions.test.ts). Upstream has no
   equivalent yet; if it ships its own move, reconcile the contracts, menu, and
   dispatch semantics rather than carrying both paths.
-- **Versioned fork server defaults.** `iglo.code` wraps `ServerSettings.layer`
-  with `withForkSettingsDefaults` from
+- **Versioned fork server defaults.** `FORK_SERVER_DEFAULTS_STEPS` in
+  [contracts forkSettingsDefaults.ts](../../../packages/contracts/src/forkSettingsDefaults.ts)
+  holds iglo.code's server defaults. Never edit or renumber a shipped step;
+  append a higher version. The server wraps `ServerSettings.layer` with
+  `withForkSettingsDefaults` from
   [forkSettingsDefaults.ts](../../../apps/server/src/forkSettingsDefaults.ts) in
-  [server.ts](../../../apps/server/src/server.ts) so server startup applies
-  `FORK_SERVER_DEFAULTS_STEPS` once per server home directory via
-  `updateSettings`, tracked in `<stateDir>/fork-defaults-version` beside
-  `settings.json`. Keep upstream's `ServerSettings.layer`,
-  [serverSettings.ts](../../../apps/server/src/serverSettings.ts), and
-  `DEFAULT_SERVER_SETTINGS` untouched. Never edit or renumber a shipped step:
-  append a new higher-numbered step so existing servers apply only newer steps
-  without overwriting manual edits (the marker alone decides; deleting it
-  re-applies every step). Managed-policy locked paths are skipped and corrupt
-  `settings.json` files stay untouched. Because `DEFAULT_SERVER_SETTINGS` stays
-  upstream, Settings reset buttons still reset to upstream values. Preserve the
-  focused suite in
-  [forkSettingsDefaults.test.ts](../../../apps/server/src/forkSettingsDefaults.test.ts).
+  [server.ts](../../../apps/server/src/server.ts), which applies each pending
+  step once through `updateSettings` and records it in
+  `<stateDir>/fork-defaults-version` (the marker alone decides; deleting it
+  re-applies every step). Locked managed-policy paths are skipped and a corrupt
+  `settings.json` stays untouched. `DEFAULT_SERVER_SETTINGS`,
+  [serverSettings.ts](../../../apps/server/src/serverSettings.ts), and the
+  schema defaults stay upstream: `settings.json` is stored sparse against
+  them and missing keys decode to them, so changing them would silently flip
+  stored choices. Settings resets to the fork values instead:
+  `DEFAULT_UNIFIED_SETTINGS` in
+  [settings.ts](../../../packages/contracts/src/settings.ts) spreads
+  `withForkServerDefaults(DEFAULT_SERVER_SETTINGS)`, and the workspace,
+  automatic pull, and branch naming resets read it instead of hard-coded
+  values. The inheritance popover still compares against upstream defaults,
+  since it describes what the server stores. Preserve
+  [forkSettingsDefaults.test.ts](../../../apps/server/src/forkSettingsDefaults.test.ts),
+  which pins the Settings values to what the server applies.

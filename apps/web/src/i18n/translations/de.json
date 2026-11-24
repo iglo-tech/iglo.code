@@ -9219,7 +9219,6 @@
   "fd5e987709679db9": "Hält den Standard-Branch dieses Projekts aktuell, wenn der Checkout keine lokalen Änderungen oder Commits hat.",
   "a8d6b69e67c6015e": "Hält den Standard-Branch aktuell, wenn der Checkout keine lokalen Änderungen oder Commits hat. Projekte können das überschreiben.",
   "1a58c587c585a39e": "Standardmäßiges automatisches Pullen auf Standard zurücksetzen",
-  "4f2a1d5aef3f73a5": "Automatisches Pullen auf Aus zurücksetzen",
   "0c8037e10e1354fa": "Standard für automatisches Pullen",
   "553f7007fe9693e2": "Erkannte Agenten-Credits aus Merge- und Squash-Nachrichten entfernen, sofern der Host das unterstützt; menschliche Co-Autoren bleiben erhalten. Gilt auch für Auto-Merge. Ausgenommen sind Merge-Queues, Stack-Merges und bestehende Commits.",
   "f90a903847ac4a4d": "Entfernen der Agenten-Credits auf Standard zurücksetzen",
