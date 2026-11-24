@@ -180,11 +180,15 @@ vi.mock(import("../../state/entities"), async (original) => ({
     { id: projectId, environmentId, title: "Project", workspaceRoot: "/repo" },
   ]) as never,
 }));
-// The suite registers no providers; a save still needs a model to send.
-vi.mock(import("./scheduledTasksSettings.logic"), async (original) => ({
-  ...(await original()),
-  scheduledTaskDefaultModel: () => task.modelSelection,
-}));
+// Most cases register no providers; a save still needs a model to send.
+vi.mock(import("./scheduledTasksSettings.logic"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    scheduledTaskDefaultModel: (...args: Parameters<typeof actual.scheduledTaskDefaultModel>) =>
+      actual.scheduledTaskDefaultModel(...args) ?? task.modelSelection,
+  };
+});
 vi.mock(import("../../hooks/useSettings"), async (original) => ({
   ...(await original()),
   useEnvironmentSettings: (() => state.settings) as never,
