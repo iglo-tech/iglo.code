@@ -15,7 +15,7 @@ git tag v1.2.3 && git push origin v1.2.3
 ```
 
 The workflow builds one archive per target on that target's own runner (`darwin-arm64` on
-`macos-14`, `darwin-x64` on `macos-15-intel`, `linux-x64` on `ubuntu-24.04`, `linux-arm64` on
+`macos-26`, `darwin-x64` on `macos-15-intel`, `linux-x64` on `ubuntu-24.04`, `linux-arm64` on
 `ubuntu-24.04-arm`), smoke-tests each, writes a combined `SHA256SUMS`, and publishes them as the
 GitHub Release for the tag. To retry a tag, delete its failed release if one exists and run the
 workflow manually with the tag as input.
