@@ -61,6 +61,11 @@ const SKIP_PREFIXES = [
 // Reviewed exceptions: [path prefix, rule label, why]. Keep each one justified.
 const ALLOW: [string, string, string][] = [
   [
+    "TRADEMARK.md",
+    "service label",
+    "upstream's trademark policy, kept verbatim; it names T3 Code's own apps",
+  ],
+  [
     "packages/provider-grok/src/server/driver.test.ts",
     "npx t3 command",
     "describes the npm user agent Grok sees when any npx-launched server starts it",

@@ -220,6 +220,7 @@ interface PendingCode {
   readonly codeChallenge: string;
   readonly resource: string;
   readonly access: AuthMcpClientAccess;
+  readonly approvedAtRevocationCount: number;
   readonly expiresAtMs: number;
 }
 
@@ -486,6 +487,7 @@ const make = Effect.gen(function* () {
     authorization: AuthorizationRequest,
     access: AuthMcpClientAccess,
     pairingGrantId: string | undefined,
+    approvedAtRevocationCount: number,
   ) {
     const now = yield* Clock.currentTimeMillis;
     const code = Buffer.from(yield* random.randomBytes(32)).toString("base64url");
@@ -501,6 +503,7 @@ const make = Effect.gen(function* () {
         codeChallenge: authorization.codeChallenge,
         resource: authorization.resource,
         access,
+        approvedAtRevocationCount,
         expiresAtMs: now + AUTHORIZATION_CODE_TTL_MS,
       });
       return next;
@@ -510,6 +513,9 @@ const make = Effect.gen(function* () {
 
   const approve: McpOAuth["Service"]["approve"] = Effect.fn("McpOAuth.approve")(function* (input) {
     const { decision } = input;
+    // Read before the approver is checked: "revoke all others" then ends this sign-in whether
+    // it lands before the check or after the code is handed out.
+    const approvedAtRevocationCount = yield* environmentAuth.otherSessionRevocationCount;
     let access = decision.access;
     let pairingGrantId: string | undefined = undefined;
     if (decision._tag === "pairing-code") {
@@ -548,7 +554,12 @@ const make = Effect.gen(function* () {
         });
       }
     }
-    const code = yield* mintCode(input.authorization, access, pairingGrantId);
+    const code = yield* mintCode(
+      input.authorization,
+      access,
+      pairingGrantId,
+      approvedAtRevocationCount,
+    );
     yield* Effect.logInfo("Approved an MCP client sign-in.", {
       client: input.authorization.client.name,
       access,
@@ -619,14 +630,17 @@ const make = Effect.gen(function* () {
             ? { pairingGrantId: pending.pairingGrantId }
             : {}),
           client: deriveAuthClientMetadata({ request }),
+          approvedAtRevocationCount: pending.approvedAtRevocationCount,
         })
         .pipe(
           Effect.catch((cause) =>
-            Effect.logError("Could not issue an MCP client session.", { cause }).pipe(
-              Effect.andThen(
-                Effect.fail(fail("invalid_grant", "The session could not be issued.")),
-              ),
-            ),
+            cause._tag === "ServerAuthInvalidCredentialError"
+              ? Effect.fail(fail("invalid_grant", "The authorization code is invalid or expired."))
+              : Effect.logError("Could not issue an MCP client session.", { cause }).pipe(
+                  Effect.andThen(
+                    Effect.fail(fail("invalid_grant", "The session could not be issued.")),
+                  ),
+                ),
           ),
         );
       return {

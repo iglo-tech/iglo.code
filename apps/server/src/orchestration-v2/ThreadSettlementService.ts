@@ -61,7 +61,6 @@ function formatIdleDuration(minutes: number): string {
   const hours = minutes / 60;
   return hours === 1 ? "1 hour" : `${hours} hours`;
 }
-const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
 
 function toMillis(value: DateTime.Utc | null | undefined): number | null {
   return value == null ? null : DateTime.toEpochMillis(value);
@@ -154,7 +153,7 @@ export function threadHasQueuedTurnStart(
   const messageAtMs = toMillis(thread.latestUserMessageAt);
   if (messageAtMs === null || thread.status === "failed") return false;
   const age = nowMs - messageAtMs;
-  if (Number.isNaN(age) || Math.abs(age) > QUEUED_TURN_START_GRACE_MS) return false;
+  if (Number.isNaN(age) || Math.abs(age) > Orchestrator.QUEUED_TURN_START_GRACE_MS) return false;
   if (thread.latestRunId === null) return true;
   return [
     toMillis(thread.latestRunRequestedAt),
@@ -166,7 +165,7 @@ export function threadHasQueuedTurnStart(
 function pullRequestSettles(
   thread: Pick<
     ProjectionStore.ProjectionSettlementCandidate,
-    "createdAt" | "latestUserAuthoredMessageAt"
+    "createdAt" | "latestResumingMessageAt"
   >,
   pullRequest: SettlementPullRequest,
   autoSettleOnMerge: boolean,
@@ -178,7 +177,7 @@ function pullRequestSettles(
   if (terminalAt == null) return false;
   const userAnchorMs = latestMillis([
     toMillis(thread.createdAt),
-    toMillis(thread.latestUserAuthoredMessageAt),
+    toMillis(thread.latestResumingMessageAt),
   ]);
   if (userAnchorMs === null) return false;
   const pullRequestAtMs = Date.parse(terminalAt);
@@ -187,7 +186,7 @@ function pullRequestSettles(
 }
 
 export function isAutoSettlementCandidate(
-  thread: Omit<ProjectionStore.ProjectionSettlementCandidate, "latestUserAuthoredMessageAt">,
+  thread: Omit<ProjectionStore.ProjectionSettlementCandidate, "latestResumingMessageAt">,
   nowMs: number,
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
