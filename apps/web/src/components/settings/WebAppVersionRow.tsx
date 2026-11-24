@@ -88,7 +88,7 @@ export function WebAppVersionRow({ id }: { readonly id: string }) {
       id={id}
       title={<AboutVersionTitle />}
       description={description}
-      managed={updatesDenial}
+      managed={pageBehindVersion === null ? updatesDenial : undefined}
       control={control}
     />
   );
