@@ -257,9 +257,6 @@ describe("Pi MCP tool exposure", () => {
       "tool_search",
       "mcp__iglo-code__orchestrator_capabilities",
       "mcp__iglo-code__preview_snapshot",
-      "mcp__iglo_code__orchestrator_capabilities",
-      "mcp__iglo_code__task_status",
-      "mcp__iglo_code__preview_snapshot",
     ]);
     await bridge.handlers.get("model_select")!(event, discoveryContext);
     assert.equal(
