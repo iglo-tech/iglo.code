@@ -3056,6 +3056,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             onNewProject={openAddProjectCommandPalette}
             onContextMenu={handleProjectFolderContextMenu}
             threads={threads}
+            delegatedUnderParent={delegatedUnderParent}
           />
         ) : null}
         <div className="flex flex-1 min-w-0 h-full flex-col overflow-hidden">

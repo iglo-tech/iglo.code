@@ -37,6 +37,7 @@ import {
   type SidebarSection,
   resolveSidebarDropVerb,
   groupSidebarThreadsByProject,
+  groupSidebarRailThreadsByProject,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
   withoutRemovedCheckout,
@@ -784,6 +785,41 @@ describe("getFallbackThreadIdAfterDelete", () => {
     });
 
     expect(fallbackThreadId).toBe(ThreadId.make("thread-visible"));
+  });
+});
+
+describe("groupSidebarRailThreadsByProject", () => {
+  it("leaves out threads that show under a parent, so their failures don't badge the project", () => {
+    const parent = makeThread({ id: ThreadId.make("thread-parent") });
+    const underParent = {
+      rootThreadId: parent.id,
+      parentThreadId: parent.id,
+      relationshipToParent: "subagent" as const,
+    };
+    const subagent = makeThread({ id: ThreadId.make("thread-subagent"), lineage: underParent });
+    const delegated = makeThread({ id: ThreadId.make("thread-delegated") });
+    const archived = makeThread({
+      id: ThreadId.make("thread-archived"),
+      archivedAt: "2026-03-09T10:06:00.000Z",
+    });
+    const otherProject = makeThread({
+      id: ThreadId.make("thread-other"),
+      projectId: ProjectId.make("project-2"),
+    });
+
+    const grouped = groupSidebarRailThreadsByProject(
+      [parent, subagent, delegated, archived, otherProject],
+      [
+        {
+          projectKey: "key-1",
+          memberProjects: [{ environmentId: localEnvironmentId, id: ProjectId.make("project-1") }],
+        },
+      ],
+      new Set([threadKey({ environmentId: localEnvironmentId, threadId: delegated.id })]),
+    );
+
+    expect([...grouped.keys()]).toEqual(["key-1"]);
+    expect(grouped.get("key-1")?.map((thread) => thread.id)).toEqual([parent.id]);
   });
 });
 

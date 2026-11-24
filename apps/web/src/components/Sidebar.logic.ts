@@ -1062,6 +1062,39 @@ export function resolveSidebarFolderDot(
   return null;
 }
 
+/**
+ * The project rail's threads per project key: only threads the list gives a row,
+ * so a subagent its parent already handles never raises a project's badge.
+ */
+export function groupSidebarRailThreadsByProject<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage"> & {
+    projectId: string;
+  },
+>(
+  threads: readonly T[],
+  projectGroups: ReadonlyArray<{
+    projectKey: string;
+    memberProjects: ReadonlyArray<{ environmentId: string; id: string }>;
+  }>,
+  delegatedUnderParent: ReadonlySet<string>,
+): Map<string, T[]> {
+  const groupKeyByProjectRef = new Map<string, string>();
+  for (const group of projectGroups) {
+    for (const member of group.memberProjects) {
+      groupKeyByProjectRef.set(`${member.environmentId}\0${member.id}`, group.projectKey);
+    }
+  }
+  const threadsByProjectKey = new Map<string, T[]>();
+  for (const thread of filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent)) {
+    const projectKey = groupKeyByProjectRef.get(`${thread.environmentId}\0${thread.projectId}`);
+    if (!projectKey) continue;
+    const list = threadsByProjectKey.get(projectKey);
+    if (list) list.push(thread);
+    else threadsByProjectKey.set(projectKey, [thread]);
+  }
+  return threadsByProjectKey;
+}
+
 const NEEDS_YOU_ROW_STATUSES = new Set(["input", "approval", "request", "limited", "failed"]);
 
 /** The project rail's marks: a badge counting threads that need you, an unread pill, a working dot. */

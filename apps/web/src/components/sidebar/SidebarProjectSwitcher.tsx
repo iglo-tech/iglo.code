@@ -11,7 +11,11 @@ import { projectIconColorClassName } from "../../projectIconColors";
 import { deriveProjectIdentity } from "../../projectIdentity";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useUiStateStore } from "../../uiStateStore";
-import { resolveSidebarProjectActivity, resolveThreadLastVisitedAt } from "../Sidebar.logic";
+import {
+  groupSidebarRailThreadsByProject,
+  resolveSidebarProjectActivity,
+  resolveThreadLastVisitedAt,
+} from "../Sidebar.logic";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { SidebarTrigger } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -29,6 +33,7 @@ export interface SidebarProjectSwitcherProps {
     source: ContextMenuSource,
   ) => void;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly delegatedUnderParent: ReadonlySet<string>;
 }
 
 /** The colour a project's monogram or icon uses; emoji projects have none. */
@@ -48,31 +53,18 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   onNewProject,
   onContextMenu,
   threads,
+  delegatedUnderParent,
 }: SidebarProjectSwitcherProps) {
   const gt = useGT();
   const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
 
   const isAllSelected = selectedProjectKeys.length === 0;
 
-  // Map project keys to threads for calculating status dots
-  const groupKeyByProjectRef = new Map<string, string>();
-  for (const group of projectGroups) {
-    for (const member of group.memberProjects) {
-      groupKeyByProjectRef.set(`${member.environmentId}\0${member.id}`, group.projectKey);
-    }
-  }
-  const threadsByProjectKey = new Map<string, EnvironmentThreadShell[]>();
-  for (const thread of threads) {
-    if (thread.archivedAt !== null) continue;
-    const projectKey = groupKeyByProjectRef.get(`${thread.environmentId}\0${thread.projectId}`);
-    if (!projectKey) continue;
-    const list = threadsByProjectKey.get(projectKey);
-    if (list) {
-      list.push(thread);
-    } else {
-      threadsByProjectKey.set(projectKey, [thread]);
-    }
-  }
+  const threadsByProjectKey = groupSidebarRailThreadsByProject(
+    threads,
+    projectGroups,
+    delegatedUnderParent,
+  );
 
   return (
     <nav
