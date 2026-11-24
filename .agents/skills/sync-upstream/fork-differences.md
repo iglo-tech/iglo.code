@@ -68,8 +68,9 @@ current when an authorized change replaces a decision.
   Node, npm, or Bun. Preserve shared source/compiled self-invocation and service
   launch, update, checksum rejection, and rollback. The supported archive targets
   are macOS arm64, macOS x64 (Intel), Linux x64, and Linux arm64. Upstream excludes
-  `darwin-x64`; keep the fork's installer, archive builder, and release matrix
-  accepting it.
+  `darwin-x64`; keep the fork's installer and archive builder accepting it.
+  [release-local.ts](../../../scripts/release-local.ts) publishes only
+  `darwin-arm64` and `linux-x64`.
   Keep native assets, disk-backed SDK/browser dependencies, web assets, resource
   monitoring, and signing. Packaging remains available for manual use through
   [CLI staging](../../../scripts/lib/cli-stage.ts) and

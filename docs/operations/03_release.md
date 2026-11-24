@@ -8,25 +8,23 @@ tags do not deploy web previews or production.
 ## Publish a release
 
 Run the [pre-push checks](./00_development.md#pre-push-checks). Set the version in the package
-manifests and commit it, then build, smoke-test, and publish from the release host:
+manifests and commit it, push the tag, then build and publish from an Apple Silicon Mac with
+Docker (OrbStack) running:
 
 ```sh
 version=1.2.3
 bun scripts/update-release-package-versions.ts "$version"
 git commit -am "chore(release): v$version" && git push origin HEAD:main
 git tag "v$version" && git push origin "v$version"
-export IGLO_CODE_TELEMETRY_CHANNEL=stable VITE_RELEASE_CHANNEL=stable
-# Build and smoke-test this host's archive (see the next section), then:
-bun apps/server/scripts/cli.ts release-manifest --version "$version" --output-dir release-cli
-(cd release-cli && shasum -a 256 iglo.code-"$version"-*.tar.gz release.json > SHA256SUMS)
-gh release create "v$version" release-cli/iglo.code-"$version"-*.tar.gz release-cli/release.json \
-  release-cli/SHA256SUMS --verify-tag --title "iglo.code v$version" --generate-notes --latest
+bun scripts/release-local.ts "v$version"
 ```
 
-A release carries an archive only for each host it was built on. The installer and
-`iglo.code update` fail on a platform whose archive is missing, so build on every platform you
-run before publishing, or attach the extra archive later with `gh release upload` and regenerate
-`SHA256SUMS` over every archive.
+[`release-local.ts`](../../scripts/release-local.ts) exports the tag into
+`~/Library/Caches/iglo.code-release/<tag>`, builds `darwin-arm64` natively and `linux-x64` in an
+x64 Debian container under Rosetta, smoke-tests both, writes `release.json` and `SHA256SUMS`, and
+publishes them with the channel's release flags. `--build-only` stops before publishing. Releases
+carry only those two archives; the installer and `iglo.code update` fail on `darwin-x64` and
+`linux-arm64`. To retry a tag, delete its release and run the script again.
 
 The tag picks the channel, matching [release naming](../../packages/shared/src/cliRelease.ts):
 
@@ -37,9 +35,8 @@ The tag picks the channel, matching [release naming](../../packages/shared/src/c
 | `vX.Y.Z-preview.YYYYMMDD.N` | preview | prerelease, never latest |
 
 The installer resolves stable through `/releases/latest`, and nightly or preview by listing
-releases, so a stable release must be the latest one. Publish nightly and preview tags with
-`--prerelease --latest=false` and the matching telemetry channel. `iglo.code update` lists
-releases newest first and skips drafts.
+releases, so a stable release must be the latest one. `iglo.code update` lists releases newest
+first and skips drafts, so the script publishes its draft only after every asset is attached.
 
 macOS archives are signed ad hoc unless `IGLO_CODE_CLI_MAC_SIGN_IDENTITY` names a Developer ID
 Application identity in the keychain. `curl` does not quarantine downloads, so ad hoc signing is
