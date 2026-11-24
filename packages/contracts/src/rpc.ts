@@ -17,6 +17,14 @@ import {
   McpAppUpdateModelContextInput,
 } from "./mcpApps.ts";
 import {
+  HostHealthHistory,
+  HostHealthHistoryInput,
+  HostHealthSnapshot,
+  PeerLinkHostHealthHistoryInput,
+  PeerLinkHostHealthInput,
+  PeerLinkHostHealthReadError,
+} from "./hostHealth.ts";
+import {
   PeerLinkClientPairingInput,
   PeerLinkLinkPairingInput,
   PeerLinkClientPairingResult,
@@ -611,6 +619,8 @@ export const WS_METHODS = {
   peerLinksSubscribeThread: "peerLinks.subscribeThread",
   peerLinksThreadHistoryPage: "peerLinks.threadHistoryPage",
   peerLinksThreadItem: "peerLinks.threadItem",
+  peerLinksGetHostHealth: "peerLinks.getHostHealth",
+  peerLinksGetHostHealthHistory: "peerLinks.getHostHealthHistory",
   peerLinksPairClient: "peerLinks.pairClient",
   peerLinksPairLink: "peerLinks.pairLink",
   serverGetSettings: "server.getSettings",
@@ -631,6 +641,8 @@ export const WS_METHODS = {
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
   serverGetHostResources: "server.getHostResources",
+  serverGetHostHealth: "server.getHostHealth",
+  serverGetHostHealthHistory: "server.getHostHealthHistory",
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
   serverGetResourceTelemetryHistory: "server.getResourceTelemetryHistory",
   serverRetryResourceTelemetry: "server.retryResourceTelemetry",
@@ -746,6 +758,7 @@ export const WS_METHODS = {
   subscribeServerLifecycle: "subscribeServerLifecycle",
   subscribeAuthAccess: "subscribeAuthAccess",
   subscribeResourceTelemetry: "subscribeResourceTelemetry",
+  subscribeHostHealth: "subscribeHostHealth",
 } as const;
 
 const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -1006,6 +1019,18 @@ const WsPeerLinksThreadItemRpc = Rpc.make(WS_METHODS.peerLinksThreadItem, {
   error: Schema.Union([PeerLinkThreadReadError, EnvironmentAuthorizationError]),
 });
 
+const WsPeerLinksGetHostHealthRpc = Rpc.make(WS_METHODS.peerLinksGetHostHealth, {
+  payload: PeerLinkHostHealthInput,
+  success: HostHealthSnapshot,
+  error: Schema.Union([PeerLinkHostHealthReadError, EnvironmentAuthorizationError]),
+});
+
+const WsPeerLinksGetHostHealthHistoryRpc = Rpc.make(WS_METHODS.peerLinksGetHostHealthHistory, {
+  payload: PeerLinkHostHealthHistoryInput,
+  success: HostHealthHistory,
+  error: Schema.Union([PeerLinkHostHealthReadError, EnvironmentAuthorizationError]),
+});
+
 const WsPeerLinksPairClientRpc = Rpc.make(WS_METHODS.peerLinksPairClient, {
   payload: PeerLinkClientPairingInput,
   success: PeerLinkClientPairingResult,
@@ -1140,6 +1165,18 @@ const WsServerGetProcessDiagnosticsRpc = Rpc.make(WS_METHODS.serverGetProcessDia
 const WsServerGetHostResourcesRpc = Rpc.make(WS_METHODS.serverGetHostResources, {
   payload: Schema.Struct({}),
   success: HostResourcesSnapshot,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsServerGetHostHealthRpc = Rpc.make(WS_METHODS.serverGetHostHealth, {
+  payload: Schema.Struct({}),
+  success: HostHealthSnapshot,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsServerGetHostHealthHistoryRpc = Rpc.make(WS_METHODS.serverGetHostHealthHistory, {
+  payload: HostHealthHistoryInput,
+  success: HostHealthHistory,
   error: EnvironmentAuthorizationError,
 });
 
@@ -2470,6 +2507,13 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
   stream: true,
 });
 
+const WsSubscribeHostHealthRpc = Rpc.make(WS_METHODS.subscribeHostHealth, {
+  payload: Schema.Struct({}),
+  success: HostHealthSnapshot,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthorization>()(
   "t3/contracts/RpcScopeAuthorization",
   { error: EnvironmentAuthorizationError },
@@ -2530,6 +2574,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsPeerLinksSubscribeThreadRpc,
   WsPeerLinksThreadHistoryPageRpc,
   WsPeerLinksThreadItemRpc,
+  WsPeerLinksGetHostHealthRpc,
+  WsPeerLinksGetHostHealthHistoryRpc,
   WsPeerLinksPairClientRpc,
   WsPeerLinksPairLinkRpc,
   WsServerDiscoverSourceControlRpc,
@@ -2548,6 +2594,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetHostResourcesRpc,
+  WsServerGetHostHealthRpc,
+  WsServerGetHostHealthHistoryRpc,
   WsServerGetProcessResourceHistoryRpc,
   WsServerGetResourceTelemetryHistoryRpc,
   WsServerRetryResourceTelemetryRpc,
@@ -2711,6 +2759,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
   WsSubscribeResourceTelemetryRpc,
+  WsSubscribeHostHealthRpc,
   WsOrchestrationV2DispatchCommandRpc,
   WsOrchestrationV2GetWorkflowScriptRpc,
   WsOrchestrationV2GetNativeChildWorkRpc,

@@ -26,7 +26,7 @@ import { subscribeOrchestrationV2Thread } from "../ws.ts";
 
 /** How soon an open stream ends after its link is revoked here or the beta is turned off. */
 const ACCESS_RECHECK_INTERVAL = Duration.seconds(30);
-const NO_STORE = { "cache-control": "no-store" };
+export const NO_STORE = { "cache-control": "no-store" };
 
 // The owner's thread types hold DateTime values; the JSON codec writes them as strings.
 const encodeStreamItem = Schema.encodeEffect(
@@ -35,14 +35,14 @@ const encodeStreamItem = Schema.encodeEffect(
 const encodeHistoryPage = Schema.encodeEffect(Schema.toCodecJson(OrchestrationV2ThreadHistoryPage));
 const encodeItem = Schema.encodeEffect(Schema.toCodecJson(OrchestrationV2GetTurnItemResult));
 
-const refusal = (status: number, error: string) =>
+export const refusal = (status: number, error: string) =>
   HttpServerResponse.jsonUnsafe({ error }, { status, headers: NO_STORE });
 
 /**
  * Admits a peer link's session, as `/mcp` does: no browser origin, the link's own bearer, and the
  * Linked environments beta on here. Every access level may read, as each reads through `/mcp`.
  */
-const admitLink = Effect.gen(function* () {
+export const admitLinkSession = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   if (request.headers.origin !== undefined) return refusal(403, "origin_not_allowed");
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
@@ -57,18 +57,8 @@ const admitLink = Effect.gen(function* () {
   if (client._tag === "None") return refusal(401, "unauthorized");
   if (!client.value.peerLink) return refusal(403, "not_a_link_session");
   if (!(yield* linksEnabled)) return refusal(403, "linked_environments_off");
-  const params = new URLSearchParams(request.url.split("?", 2)[1] ?? "");
-  const threadId = params.get("thread");
-  if (!threadId) return refusal(400, "invalid_request");
-  const threads = yield* ThreadManagement.ThreadManagementService;
-  const shell = yield* threads.getThreadShell(ThreadId.make(threadId)).pipe(Effect.option);
-  if (shell._tag === "None") return refusal(500, "thread_read_failed");
-  if (shell.value === null || shell.value.deletedAt !== null) {
-    return refusal(404, "thread_not_found");
-  }
   return {
-    threadId: shell.value.id,
-    params,
+    params: new URLSearchParams(request.url.split("?", 2)[1] ?? ""),
     linkExpiresAt: client.value.linkExpiresAt,
     /** Completes once the link's session or the beta no longer admits it. */
     revoked: Effect.all([verify, linksEnabled]).pipe(
@@ -80,7 +70,22 @@ const admitLink = Effect.gen(function* () {
   };
 });
 
-const withLinkExpiry = (
+const admitLink = Effect.gen(function* () {
+  const session = yield* admitLinkSession;
+  if (HttpServerResponse.isHttpServerResponse(session)) return session;
+  const { params } = session;
+  const threadId = params.get("thread");
+  if (!threadId) return refusal(400, "invalid_request");
+  const threads = yield* ThreadManagement.ThreadManagementService;
+  const shell = yield* threads.getThreadShell(ThreadId.make(threadId)).pipe(Effect.option);
+  if (shell._tag === "None") return refusal(500, "thread_read_failed");
+  if (shell.value === null || shell.value.deletedAt !== null) {
+    return refusal(404, "thread_not_found");
+  }
+  return { ...session, threadId: shell.value.id };
+});
+
+export const withLinkExpiry = (
   response: HttpServerResponse.HttpServerResponse,
   linkExpiresAt: DateTime.Utc | undefined,
 ) =>

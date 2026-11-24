@@ -18,6 +18,7 @@
 - [Visual replies](./user/html-renders.md)
 - [Devices](./user/devices.md)
 - [Usage and limits](./user/usage.md)
+- [Fleet: machine health](./user/fleet.md)
 - [Secrets](./user/secrets.md)
 - [Product usage data](./user/telemetry.md)
 - [Remote access](./user/remote-access.md)

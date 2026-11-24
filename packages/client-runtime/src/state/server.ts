@@ -1705,6 +1705,19 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.subscribeResourceTelemetry,
       idleTtlMs: 0,
     }),
+    /** The host's latest health sample, then each new one while a view reads it. */
+    hostHealthLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:host-health:live",
+      tag: WS_METHODS.subscribeHostHealth,
+      idleTtlMs: 0,
+    }),
+    hostHealthHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:host-health:history",
+      tag: WS_METHODS.serverGetHostHealthHistory,
+      staleTimeMs: 15_000,
+      refreshIntervalMs: 30_000,
+      idleTtlMs: 0,
+    }),
     resourceTelemetryHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:resource-telemetry-history",
       tag: WS_METHODS.serverGetResourceTelemetryHistory,

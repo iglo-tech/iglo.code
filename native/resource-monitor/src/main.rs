@@ -1,3 +1,5 @@
+mod sensors;
+
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead, BufWriter, Write};
@@ -827,6 +829,9 @@ fn write_history(
 }
 
 fn main() -> io::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("sensors") {
+        return sensors::run();
+    }
     let mut writer = BufWriter::new(io::stdout().lock());
     write_event(
         &mut writer,

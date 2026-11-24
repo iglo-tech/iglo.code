@@ -75,6 +75,7 @@ import {
   MessageSquareIcon,
   PaletteIcon,
   RotateCcwIcon,
+  ServerIcon,
   SettingsIcon,
   MonitorIcon,
   PinIcon,
@@ -132,6 +133,7 @@ import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useWorkflowEnvironmentIds } from "./workflows/useWorkflowEnvironmentIds";
+import { useFleetAvailable } from "./fleet/useHostHealth";
 import { useStartTriage } from "../hooks/useStartTriage";
 import { pickTriageEnvironment } from "../lib/triageTarget";
 import { useNewProject } from "../hooks/useNewProject";
@@ -517,6 +519,7 @@ function OpenCommandPaletteDialog(props: {
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
   const workflowsReachable = useWorkflowEnvironmentIds().length > 0;
+  const fleetAvailable = useFleetAvailable();
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
@@ -1764,6 +1767,31 @@ function OpenCommandPaletteDialog(props: {
       icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         await navigate({ to: "/workflows" });
+      },
+    });
+  }
+
+  if (fleetAvailable) {
+    actionItems.push({
+      kind: "action",
+      value: "action:fleet",
+      searchTerms: [
+        "fleet",
+        "hosts",
+        "machines",
+        "health",
+        "monitor",
+        "cpu",
+        "memory",
+        "disk",
+        "temperature",
+        "sensors",
+        "fans",
+      ],
+      title: gt("Open fleet"),
+      icon: <ServerIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({ to: "/fleet" });
       },
     });
   }

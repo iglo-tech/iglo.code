@@ -153,6 +153,21 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
       tag: WS_METHODS.peerLinksThreadItem,
       idleTtlMs: 0,
     }),
+    /** A linked environment's host health, read through this one; links carry no live stream. */
+    hostHealth: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:peer-links:host-health",
+      tag: WS_METHODS.peerLinksGetHostHealth,
+      staleTimeMs: 5_000,
+      refreshIntervalMs: 10_000,
+      idleTtlMs: 0,
+    }),
+    hostHealthHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:peer-links:host-health-history",
+      tag: WS_METHODS.peerLinksGetHostHealthHistory,
+      staleTimeMs: 15_000,
+      refreshIntervalMs: 30_000,
+      idleTtlMs: 0,
+    }),
     /** Asks for a one-time pairing with a linked environment. Its answer is a credential: never cached. */
     pairClient: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:peer-links:pair-client",

@@ -212,6 +212,10 @@ export const PEER_LINK_THREAD_STREAM_ROUTE = `${PEER_LINK_THREAD_ROUTE_PREFIX}/s
 export const PEER_LINK_THREAD_HISTORY_ROUTE = `${PEER_LINK_THREAD_ROUTE_PREFIX}/history`;
 export const PEER_LINK_THREAD_ITEM_ROUTE = `${PEER_LINK_THREAD_ROUTE_PREFIX}/item`;
 
+const PEER_LINK_HOST_HEALTH_ROUTE_PREFIX = "/api/links/host-health";
+export const PEER_LINK_HOST_HEALTH_SNAPSHOT_ROUTE = `${PEER_LINK_HOST_HEALTH_ROUTE_PREFIX}/snapshot`;
+export const PEER_LINK_HOST_HEALTH_HISTORY_ROUTE = `${PEER_LINK_HOST_HEALTH_ROUTE_PREFIX}/history`;
+
 /** A thread on a linked environment, as a client of this environment names it. */
 export const PeerLinkThreadInput = Schema.Struct({
   /** The linked environment the thread lives in. */
