@@ -3088,6 +3088,7 @@
   "62450481c00d2ef3": "El entorno del borrador no está disponible para limpiar la transcripción.",
   "0674544195fcdc39": "Se añadió la transcripción original.",
   "c64cb58d9cecbcd2": "Falló la limpieza de la transcripción",
+  "cb5d431ac34785d8": "El servidor no respondió. Comprueba la conexión e inténtalo de nuevo.",
   "5ebc9823531ab4db": "El comando iglo.code no está disponible.",
   "b4b9f4fbfa99f73b": "No se pudo cargar el estado del comando iglo.code.",
   "1bf6910332426e62": "El acceso a la red del escritorio no está disponible.",

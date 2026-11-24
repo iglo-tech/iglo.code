@@ -3088,6 +3088,7 @@
   "62450481c00d2ef3": "Utkastets miljö är inte tillgänglig för att städa transkriptionen.",
   "0674544195fcdc39": "Den ursprungliga transkriptionen lades till.",
   "c64cb58d9cecbcd2": "Det gick inte att städa transkriptionen",
+  "cb5d431ac34785d8": "Servern svarade inte. Kontrollera anslutningen och försök igen.",
   "5ebc9823531ab4db": "Kommandot iglo.code är inte tillgängligt.",
   "b4b9f4fbfa99f73b": "Det gick inte att läsa in statusen för kommandot iglo.code.",
   "1bf6910332426e62": "Skrivbordsappens nätverksåtkomst är inte tillgänglig.",

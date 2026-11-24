@@ -3088,6 +3088,7 @@
   "62450481c00d2ef3": "The draft's environment is unavailable for transcript cleanup.",
   "0674544195fcdc39": "The original transcript was added.",
   "c64cb58d9cecbcd2": "Transcript cleanup failed",
+  "cb5d431ac34785d8": "The server did not answer. Check the connection and try again.",
   "5ebc9823531ab4db": "The iglo.code command is unavailable.",
   "b4b9f4fbfa99f73b": "Failed to load the iglo.code command state.",
   "1bf6910332426e62": "Desktop network access is unavailable.",

@@ -3088,6 +3088,7 @@
   "62450481c00d2ef3": "L’environnement du brouillon n’est pas disponible pour nettoyer la transcription.",
   "0674544195fcdc39": "La transcription d’origine a été ajoutée.",
   "c64cb58d9cecbcd2": "Échec du nettoyage de la transcription",
+  "cb5d431ac34785d8": "Le serveur n’a pas répondu. Vérifiez la connexion et réessayez.",
   "5ebc9823531ab4db": "La commande iglo.code n’est pas disponible.",
   "b4b9f4fbfa99f73b": "Impossible de charger l’état de la commande iglo.code.",
   "1bf6910332426e62": "L’accès réseau de l’app desktop n’est pas disponible.",

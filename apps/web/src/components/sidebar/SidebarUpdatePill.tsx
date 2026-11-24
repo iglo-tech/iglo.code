@@ -278,9 +278,11 @@ function SidebarUpdateControl() {
           : {
               title: gt("Check for updates"),
               detail:
-                release.status === "up-to-date"
-                  ? gt("iglo.code {version} is up to date.", { version: APP_VERSION })
-                  : null,
+                release.version !== null
+                  ? gt("iglo.code {version} is available.", { version: release.version })
+                  : release.status === "up-to-date"
+                    ? gt("iglo.code {version} is up to date.", { version: APP_VERSION })
+                    : null,
             }
       : null;
   const tooltip = runsEverything

@@ -1,10 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useGT } from "gt-react";
+import { managedUpdatesDenial } from "@t3tools/client-runtime/contract-labels";
+import { useGT, useMessages } from "gt-react";
 import { useState } from "react";
 
 import { APP_VERSION } from "~/branding";
 import { useAppRelease, usePageBehindServer } from "~/state/appRelease";
 import { useEnvironments } from "~/state/environments";
+import { usePrimaryManagedPolicy } from "~/state/managedPolicy";
 import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { serverEnvironment } from "~/state/server";
 import { resolveServerSelfUpdateCapability } from "~/versionSkew";
@@ -18,6 +20,8 @@ import { SettingsRow } from "./settingsLayout";
 /** Without the desktop app, the server serving this page is the app: it checks and updates itself. */
 export function WebAppVersionRow({ id }: { readonly id: string }) {
   const gt = useGT();
+  const messages = useMessages();
+  const updatesDenial = managedUpdatesDenial(usePrimaryManagedPolicy(), messages);
   const release = useAppRelease();
   const pageBehindVersion = usePageBehindServer();
   const checkProviderUpdates = useCheckProviderUpdates();
@@ -84,6 +88,7 @@ export function WebAppVersionRow({ id }: { readonly id: string }) {
       id={id}
       title={<AboutVersionTitle />}
       description={description}
+      managed={updatesDenial}
       control={control}
     />
   );
