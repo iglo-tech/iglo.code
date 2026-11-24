@@ -622,7 +622,9 @@ function poolKey(driver: ServerProvider["driver"], window: ServerProviderUsageWi
   return driver === "codex" ? window.kind : `${window.kind}:${window.id}`;
 }
 
-function poolMember(account: LimitAccount, reported: ServerProviderUsageWindow, now: number) {
+function poolMember(account: LimitAccount, reportedRaw: ServerProviderUsageWindow, now: number) {
+  // A window whose reset has passed no longer blocks; show it as refilled.
+  const reported = effectiveUsageWindow(reportedRaw, now);
   const spentWeekly =
     reported.kind === "session"
       ? account.limits.windows.find(
@@ -773,6 +775,33 @@ function resetMillis(window: ServerProviderUsageWindow): number | null {
   if (window.resetsAt === undefined) return null;
   const at = Date.parse(window.resetsAt);
   return Number.isFinite(at) ? at : null;
+}
+
+/** A window whose reset time has passed is back to full, whatever the stale reading said. */
+export function windowHasReset(window: ServerProviderUsageWindow, now: number): boolean {
+  const at = resetMillis(window);
+  return at !== null && at <= now;
+}
+
+/** The window as it should be displayed at `now`: a reset window reads as fully available. */
+export function effectiveUsageWindow(
+  window: ServerProviderUsageWindow,
+  now: number,
+): ServerProviderUsageWindow {
+  return windowHasReset(window, now) ? { ...window, usedPercent: 0 } : window;
+}
+
+/** A reading whose later checks failed; `checkedAt` still names the last good read. */
+export function isStaleUsageLimits(limits: ServerProviderUsageLimits): boolean {
+  return limits.staleSince !== undefined;
+}
+
+/** When the limits were last checked: the latest check, failed or not. */
+export function lastCheckedAt(limits: ServerProviderUsageLimits): string {
+  return limits.staleSince !== undefined &&
+    Date.parse(limits.staleSince) > Date.parse(limits.checkedAt)
+    ? limits.staleSince
+    : limits.checkedAt;
 }
 
 export function elapsedShare(window: ServerProviderUsageWindow, now: number): number | null {

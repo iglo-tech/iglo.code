@@ -47,6 +47,8 @@ export type ServerProviderResetCredits = typeof ServerProviderResetCredits.Type;
 export const ServerProviderUsageLimits = Schema.Struct({
   checkedAt: IsoDateTime,
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
+  /** Set when a later check failed: `windows` are still the last good reading from `checkedAt`. */
+  staleSince: Schema.optional(IsoDateTime),
   /** A $0 monthly spend cap has no percentage, so it cannot be a window. */
   zeroSpendCap: Schema.optional(Schema.Boolean),
   credentialFingerprint: Schema.optional(TrimmedNonEmptyString),

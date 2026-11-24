@@ -5,6 +5,7 @@ import {
   ProviderConsumeResetCreditInput,
   ServerProvider,
   ServerProviderResetCredits,
+  type ServerProviderUsageLimits,
   ServerProviderUsageWindow,
   UsageProviderKind,
 } from "@t3tools/contracts";
@@ -12,10 +13,14 @@ import { useAtomValue } from "@effect/atom-react";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
   type LimitPace,
+  effectiveUsageWindow,
+  isStaleUsageLimits,
+  lastCheckedAt,
   paceOf,
   paceRemainingPercent,
   remainingPercent,
   type ResetCreditChoice,
+  windowHasReset,
 } from "@t3tools/shared/usageLimits";
 import { GaugeIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
 import { msg, T, useGT, useMessages } from "gt-react";
@@ -23,6 +28,7 @@ import { Fragment, useLayoutEffect, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { observeResize } from "../../lib/observeResize";
+import { cn } from "../../lib/utils";
 import { environmentPresentations } from "../../state/presentation";
 import { useEnvironmentScope, readEnvironmentScope } from "../../state/session";
 import { serverEnvironment } from "../../state/server";
@@ -133,13 +139,15 @@ function WindowBar({
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const gt = useGT();
   const m = useMessages();
-  const remaining = remainingPercent(window);
-  const timeLeft = paceRemainingPercent(window, now);
+  const shown = effectiveUsageWindow(window, now);
+  const remaining = remainingPercent(shown);
+  const timeLeft = paceRemainingPercent(shown, now);
   const [barRef, paceMark] = usePaceMark(timeLeft);
-  const resetsIn = formatResetsIn(window, now, m);
-  const resetsAt = window.resetsAt
-    ? formatUpcomingTimestamp(window.resetsAt, timestampFormat, now, undefined, m)
+  const resetsIn = formatResetsIn(shown, now, m);
+  const resetsAt = shown.resetsAt
+    ? formatUpcomingTimestamp(shown.resetsAt, timestampFormat, now, undefined, m)
     : null;
+  const hasReset = windowHasReset(shown, now);
   const label = window.label;
   const summary =
     timeLeft === null
@@ -204,9 +212,11 @@ function WindowBar({
           ) : null}
           {resetsAt ? (
             <span className="text-muted-foreground">
-              {resetsIn
-                ? gt("Resets {resetsAt} · {resetsIn}", { resetsAt, resetsIn })
-                : gt("Resets {resetsAt}", { resetsAt })}
+              {hasReset
+                ? gt("Reset {resetsAt}", { resetsAt })
+                : resetsIn
+                  ? gt("Resets {resetsAt} · {resetsIn}", { resetsAt, resetsIn })
+                  : gt("Resets {resetsAt}", { resetsAt })}
             </span>
           ) : null}
         </div>
@@ -221,43 +231,63 @@ export function LimitWindows({
   windows,
   now,
   compact = false,
+  limits,
 }: {
   readonly driver: ServerProvider["driver"];
   readonly accentColor?: string | undefined;
   readonly windows: ReadonlyArray<ServerProviderUsageWindow>;
   readonly now: number;
   readonly compact?: boolean;
+  readonly limits?: ServerProviderUsageLimits | undefined;
 }) {
   const color = normalizeProviderAccentColor(accentColor) ?? barColor(driver);
   const gt = useGT();
   const m = useMessages();
+  const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
+  const stale = limits !== undefined && isStaleUsageLimits(limits);
+  const checkedAt = limits !== undefined ? lastCheckedAt(limits) : null;
   return (
-    <div
-      className={
-        compact
-          ? "grid grid-cols-[minmax(0,9rem)_minmax(3rem,1fr)_auto] gap-x-3 gap-y-0.5"
-          : "grid grid-cols-[11rem_minmax(0,1fr)_7rem] gap-x-4 gap-y-1"
-      }
-    >
-      {windows.map((window) => {
-        const pace = paceOf(window, now);
-        const resetsIn = formatResetsIn(window, now, m);
-        return (
-          <Fragment key={window.id}>
-            <span className="flex min-w-0 items-center gap-2 text-xs">
-              <span className="truncate text-muted-foreground">{window.label}</span>
-              <span className="ms-auto shrink-0 font-medium text-foreground tabular-nums">
-                {gt("{remaining}% left", { remaining: remainingPercent(window) })}
+    <div className="flex flex-col gap-1">
+      <div
+        className={cn(
+          compact
+            ? "grid grid-cols-[minmax(0,9rem)_minmax(3rem,1fr)_auto] gap-x-3 gap-y-0.5"
+            : "grid grid-cols-[11rem_minmax(0,1fr)_7rem] gap-x-4 gap-y-1",
+          stale && "opacity-60",
+        )}
+      >
+        {windows.map((window) => {
+          const shown = effectiveUsageWindow(window, now);
+          const pace = paceOf(shown, now);
+          const resetsIn = formatResetsIn(shown, now, m);
+          return (
+            <Fragment key={window.id}>
+              <span className="flex min-w-0 items-center gap-2 text-xs">
+                <span className="truncate text-muted-foreground">{window.label}</span>
+                <span className="ms-auto shrink-0 font-medium text-foreground tabular-nums">
+                  {gt("{remaining}% left", { remaining: remainingPercent(shown) })}
+                </span>
               </span>
-            </span>
-            <WindowBar color={color} window={window} now={now} />
-            <span className="flex items-center gap-2 text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-              {pace ? <PaceIcon pace={pace} /> : null}
-              <span className="ms-auto shrink-0">{resetsIn ?? ""}</span>
-            </span>
-          </Fragment>
-        );
-      })}
+              <WindowBar color={color} window={shown} now={now} />
+              <span className="flex items-center gap-2 text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+                {pace ? <PaceIcon pace={pace} /> : null}
+                <span className="ms-auto shrink-0">{resetsIn ?? ""}</span>
+              </span>
+            </Fragment>
+          );
+        })}
+      </div>
+      {checkedAt !== null ? (
+        <span className="text-2xs text-muted-foreground">
+          {stale
+            ? gt("Last checked {time} · stale", {
+                time: formatUpcomingTimestamp(checkedAt, timestampFormat, now, undefined, m),
+              })
+            : gt("Last checked {time}", {
+                time: formatUpcomingTimestamp(checkedAt, timestampFormat, now, undefined, m),
+              })}
+        </span>
+      ) : null}
     </div>
   );
 }

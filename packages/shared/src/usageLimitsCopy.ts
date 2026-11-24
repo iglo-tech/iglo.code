@@ -103,6 +103,12 @@ export function collectLimitNotices(
       const notice = limits ? limitsNotice(limits, resolve) : null;
       const name = provider.displayName?.trim() || String(provider.driver);
       if (notice) notices.add(`${label(environmentLabel, name)}: ${notice}`);
+      // Retained bars after failed checks stay on the cards, but say so here too.
+      else if (limits?.staleSince !== undefined && limits.windows.length > 0) {
+        notices.add(
+          `${label(environmentLabel, name)}: ${resolve(msg("Limits are stale; refresh to re-check."))}`,
+        );
+      }
     }
     for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
       if (source.error) {
@@ -218,7 +224,7 @@ export function formatResetsIn(
 ): string | null {
   const countdown = resetCountdown(window, now);
   if (countdown === null) return null;
-  if (countdown.kind === "now") return resolve(msg("resets now"));
+  if (countdown.kind === "now") return resolve(msg("reset"));
   if (countdown.kind === "momentarily") return resolve(msg("Resets momentarily"));
   const duration = formatDuration(countdown.ms, resolve);
   if (style === "in") {

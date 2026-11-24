@@ -19,11 +19,15 @@ import {
   collectLimitAccounts,
   collectExternalUsageLinks,
   collectLimitPools,
+  effectiveUsageWindow,
   elapsedShare,
   exhaustedUsageWindow,
+  isStaleUsageLimits,
+  lastCheckedAt,
   paceOf,
   paceRemainingPercent,
   usesChatGptSharing,
+  windowHasReset,
   resolveNewThreadModelSelection,
 } from "./usageLimits.ts";
 import { collectLimitNotices } from "./usageLimitsCopy.ts";
@@ -2035,5 +2039,92 @@ describe("ChatGPT sharing presentation", () => {
         auth: { status: "unauthenticated", subscriptionSharing: true },
       }),
     ).toBe(false);
+  });
+});
+
+describe("stale readings and reset windows", () => {
+  it("treats a window whose reset time passed as refilled, whatever the reading said", () => {
+    const resetWindow = { ...window, usedPercent: 100, resetsAt: "2026-09-03T11:30:00.000Z" };
+    expect(windowHasReset(resetWindow, now)).toBe(true);
+    expect(windowHasReset(window, now)).toBe(false);
+    expect(windowHasReset({ ...window, resetsAt: undefined }, now)).toBe(false);
+    expect(effectiveUsageWindow(resetWindow, now)).toEqual({ ...resetWindow, usedPercent: 0 });
+    expect(effectiveUsageWindow(window, now)).toBe(window);
+    // exhaustedUsageWindow already ignored past resets; the display now matches.
+    expect(
+      exhaustedUsageWindow(
+        provider({
+          usageLimits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [resetWindow] },
+        }),
+        now,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("marks a snapshot stale only while checks fail, and reports the latest check time", () => {
+    const fresh = { checkedAt: "2026-09-03T11:00:00.000Z", windows: [window] };
+    const stale = { ...fresh, staleSince: "2026-09-03T12:00:00.000Z" };
+    expect(isStaleUsageLimits(fresh)).toBe(false);
+    expect(isStaleUsageLimits(stale)).toBe(true);
+    expect(lastCheckedAt(fresh)).toBe("2026-09-03T11:00:00.000Z");
+    expect(lastCheckedAt(stale)).toBe("2026-09-03T12:00:00.000Z");
+    // An out-of-order failure older than the read cannot make the check time go backwards.
+    expect(lastCheckedAt({ ...fresh, staleSince: "2026-09-03T10:00:00.000Z" })).toBe(
+      "2026-09-03T11:00:00.000Z",
+    );
+  });
+
+  it("pools a window whose reset passed as fully available", () => {
+    const resetWindow = {
+      id: "five_hour",
+      kind: "session" as const,
+      label: "Session",
+      usedPercent: 100,
+      windowDurationMins: 300,
+      resetsAt: "2026-09-03T11:30:00.000Z",
+    };
+    const input = new Map([
+      [
+        EnvironmentId.make("env-a"),
+        {
+          entry: { target: { label: "Laptop" } },
+          serverConfig: {
+            providers: [
+              provider({
+                usageLimits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [resetWindow] },
+              }),
+            ],
+          },
+        },
+      ],
+    ]);
+    const pools = collectLimitPools(collectLimitAccounts(input), now);
+    expect(pools[0]?.windows[0]).toMatchObject({ usedPercent: 0, remainingPercent: 100 });
+  });
+
+  it("notices a provider whose retained windows went stale after failed checks", () => {
+    const staleProvider = provider({
+      usageLimits: {
+        checkedAt: "2026-09-03T11:00:00.000Z",
+        windows: [window],
+        staleSince: "2026-09-03T12:00:00.000Z",
+      },
+    });
+    const freshProvider = provider({
+      instanceId: ProviderInstanceId.make("codex-2"),
+      usageLimits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [window] },
+    });
+    const notices = collectLimitNotices(
+      new Map([
+        [
+          EnvironmentId.make("env-a"),
+          {
+            entry: { target: { label: "Laptop" } },
+            serverConfig: { providers: [staleProvider, freshProvider] },
+          },
+        ],
+      ]),
+    );
+    expect(notices).toEqual(["codex: Limits are stale; refresh to re-check."]);
   });
 });

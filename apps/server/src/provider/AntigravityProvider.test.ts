@@ -923,7 +923,11 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
         });
         yield* harness.provider.snapshot.refresh;
         yield* Deferred.await(failedReadApplied);
-        expect((yield* harness.provider.snapshot.getSnapshot).usageLimits).toEqual(limits);
+        // The last good read is retained, but marked stale instead of republished as fresh.
+        expect((yield* harness.provider.snapshot.getSnapshot).usageLimits).toEqual({
+          ...limits,
+          staleSince: "2026-10-09T12:01:00.000Z",
+        });
         yield* harness.provider.onSignedOut;
         expect((yield* harness.provider.snapshot.getSnapshot).usageLimits).toBeUndefined();
         yield* Ref.set(usage, {

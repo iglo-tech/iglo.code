@@ -8,9 +8,13 @@ import type {
 import {
   type LimitPace,
   type LimitPoolWindow,
+  effectiveUsageWindow,
+  isStaleUsageLimits,
+  lastCheckedAt,
   paceOf,
   paceRemainingPercent,
   remainingPercent,
+  windowHasReset,
 } from "@t3tools/shared/usageLimits";
 import { formatDuration, limitsNotice } from "@t3tools/shared/usageLimitsCopy";
 import { Link } from "@tanstack/react-router";
@@ -89,6 +93,7 @@ function InstanceRows({
 }) {
   const gt = useGT();
   const m = useMessages();
+  const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const notice = limitsNotice(limits, m);
   if (notice) {
     return (
@@ -102,7 +107,26 @@ function InstanceRows({
       />
     );
   }
-  return limits.windows.map((window) => <LimitRow key={window.id} window={window} now={now} />);
+  const stale = isStaleUsageLimits(limits);
+  const checkedAt = formatUpcomingTimestamp(
+    lastCheckedAt(limits),
+    timestampFormat,
+    now,
+    undefined,
+    m,
+  );
+  return (
+    <div className={cn("contents", stale && "opacity-60")}>
+      {limits.windows.map((window) => (
+        <LimitRow key={window.id} window={window} now={now} />
+      ))}
+      <span className="col-span-3 px-2.5 text-2xs text-muted-foreground">
+        {stale
+          ? gt("Last checked {time} · stale", { time: checkedAt })
+          : gt("Last checked {time}", { time: checkedAt })}
+      </span>
+    </div>
+  );
 }
 
 /** The thread's context window. The bar fills as context is used; the tick marks auto-compaction. */
@@ -182,10 +206,11 @@ function LimitRow({
   const gt = useGT();
   const m = useMessages();
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
-  const left = remainingPercent(window);
-  const pace = paceOf(window, now);
-  const timeLeft = paceRemainingPercent(window, now);
-  const resetsAt = window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN;
+  const shown = effectiveUsageWindow(window, now);
+  const left = remainingPercent(shown);
+  const pace = paceOf(shown, now);
+  const timeLeft = paceRemainingPercent(shown, now);
+  const resetsAt = shown.resetsAt ? Date.parse(shown.resetsAt) : Number.NaN;
   return (
     <UsageRow
       label={window.label}
@@ -205,11 +230,17 @@ function LimitRow({
               {m(PACE_LABEL[pace])} · {gt("{timeLeft}% of the window left", { timeLeft })}
             </span>
           ) : null}
-          {window.resetsAt && resetsAt > now ? (
+          {shown.resetsAt && resetsAt > now ? (
             <span className="text-muted-foreground">
               {gt("Resets in {duration} · {time}", {
                 duration: formatDuration(resetsAt - now, m),
-                time: formatUpcomingTimestamp(window.resetsAt, timestampFormat, now, undefined, m),
+                time: formatUpcomingTimestamp(shown.resetsAt, timestampFormat, now, undefined, m),
+              })}
+            </span>
+          ) : shown.resetsAt && windowHasReset(shown, now) ? (
+            <span className="text-muted-foreground">
+              {gt("Reset {time}", {
+                time: formatUpcomingTimestamp(shown.resetsAt, timestampFormat, now, undefined, m),
               })}
             </span>
           ) : null}

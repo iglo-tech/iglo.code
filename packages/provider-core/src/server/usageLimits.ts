@@ -116,7 +116,15 @@ export function resolveUsageLimitsAfterProbe(input: {
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
-    return published;
+    // Keep the last good bars, but never republish them as a fresh reading: the failed check
+    // is recorded in `staleSince` so clients can tell the numbers are outdated.
+    if (published.windows.length === 0) return probed;
+    const staleSince =
+      published.staleSince !== undefined &&
+      Date.parse(published.staleSince) <= Date.parse(probed.checkedAt)
+        ? published.staleSince
+        : probed.checkedAt;
+    return { ...published, staleSince };
   }
   if (
     published &&
@@ -125,7 +133,12 @@ export function resolveUsageLimitsAfterProbe(input: {
     !probed.unavailable &&
     Date.parse(published.checkedAt) > Date.parse(probed.checkedAt)
   ) {
-    return { ...probed, checkedAt: published.checkedAt, windows: published.windows };
+    return {
+      ...probed,
+      checkedAt: published.checkedAt,
+      windows: published.windows,
+      ...(published.staleSince !== undefined ? { staleSince: published.staleSince } : {}),
+    };
   }
   return probed;
 }
