@@ -232,7 +232,6 @@ describe("native app removal", () => {
     using fork = checkout();
     fork.write(".github/workflows/ci.yml", "jobs: {}\n");
     fork.write(".github/workflows/release.yml", "jobs: {}\n");
-    fork.write(".github/workflows/iglo-release.yml", "jobs: {}\n");
     fork.write(".github/scripts/ci-changes.cjs", "module.exports = {};\n");
     fork.write(
       "vite.config.ts",
@@ -283,9 +282,8 @@ describe("native app removal", () => {
     );
     fork.write(".gitignore", "apps/*/dist\n.astro\npackages/*/dist\n");
     prune(fork.root);
-    expect(NodeFS.readdirSync(fork.at(".github/workflows")).toSorted()).toEqual([
-      "iglo-release.yml",
-    ]);
+    expect(fork.exists(".github/workflows/ci.yml")).toBe(false);
+    expect(fork.exists(".github/workflows/release.yml")).toBe(false);
     expect(fork.exists(".github/scripts/ci-changes.cjs")).toBe(true);
     const vite = fork.read("vite.config.ts");
     expect(vite).not.toContain("apps/mobile");
@@ -628,7 +626,6 @@ describe("filtered upstream import", () => {
         "patches/expo@1.patch": null,
         "scripts/tool.py": null,
         "scripts/moved.ts": null,
-        ".github/workflows/iglo-release.yml": "release\n",
       },
       "fork scope",
     );
@@ -656,7 +653,7 @@ describe("filtered upstream import", () => {
       expect(ok("diff", "--name-only", "--diff-filter=U")).toBe("scripts/moved.ts");
       ok("rm", "-q", "scripts/moved.ts");
       ok("commit", "-q", "--no-edit");
-      expect(ok("ls-files")).toBe(".github/workflows/iglo-release.yml\napps/web/a.ts");
+      expect(ok("ls-files")).toBe("apps/web/a.ts");
       expect(NodeFS.readFileSync(NodePath.join(root, "apps/web/a.ts"), "utf8")).toBe(
         `web ${round}\n`,
       );

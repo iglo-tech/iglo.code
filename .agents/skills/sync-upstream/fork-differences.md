@@ -100,8 +100,8 @@ current when an authorized change replaces a decision.
   import changes platform adapters; it records retained and inconclusive boundary decisions
   and the constraints behind the compatibility APIs.
 - **Fork installation and updates.** Releases are GitHub Release assets on
-  `iglo-tech/iglo.code`, built and published by `.github/workflows/iglo-release.yml`
-  on a `v*` tag. The fork publishes nothing to npm: drop imported npm launcher,
+  `iglo-tech/iglo.code`, built and published locally per
+  [releases](../../../docs/operations/03_release.md). The fork publishes nothing to npm: drop imported npm launcher,
   `npx`/`bunx` install, and npm-based server update paths. Keep explicit mirror
   overrides and channel matching. Server updates, service updates, install
   scripts, onboarding, and manual update commands must agree; none silently
@@ -189,15 +189,15 @@ current when an authorized change replaces a decision.
   usage limits or paused queues, while explicit Run now requests remain distinct.
   Retain original queued prompts and truthful queued/dispatched delivery status;
   see [recurring automations](../../../docs/user/project-settings.md#recurring-automations).
-- **Release-only CI.** The fork's one workflow, `iglo-release.yml`, builds and
-  publishes release archives; it runs no checks. The pruning helper deletes every
-  other file in `.github/workflows` on each import, including upstream's
-  `release.yml` and `ci.yml`. Checks run locally before pushing:
+- **No CI.** The fork has no GitHub workflows: release archives are built and
+  published locally per [releases](../../../docs/operations/03_release.md). The
+  pruning helper deletes every file in `.github/workflows` on each import,
+  including upstream's `release.yml` and `ci.yml`. Checks run locally before pushing:
   `vp fmt --check`, `vp run lint`, `vp run i18n:check`,
   `vp run --parallel --filter 't3...' --concurrency-limit 2 typecheck`, the smoke tests in
   [development checks](../../../docs/operations/00_development.md#pre-push-checks), and
-  `vp run --filter t3 build`. Importing upstream is not a request to restore check CI.
-  When upstream changes archive building, reconcile it into `iglo-release.yml`.
+  `vp run --filter t3 build`. Importing upstream is not a request to restore CI.
+  When upstream changes archive building, reconcile it into the local release steps.
   `.github/scripts/ci-changes.cjs` stays because `vp run check:changed` uses it. Upstream's
   shared Vite task cache (`infra/task-cache`, `.task-cache.json`, and its root
   `vite.config.ts` hooks) targets upstream's own Cloudflare worker; keep it removed.

@@ -134,8 +134,7 @@ bun .agents/skills/sync-upstream/scripts/check-fork-identity.ts
 ```
 
 Review the final diff against the intentional fork differences, including files
-that merged automatically. Confirm `.github/workflows` holds only
-`iglo-release.yml`, and that docs added by upstream do not reintroduce the
+that merged automatically. Confirm `.github/workflows` is gone, and that docs added by upstream do not reintroduce the
 desktop or mobile apps, T3 Connect, npm installs, or `t3` command names. For each affected difference, compare its behavior with the pre-import
 notes and run the smallest relevant proof. Changes to runtime launch, helper
 execution, or packaging need source and actual standalone archive smoke checks;

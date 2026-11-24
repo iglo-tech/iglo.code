@@ -2,23 +2,31 @@
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
-This fork has no check CI; checks run locally. Its one workflow,
-[`iglo-release.yml`](../../.github/workflows/iglo-release.yml), builds and publishes CLI release
-archives. Nothing is published to npm, and tags do not deploy web previews or production.
+This fork has no CI: checks and release builds run locally. Nothing is published to npm, and
+tags do not deploy web previews or production.
 
 ## Publish a release
 
-Run the [pre-push checks](./00_development.md#pre-push-checks), then push a tag:
+Run the [pre-push checks](./00_development.md#pre-push-checks). Set the version in the package
+manifests and commit it, then build, smoke-test, and publish from the release host:
 
 ```sh
-git tag v1.2.3 && git push origin v1.2.3
+version=1.2.3
+bun scripts/update-release-package-versions.ts "$version"
+git commit -am "chore(release): v$version" && git push origin HEAD:main
+git tag "v$version" && git push origin "v$version"
+export IGLO_CODE_TELEMETRY_CHANNEL=stable VITE_RELEASE_CHANNEL=stable
+# Build and smoke-test this host's archive (see the next section), then:
+bun apps/server/scripts/cli.ts release-manifest --version "$version" --output-dir release-cli
+(cd release-cli && shasum -a 256 iglo.code-"$version"-*.tar.gz release.json > SHA256SUMS)
+gh release create "v$version" release-cli/iglo.code-"$version"-*.tar.gz release-cli/release.json \
+  release-cli/SHA256SUMS --verify-tag --title "iglo.code v$version" --generate-notes --latest
 ```
 
-The workflow builds one archive per target on that target's own runner (`darwin-arm64` on
-`macos-26`, `darwin-x64` on `macos-15-intel`, `linux-x64` on `ubuntu-24.04`, `linux-arm64` on
-`ubuntu-24.04-arm`), smoke-tests each, writes a combined `SHA256SUMS`, and publishes them as the
-GitHub Release for the tag. To retry a tag, delete its failed release if one exists and run the
-workflow manually with the tag as input.
+A release carries an archive only for each host it was built on. The installer and
+`iglo.code update` fail on a platform whose archive is missing, so build on every platform you
+run before publishing, or attach the extra archive later with `gh release upload` and regenerate
+`SHA256SUMS` over every archive.
 
 The tag picks the channel, matching [release naming](../../packages/shared/src/cliRelease.ts):
 
@@ -28,16 +36,14 @@ The tag picks the channel, matching [release naming](../../packages/shared/src/c
 | `vX.Y.Z-nightly.YYYYMMDD.N` | nightly | prerelease, never latest |
 | `vX.Y.Z-preview.YYYYMMDD.N` | preview | prerelease, never latest |
 
-Any other tag fails. The installer resolves stable through `/releases/latest`, and nightly or
-preview by listing releases, so a stable release must be the latest one. `iglo.code update` lists
-releases newest first and skips drafts; the workflow uploads to a draft and publishes it only
-after every asset is attached. Nightly and preview tags need no version commit: the workflow
-writes the tag's version into the package manifests before building.
+The installer resolves stable through `/releases/latest`, and nightly or preview by listing
+releases, so a stable release must be the latest one. Publish nightly and preview tags with
+`--prerelease --latest=false` and the matching telemetry channel. `iglo.code update` lists
+releases newest first and skips drafts.
 
-macOS archives are signed ad hoc unless the repository has the `CSC_LINK` (base64 `.p12` with a
-Developer ID Application identity) and `CSC_KEY_PASSWORD` secrets. With them plus
-`APPLE_API_KEY` (the `.p8` contents), `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`, archives are
-notarized too. `curl` does not quarantine downloads, so ad hoc signing is enough for the installer.
+macOS archives are signed ad hoc unless `IGLO_CODE_CLI_MAC_SIGN_IDENTITY` names a Developer ID
+Application identity in the keychain. `curl` does not quarantine downloads, so ad hoc signing is
+enough for the installer.
 
 ## Build a standalone archive by hand
 

@@ -2,9 +2,6 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-// Upstream names its own workflows release.yml/ci.yml, so fork names never collide.
-export const FORK_WORKFLOWS = new Set(["iglo-release.yml"]);
-
 // Each pattern matches a path or a directory; `*` never crosses `/`.
 export const REMOVED_PATHS = [
   // Native mobile app.
@@ -127,9 +124,8 @@ const isPython = (path: string) => path.endsWith(".py") && !path.startsWith(".re
 
 export const isRemoved = (path: string) => {
   const parts = path.split("/");
-  if (parts[0] === ".github" && parts[1] === "workflows" && parts.length > 2) {
-    return !FORK_WORKFLOWS.has(parts[2]!);
-  }
+  // The fork has no CI: checks and release builds run locally.
+  if (parts[0] === ".github" && parts[1] === "workflows" && parts.length > 2) return true;
   if (parts.length === 2 && parts[0] === "patches" && parts[1]!.endsWith(".patch")) {
     return removedPatch(parts[1]!);
   }
