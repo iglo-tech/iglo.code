@@ -173,6 +173,9 @@ patchedDependencies:
   effect@4.1.5: patches/effect@4.1.5.patch
   "@generaltranslation/format@0.1.9": patches/@generaltranslation__format@0.1.9.patch
   gt-i18n@1.0.40: patches/gt-i18n@1.0.40.patch
+  # Bun child processes have an IPC channel without unref(); Vitest 5.1 calls it when starting its
+  # watchdog, which fails every forks worker when tests run under `bun --bun`.
+  vitest@5.1.1: patches/vitest@5.1.1.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.

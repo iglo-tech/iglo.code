@@ -93,6 +93,9 @@ current when an authorized change replaces a decision.
   whole Node server per spawn and hands pipes back over Node IPC; Bun spawns without that fork.
   Upstream code that asks the launcher for its PID (such as PortScanner's launcher-child checks)
   stays out with it: agent CLIs are direct children of the server here.
+  Server tests run under `bun --bun`; the `vitest@5.1.1` patch makes Vitest's watchdog skip
+  the IPC channel `unref()` Bun lacks, without which every forks worker fails to start. Move it
+  to each Vitest bump or drop it once Vitest guards the call.
   Executable bundling preserves one shared Effect context, leaves `ws` to Bun's
   compatibility module, and stages file-backed dependencies using the same
   [external-package boundary](../../../scripts/lib/cli-external-packages.ts).
