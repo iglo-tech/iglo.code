@@ -489,7 +489,13 @@ function TemperatureCard({ snapshot, charts }: CardProps) {
         tone={tone}
         icon={ThermometerIcon}
         title={gt("Temperature")}
-        aside={hottest?.label}
+        aside={
+          hottest === null
+            ? undefined
+            : /^temp\d+$/.test(hottest.label)
+              ? `${hottest.chip} · ${hottest.label}`
+              : hottest.label
+        }
       />
       <HealthCard.Hero
         label={gt("Hottest sensor")}

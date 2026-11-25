@@ -32,9 +32,9 @@ function Header({
       <span className={cn("grid size-6 shrink-0 place-items-center rounded-md", tone.tile)}>
         <Icon className="size-3.5" />
       </span>
-      <h2 className={cn("min-w-0 truncate text-sm font-semibold", tone.title)}>{title}</h2>
+      <h2 className={cn("shrink-0 text-sm font-semibold", tone.title)}>{title}</h2>
       {aside === undefined ? null : (
-        <div className="ml-auto flex shrink-0 items-center gap-2 text-2xs text-muted-foreground">
+        <div className="ml-auto min-w-0 truncate text-right text-2xs text-muted-foreground">
           {aside}
         </div>
       )}
@@ -112,7 +112,7 @@ function Meter({
   readonly trackClassName: string;
 }) {
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,7rem)_minmax(0,1fr)_auto] items-center gap-3 text-xs">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(3rem,7rem)_auto] items-center gap-3 text-xs">
       <span className="truncate text-muted-foreground">{label}</span>
       <span className={cn("h-1.5 overflow-hidden rounded-full", trackClassName)}>
         <span

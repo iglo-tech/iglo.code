@@ -58,6 +58,20 @@ describe("host health formatting", () => {
     expect(hottestSensor([sensor("c", "x", "fan", 100)])).toBeNull();
   });
 
+  it("keeps two devices with one driver apart and numbers them", () => {
+    const sensors = [
+      sensor("hwmon1:temp1", "nvme", "temperature", 36),
+      sensor("hwmon1:temp2", "nvme", "temperature", 35),
+      sensor("hwmon2:temp1", "nvme", "temperature", 30),
+      sensor("hwmon3:temp1", "k10temp", "temperature", 60),
+    ];
+    expect(sensorsByChip(sensors).map((group) => [group.chip, group.sensors.length])).toEqual([
+      ["nvme 1", 2],
+      ["nvme 2", 1],
+      ["k10temp", 1],
+    ]);
+  });
+
   it("describes each alert in a sentence", () => {
     const alert = (kind: HostHealthAlert["kind"], subject: string, value: number) =>
       hostHealthAlertText({ id: kind, severity: "warning", kind, subject, value });

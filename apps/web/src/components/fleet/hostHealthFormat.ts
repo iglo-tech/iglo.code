@@ -67,17 +67,32 @@ export function hottestSensor(sensors: ReadonlyArray<HostSensorReading>): HostSe
   return hottest;
 }
 
-/** Sensors by the chip that reports them, in the order the server listed them. */
+/**
+ * Sensors by the device that reports them, in the order the server listed them. Two devices
+ * with one driver (two NVMe drives) share a chip name, so repeats are numbered.
+ */
 export function sensorsByChip(
   sensors: ReadonlyArray<HostSensorReading>,
 ): ReadonlyArray<{ readonly chip: string; readonly sensors: ReadonlyArray<HostSensorReading> }> {
-  const groups = new Map<string, HostSensorReading[]>();
+  const groups = new Map<string, { chip: string; sensors: HostSensorReading[] }>();
   for (const sensor of sensors) {
-    const group = groups.get(sensor.chip);
-    if (group === undefined) groups.set(sensor.chip, [sensor]);
-    else group.push(sensor);
+    // Ids start with the device ("hwmon3:temp1"), so one device keeps its readings together.
+    const colon = sensor.id.indexOf(":");
+    const key = `${colon < 0 ? "" : sensor.id.slice(0, colon)}\u0000${sensor.chip}`;
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, { chip: sensor.chip, sensors: [sensor] });
+    else group.sensors.push(sensor);
   }
-  return [...groups].map(([chip, grouped]) => ({ chip, sensors: grouped }));
+  const list = [...groups.values()];
+  const counts = new Map<string, number>();
+  for (const group of list) counts.set(group.chip, (counts.get(group.chip) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return list.map((group) => {
+    if ((counts.get(group.chip) ?? 0) < 2) return group;
+    const index = (seen.get(group.chip) ?? 0) + 1;
+    seen.set(group.chip, index);
+    return { chip: `${group.chip} ${index}`, sensors: group.sensors };
+  });
 }
 
 export function hostHealthAlertText(alert: HostHealthAlert, resolve: MessageResolver = m): string {
