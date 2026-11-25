@@ -10,9 +10,10 @@ for the installation. To count how many installations one person uses, the
 server also sends a random identifier for each device that connects. Events
 include the provider, model, reasoning effort, permission mode, turn and request
 results, duration, release channel, and token counts when available.
-Child-agent token counts are reported separately from the main agent's. Events
-include the model ID the provider used, including custom models and models
-served by a custom endpoint.
+Child-agent token counts are reported separately from the main agent's. Models
+from a provider's catalog are reported by name, even when a custom endpoint
+serves them. Any other model, such as a local or fine-tuned one, is reported
+only as a custom model of that provider.
 
 Product events do not include prompts, responses, file contents, authentication tokens, conversation IDs,
 raw provider events, child-agent output, or identifiers from your provider accounts. The one exception is [agent feedback](#agent-feedback),
@@ -70,10 +71,16 @@ reports, the thread each came from, and a line for each outline; `iglo.code feed
 exactly what each one holds.
 
 To turn product events off again, remove `IGLO_CODE_POSTHOG_HOST` or set
-`IGLO_CODE_TELEMETRY_ENABLED=false`, for the background service in
+`IGLO_CODE_TELEMETRY_ENABLED=false` or `DO_NOT_TRACK=1` (which wins over
+`IGLO_CODE_TELEMETRY_ENABLED=true`), for the background service in
 [`service.env`](./background-service.md#configure-the-service-environment). An
 administrator can also turn them off with a
 [managed policy](./managed-policy.md#other-capabilities).
+
+On a CI runner, the server sends no product events by default. It treats a run as
+CI when a common CI variable is set, such as `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, or
+`JENKINS_URL`. `CI=false` and `CI=0` do not count. To send them from CI anyway, set
+`IGLO_CODE_TELEMETRY_ENABLED=true`.
 
 ## Export diagnostics to your own receiver
 

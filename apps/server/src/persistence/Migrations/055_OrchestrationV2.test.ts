@@ -76,6 +76,12 @@ layer("055_OrchestrationV2", (it) => {
         [113, "Workflows"],
         [114, "SupersededRunAttemptIndex"],
         [115, "LayoutCommandApprovals"],
+        [116, "WorkflowSkippedRuns"],
+        [117, "WorkflowRunIndexes"],
+        [118, "WorkflowRunTags"],
+        [119, "ForkHistoryMembership"],
+        [120, "WorkflowMailSender"],
+        [121, "WorkflowPools"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 60 ORDER BY migration_id`,
@@ -178,6 +184,12 @@ layer("055_OrchestrationV2", (it) => {
           [113, "Workflows"],
           [114, "SupersededRunAttemptIndex"],
           [115, "LayoutCommandApprovals"],
+          [116, "WorkflowSkippedRuns"],
+          [117, "WorkflowRunIndexes"],
+          [118, "WorkflowRunTags"],
+          [119, "ForkHistoryMembership"],
+          [120, "WorkflowMailSender"],
+          [121, "WorkflowPools"],
         ]);
         assert.deepStrictEqual(yield* runMigrations(), []);
         assert.deepStrictEqual(yield* sql`SELECT id, status FROM scheduled_task_occurrences`, [
@@ -243,6 +255,12 @@ layer("055_OrchestrationV2", (it) => {
             { migration_id: 113, name: "Workflows" },
             { migration_id: 114, name: "SupersededRunAttemptIndex" },
             { migration_id: 115, name: "LayoutCommandApprovals" },
+            { migration_id: 116, name: "WorkflowSkippedRuns" },
+            { migration_id: 117, name: "WorkflowRunIndexes" },
+            { migration_id: 118, name: "WorkflowRunTags" },
+            { migration_id: 119, name: "ForkHistoryMembership" },
+            { migration_id: 120, name: "WorkflowMailSender" },
+            { migration_id: 121, name: "WorkflowPools" },
           ],
         );
         const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(scheduled_tasks)`;
@@ -317,6 +335,12 @@ layer("055_OrchestrationV2", (it) => {
         [113, "Workflows"],
         [114, "SupersededRunAttemptIndex"],
         [115, "LayoutCommandApprovals"],
+        [116, "WorkflowSkippedRuns"],
+        [117, "WorkflowRunIndexes"],
+        [118, "WorkflowRunTags"],
+        [119, "ForkHistoryMembership"],
+        [120, "WorkflowMailSender"],
+        [121, "WorkflowPools"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       const occurrences = yield* sql`SELECT id, status FROM scheduled_task_occurrences`;
@@ -388,6 +412,12 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 113, name: "Workflows" },
         { migration_id: 114, name: "SupersededRunAttemptIndex" },
         { migration_id: 115, name: "LayoutCommandApprovals" },
+        { migration_id: 116, name: "WorkflowSkippedRuns" },
+        { migration_id: 117, name: "WorkflowRunIndexes" },
+        { migration_id: 118, name: "WorkflowRunTags" },
+        { migration_id: 119, name: "ForkHistoryMembership" },
+        { migration_id: 120, name: "WorkflowMailSender" },
+        { migration_id: 121, name: "WorkflowPools" },
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -396,7 +426,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 115 }, (_, index) => index + 1),
+        Array.from({ length: 121 }, (_, index) => index + 1),
       );
     }),
   );
@@ -470,6 +500,12 @@ layer("055_OrchestrationV2", (it) => {
         [113, "Workflows"],
         [114, "SupersededRunAttemptIndex"],
         [115, "LayoutCommandApprovals"],
+        [116, "WorkflowSkippedRuns"],
+        [117, "WorkflowRunIndexes"],
+        [118, "WorkflowRunTags"],
+        [119, "ForkHistoryMembership"],
+        [120, "WorkflowMailSender"],
+        [121, "WorkflowPools"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -551,6 +587,12 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 113, name: "Workflows" },
         { migration_id: 114, name: "SupersededRunAttemptIndex" },
         { migration_id: 115, name: "LayoutCommandApprovals" },
+        { migration_id: 116, name: "WorkflowSkippedRuns" },
+        { migration_id: 117, name: "WorkflowRunIndexes" },
+        { migration_id: 118, name: "WorkflowRunTags" },
+        { migration_id: 119, name: "ForkHistoryMembership" },
+        { migration_id: 120, name: "WorkflowMailSender" },
+        { migration_id: 121, name: "WorkflowPools" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

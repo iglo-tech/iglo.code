@@ -1,5 +1,6 @@
 // Sends to IGLO_CODE_POSTHOG_HOST only, a PostHog-compatible batch endpoint; UUIDs deduplicate retries.
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { isCiEnvironment, isDoNotTrackSet } from "@t3tools/shared/otelEnvironment";
 import type { ClientOs } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
@@ -70,7 +71,7 @@ const TelemetryEnvConfig = Config.all({
   posthogKey: Config.String("IGLO_CODE_POSTHOG_KEY").pipe(Config.option),
   // No default: nothing is sent unless the user names an endpoint.
   posthogHost: Config.String("IGLO_CODE_POSTHOG_HOST").pipe(Config.option),
-  enabled: Config.Boolean("IGLO_CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(true)),
+  enabled: Config.Boolean("IGLO_CODE_TELEMETRY_ENABLED").pipe(Config.option),
   flushBatchSize: Config.Number("IGLO_CODE_TELEMETRY_FLUSH_BATCH_SIZE").pipe(
     Config.withDefault(20),
   ),
@@ -125,19 +126,26 @@ export const make = Effect.gen(function* () {
   const telemetryConfig = yield* TelemetryEnvConfig;
   const hostEnvironment = yield* HostProcess.Environment;
   const awaitingShellConsent = hostEnvironment.IGLO_CODE_DESKTOP_SHELL_DISCOVERY_PENDING === "1";
+  const enabledByDefault = !isCiEnvironment(hostEnvironment);
+  const enabledAtStartup = Option.getOrElse(telemetryConfig.enabled, () => enabledByDefault);
   // A managed policy can switch analytics off over the environment, never on.
   const policyAllows =
     ManagedPolicy.deniedBy(yield* ManagedPolicy.ManagedPolicy, "telemetry") === undefined;
   // A cached PATH does not establish consent from the current login shell.
   const telemetryEnabled = Effect.suspend(() => {
-    if (!telemetryConfig.enabled || !policyAllows || Option.isNone(telemetryConfig.posthogHost))
+    if (
+      !enabledAtStartup ||
+      !policyAllows ||
+      isDoNotTrackSet(hostEnvironment) ||
+      Option.isNone(telemetryConfig.posthogHost)
+    )
       return Effect.succeed(false);
     if (!awaitingShellConsent) return Effect.succeed(true);
     if (hostEnvironment.IGLO_CODE_DESKTOP_SHELL_DISCOVERY_PENDING === "1")
       return Effect.succeed(false);
     const preference = hostEnvironment.IGLO_CODE_TELEMETRY_ENABLED;
     return Config.Boolean("IGLO_CODE_TELEMETRY_ENABLED").pipe(
-      Config.withDefault(true),
+      Config.withDefault(enabledByDefault),
       Effect.provideService(
         ConfigProvider.ConfigProvider,
         ConfigProvider.fromEnv({
@@ -217,22 +225,29 @@ export const make = Effect.gen(function* () {
         uuid: event.uuid,
         event: event.event,
         distinct_id: event.anonymous ? event.uuid : distinctId,
-        properties: {
-          ...event.properties,
-          ...(installId === null || event.anonymous ? {} : { installId }),
-          $process_person_profile: false,
-          platform: hostPlatform,
-          wsl: Option.getOrUndefined(telemetryConfig.wslDistroName),
-          arch: hostArchitecture,
-          t3CodeVersion: packageJson.version,
-          telemetryChannel: ServerConfig.telemetryChannel,
-          clientType,
-          serverOs: serverOsFromNodePlatform(hostPlatform),
-          serverArch: hostArchitecture,
-          serverWslDistro: Option.getOrUndefined(telemetryConfig.wslDistroName),
-          serverAppVersion: packageJson.version,
-          serverMode: serverConfig.mode,
-        },
+        properties: event.anonymous
+          ? {
+              ...event.properties,
+              $process_person_profile: false,
+              t3CodeVersion: packageJson.version,
+              telemetryChannel: ServerConfig.telemetryChannel,
+            }
+          : {
+              ...event.properties,
+              ...(installId === null ? {} : { installId }),
+              $process_person_profile: false,
+              platform: hostPlatform,
+              wsl: Option.getOrUndefined(telemetryConfig.wslDistroName),
+              arch: hostArchitecture,
+              t3CodeVersion: packageJson.version,
+              telemetryChannel: ServerConfig.telemetryChannel,
+              clientType,
+              serverOs: serverOsFromNodePlatform(hostPlatform),
+              serverArch: hostArchitecture,
+              serverWslDistro: Option.getOrUndefined(telemetryConfig.wslDistroName),
+              serverAppVersion: packageJson.version,
+              serverMode: serverConfig.mode,
+            },
         timestamp: event.capturedAt,
       })),
     };
@@ -245,9 +260,13 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  // An anonymous event goes out alone, or the ingest could link it to the other events by request.
   const takeBatch = Ref.modify(bufferRef, (current) => {
-    const nextBatch = current.slice(0, telemetryConfig.flushBatchSize);
-    return [nextBatch, current.slice(nextBatch.length)] as const;
+    const next = current.findIndex((event) => event.anonymous);
+    if (next === 0) return [current.slice(0, 1), current.slice(1)] as const;
+    const linked = current.slice(0, next === -1 ? current.length : next);
+    const batch = linked.slice(0, telemetryConfig.flushBatchSize);
+    return [batch, current.slice(batch.length)] as const;
   });
 
   // Back off even after dropping rejected batches so bad API keys cannot drain the queue in a tight loop.

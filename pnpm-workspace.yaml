@@ -21,10 +21,10 @@ allowBuilds:
   workerd: false
 
 catalog:
-  "@clerk/clerk-js": 6.42.3
-  "@clerk/electron": 0.1.10
-  "@clerk/react": 6.18.6
-  "@clerk/shared": 4.44.1
+  "@clerk/clerk-js": 6.47.0
+  "@clerk/electron": 0.1.20
+  "@clerk/react": 6.19.6
+  "@clerk/shared": 4.49.0
   "@effect/atom-react": 4.1.5
   "@effect/graphql-generator": 4.1.5
   "@effect/openapi-generator": 4.1.5
@@ -32,11 +32,12 @@ catalog:
   "@effect/platform-node": 4.1.5
   "@effect/platform-node-shared": 4.1.5
   "@effect/vitest": 4.1.5
-  "@legendapp/list": 3.7.3
+  "@legendapp/list": 3.9.0
   "@noble/curves": 1.9.1
   "@noble/hashes": 1.8.0
   "@pierre/diffs": 1.7.0-beta.4
   "@pierre/highlights": 0.5.0
+  "@pierre/trees": 1.0.0
   "@tailwindcss/node": 4.3.3
   "@tailwindcss/oxide": 4.3.3
   "@tailwindcss/vite": 4.3.3
@@ -52,8 +53,8 @@ catalog:
   react-dom: 19.3.0
   tailwindcss: 4.3.3
   undici: 8.12.4
-  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
-  vite-plus: 1.4.0
+  vite: npm:@voidzero-dev/vite-plus-core@8.3.8001
+  vite-plus: 1.8.0
   ws: 8.22.0
   yaml: ^2.9.0
   # Markdown pipeline: the server counts find matches with the same parser the
@@ -80,7 +81,7 @@ overrides:
   mdast-util-to-hast: 13.2.1
   "@cursor/sdk": 1.5.0
   "@ff-labs/fff-node": 0.11.0
-  "@legendapp/list": 3.7.3
+  "@legendapp/list": 3.9.0
   "@pierre/diffs": 1.7.0-beta.4
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.
   "@exodus/bytes>@noble/hashes": "1.8.0"
@@ -150,7 +151,7 @@ packageExtensions:
 patchedDependencies:
   mdast-util-math@3.0.0: patches/mdast-util-math@3.0.0.patch
   micromark-extension-llm-math@3.1.0: patches/micromark-extension-llm-math@3.1.0.patch
-  "@legendapp/list@3.7.3": patches/@legendapp__list@3.7.3.patch
+  "@legendapp/list@3.9.0": patches/@legendapp__list@3.9.0.patch
   micromark-extension-gfm-table@2.1.1: patches/micromark-extension-gfm-table@2.1.1.patch
   micromark@4.0.2: patches/micromark@4.0.2.patch
   mdast-util-to-hast@13.2.1: patches/mdast-util-to-hast@13.2.1.patch
@@ -170,6 +171,8 @@ patchedDependencies:
   "@cursor/sdk@1.5.0": patches/@cursor__sdk@1.5.0.patch
   # The MCP Events extension (SEP-3415) on effect/ai, until Effect ships it.
   effect@4.1.5: patches/effect@4.1.5.patch
+  "@generaltranslation/format@0.1.9": patches/@generaltranslation__format@0.1.9.patch
+  gt-i18n@1.0.40: patches/gt-i18n@1.0.40.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.
@@ -196,7 +199,7 @@ publicHoistPattern:
   - "@cursor/sdk-*"
 
 minimumReleaseAgeExclude:
-  - "@legendapp/list@3.7.3"
+  - "@legendapp/list@3.9.0"
   - "@effect/tsgo-darwin-arm64@0.67.1"
   - "@effect/tsgo-darwin-x64@0.67.1"
   - "@effect/tsgo-linux-arm64@0.67.1"
@@ -224,3 +227,18 @@ minimumReleaseAgeExclude:
   - "@effect/sql-sqlite-do@4.1.5"
   - "@effect/vitest@4.1.5"
   - effect@4.1.5
+  - "@voidzero-dev/vite-plus-core@8.3.8001"
+  - "@voidzero-dev/vite-plus-darwin-arm64@1.8.0"
+  - "@voidzero-dev/vite-plus-darwin-x64@1.8.0"
+  - "@voidzero-dev/vite-plus-linux-arm64-gnu@1.8.0"
+  - "@voidzero-dev/vite-plus-linux-arm64-musl@1.8.0"
+  - "@voidzero-dev/vite-plus-linux-x64-gnu@1.8.0"
+  - "@voidzero-dev/vite-plus-linux-x64-musl@1.8.0"
+  - "@voidzero-dev/vite-plus-win32-arm64-msvc@1.8.0"
+  - "@voidzero-dev/vite-plus-win32-x64-msvc@1.8.0"
+  - vite-plus@1.8.0
+  - "@clerk/backend@3.33.0"
+  - "@clerk/clerk-js@6.47.0"
+  - "@clerk/electron@0.1.20"
+  - "@clerk/react@6.19.6"
+  - "@clerk/shared@4.49.0"

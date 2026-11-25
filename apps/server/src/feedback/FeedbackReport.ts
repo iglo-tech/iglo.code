@@ -169,6 +169,7 @@ export const T3_CLI_COMMANDS: ReadonlyArray<string> = [
   "iglo.code workflow resume",
   "iglo.code workflow cancel",
   "iglo.code workflow signal",
+  "iglo.code workflow withdraw",
   "iglo.code workflow questions",
   "iglo.code workflow hooks",
   "iglo.code workflow store",

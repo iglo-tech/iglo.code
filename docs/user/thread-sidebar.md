@@ -4,6 +4,16 @@ Use a new thread for a separate task. Choose **New worktree** when its code chan
 need a separate branch and working directory. Threads in the same checkout share its
 branch, so iglo.code refuses a branch switch there while one of them is working.
 
+## Resize or hide the sidebar
+
+Drag the sidebar's right edge to resize it. Continue left past its minimum
+width to preview hiding it, then release to keep it hidden. Dragging back right before releasing
+shows it again and continues resizing.
+
+Move the mouse to the middle of the left window edge to find a handle. Drag it right or click
+it to show the sidebar again. Dragging back to the edge before releasing hides the preview
+and leaves it hidden. The sidebar toggle and shortcut still keep it open.
+
 ## Start a thread
 
 **New thread**, the pencil next to the sidebar search, starts in the project you picked in the
@@ -197,6 +207,11 @@ free memory. Commands the agent is waiting on, pinned threads, threads with auto
 settlement turned off, and a subagent's thread while its parent is still open are left alone. The chat notes what stopped, and **Turn it back on** runs the
 command again in a new terminal. Change the delay or turn this off with **Stop idle background
 processes** in Settings > Threads.
+You can settle or snooze a thread while its environment is offline. The thread shows
+**Pending**, and the change is sent when the environment
+reconnects. Undo, Un-settle, or Wake before then cancels it. If the thread changed there in
+the meantime, the environment's state wins and your change is dropped. A thread with a
+pending settle cannot be snoozed until it syncs.
 
 To reclaim disk space from settled work, turn on **Run in the thread's worktree when the
 thread settles** for one of the project's actions, or set `"runOnSettle": true` on a
@@ -267,6 +282,8 @@ you last picked for a query ranks higher when you type that query again.
 Threads whose messages contain all your words appear below, under **In
 messages**, and open at the matching message. Message search needs at least
 one word of three or more letters, or two for Chinese, Japanese, and Korean.
+Put a search in double quotes, such as `"missing position files"`, to find only
+titles and messages that hold those words together, exactly as typed.
 
 Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request
