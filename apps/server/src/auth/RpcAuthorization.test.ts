@@ -21,6 +21,7 @@ import {
   AuthTerminalOperateScope,
   CommandId,
   MessageId,
+  mcpClientScopes,
   ORCHESTRATION_V2_WS_METHODS,
   RunId,
   WS_METHODS,
@@ -395,9 +396,7 @@ it.effect("hands out a link code or a guest link only within what the session it
     // Managing access alone is not running agents or reading threads.
     const manager = yield* clientWith([AuthAccessWriteScope]);
     expect(
-      yield* manager[WS_METHODS.peerLinksPairLink]({ environmentId, access: "read-only" }).pipe(
-        Effect.flip,
-      ),
+      yield* manager[WS_METHODS.peerLinksPairLink]({ environmentId }).pipe(Effect.flip),
     ).toMatchObject({ requiredPermission: AuthOrchestrationReadScope });
     expect(
       yield* manager[WS_METHODS.guestShareCreate]({ threadId }).pipe(Effect.flip),
@@ -409,16 +408,15 @@ it.effect("hands out a link code or a guest link only within what the session it
       AuthOrchestrationOperateScope,
     ]);
     expect(
-      yield* supervisor[WS_METHODS.peerLinksPairLink]({
-        environmentId,
-        access: "full-access",
-      }).pipe(Effect.flip),
+      yield* supervisor[WS_METHODS.peerLinksPairLink]({ environmentId }).pipe(Effect.flip),
     ).toMatchObject({ requiredPermission: AuthSettingsWriteScope });
     expect(handled).toBe(0);
 
-    expect(
-      (yield* supervisor[WS_METHODS.peerLinksPairLink]({ environmentId, access: "auto" })).type,
-    ).toBe("unsupported");
+    // Every link is full access, so handing one out takes holding full access.
+    const owner = yield* clientWith([AuthAccessWriteScope, ...mcpClientScopes("full-access")]);
+    expect((yield* owner[WS_METHODS.peerLinksPairLink]({ environmentId })).type).toBe(
+      "unsupported",
+    );
     expect(handled).toBe(1);
     yield* supervisor[WS_METHODS.guestShareCreate]({ threadId }).pipe(Effect.exit);
     expect(handled).toBe(2);

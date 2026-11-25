@@ -1,5 +1,4 @@
 import {
-  type AuthMcpClientAccess,
   type EnvironmentId,
   type PeerLinkCreateInput,
   type PeerLinkFailureKind,
@@ -227,10 +226,7 @@ const linkFailure = (failure: unknown): LinkAttemptOutcome & { readonly kind: "f
 
 type BatchMachine = Pick<LinkableMachine, "environmentId" | "label" | "urls">;
 
-type MintPairingCode = (
-  environmentId: EnvironmentId,
-  access: AuthMcpClientAccess,
-) => Promise<Result.Result<string, unknown>>;
+type MintPairingCode = (environmentId: EnvironmentId) => Promise<Result.Result<string, unknown>>;
 
 /**
  * One link to `machine`: a one-use code minted there with the client's session, handed to
@@ -238,7 +234,6 @@ type MintPairingCode = (
  */
 export async function linkWithMintedCode(input: {
   readonly machine: BatchMachine;
-  readonly access: AuthMcpClientAccess;
   readonly mint: MintPairingCode;
   readonly link: (input: PeerLinkCreateInput) => Promise<Result.Result<unknown, unknown>>;
 }): Promise<LinkAttemptOutcome> {
@@ -246,7 +241,7 @@ export async function linkWithMintedCode(input: {
   const [url, ...alternateUrls] = machine.urls;
   if (url === undefined) return { kind: "failed", failure: "unreachable", detail: null };
   try {
-    const minted = await input.mint(machine.environmentId, input.access);
+    const minted = await input.mint(machine.environmentId);
     if (Result.isFailure(minted)) return { kind: "failed", failure: "no_code", detail: null };
     const linked = await input.link({
       url,
@@ -254,7 +249,6 @@ export async function linkWithMintedCode(input: {
       expectedEnvironmentId: machine.environmentId,
       expectedLabel: machine.label,
       pairingCode: minted.success,
-      access: input.access,
     });
     return Result.isSuccess(linked) ? { kind: "linked" } : linkFailure(linked.failure);
   } catch {
@@ -270,7 +264,6 @@ export async function linkWithMintedCode(input: {
  */
 export async function runLinkBatch(input: {
   readonly machines: ReadonlyArray<BatchMachine>;
-  readonly access: AuthMcpClientAccess;
   readonly mint: MintPairingCode;
   readonly link: (input: PeerLinkCreateInput) => Promise<Result.Result<unknown, unknown>>;
   /**
@@ -290,15 +283,14 @@ export async function runLinkBatch(input: {
   readonly onOutcome?: (environmentId: EnvironmentId, outcome: LinkBatchOutcome) => void;
 }): Promise<ReadonlyMap<EnvironmentId, LinkBatchOutcome>> {
   const outcomes = new Map<EnvironmentId, LinkBatchOutcome>();
-  const { access, mint, back } = input;
+  const { mint, back } = input;
   const linkOne = async (machine: BatchMachine): Promise<LinkBatchOutcome> => {
-    const outcome = await linkWithMintedCode({ machine, access, mint, link: input.link });
+    const outcome = await linkWithMintedCode({ machine, mint, link: input.link });
     if (outcome.kind !== "linked" || !back?.targets.has(machine.environmentId)) return outcome;
     return {
       kind: "linked",
       back: await linkWithMintedCode({
         machine: back.source,
-        access,
         mint,
         link: (create) => back.link(machine.environmentId, create),
       }),

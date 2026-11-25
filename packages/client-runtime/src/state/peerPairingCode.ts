@@ -99,7 +99,7 @@ const mintOnEnvironment = Effect.fnUntraced(function* (payload: AuthCreatePairin
 });
 
 /**
- * Mints a code on the environment it runs in. Each run mints its own: a code
+ * Mints a full-access link code on the environment it runs in. Each run mints its own: a code
  * is one-use, so two overlapping answers must never share one.
  */
 export function createPeerPairingCodeCommand<R, E>(
@@ -107,14 +107,14 @@ export function createPeerPairingCodeCommand<R, E>(
 ) {
   return createEnvironmentCommand(runtime, {
     label: "environment-data:peer-pairing-code:mint",
-    execute: (access: AuthMcpClientAccess) =>
+    execute: () =>
       mintOnEnvironment({
         label: PEER_PAIRING_CODE_LABEL,
-        access,
+        access: "full-access",
         purpose: "peer-link",
       }).pipe(
         Effect.filterOrFail(
-          (minted) => minted.purpose === "peer-link" && minted.access === access,
+          (minted) => minted.purpose === "peer-link" && minted.access === "full-access",
           () =>
             new PeerPairingCodeError({
               reason: "unavailable",

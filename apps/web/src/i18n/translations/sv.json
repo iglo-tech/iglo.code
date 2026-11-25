@@ -114,8 +114,6 @@
   "4cded869dea19ab2": "Väntar på svar i den ursprungliga tråden",
   "2b94dca2d528688f": "Länkade en dator",
   "929e93b30d895f49": "Länkade {target}",
-  "5ac4edf5195056fb": "Länkade en dator · {access}",
-  "36db2352fc10a1f3": "Länkade {target} · {access}",
   "8cc00444f7443feb": "Avböjd",
   "289ec1df10840137": "Kunde inte länka: den andra miljön nekade",
   "21be308917bd450e": "Kunde inte länka: {failure}",
@@ -3707,7 +3705,7 @@
   "ea745611e41bb8b5": "Länka {targetName}",
   "022755e40ab2938b": "Agenter här kan då starta, skicka meddelanden till och vänta på trådar där. Återkalla det under Delning och åtkomst på den datorn.",
   "54994ff111229ca5": "Dator",
-  "4bad519bd9c46c7a": "Åtkomst",
+  "b49658122c4ca22d": "Länka",
   "57a631f659db8c6b": "Klistra in koden",
   "5ffc8460ffc939db": "Länkar…",
   "8b61f3e4b14d099b": "Använd den här länken",
@@ -3738,23 +3736,23 @@
     ": Inställningar → Delning och åtkomst → Auktoriserade klienter → Skapa länk och klistra sedan in dess kod här."
   ],
   "af1bedb2d6a982f2": "Link back to this environment",
-  "0610b662a0c3bde7": [
+  "53965b4b62dc768b": [
     {
       "i": 1,
       "k": "target",
       "v": "v"
     },
-    "'s agents get the same access here, using a code minted for it. Turn this off to link one way."
+    "s agenter får full åtkomst här, med en kod som skapas för det. Stäng av för att länka åt ett håll."
   ],
   "a28790f24d566c00": "This environment runs a version that links one way only. Update it to link back automatically.",
-  "c205277bd4ab61d2": [
+  "01e11e81b6a6e923": [
     "Den här miljön är redan länkad till ",
     {
       "i": 1,
       "k": "_gt_value_1",
       "v": "v"
     },
-    ". Agenten kan använda den länken som den är; ändra dess åtkomst under Inställningar → Miljöer."
+    ". Agenten kan använda den länken som den är."
   ],
   "000b0df227182d39": "En annan adress…",
   "fd07b24350a7643f": "en länkad miljö",
@@ -9098,8 +9096,6 @@
     },
     ". En alfaversion som kan ändras eller sluta fungera. iglo.code installerar aldrig Simlock."
   ],
-  "3836976622328d61": "Vad agenter här får göra där",
-  "b20c269e7ad96f42": "En agent får aldrig mer åtkomst där än sitt eget läge här. Utan full åtkomst kan den bara ändra trådar som den här länken startade, inte den datorns egna trådar, projekt eller inställningar.",
   "4474db19bf5700c9": "En annan adress…",
   "791d30fae1b05310": "Välj en dator",
   "9cab5bd6475291cf": "Kontrollera den här adressen",
@@ -9124,7 +9120,7 @@
   "35d59319f62bd505": "{count, plural, one {# maskin förblir länkad åt ett håll.} other {# maskiner förblir länkade åt ett håll.}}",
   "d2fbaffe08b6cf60": "{count, plural, one {Länka # dator} other {Länka # datorer}}",
   "8e3378b526d615f4": "Länka flera…",
-  "b550d04490078bda": "Agenter här kan sedan starta, skicka meddelanden till och vänta på trådar på varje dator du väljer. Varje länk visas under Auktoriserade klienter i den datorns Delning och åtkomst, där den kan återkallas.",
+  "d16d7cd5c0a5fb5a": "Agenter här kan sedan starta, skicka meddelanden till och vänta på trådar på varje dator du väljer, med full åtkomst. Varje länk visas under Auktoriserade klienter i den datorns Delning och åtkomst, där den kan återkallas.",
   "e1c2c3bd84d7bcd7": "Den här appen är inte ansluten till någon av datorerna du valde.",
   "c2553b323479499a": "Den här appen känner inte till några andra datorer. Lägg först till dem under Miljöer.",
   "18b1d4d42b945b34": "Datorer",
@@ -9148,8 +9144,8 @@
   "7500de8d4f99be52": "Återkalla ”iglo.code · …” under Delning och åtkomst på {label} för att avsluta sessionen där också.",
   "81c9796bf61b306a": "Kunde inte glömma länken",
   "130e51beb6cf5aad": "Länka en miljö",
-  "122c3e355699e69d": "Agenter här kan sedan starta, skicka meddelanden till och vänta på trådar där. Den visas under Auktoriserade klienter i miljöns Delning och åtkomst, där den kan återkallas.",
-  "dc9a0b68d101e904": "Redan länkad. Om du länkar igen förnyas den med den åtkomst du väljer.",
+  "25bb225c9320ccf9": "Agenter här kan sedan starta, skicka meddelanden till och vänta på trådar där, med full åtkomst. Den visas under Auktoriserade klienter i miljöns Delning och åtkomst, där den kan återkallas.",
+  "1b2c76b5140eab75": "Redan länkad. Om du länkar igen förnyas den.",
   "2fbcbe2d8c56a245": "Föredra",
   "479a7eeae96511fc": "Normal",
   "fd16014a2f23dea9": "Mer sällan",

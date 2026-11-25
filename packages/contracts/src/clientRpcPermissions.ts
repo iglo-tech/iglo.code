@@ -13,7 +13,6 @@ import {
   type AuthEnvironmentScope,
   mcpClientScopes,
 } from "./auth.ts";
-import { PeerLinkLinkPairingInput } from "./peerLink.ts";
 import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS } from "./rpc.ts";
 
@@ -111,7 +110,6 @@ export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 
 const decodePrepareThread = Schema.decodeUnknownSync(GitPreparePullRequestThreadInput);
 const decodeStackedAction = Schema.decodeUnknownSync(GitRunStackedActionInput);
-const decodeLinkPairing = Schema.decodeUnknownSync(PeerLinkLinkPairingInput);
 
 export function clientRpcRequiredScopes(
   method: string,
@@ -130,10 +128,10 @@ export function clientRpcRequiredScopes(
     )
       return [AuthSourceControlWriteScope, AuthOrchestrationReadScope];
   }
-  // Handing out access takes holding it: the caller gets back a credential it can spend itself.
-  if (method === WS_METHODS.peerLinksPairLink && input !== undefined) {
-    const held = mcpClientScopes(decodeLinkPairing(input).access);
-    return [AuthAccessWriteScope, ...held];
+  // Handing out access takes holding it: the caller gets back a credential it can spend itself,
+  // and every link is full access.
+  if (method === WS_METHODS.peerLinksPairLink) {
+    return [AuthAccessWriteScope, ...mcpClientScopes("full-access")];
   }
   if (method === WS_METHODS.guestShareCreate) {
     return [AuthAccessWriteScope, AuthOrchestrationReadScope];

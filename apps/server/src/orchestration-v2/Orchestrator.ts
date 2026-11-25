@@ -823,7 +823,6 @@ function askedForLinkedMachine(
   card: Extract<OrchestrationV2TurnItem, { readonly type: "link_request" }>,
   linked: Extract<OrchestrationV2InternalCommand, { readonly type: "link_request.record" }>,
 ): boolean {
-  if (card.requestedAccess !== linked.requestedAccess) return false;
   if (card.environmentId !== undefined) return card.environmentId === linked.linkedEnvironmentId;
   if (card.url !== undefined) return linked.url !== undefined && card.url === linked.url;
   const normalize = (text: string | undefined) => text?.trim().toLowerCase() ?? "";

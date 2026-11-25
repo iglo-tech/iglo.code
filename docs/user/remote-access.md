@@ -273,17 +273,17 @@ holds the machines this app knows. If this
 app is connected to that machine with a session that manages access there, it
 makes the pairing code itself; otherwise paste one from that machine's
 **Settings → Sharing & access**. From a terminal, use
-`iglo.code environment link <address> --pairing-code <code> --access <mode>`.
+`iglo.code environment link <address> --pairing-code <code>`. Every link has full
+access: linked machines are both yours, so there is no access level to pick.
 
 By default one link serves both directions: the other machine also links back
-to this one, with the same access, using a pairing code this machine mints and
+to this one, also at full access, using a pairing code this machine mints and
 delivers to it over the link's own sign-in. Uncheck **Link back** in the link
 dialog (or pass `--one-way` in the terminal) to link one direction only, and
 link again from the other side later if you change your mind.
 
 To link many machines at once, choose **Link several…** (it appears once this
-app has two other machines saved). Tick the machines, pick one access level for
-all of them, and confirm once. A machine can be ticked when this app is
+app has two other machines saved). Tick the machines and confirm once. A machine can be ticked when this app is
 connected to it with a session that manages access there and has an address
 another machine can reach; the list says why when it cannot. Each machine
 reports its own result, and the ones that failed stay ticked so you can try
@@ -291,7 +291,7 @@ only those again. Machines already linked are left as they are.
 
 For machines no app is connected to, put one `<address> <pairing-code>` per
 line in a file (make each code with `iglo.code pair` on that machine) and run
-`iglo.code environment link --from <file> --access <mode>`, or `--from -` to read
+`iglo.code environment link --from <file>`, or `--from -` to read
 standard input. It prints a result per line, leaves machines already linked as
 they are, and exits non-zero if any line failed, so the same file can be run
 again with fresh codes for the failures.
@@ -305,19 +305,20 @@ direction, and you are told the other machine could not link back.
 The other machine's version must also know how; update it and link again.
 
 You can also ask an agent to link a machine by name, such as "delegate this to
-my vps". It shows a card in the thread where you pick the machine the same way,
-the access, and whether to link back, then approve. An address the agent gives
+my vps". It shows a card in the thread where you pick the machine the same way
+and whether to link back, then approve. An address the agent gives
 that this app does not know for one of your machines also needs a pasted code.
 Paste one only for an address you trust: the code is sent there.
 
-- The access you pick is the most agents from this machine may do there, and —
-  on a both-ways link — the most its agents may do here. An agent also never
-  gets more there than its own mode here.
+- A link has full access, in both directions on a both-ways link. An agent also
+  never gets more there than its own mode here, and a managed policy that holds
+  a machine below full access still caps what agents may start on it.
 - Threads a link starts are marked **From** and this machine's name there.
-- A full-access link works there like that machine's own agents. Below full
-  access, the link's agents can change only threads it started, not that
-  machine's own threads, projects or settings, and they skip its project setup
-  scripts.
+- A link works there like that machine's own agents. A link made by an older
+  version may be below full access; it stays as it was, and its agents can
+  change only threads it started, not that machine's own threads, projects or
+  settings, and they skip its project setup scripts. Link again to make it full
+  access.
 - The link shows up in that machine's **Settings → Sharing & access** like any
   outside agent, and can be revoked there. **Forget** here removes the link on
   both machines and ends both sides' sessions when the other machine answers;
@@ -341,9 +342,8 @@ it needs no pairing code.
 A machine this app is not connected to, shown only because another environment
 links to it, can still be linked without a code when that link has full access:
 drop the plus on it and the environment holding the link gets the pairing code
-from it. Your session on that environment must manage access there and already
-have the access you pick. The result
-is a separate link with the access you pick, listed and revocable on the linked
+from it. Your session on that environment must manage access there and hold full
+access. The result is a separate link, listed and revocable on the linked
 machine like any other. Links still do not chain.
 
 A link goes one way. To let the other machine's agents work back, tick **Also

@@ -1,6 +1,5 @@
 import { errorDisplayMessage } from "./errors/translatable.ts";
 import {
-  type AuthMcpClientAccess,
   type EnvironmentId,
   type EnvironmentMachineKind,
   type OrchestrationV2TurnItem,
@@ -47,11 +46,6 @@ export function linkedEnvironmentNames(input: {
     ),
   );
 }
-
-/** The access a request opens with: the agent's suggestion, else supervised. */
-export const linkRequestDefaultAccess = (
-  item: Pick<LinkRequestItem, "requestedAccess">,
-): AuthMcpClientAccess => item.requestedAccess ?? "approval-required";
 
 const parsedUrl = (url: string) => {
   try {
@@ -287,13 +281,11 @@ export type LinkRequestDisplay =
 
 /**
  * `visibility` is the projected row's: a request inherited from another
- * thread (a fork) can only be answered where it was asked. `accessLabel`
- * names an access level the way the client's access picker does.
+ * thread (a fork) can only be answered where it was asked.
  */
 export function linkRequestDisplay(
-  item: Pick<LinkRequestItem, "linkStatus" | "url" | "linkedLabel" | "linkedAccess" | "failure">,
+  item: Pick<LinkRequestItem, "linkStatus" | "url" | "linkedLabel" | "failure">,
   visibility: "local" | "inherited" | "synthetic",
-  accessLabel: (access: AuthMcpClientAccess) => string,
   resolve: MFunctionType = mFallback,
 ): LinkRequestDisplay {
   switch (item.linkStatus) {
@@ -307,18 +299,13 @@ export function linkRequestDisplay(
     case "linked": {
       const target =
         item.linkedLabel ?? (item.url === undefined ? undefined : linkDestination(item.url));
-      const access = item.linkedAccess === undefined ? undefined : accessLabel(item.linkedAccess);
       return {
         kind: "answered",
         outcome: "linked",
         label:
-          access === undefined
-            ? target === undefined
-              ? resolve(msg("Linked a machine"))
-              : resolve(msg("Linked {target}", { target }))
-            : target === undefined
-              ? resolve(msg("Linked a machine · {access}", { access }))
-              : resolve(msg("Linked {target} · {access}", { target, access })),
+          target === undefined
+            ? resolve(msg("Linked a machine"))
+            : resolve(msg("Linked {target}", { target })),
       };
     }
     case "declined":
@@ -350,10 +337,9 @@ export function linkRequestAnswerInput(
         readonly target:
           | Pick<LinkableMachine, "environmentId" | "label" | "urls">
           | { readonly url: string };
-        readonly access: AuthMcpClientAccess;
         readonly pairingCode: string;
         /**
-         * Also link this environment back at the same access. Always sent:
+         * Also link this environment back. Always sent:
          * on the wire, unset means one way, so an unset answer would silently
          * not link back. Defaults to yes.
          */
@@ -375,7 +361,6 @@ export function linkRequestAnswerInput(
       answer: {
         type: "link",
         urls: [url],
-        access: answer.access,
         pairingCode,
         reciprocal: answer.reciprocal ?? true,
       },
@@ -390,7 +375,6 @@ export function linkRequestAnswerInput(
       environmentId: target.environmentId,
       label: target.label,
       urls: [first, ...rest],
-      access: answer.access,
       pairingCode,
       reciprocal: answer.reciprocal ?? true,
     },

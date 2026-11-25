@@ -114,8 +114,6 @@
   "4cded869dea19ab2": "Waiting for an answer in the original thread",
   "2b94dca2d528688f": "Linked a machine",
   "929e93b30d895f49": "Linked {target}",
-  "5ac4edf5195056fb": "Linked a machine · {access}",
-  "36db2352fc10a1f3": "Linked {target} · {access}",
   "8cc00444f7443feb": "Declined",
   "289ec1df10840137": "Could not link: the other environment refused",
   "21be308917bd450e": "Could not link: {failure}",
@@ -3707,7 +3705,7 @@
   "ea745611e41bb8b5": "Link {targetName}",
   "022755e40ab2938b": "Agents here can then launch, message and wait on threads there. Revoke it in that machine's Sharing & access.",
   "54994ff111229ca5": "Machine",
-  "4bad519bd9c46c7a": "Access",
+  "b49658122c4ca22d": "Link",
   "57a631f659db8c6b": "Paste the code",
   "5ffc8460ffc939db": "Linking…",
   "8b61f3e4b14d099b": "Use this link",
@@ -3738,23 +3736,23 @@
     ": Settings → Sharing & access → Authorized clients → Create link, then paste its code here."
   ],
   "af1bedb2d6a982f2": "Link back to this environment",
-  "0610b662a0c3bde7": [
+  "53965b4b62dc768b": [
     {
       "i": 1,
       "k": "target",
       "v": "v"
     },
-    "'s agents get the same access here, using a code minted for it. Turn this off to link one way."
+    "'s agents get full access here, using a code minted for it. Turn this off to link one way."
   ],
   "a28790f24d566c00": "This environment runs a version that links one way only. Update it to link back automatically.",
-  "c205277bd4ab61d2": [
+  "01e11e81b6a6e923": [
     "This environment is already linked to ",
     {
       "i": 1,
       "k": "_gt_value_1",
       "v": "v"
     },
-    ". The agent can use that link as it is; change its access in Settings → Environments."
+    ". The agent can use that link as it is."
   ],
   "000b0df227182d39": "Another address…",
   "fd07b24350a7643f": "a linked environment",
@@ -9100,8 +9098,6 @@
     },
     ". An alpha that may change or break. iglo.code never installs Simlock."
   ],
-  "3836976622328d61": "What agents here may do there",
-  "b20c269e7ad96f42": "An agent never gets more access there than its own mode here. Below full access, it can change only threads this link started, not that machine's own threads, projects or settings.",
   "4474db19bf5700c9": "Another address…",
   "791d30fae1b05310": "Choose a machine",
   "9cab5bd6475291cf": "Check this address",
@@ -9126,7 +9122,7 @@
   "35d59319f62bd505": "{count, plural, one {# machine stays one-way.} other {# machines stay one-way.}}",
   "d2fbaffe08b6cf60": "{count, plural, one {Link # machine} other {Link # machines}}",
   "8e3378b526d615f4": "Link several…",
-  "b550d04490078bda": "Agents here can then launch, message and wait on threads on each machine you pick. Each appears under Authorized clients in that machine's Sharing & access, where it can be revoked.",
+  "d16d7cd5c0a5fb5a": "Agents here can then launch, message and wait on threads on each machine you pick, with full access. Each appears under Authorized clients in that machine's Sharing & access, where it can be revoked.",
   "e1c2c3bd84d7bcd7": "This app is not connected to any of the machines you picked.",
   "c2553b323479499a": "This app knows no other machines. Add them under Environments first.",
   "18b1d4d42b945b34": "Machines",
@@ -9150,8 +9146,8 @@
   "7500de8d4f99be52": "Revoke \"iglo.code · …\" in {label}''s Sharing & access to end the session there too.",
   "81c9796bf61b306a": "Could not forget the link",
   "130e51beb6cf5aad": "Link an environment",
-  "122c3e355699e69d": "Agents here can then launch, message and wait on threads there. It appears under Authorized clients in that environment's Sharing & access, where it can be revoked.",
-  "dc9a0b68d101e904": "Already linked. Linking again renews it with the access you pick.",
+  "25bb225c9320ccf9": "Agents here can then launch, message and wait on threads there, with full access. It appears under Authorized clients in that environment's Sharing & access, where it can be revoked.",
+  "1b2c76b5140eab75": "Already linked. Linking again renews it.",
   "2fbcbe2d8c56a245": "Prefer",
   "479a7eeae96511fc": "Normal",
   "fd16014a2f23dea9": "Less often",

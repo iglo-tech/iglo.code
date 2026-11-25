@@ -114,8 +114,6 @@
   "4cded869dea19ab2": "Wartet auf eine Antwort im ursprünglichen Thread",
   "2b94dca2d528688f": "Rechner verknüpft",
   "929e93b30d895f49": "{target} verknüpft",
-  "5ac4edf5195056fb": "Rechner verknüpft · {access}",
-  "36db2352fc10a1f3": "{target} verknüpft · {access}",
   "8cc00444f7443feb": "Abgelehnt",
   "289ec1df10840137": "Verknüpfen fehlgeschlagen: Die andere Umgebung hat abgelehnt",
   "21be308917bd450e": "Verknüpfen fehlgeschlagen: {failure}",
@@ -3708,7 +3706,7 @@
   "ea745611e41bb8b5": "{targetName} verknüpfen",
   "022755e40ab2938b": "Agenten hier können dann dort Threads starten, ihnen Nachrichten senden und auf sie warten. Widerrufe das unter Freigabe & Zugriff auf diesem Rechner.",
   "54994ff111229ca5": "Rechner",
-  "4bad519bd9c46c7a": "Zugriff",
+  "b49658122c4ca22d": "Verknüpfen",
   "57a631f659db8c6b": "Code einfügen",
   "5ffc8460ffc939db": "Wird verknüpft…",
   "8b61f3e4b14d099b": "Diesen Link verwenden",
@@ -3739,23 +3737,23 @@
     ": Einstellungen → Freigabe & Zugriff → Autorisierte Clients → Link erstellen, und füge den Code dann hier ein."
   ],
   "af1bedb2d6a982f2": "Link back to this environment",
-  "0610b662a0c3bde7": [
+  "53965b4b62dc768b": [
     {
       "i": 1,
       "k": "target",
       "v": "v"
     },
-    "'s agents get the same access here, using a code minted for it. Turn this off to link one way."
+    "s Agenten erhalten hier vollen Zugriff, mit einem dafür erzeugten Code. Schalte das aus, um nur in eine Richtung zu verknüpfen."
   ],
   "a28790f24d566c00": "This environment runs a version that links one way only. Update it to link back automatically.",
-  "c205277bd4ab61d2": [
+  "01e11e81b6a6e923": [
     "Diese Umgebung ist bereits mit ",
     {
       "i": 1,
       "k": "_gt_value_1",
       "v": "v"
     },
-    " verknüpft. Der Agent kann diese Verknüpfung so verwenden; ändere den Zugriff unter Einstellungen → Umgebungen."
+    " verknüpft. Der Agent kann diese Verknüpfung so verwenden."
   ],
   "000b0df227182d39": "Andere Adresse…",
   "fd07b24350a7643f": "einer verknüpften Umgebung",
@@ -9092,8 +9090,6 @@
     },
     ". Eine Alpha-Version, die sich ändern oder kaputtgehen kann. iglo.code installiert Simlock nie."
   ],
-  "3836976622328d61": "Was Agenten von hier dort tun dürfen",
-  "b20c269e7ad96f42": "Ein Agent bekommt dort nie mehr Zugriff als sein eigener Modus hier. Unterhalb von Vollzugriff kann er nur Threads ändern, die diese Verknüpfung gestartet hat, nicht die eigenen Threads, Projekte oder Einstellungen dieses Rechners.",
   "4474db19bf5700c9": "Andere Adresse…",
   "791d30fae1b05310": "Rechner auswählen",
   "9cab5bd6475291cf": "Diese Adresse prüfen",
@@ -9118,7 +9114,7 @@
   "35d59319f62bd505": "{count, plural, one {# Rechner bleibt einseitig verknüpft.} other {# Rechner bleiben einseitig verknüpft.}}",
   "d2fbaffe08b6cf60": "{count, plural, one {# Rechner verknüpfen} other {# Rechner verknüpfen}}",
   "8e3378b526d615f4": "Mehrere verknüpfen…",
-  "b550d04490078bda": "Agenten hier können dann auf jedem ausgewählten Rechner Threads starten, ihnen Nachrichten senden und auf sie warten. Jede Verknüpfung erscheint unter „Autorisierte Clients“ in „Freigabe & Zugriff“ des jeweiligen Rechners und kann dort widerrufen werden.",
+  "d16d7cd5c0a5fb5a": "Agenten hier können dann mit vollem Zugriff auf jedem ausgewählten Rechner Threads starten, ihnen Nachrichten senden und auf sie warten. Jede Verknüpfung erscheint unter „Autorisierte Clients“ in „Freigabe & Zugriff“ des jeweiligen Rechners und kann dort widerrufen werden.",
   "e1c2c3bd84d7bcd7": "Diese App ist mit keinem der ausgewählten Rechner verbunden.",
   "c2553b323479499a": "Diese App kennt keine anderen Rechner. Füge sie zuerst unter „Umgebungen“ hinzu.",
   "18b1d4d42b945b34": "Rechner",
@@ -9142,8 +9138,8 @@
   "7500de8d4f99be52": "Widerrufe „iglo.code · …“ unter „Freigabe & Zugriff“ auf {label}, um die Sitzung auch dort zu beenden.",
   "81c9796bf61b306a": "Verknüpfung konnte nicht vergessen werden",
   "130e51beb6cf5aad": "Umgebung verknüpfen",
-  "122c3e355699e69d": "Agenten hier können dort dann Threads starten, ihnen Nachrichten senden und auf sie warten. Sie erscheint unter „Autorisierte Clients“ in „Freigabe & Zugriff“ dieser Umgebung und kann dort widerrufen werden.",
-  "dc9a0b68d101e904": "Bereits verknüpft. Erneutes Verknüpfen verlängert sie mit dem gewählten Zugriff.",
+  "25bb225c9320ccf9": "Agenten hier können dort dann mit vollem Zugriff Threads starten, ihnen Nachrichten senden und auf sie warten. Sie erscheint unter „Autorisierte Clients“ in „Freigabe & Zugriff“ dieser Umgebung und kann dort widerrufen werden.",
+  "1b2c76b5140eab75": "Bereits verknüpft. Erneutes Verknüpfen verlängert sie.",
   "2fbcbe2d8c56a245": "Bevorzugen",
   "479a7eeae96511fc": "Normal",
   "fd16014a2f23dea9": "Seltener",

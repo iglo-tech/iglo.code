@@ -1,5 +1,5 @@
 /**
- * Links an agent asks the user to make. The user picks the machine and access in a card, and
+ * Links an agent asks the user to make. The user picks the machine in a card, and
  * their client answers with its addresses and a pairing code that goes straight to
  * `PeerLinks.link`, never into the transcript or the agent's context. Asking does not wait
  * (provider CLIs abandon a long tool call): the answer reaches the agent as a notification.
@@ -41,7 +41,7 @@ type LinkRequestItem = Extract<OrchestrationV2TurnItem, { readonly type: "link_r
 /** The request as it was asked, which every update of its card repeats. */
 type LinkRequestAsk = Pick<
   LinkRequestItem,
-  "id" | "threadId" | "url" | "reason" | "environmentId" | "hint" | "requestedAccess"
+  "id" | "threadId" | "url" | "reason" | "environmentId" | "hint"
 > & { readonly runId: RunId; readonly nodeId: NodeId };
 
 /** The notification that tells the agent how its card ended. */
@@ -54,7 +54,7 @@ type LinkRequestWake = {
 /** What a card update may change. */
 type LinkRequestOutcome = Pick<
   LinkRequestItem,
-  "linkStatus" | "linkedEnvironmentId" | "linkedLabel" | "linkedAccess" | "failure"
+  "linkStatus" | "linkedEnvironmentId" | "linkedLabel" | "failure"
 >;
 
 /** What an answer did, for the card and for the client that answered. */
@@ -141,7 +141,6 @@ const make = Effect.gen(function* () {
       reason: card.reason,
       ...(card.environmentId === undefined ? {} : { environmentId: card.environmentId }),
       ...(card.hint === undefined ? {} : { hint: card.hint }),
-      ...(card.requestedAccess === undefined ? {} : { requestedAccess: card.requestedAccess }),
       ...outcome,
       ...(wake === undefined ? {} : { wake }),
       ...(answeringTurnItemIds === undefined ? {} : { answeringTurnItemIds }),
@@ -151,7 +150,6 @@ const make = Effect.gen(function* () {
     linkStatus: "linked",
     linkedEnvironmentId: linked.environmentId,
     linkedLabel: linked.label,
-    linkedAccess: linked.access,
   });
 
   // One answer per card at a time: two answers racing on one card must not
@@ -247,7 +245,6 @@ const make = Effect.gen(function* () {
             status: "linked",
             environmentId: linked.value.environmentId,
             label: linked.value.label,
-            access: linked.value.access,
           } as const;
         }
       }
@@ -285,9 +282,6 @@ const make = Effect.gen(function* () {
           reason: input.reason ?? "",
           ...(input.environmentId === undefined ? {} : { environmentId: input.environmentId }),
           ...(input.hint === undefined ? {} : { hint: input.hint }),
-          ...(input.requestedAccess === undefined
-            ? {}
-            : { requestedAccess: input.requestedAccess }),
         },
         { linkStatus: "pending" },
         CommandId.make(
@@ -342,7 +336,6 @@ const make = Effect.gen(function* () {
             url,
             ...(alternateUrls.length === 0 ? {} : { alternateUrls }),
             pairingCode: answer.pairingCode,
-            access: answer.access,
             ...(answer.environmentId === undefined
               ? {}
               : { expectedEnvironmentId: answer.environmentId }),
@@ -464,7 +457,6 @@ const resultOf = (card: LinkRequestItem): OrchestratorMcpEnvironmentLinkResult =
         status: "linked",
         environmentId: card.linkedEnvironmentId!,
         label: card.linkedLabel ?? linkTarget(card),
-        access: card.linkedAccess!,
       };
     case "failed":
       return { status: "failed", message: card.failure ?? "The link could not be made." };
@@ -491,7 +483,7 @@ const outcomeNotice = (
     case "linked": {
       const label = outcome.linkedLabel ?? target;
       return {
-        text: `The user linked ${label} with ${outcome.linkedAccess} access. Pass environmentId ${outcome.linkedEnvironmentId} to act there.`,
+        text: `The user linked ${label}. Pass environmentId ${outcome.linkedEnvironmentId} to act there.`,
         notification: {
           source: { kind: "background_task" },
           outcome: "completed",

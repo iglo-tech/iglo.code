@@ -1,5 +1,4 @@
 import {
-  AuthMcpClientAccess,
   EnvironmentId,
   PeerLinkError,
   peerLinkFailureKind,
@@ -197,7 +196,6 @@ const parseLinkBatch = (text: string) =>
 const linkBatch = Effect.fn("environment.linkBatch")(function* (
   links: PeerLinks.PeerLinks["Service"],
   text: string,
-  access: AuthMcpClientAccess,
 ) {
   const entries = parseLinkBatch(text);
   if (entries.length === 0) {
@@ -214,12 +212,12 @@ const linkBatch = Effect.fn("environment.linkBatch")(function* (
             linked: false,
             text: `line ${entry.line}: failed: expected \`<url> <pairing-code>\``,
           })
-        : links.linkUnlessLinked({ url: entry.url, pairingCode: entry.pairingCode, access }).pipe(
+        : links.linkUnlessLinked({ url: entry.url, pairingCode: entry.pairingCode }).pipe(
             Effect.map(({ link, alreadyLinked }) => ({
               linked: true,
               text: alreadyLinked
                 ? `${linkBatchEntryName(entry)}: already linked as ${link.label} (${link.environmentId}), left as it is`
-                : `${linkBatchEntryName(entry)}: linked ${link.label} (${link.environmentId}) with ${link.access} access`,
+                : `${linkBatchEntryName(entry)}: linked ${link.label} (${link.environmentId})`,
             })),
             Effect.catch((error) =>
               Effect.succeed({
@@ -271,12 +269,6 @@ const environmentLinkCommand = Command.make("link", {
     ),
     Flag.optional,
   ),
-  access: Flag.Literals("access", AuthMcpClientAccess.literals).pipe(
-    Flag.withDescription(
-      "What this environment's agents may do there: read-only, or the broadest runtime mode. The other environment's agents get the same here.",
-    ),
-    Flag.withDefault("approval-required" as const),
-  ),
   oneWay: Flag.Boolean("one-way").pipe(
     Flag.withDescription(
       "Link only this direction, and leave the other environment unlinked here.",
@@ -285,7 +277,7 @@ const environmentLinkCommand = Command.make("link", {
   ),
 }).pipe(
   Command.withDescription(
-    "Link another iglo.code environment, so agents here can work there and its agents can work here. It shows up there under Authorized clients in Settings → Sharing & access, where it can be revoked.",
+    "Link another iglo.code environment with full access, so agents here can work there and its agents can work here. It shows up there under Authorized clients in Settings → Sharing & access, where it can be revoked.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
@@ -300,7 +292,7 @@ const environmentLinkCommand = Command.make("link", {
           });
         }
         const text = yield* readLinkBatch(flags.from.value);
-        return yield* runWithPeerLinks(flags, (links) => linkBatch(links, text, flags.access));
+        return yield* runWithPeerLinks(flags, (links) => linkBatch(links, text));
       }
       if (Option.isNone(flags.url) || Option.isNone(flags.pairingCode)) {
         return yield* new EnvironmentLinkUsageError({
@@ -315,7 +307,6 @@ const environmentLinkCommand = Command.make("link", {
             url,
             alternateUrls: flags.alternateUrl,
             pairingCode,
-            access: flags.access,
             reciprocal: !flags.oneWay,
           });
           // An older server's plain link carries no outcome: it linked one way.
@@ -323,7 +314,7 @@ const environmentLinkCommand = Command.make("link", {
             created.reciprocal ??
             (flags.oneWay ? ({ kind: "off" } as const) : ({ kind: "unsupported" } as const));
           yield* Console.log(
-            `Linked ${created.label} (${created.environmentId}) with ${created.access} access, until ${DateTime.formatIso(created.expiresAt)}.`,
+            `Linked ${created.label} (${created.environmentId}), until ${DateTime.formatIso(created.expiresAt)}.`,
           );
           switch (reciprocal.kind) {
             case "linked":

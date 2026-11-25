@@ -450,6 +450,7 @@ const make = Effect.gen(function* () {
     function* (
       origin: string,
       input: PeerLinkCreateInput,
+      access: AuthMcpClientAccess,
       clientName: string,
       /** This environment's id, so the session it gets there names its owner. */
       environmentId: string,
@@ -496,7 +497,7 @@ const make = Effect.gen(function* () {
               state: Redacted.make(state),
               resource,
             },
-            decision: { _tag: "pairing-code", access: input.access, code: input.pairingCode },
+            decision: { _tag: "pairing-code", access, code: input.pairingCode },
           },
         })
         .pipe(
@@ -641,6 +642,7 @@ const make = Effect.gen(function* () {
   const offerReciprocal = Effect.fn("PeerLinks.offerReciprocal")(function* (args: {
     readonly input: PeerLinkCreateInput;
     readonly peer: ExecutionEnvironmentDescriptor;
+    readonly access: AuthMcpClientAccess;
     readonly primary: string;
     /** The token this environment just signed in with, which the peer knows. */
     readonly token: string;
@@ -666,7 +668,7 @@ const make = Effect.gen(function* () {
     }
     const minted = yield* environmentAuth
       .issuePairingCredential({
-        access: args.input.access,
+        access: args.access,
         purpose: "peer-link",
         label: `Link back to ${self.label}`,
       })
@@ -691,7 +693,7 @@ const make = Effect.gen(function* () {
             label: self.label,
             urls: origins as [string, ...string[]],
             pairingCode: grant.credential,
-            access: args.input.access,
+            access: args.access,
           },
         })
         .pipe(
@@ -728,12 +730,18 @@ const make = Effect.gen(function* () {
     readonly bindSessionId?: AuthSessionId;
     /** Set by linkUnlessLinked: a machine whose link has not expired is left as it is. */
     readonly keepLinked?: boolean;
+    /**
+     * The access the link has. Every link made here is full access; only an accepted offer
+     * takes the access its sender minted the code at, so an older peer's lower offer still links.
+     */
+    readonly access?: AuthMcpClientAccess;
   }
 
   const linkImpl = Effect.fn("PeerLinks.linkImpl")(function* (
     input: PeerLinkCreateInput,
     options: LinkOptions = {},
   ) {
+    const access = options.access ?? "full-access";
     if (!(yield* enabled)) {
       return yield* new PeerLinkError({ reason: "disabled", message: LINKED_ENVIRONMENTS_OFF });
     }
@@ -801,6 +809,7 @@ const make = Effect.gen(function* () {
     const issued = yield* signIn(
       primary,
       input,
+      access,
       `${LINK_CLIENT_NAME_PREFIX}${self.label}`,
       self.environmentId,
     );
@@ -809,7 +818,7 @@ const make = Effect.gen(function* () {
       environmentId: peer.environmentId,
       label: peer.label,
       urls: origins,
-      access: input.access,
+      access,
       linkedAt: now,
       expiresAt: DateTime.add(now, { seconds: issued.expires_in }),
       lastReachedAt: now,
@@ -900,6 +909,7 @@ const make = Effect.gen(function* () {
     const offer = yield* offerReciprocal({
       input,
       peer,
+      access,
       primary,
       token: issued.access_token,
     });
@@ -1170,7 +1180,6 @@ const make = Effect.gen(function* () {
         url,
         ...(alternateUrls.length === 0 ? {} : { alternateUrls }),
         pairingCode: offer.pairingCode,
-        access: offer.access,
         expectedEnvironmentId: offer.environmentId,
         expectedLabel: offer.label,
         // The link being made is the offer's answer; offering back would loop.
@@ -1178,7 +1187,7 @@ const make = Effect.gen(function* () {
       },
       // The row this accept creates is bound to the offering session, and the
       // accept path never moves a link this environment already holds.
-      { fromReciprocalOffer: true, bindSessionId: caller.sessionId },
+      { fromReciprocalOffer: true, bindSessionId: caller.sessionId, access: offer.access },
     ).pipe(
       Effect.map((created) => created.link),
       // Per-address probe results must not echo back to the caller: they would

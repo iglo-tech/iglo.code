@@ -6,14 +6,15 @@ import { EnvironmentId, ThreadId, TrimmedNonEmptyString, TurnItemId } from "./ba
 /**
  * A link from this environment to another one (the peer). This environment
  * signed in to the peer's `/mcp` as an outside agent, with a pairing code from
- * the peer, so its agents can work there. The peer enforces the access chosen
- * at linking, and revokes the link from its own Connections.
+ * the peer, so its agents can work there. The peer enforces the link's access (full access for every link made now; an older
+ * link may be lower), and revokes the link from its own Connections.
  */
 export const PeerLink = Schema.Struct({
   environmentId: EnvironmentId,
   label: Schema.String,
   /** Addresses the peer was linked at, tried in order. */
   urls: Schema.Array(TrimmedNonEmptyString),
+  /** Full access for every link made now; a link from an older version may be lower. */
   access: AuthMcpClientAccess,
   linkedAt: Schema.DateTimeUtc,
   expiresAt: Schema.DateTimeUtc,
@@ -49,9 +50,8 @@ export const PeerLinkCreateInput = Schema.Struct({
   alternateUrls: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
   /** A pairing code from the peer (`iglo.code pair` there, or its Connections settings). */
   pairingCode: TrimmedNonEmptyString,
-  access: AuthMcpClientAccess,
   /**
-   * Also link this environment back to the peer with the same access, when the
+   * Also link this environment back to the peer, at full access too, when the
    * peer accepts reciprocal links. Unset means no reciprocal link: older
    * callers that never chose link one way. First-party clients send it explicitly.
    */
@@ -273,8 +273,6 @@ export type PeerLinkClientPairingInput = typeof PeerLinkClientPairingInput.Type;
  */
 export const PeerLinkLinkPairingInput = Schema.Struct({
   environmentId: EnvironmentId,
-  /** The access the new link will have. */
-  access: AuthMcpClientAccess,
 });
 export type PeerLinkLinkPairingInput = typeof PeerLinkLinkPairingInput.Type;
 
@@ -336,7 +334,7 @@ export type PeerLinkClientPairingCredential = typeof PeerLinkClientPairingCreden
 /**
  * The user's answer to an agent asking to link an environment. The pairing
  * code is used once to link and is never recorded; the thread learns only the
- * outcome and the access the user chose.
+ * outcome.
  */
 export const PeerLinkRequestAnswerInput = Schema.Struct({
   threadId: ThreadId,
@@ -350,7 +348,6 @@ export const PeerLinkRequestAnswerInput = Schema.Struct({
       label: Schema.optionalKey(TrimmedNonEmptyString),
       /** The addresses the client knows for that machine, most preferred first. */
       urls: Schema.NonEmptyArray(TrimmedNonEmptyString),
-      access: AuthMcpClientAccess,
       pairingCode: TrimmedNonEmptyString,
       /** Also link this environment back to that machine. Unset means one way. */
       reciprocal: Schema.optionalKey(Schema.Boolean),

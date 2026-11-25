@@ -25,17 +25,12 @@ const item = {
   threadId: ThreadId.make("thread-1"),
 };
 const asked = { url: "https://box.example.ts.net", label: "Box" };
-const accessLabel = (access: string) => `<${access}>`;
 
 describe("linkRequestDisplay", () => {
-  it("names the environment linked and the access the user chose", () => {
+  it("names the environment linked", () => {
     expect(
-      linkRequestDisplay(
-        { ...asked, linkStatus: "linked", linkedLabel: "Box", linkedAccess: "auto" },
-        "local",
-        accessLabel,
-      ),
-    ).toEqual({ kind: "answered", outcome: "linked", label: "Linked Box · <auto>" });
+      linkRequestDisplay({ ...asked, linkStatus: "linked", linkedLabel: "Box" }, "local"),
+    ).toEqual({ kind: "answered", outcome: "linked", label: "Linked Box" });
   });
 
   it("shows why a link failed, and never offers the actions outside the asking thread", () => {
@@ -43,12 +38,11 @@ describe("linkRequestDisplay", () => {
       linkRequestDisplay(
         { ...asked, linkStatus: "failed", failure: "Pairing code expired." },
         "local",
-        accessLabel,
       ),
     ).toMatchObject({ outcome: "failed", label: "Could not link: Pairing code expired." });
-    expect(
-      linkRequestDisplay({ ...asked, linkStatus: "pending" }, "inherited", accessLabel),
-    ).toMatchObject({ kind: "pending-elsewhere" });
+    expect(linkRequestDisplay({ ...asked, linkStatus: "pending" }, "inherited")).toMatchObject({
+      kind: "pending-elsewhere",
+    });
   });
 });
 
@@ -64,20 +58,18 @@ describe("linkRequestAnswerInput", () => {
       linkRequestAnswerInput(item, {
         type: "link",
         target: vps,
-        access: "auto",
         pairingCode: "  abc  ",
       }),
     ).toEqual({
       threadId: item.threadId,
       turnItemId: item.id,
       // Always sent explicitly: unset on the wire means one way.
-      answer: { type: "link", ...vps, access: "auto", pairingCode: "abc", reciprocal: true },
+      answer: { type: "link", ...vps, pairingCode: "abc", reciprocal: true },
     });
     expect(
       linkRequestAnswerInput(item, {
         type: "link",
         target: { url: " https://box.ts.net " },
-        access: "auto",
         pairingCode: "abc",
         reciprocal: false,
       }),
@@ -87,13 +79,9 @@ describe("linkRequestAnswerInput", () => {
   it("refuses a blank code, a blank address, or a machine with no address", () => {
     const blank = (target: Parameters<typeof linkRequestAnswerInput>[1] & { type: "link" }) =>
       linkRequestAnswerInput(item, target);
-    expect(blank({ type: "link", target: vps, access: "auto", pairingCode: "  " })).toBeNull();
-    expect(
-      blank({ type: "link", target: { url: " " }, access: "auto", pairingCode: "abc" }),
-    ).toBeNull();
-    expect(
-      blank({ type: "link", target: { ...vps, urls: [] }, access: "auto", pairingCode: "abc" }),
-    ).toBeNull();
+    expect(blank({ type: "link", target: vps, pairingCode: "  " })).toBeNull();
+    expect(blank({ type: "link", target: { url: " " }, pairingCode: "abc" })).toBeNull();
+    expect(blank({ type: "link", target: { ...vps, urls: [] }, pairingCode: "abc" })).toBeNull();
   });
 });
 

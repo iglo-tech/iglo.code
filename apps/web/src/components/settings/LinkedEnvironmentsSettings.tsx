@@ -5,12 +5,7 @@ import {
   linkWithMintedCode,
 } from "@t3tools/client-runtime/link-batch";
 import { ANOTHER_ADDRESS, linkRequestFailureMessage } from "@t3tools/client-runtime/link-request";
-import {
-  AuthAccessWriteScope,
-  type AuthMcpClientAccess,
-  type EnvironmentId,
-  type PeerLinkSummary,
-} from "@t3tools/contracts";
+import { AuthAccessWriteScope, type EnvironmentId, type PeerLinkSummary } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -54,7 +49,6 @@ import {
 import { Input } from "../ui/input";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { ITEM_ROW_CLASSNAME, ITEM_ROW_INNER_CLASSNAME } from "./itemRows";
-import { LinkAccessPicker } from "./LinkAccessPicker";
 import { LinkAddressWarning, LinkMachineSelect } from "./LinkMachineSelect";
 import { LinkSeveralEnvironmentsAction } from "./LinkSeveralEnvironments";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
@@ -176,7 +170,9 @@ function LinkedEnvironmentRow({
             <h3 className="text-sm font-medium text-foreground">{link.label}</h3>
           </div>
           <p className="text-xs text-muted-foreground">
-            {m(accessConfig[link.access].label)} · {status}
+            {link.access === "full-access"
+              ? status
+              : `${m(accessConfig[link.access].label)} · ${status}`}
           </p>
           <p className="truncate text-xs text-muted-foreground/80">{link.urls.join(", ")}</p>
         </div>
@@ -279,7 +275,6 @@ export function LinkEnvironmentDialog({
   const [choice, setChoice] = useState<string | null>(prefill?.choice ?? null);
   const [address, setAddress] = useState(prefill?.address ?? "");
   const [pairingCode, setPairingCode] = useState("");
-  const [access, setAccess] = useState<AuthMcpClientAccess>("approval-required");
   const [busy, setBusy] = useState(false);
   // Machines whose minting already failed, so the dialog asks for a code instead.
   const [mintFailed, setMintFailed] = useState<ReadonlySet<EnvironmentId>>(new Set());
@@ -333,9 +328,7 @@ export function LinkEnvironmentDialog({
   const mayPairThrough = useAtomValue(
     peerLinkEnvironment.pairLink.permissionAtom(
       throughCandidate?.viaEnvironmentId ?? null,
-      throughCandidate === null
-        ? undefined
-        : { environmentId: throughCandidate.environmentId, access },
+      throughCandidate === null ? undefined : { environmentId: throughCandidate.environmentId },
     ),
   );
   const through =
@@ -358,7 +351,6 @@ export function LinkEnvironmentDialog({
       setChoice(prefill?.choice ?? null);
       setAddress(prefill?.address ?? "");
       setPairingCode("");
-      setAccess("approval-required");
       setMintFailed(new Set());
       setThroughFailed(new Set());
       setAlsoLinkBack(false);
@@ -368,7 +360,7 @@ export function LinkEnvironmentDialog({
   const resolveThrough = async (target: NonNullable<typeof through>) => {
     const asked = await pairThrough({
       environmentId: target.viaEnvironmentId,
-      input: { environmentId: target.environmentId, access },
+      input: { environmentId: target.environmentId },
     });
     if (asked._tag === "Success" && asked.value.type === "credential") {
       const [url, ...alternateUrls] = asked.value.urls;
@@ -396,7 +388,7 @@ export function LinkEnvironmentDialog({
   // Settles to the code to link with, or null after reporting why there is none.
   const resolvePairingCode = async () => {
     if (!canMint || targetId === null) return pairingCode.trim();
-    const minted = await mintPairingCodeOn(targetId, access);
+    const minted = await mintPairingCodeOn(targetId);
     if (Result.isSuccess(minted)) return minted.success;
     setMintFailed((failed) => new Set(failed).add(targetId));
     failureToast(
@@ -417,7 +409,7 @@ export function LinkEnvironmentDialog({
       through !== null
         ? throughInput === null
           ? null
-          : await link({ environmentId, input: { ...throughInput, access } })
+          : await link({ environmentId, input: throughInput })
         : code === null
           ? null
           : await link({
@@ -430,7 +422,6 @@ export function LinkEnvironmentDialog({
                   ? {}
                   : { expectedEnvironmentId: machine.environmentId, expectedLabel: machine.label }),
                 pairingCode: code,
-                access,
               },
             });
     // The link back is its own link, made on the other machine: it never undoes this one.
@@ -444,7 +435,6 @@ export function LinkEnvironmentDialog({
       result.value.environmentId === targetId
         ? await linkWithMintedCode({
             machine: linkBack.source,
-            access,
             mint: mintPairingCodeOn,
             link: async (input) => {
               const reverse = await linkOnTarget({ environmentId: targetId, input });
@@ -501,8 +491,9 @@ export function LinkEnvironmentDialog({
           </DialogTitle>
           <DialogDescription>
             <T>
-              Agents here can then launch, message and wait on threads there. It appears under
-              Authorized clients in that environment's Sharing & access, where it can be revoked.
+              Agents here can then launch, message and wait on threads there, with full access. It
+              appears under Authorized clients in that environment's Sharing & access, where it can
+              be revoked.
             </T>
           </DialogDescription>
         </DialogHeader>
@@ -530,7 +521,7 @@ export function LinkEnvironmentDialog({
             ) : null}
             {machine?.linked ? (
               <p className="text-xs text-muted-foreground">
-                <T>Already linked. Linking again renews it with the access you pick.</T>
+                <T>Already linked. Linking again renews it.</T>
               </p>
             ) : null}
             {through !== null ? (
@@ -600,7 +591,6 @@ export function LinkEnvironmentDialog({
                 ) : null}
               </label>
             )}
-            <LinkAccessPicker value={access} onChange={setAccess} disabled={busy} />
             {machine === null || source === null ? null : backOffer.kind === "offered" ? (
               <label className="flex cursor-pointer items-start gap-2.5 text-sm has-data-disabled:cursor-default">
                 <Checkbox

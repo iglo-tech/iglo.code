@@ -85,7 +85,6 @@ describe("runLinkBatch", () => {
     const seen: Array<string> = [];
     const outcomes = await runLinkBatch({
       machines,
-      access: "auto",
       mint: async (environmentId) =>
         environmentId === id("e")
           ? Result.fail(new Error("no session"))
@@ -105,7 +104,6 @@ describe("runLinkBatch", () => {
       expectedEnvironmentId: id("a"),
       expectedLabel: "a",
       pairingCode: `code-for-${id("a")}`,
-      access: "auto",
     });
     // A machine with no code is never linked.
     expect(linked.length).toBe(4);
@@ -134,7 +132,6 @@ describe("runLinkBatch", () => {
   it("never shows a failure that may carry the request and its pairing code", async () => {
     const outcomes = await runLinkBatch({
       machines: [machine("a")],
-      access: "auto",
       mint: async () => Result.succeed("secret-code"),
       link: async (input) => Result.fail(new Error(`request failed: ${JSON.stringify(input)}`)),
       refreshLinks: () => {},
@@ -147,7 +144,6 @@ describe("runLinkBatch", () => {
     let most = 0;
     await runLinkBatch({
       machines: Array.from({ length: 10 }, (_, index) => machine(`vm-${index}`)),
-      access: "auto",
       mint: async () => {
         open += 1;
         most = Math.max(most, open);
@@ -168,7 +164,6 @@ describe("runLinkBatch", () => {
     const run = (names: ReadonlyArray<string>, fails: boolean) =>
       runLinkBatch({
         machines: names.map((name) => machine(name)),
-        access: "auto",
         mint: async () => Result.succeed("code"),
         link: async () => {
           await Promise.resolve();
@@ -256,7 +251,6 @@ describe("runLinkBatch link back", () => {
     const minted: Array<string> = [];
     const outcomes = await runLinkBatch({
       machines: [machine("a"), machine("b"), machine("c"), machine("d")],
-      access: "full-access",
       mint: async (environmentId) => {
         minted.push(environmentId);
         return Result.succeed(`code-for-${environmentId}`);
@@ -297,7 +291,6 @@ describe("runLinkBatch link back", () => {
         expectedEnvironmentId: id("source"),
         expectedLabel: "source",
         pairingCode: `code-for-${id("source")}`,
-        access: "full-access",
       },
     ]);
     expect(minted.filter((environmentId) => environmentId === id("source")).length).toBe(2);

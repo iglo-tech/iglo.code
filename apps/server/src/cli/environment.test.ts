@@ -51,7 +51,7 @@ it.effect("links a file of environments, reports each line, and fails when one d
       const three = yield* serveMachine(descriptorOf("environment-vm-3", "VM 3"));
       const codeFor = (machine: typeof one) =>
         machine.auth
-          .issuePairingCredential({ access: "auto", purpose: "peer-link" })
+          .issuePairingCredential({ access: "full-access", purpose: "peer-link" })
           .pipe(Effect.map((pairing) => pairing.credential));
       const firstCode = yield* codeFor(one);
       const thirdCode = yield* codeFor(three);
@@ -62,7 +62,7 @@ it.effect("links a file of environments, reports each line, and fails when one d
         `# fleet\n${one.url} ${firstCode}\n\n${two.url} not-a-code\n${three.url} ${thirdCode}\n`,
       );
       const link = (from: string) =>
-        runCli(["environment", "link", "--from", from, "--access", "auto", "--base-dir", baseDir]);
+        runCli(["environment", "link", "--from", from, "--base-dir", baseDir]);
 
       const conflict = yield* runCli([
         "environment",
@@ -71,8 +71,6 @@ it.effect("links a file of environments, reports each line, and fails when one d
         file,
         "--url",
         "http://ignored.invalid",
-        "--access",
-        "auto",
         "--base-dir",
         baseDir,
       ]).pipe(Effect.flip);
@@ -84,9 +82,9 @@ it.effect("links a file of environments, reports each line, and fails when one d
       const failed = yield* link(file).pipe(Effect.flip);
       expect(failed).toMatchObject({ _tag: "EnvironmentLinkBatchError", failed: 1, total: 3 });
       const report = (yield* reports).at(-1) ?? "";
-      expect(report).toContain(`${one.url}: linked VM 1 (environment-vm-1) with auto access`);
+      expect(report).toContain(`${one.url}: linked VM 1 (environment-vm-1)`);
       expect(report).toContain(`${two.url}: code refused: `);
-      expect(report).toContain(`${three.url}: linked VM 3 (environment-vm-3) with auto access`);
+      expect(report).toContain(`${three.url}: linked VM 3 (environment-vm-3)`);
       expect(report).toContain("2 of 3 linked.");
       // A pairing code is never printed, whether it worked or not.
       expect(report).not.toContain(firstCode);
@@ -107,7 +105,7 @@ it.effect("links a file of environments, reports each line, and fails when one d
       expect(retried).toContain(
         `${one.url}: already linked as VM 1 (environment-vm-1), left as it is`,
       );
-      expect(retried).toContain(`${two.url}: linked VM 2 (environment-vm-2) with auto access`);
+      expect(retried).toContain(`${two.url}: linked VM 2 (environment-vm-2)`);
       expect(retried).toContain(
         `${three.url}: already linked as VM 3 (environment-vm-3), left as it is`,
       );

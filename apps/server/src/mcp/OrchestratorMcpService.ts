@@ -1220,7 +1220,7 @@ function turnItemText(item: OrchestrationV2TurnItem): string | null {
       return `Asked the user to approve a ${item.preview.kind} report about ${item.preview.subject} for the T3 team: ${item.feedbackStatus}.`;
     case "link_request":
       return item.linkStatus === "linked"
-        ? `Linked ${item.linkedLabel ?? item.url ?? "an environment"} (${item.linkedAccess}).`
+        ? `Linked ${item.linkedLabel ?? item.url ?? "an environment"}.`
         : `Asked the user to link ${item.url ?? "an environment"}: ${item.linkStatus}.`;
     case "subagent":
       return item.result ?? item.progress ?? item.prompt;

@@ -114,8 +114,6 @@
   "4cded869dea19ab2": "En attente d’une réponse dans le fil d’origine",
   "2b94dca2d528688f": "Machine associée",
   "929e93b30d895f49": "{target} associé",
-  "5ac4edf5195056fb": "Machine associée · {access}",
-  "36db2352fc10a1f3": "{target} associé · {access}",
   "8cc00444f7443feb": "Refusé",
   "289ec1df10840137": "Association impossible : l’autre environnement a refusé",
   "21be308917bd450e": "Association impossible : {failure}",
@@ -3707,7 +3705,7 @@
   "ea745611e41bb8b5": "Associer {targetName}",
   "022755e40ab2938b": "Les agents d’ici pourront alors lancer des fils là-bas, leur envoyer des messages et les attendre. Révoquez l’accès dans Partage et accès sur cette machine.",
   "54994ff111229ca5": "Machine",
-  "4bad519bd9c46c7a": "Accès",
+  "b49658122c4ca22d": "Associer",
   "57a631f659db8c6b": "Collez le code",
   "5ffc8460ffc939db": "Association…",
   "8b61f3e4b14d099b": "Utiliser ce lien",
@@ -3738,23 +3736,23 @@
     " : Paramètres → Partage et accès → Clients autorisés → Créer un lien, puis collez son code ici."
   ],
   "af1bedb2d6a982f2": "Link back to this environment",
-  "0610b662a0c3bde7": [
+  "53965b4b62dc768b": [
     {
       "i": 1,
       "k": "target",
       "v": "v"
     },
-    "'s agents get the same access here, using a code minted for it. Turn this off to link one way."
+    " auront ici un accès complet, avec un code généré pour cela. Désactivez cette option pour n’associer que dans un sens."
   ],
   "a28790f24d566c00": "This environment runs a version that links one way only. Update it to link back automatically.",
-  "c205277bd4ab61d2": [
+  "01e11e81b6a6e923": [
     "Cet environnement est déjà associé à ",
     {
       "i": 1,
       "k": "_gt_value_1",
       "v": "v"
     },
-    ". L’agent peut utiliser cette association telle quelle ; modifiez son accès dans Paramètres → Environnements."
+    ". L’agent peut utiliser cette association telle quelle."
   ],
   "000b0df227182d39": "Autre adresse…",
   "fd07b24350a7643f": "un environnement associé",
@@ -9092,8 +9090,6 @@
     },
     ". Une version alpha susceptible de changer ou de casser. iglo.code n’installe jamais Simlock."
   ],
-  "3836976622328d61": "Ce que les agents d’ici peuvent faire là-bas",
-  "b20c269e7ad96f42": "Un agent n’a jamais plus d’accès là-bas que son propre mode ici. Sans accès complet, il ne peut modifier que les fils lancés par cette association, pas les fils, projets ou paramètres propres à cette machine.",
   "4474db19bf5700c9": "Autre adresse…",
   "791d30fae1b05310": "Choisir une machine",
   "9cab5bd6475291cf": "Vérifier cette adresse",
@@ -9118,7 +9114,7 @@
   "35d59319f62bd505": "{count, plural, one {# machine reste associée dans un seul sens.} other {# machines restent associées dans un seul sens.}}",
   "d2fbaffe08b6cf60": "{count, plural, one {Associer # machine} other {Associer # machines}}",
   "8e3378b526d615f4": "Associer plusieurs…",
-  "b550d04490078bda": "Les agents d’ici pourront alors lancer des fils sur chaque machine choisie, leur envoyer des messages et les attendre. Chaque association apparaît sous Clients autorisés dans Partage et accès de la machine concernée, où elle peut être révoquée.",
+  "d16d7cd5c0a5fb5a": "Les agents d’ici pourront alors lancer des fils sur chaque machine choisie avec un accès complet, leur envoyer des messages et les attendre. Chaque association apparaît sous Clients autorisés dans Partage et accès de la machine concernée, où elle peut être révoquée.",
   "e1c2c3bd84d7bcd7": "Cette app n’est connectée à aucune des machines choisies.",
   "c2553b323479499a": "Cette app ne connaît aucune autre machine. Ajoutez-les d’abord dans Environnements.",
   "18b1d4d42b945b34": "Machines",
@@ -9142,8 +9138,8 @@
   "7500de8d4f99be52": "Révoquez « iglo.code · … » dans Partage et accès sur {label} pour y fermer aussi la session.",
   "81c9796bf61b306a": "Impossible d’oublier l’association",
   "130e51beb6cf5aad": "Associer un environnement",
-  "122c3e355699e69d": "Les agents d’ici pourront alors lancer des fils là-bas, leur envoyer des messages et les attendre. L’association apparaît sous Clients autorisés dans Partage et accès de cet environnement, où elle peut être révoquée.",
-  "dc9a0b68d101e904": "Déjà associé. Associer à nouveau renouvelle l’association avec l’accès que vous choisissez.",
+  "25bb225c9320ccf9": "Les agents d’ici pourront alors lancer des fils là-bas avec un accès complet, leur envoyer des messages et les attendre. L’association apparaît sous Clients autorisés dans Partage et accès de cet environnement, où elle peut être révoquée.",
+  "1b2c76b5140eab75": "Déjà associé. Associer à nouveau renouvelle l’association.",
   "2fbcbe2d8c56a245": "Privilégier",
   "479a7eeae96511fc": "Normal",
   "fd16014a2f23dea9": "Moins souvent",

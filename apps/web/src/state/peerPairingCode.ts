@@ -18,17 +18,16 @@ const mintMcpApprovalCode = createMcpApprovalCodeCommand(connectionAtomRuntime);
 
 /**
  * A fresh pairing code minted on `environmentId` with this client's session
- * there, for linking with `access`. Fails with `PeerPairingCodeError` when the
+ * there, for linking at full access. Fails with `PeerPairingCodeError` when the
  * session may not create one.
  */
 export async function mintPairingCodeOn(
   environmentId: EnvironmentId,
-  access: AuthMcpClientAccess,
 ): Promise<Result.Result<string, unknown>> {
   const result = await runAtomCommand(
     appAtomRegistry,
     mintPairingCode,
-    { environmentId, input: access },
+    { environmentId, input: undefined },
     { reportFailure: false },
   );
   return result._tag === "Success"

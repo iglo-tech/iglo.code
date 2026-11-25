@@ -919,9 +919,6 @@ export const OrchestratorMcpEnvironmentLinkInput = Schema.Struct({
   reason: Schema.optional(TrimmedNonEmptyString).annotate({
     description: "One sentence for the card.",
   }),
-  requestedAccess: Schema.optional(AuthMcpClientAccess).annotate({
-    description: "Suggested access. The user picks; default approval-required.",
-  }),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
 });
 export type OrchestratorMcpEnvironmentLinkInput = typeof OrchestratorMcpEnvironmentLinkInput.Type;
@@ -940,7 +937,6 @@ export const OrchestratorMcpEnvironmentLinkResult = Schema.Union([
       description: "Pass it as environmentId to act there; t3_environment_links lists it.",
     }),
     label: Schema.String,
-    access: AuthMcpClientAccess.annotate({ description: "The access the user chose." }),
   }),
   Schema.Struct({
     status: Schema.Literals(["declined", "cancelled"]).annotate({

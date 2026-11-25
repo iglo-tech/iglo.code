@@ -7,7 +7,6 @@ import {
   MessageId,
   NodeId,
   OrchestratorMcpFailure,
-  type PeerLinkCreateInput,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -475,7 +474,6 @@ it.live("the agent asks without waiting, and the user links the box after its tu
       const asked = yield* a.call({
         url: b.url,
         reason: "Run the suite on the box.",
-        requestedAccess: "approval-required",
         clientRequestId: "link-box",
       });
       const card = yield* pendingCard(a);
@@ -485,7 +483,6 @@ it.live("the agent asks without waiting, and the user links the box after its tu
       expect(card).toMatchObject({
         url: b.url,
         reason: "Run the suite on the box.",
-        requestedAccess: "approval-required",
       });
       // Anything can answer at an address as the box, so the card names no machine.
       expect(card.environmentId).toBeUndefined();
@@ -584,19 +581,18 @@ it.live("the agent asks without waiting, and the user links the box after its tu
       yield* a.requests.answer({
         threadId,
         turnItemId: card.id,
-        answer: { type: "link", urls: [b.url], access: "auto", pairingCode: pairing.credential },
+        answer: { type: "link", urls: [b.url], pairingCode: pairing.credential },
       });
 
       expect((yield* a.projections.getThread(threadId)).snoozedUntil).toBeNull();
 
       const link = yield* a.links.get(box.environmentId);
-      expect(Option.getOrUndefined(link)?.access).toBe("auto");
+      expect(Option.getOrUndefined(link)?.access).toBe("full-access");
       expect(yield* cardOf(a)).toMatchObject({
         status: "completed",
         linkStatus: "linked",
         linkedEnvironmentId: box.environmentId,
         linkedLabel: "Box",
-        linkedAccess: "auto",
       });
       expect((yield* b.linkedSessions).length).toBe(1);
 
@@ -610,7 +606,6 @@ it.live("the agent asks without waiting, and the user links the box after its tu
         notification: { outcome: "completed", summary: "Linked Box" },
       });
       expect(messages[0]!.text).toContain(box.environmentId);
-      expect(messages[0]!.text).toContain("auto");
       expect(items).toHaveLength(1);
       expect(items[0]).toMatchObject({ type: "notification", summary: "Linked Box" });
 
@@ -630,7 +625,6 @@ it.live("the agent asks without waiting, and the user links the box after its tu
         status: "linked",
         environmentId: box.environmentId,
         label: "Box",
-        access: "auto",
       });
       expect((yield* a.orchestrator.getThreadProjection(threadId)).turnItems).toHaveLength(before);
       expect((yield* outcomeMessages(a)).messages).toHaveLength(1);
@@ -711,7 +705,7 @@ it.live("stopping the thread closes its open card, which then takes no answer", 
         .answer({
           threadId,
           turnItemId: card.id,
-          answer: { type: "link", urls: [b.url], access: "auto", pairingCode: "late-code" },
+          answer: { type: "link", urls: [b.url], pairingCode: "late-code" },
         })
         .pipe(Effect.flip);
       expect(late.reason).toBe("already_answered");
@@ -791,7 +785,7 @@ it.live("a steer that restarts the turn leaves its open card answerable", () =>
       yield* a.requests.answer({
         threadId,
         turnItemId: card.id,
-        answer: { type: "link", urls: [b.url], access: "auto", pairingCode: pairing.credential },
+        answer: { type: "link", urls: [b.url], pairingCode: pairing.credential },
       });
       // The card keeps the node it was asked from, and the agent hears the answer.
       expect(yield* cardOf(a)).toMatchObject({
@@ -845,7 +839,7 @@ it.live("a slow machine holds up only its own card's answer", () =>
           .answer({
             threadId,
             turnItemId: slowCard.id,
-            answer: { type: "link", urls: [slowUrl], access: "auto", pairingCode: "code" },
+            answer: { type: "link", urls: [slowUrl], pairingCode: "code" },
           })
           .pipe(Effect.forkChild);
         yield* Deferred.await(reached);
@@ -918,7 +912,6 @@ it.live("a code the box refuses fails the request with its reason, and links not
         answer: {
           type: "link",
           urls: [b.url],
-          access: "auto",
           pairingCode: "not-a-real-code",
         },
       });
@@ -963,7 +956,6 @@ it.live("a card an older server left naming a machine beside its address links n
           environmentId: box.environmentId,
           label: "Box",
           urls: [b.url],
-          access: "auto",
           pairingCode: pairing.credential,
         },
       });
@@ -1020,13 +1012,12 @@ it.live(
             environmentId: box.environmentId,
             label: "Box",
             urls: ["http://127.0.0.1:9", b.url],
-            access: "auto",
             pairingCode: pairing.credential,
           },
         });
         expect(Option.getOrUndefined(yield* a.links.get(box.environmentId))).toMatchObject({
           urls: [b.url],
-          access: "auto",
+          access: "full-access",
         });
         expect(yield* cardOf(a)).toMatchObject({
           linkStatus: "linked",
@@ -1042,13 +1033,12 @@ it.live("naming a machine that is already linked returns the link at once, with 
     Effect.gen(function* () {
       yield* seedThread(a);
       const pairing = yield* b.auth.issuePairingCredential();
-      yield* a.links.link({ url: b.url, pairingCode: pairing.credential, access: "auto" });
+      yield* a.links.link({ url: b.url, pairingCode: pairing.credential });
       const asked = yield* a.call({ environmentId: box.environmentId });
       expect(asked.structuredContent).toEqual({
         status: "linked",
         environmentId: box.environmentId,
         label: "Box",
-        access: "auto",
       });
       expect(yield* cardOf(a)).toBeUndefined();
 
@@ -1067,7 +1057,7 @@ it.live("a retry naming a machine linked meanwhile closes the card it left as li
       yield* pendingCard(a);
       // Linked from Settings meanwhile, not through the card.
       const pairing = yield* b.auth.issuePairingCredential();
-      yield* a.links.link({ url: b.url, pairingCode: pairing.credential, access: "auto" });
+      yield* a.links.link({ url: b.url, pairingCode: pairing.credential });
 
       const retried = yield* a.call({
         environmentId: box.environmentId,
@@ -1077,7 +1067,6 @@ it.live("a retry naming a machine linked meanwhile closes the card it left as li
         status: "linked",
         environmentId: box.environmentId,
         label: "Box",
-        access: "auto",
       });
       expect(yield* cardOf(a)).toMatchObject({
         linkStatus: "linked",
@@ -1135,7 +1124,7 @@ it.live(
         expect(card.environmentId).toBe(box.environmentId);
         // Linked from Settings meanwhile; the card answers with that link.
         const pairing = yield* b.auth.issuePairingCredential();
-        yield* a.links.link({ url: b.url, pairingCode: pairing.credential, access: "read-only" });
+        yield* a.links.link({ url: b.url, pairingCode: pairing.credential });
         yield* a.requests.answer({
           threadId,
           turnItemId: card.id,
@@ -1143,7 +1132,6 @@ it.live(
         });
         expect(yield* cardOf(a)).toMatchObject({
           linkStatus: "linked",
-          linkedAccess: "read-only",
         });
         expect((yield* b.linkedSessions).length).toBe(1);
       }),
@@ -1175,7 +1163,6 @@ const linkBox = (a: Laptop, b: ServedPeer, cardId: TurnItemId) =>
       answer: {
         type: "link",
         urls: [b.url],
-        access: "full-access",
         pairingCode: pairing.credential,
       },
     });
@@ -1189,7 +1176,6 @@ const recordCard = (
     readonly url?: string;
     readonly environmentId?: typeof box.environmentId;
     readonly hint?: string;
-    readonly requestedAccess?: "read-only" | "full-access";
   },
 ) =>
   Effect.gen(function* () {
@@ -1216,23 +1202,19 @@ it.live("a link ends older cards that asked for the same machine by hint, id or 
       const older = yield* ask(a, {
         reason: "Delegate to the box.",
         hint: "Box",
-        requestedAccess: "full-access",
         clientRequestId: "by-hint",
       });
       const byId = yield* ask(a, {
         environmentId: box.environmentId,
-        requestedAccess: "full-access",
         clientRequestId: "by-id",
       });
       const byAddress = yield* recordCard(a, "by-address", {
         url: b.url,
-        requestedAccess: "full-access",
       });
       const newer = yield* ask(a, {
         url: b.url,
         reason: "Delegate to the box.",
         hint: "Box",
-        requestedAccess: "full-access",
         clientRequestId: "by-url",
       });
       const credential = yield* linkBox(a, b, newer.id);
@@ -1249,7 +1231,6 @@ it.live("a link ends older cards that asked for the same machine by hint, id or 
         linkStatus: "cancelled",
         hint: "Box",
         reason: "Delegate to the box.",
-        requestedAccess: "full-access",
       });
       for (const id of [byId.id, byAddress]) {
         expect(cards.find((card) => card.id === id)).toMatchObject({ linkStatus: "cancelled" });
@@ -1274,26 +1255,22 @@ it.live("a link leaves open the cards that asked for something else, or asked la
       const other = descriptorOf("environment-other", "Other");
       const left = [
         // Another machine, and a word that names neither.
-        yield* recordCard(a, "other-hint", { hint: "vps", requestedAccess: "full-access" }),
-        yield* recordCard(a, "no-hint", { requestedAccess: "full-access" }),
-        // The same word, but for less access than the link was asked with.
-        yield* recordCard(a, "less-access", { hint: "Box", requestedAccess: "read-only" }),
+        yield* recordCard(a, "other-hint", { hint: "vps" }),
+        yield* recordCard(a, "no-hint", {}),
         // The same word, on a card that named another machine.
         yield* recordCard(a, "other-id", {
           environmentId: other.environmentId,
           hint: "Box",
-          requestedAccess: "full-access",
         }),
         yield* recordCard(a, "other-address", {
           url: "http://127.0.0.1:9",
           hint: "Box",
-          requestedAccess: "full-access",
         }),
         // A word the label only contains.
-        yield* recordCard(a, "partial-hint", { hint: "Bo", requestedAccess: "full-access" }),
+        yield* recordCard(a, "partial-hint", { hint: "Bo" }),
       ];
-      const linked = yield* ask(a, { url: b.url, hint: "Box", requestedAccess: "full-access" });
-      const later = yield* recordCard(a, "later", { hint: "Box", requestedAccess: "full-access" });
+      const linked = yield* ask(a, { url: b.url, hint: "Box" });
+      const later = yield* recordCard(a, "later", { hint: "Box" });
       yield* linkBox(a, b, linked.id);
 
       const cards = yield* linkCards(a);
@@ -1312,16 +1289,15 @@ it.live("a later card's failed link leaves the older card open", () =>
   withBoth((a, b) =>
     Effect.gen(function* () {
       yield* seedThread(a);
-      const older = yield* ask(a, { hint: "Box", requestedAccess: "full-access" });
+      const older = yield* ask(a, { hint: "Box" });
       const byAddress = yield* recordCard(a, "by-address", {
         url: b.url,
-        requestedAccess: "full-access",
       });
-      const newer = yield* ask(a, { url: b.url, hint: "Box", requestedAccess: "full-access" });
+      const newer = yield* ask(a, { url: b.url, hint: "Box" });
       yield* a.requests.answer({
         threadId,
         turnItemId: newer.id,
-        answer: { type: "link", urls: [b.url], access: "full-access", pairingCode: "not-a-code" },
+        answer: { type: "link", urls: [b.url], pairingCode: "not-a-code" },
       });
 
       const cards = yield* linkCards(a);
@@ -1346,7 +1322,7 @@ it.live("a later card's failed link leaves the older card open", () =>
 );
 
 const withHeldLinks = <A, E, R>(
-  hold: (access: PeerLinkCreateInput["access"]) => Effect.Effect<void> | undefined,
+  hold: (pairingCode: string) => Effect.Effect<void> | undefined,
   body: (a: Laptop, b: ServedPeer) => Effect.Effect<A, E, R>,
 ) =>
   Effect.scoped(
@@ -1355,7 +1331,7 @@ const withHeldLinks = <A, E, R>(
       const a = yield* makeLaptopWith((links) => ({
         ...links,
         link: (input) =>
-          (hold(input.access) ?? Effect.void).pipe(Effect.andThen(links.link(input))),
+          (hold(input.pairingCode) ?? Effect.void).pipe(Effect.andThen(links.link(input))),
       }));
       return yield* body(a, b);
     }),
@@ -1365,29 +1341,29 @@ it.live("an older card answered while a newer one links the same machine keeps i
   Effect.gen(function* () {
     const reached = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
-    const fullAccessHeld = Deferred.succeed(reached, undefined).pipe(
+    const held: { code?: string } = {};
+    const olderHeld = Deferred.succeed(reached, undefined).pipe(
       Effect.andThen(Deferred.await(release)),
     );
     yield* withHeldLinks(
-      (access) => (access === "full-access" ? fullAccessHeld : undefined),
+      (code) => (code === held.code ? olderHeld : undefined),
       (a, b) =>
         Effect.gen(function* () {
           yield* seedThread(a);
-          // Both cards suggest the same machine and access.
+          // Both cards ask for the same machine.
           const older = yield* ask(a, {
             url: b.url,
-            requestedAccess: "full-access",
             clientRequestId: "older",
           });
           const newer = yield* ask(a, {
             url: b.url,
-            requestedAccess: "full-access",
             clientRequestId: "newer",
           });
           const olderCode = yield* b.auth.issuePairingCredential();
           const newerCode = yield* b.auth.issuePairingCredential();
+          held.code = olderCode.credential;
 
-          // The user grants full access on the older card, which stalls while linking.
+          // The older card is answered first, and stalls while linking.
           const olderAnswer = yield* a.requests
             .answer({
               threadId,
@@ -1395,21 +1371,19 @@ it.live("an older card answered while a newer one links the same machine keeps i
               answer: {
                 type: "link",
                 urls: [b.url],
-                access: "full-access",
                 pairingCode: olderCode.credential,
               },
             })
             .pipe(Effect.forkChild);
           yield* Deferred.await(reached);
 
-          // Meanwhile the newer card links with read-only access and finishes.
+          // Meanwhile the newer card links and finishes.
           yield* a.requests.answer({
             threadId,
             turnItemId: newer.id,
             answer: {
               type: "link",
               urls: [b.url],
-              access: "read-only",
               pairingCode: newerCode.credential,
             },
           });
@@ -1427,15 +1401,13 @@ it.live("an older card answered while a newer one links the same machine keeps i
           expect(cards.find((card) => card.id === newer.id)).toMatchObject({
             status: "completed",
             linkStatus: "linked",
-            linkedAccess: "read-only",
           });
-          // The older card says what the link the box now has grants, and the agent hears it.
+          // The older card names the link the box now has, and the agent hears it.
           expect(stored.access).toBe("full-access");
           expect(cards.find((card) => card.id === older.id)).toMatchObject({
             status: "completed",
             linkStatus: "linked",
             linkedEnvironmentId: stored.environmentId,
-            linkedAccess: stored.access,
           });
           const { messages } = yield* outcomeMessages(a);
           expect(messages.map((message) => message.notification?.outcome)).toEqual([
@@ -1457,12 +1429,10 @@ it.live("a card a newer link ended links nothing when answered after", () =>
           yield* seedThread(a);
           const older = yield* ask(a, {
             url: b.url,
-            requestedAccess: "full-access",
             clientRequestId: "older",
           });
           const newer = yield* ask(a, {
             url: b.url,
-            requestedAccess: "full-access",
             clientRequestId: "newer",
           });
           yield* linkBox(a, b, newer.id);
@@ -1476,7 +1446,6 @@ it.live("a card a newer link ended links nothing when answered after", () =>
               answer: {
                 type: "link",
                 urls: [b.url],
-                access: "read-only",
                 pairingCode: pairing.credential,
               },
             })

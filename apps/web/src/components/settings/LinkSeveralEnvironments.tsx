@@ -8,11 +8,7 @@ import {
   runLinkBatch,
 } from "@t3tools/client-runtime/link-batch";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import {
-  AuthAccessWriteScope,
-  type AuthMcpClientAccess,
-  type EnvironmentId,
-} from "@t3tools/contracts";
+import { AuthAccessWriteScope, type EnvironmentId } from "@t3tools/contracts";
 import * as Result from "effect/Result";
 import { T, useGT, useMessages } from "gt-react";
 import { useId, useRef, useState } from "react";
@@ -36,7 +32,6 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { LinkAccessPicker } from "./LinkAccessPicker";
 
 const NO_MACHINES: ReadonlySet<EnvironmentId> = new Set();
 const NO_OUTCOMES: ReadonlyMap<EnvironmentId, LinkBatchOutcome> = new Map();
@@ -99,7 +94,6 @@ export function LinkSeveralEnvironmentsDialog({
   const linksState = linkListState(links);
   const writable = useEnvironmentsWithScope(machines, AuthAccessWriteScope);
   const [selected, setSelected] = useState<ReadonlySet<EnvironmentId>>(() => new Set(preset));
-  const [access, setAccess] = useState<AuthMcpClientAccess>("approval-required");
   const [outcomes, setOutcomes] = useState(NO_OUTCOMES);
   const [linking, setLinking] = useState(NO_MACHINES);
   // Enter then a click can both run before a re-render; this guard is synchronous.
@@ -145,7 +139,6 @@ export function LinkSeveralEnvironmentsDialog({
     if (!next) {
       setSelected(NO_MACHINES);
       setOutcomes(NO_OUTCOMES);
-      setAccess("approval-required");
       setAlsoLinkBack(false);
     }
   };
@@ -162,7 +155,6 @@ export function LinkSeveralEnvironmentsDialog({
     setLinking(new Set(chosen.map((machine) => machine.environmentId)));
     const results = await runLinkBatch({
       machines: chosen,
-      access,
       mint: mintPairingCodeOn,
       link: async (input) => {
         const result = await link({ environmentId, input });
@@ -217,9 +209,9 @@ export function LinkSeveralEnvironmentsDialog({
           </DialogTitle>
           <DialogDescription>
             <T>
-              Agents here can then launch, message and wait on threads on each machine you pick.
-              Each appears under Authorized clients in that machine's Sharing & access, where it can
-              be revoked.
+              Agents here can then launch, message and wait on threads on each machine you pick,
+              with full access. Each appears under Authorized clients in that machine's Sharing &
+              access, where it can be revoked.
             </T>
           </DialogDescription>
         </DialogHeader>
@@ -388,7 +380,6 @@ export function LinkSeveralEnvironmentsDialog({
                   : null}
               </p>
             ) : null}
-            <LinkAccessPicker value={access} onChange={setAccess} disabled={busy} />
             {backOffered && sourceLabel !== undefined ? (
               <label className="flex cursor-pointer items-start gap-2.5 text-sm has-data-disabled:cursor-default">
                 <Checkbox

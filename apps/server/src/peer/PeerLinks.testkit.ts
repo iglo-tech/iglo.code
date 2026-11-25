@@ -2,6 +2,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   EnvironmentHttpApi,
+  AuthSessionId,
   EnvironmentId,
   type AuthMcpClientAccess,
   type ExecutionEnvironmentDescriptor,
@@ -279,19 +280,36 @@ export const layerLinkingEnvironment = <E = never>(
     Layer.fresh,
   );
 
-/** Links `links` to `peer` with a fresh pairing code from it, one way. */
+/**
+ * Links `links` to `peer` with a fresh pairing code from it, one way. Every link made through
+ * `link` is full access, so a lower one goes in the way an older peer's reciprocal offer does.
+ */
 export const linkTo = (
   links: PeerLinks.PeerLinks["Service"],
   peer: ServedPeer,
   access: AuthMcpClientAccess = "auto",
 ) =>
-  peer.auth.issuePairingCredential().pipe(
-    Effect.flatMap((pairing) =>
-      links.link({
+  Effect.gen(function* () {
+    const pairing = yield* peer.auth.issuePairingCredential();
+    if (access === "full-access") {
+      return yield* links.link({
         url: peer.url,
         pairingCode: pairing.credential,
-        access,
         reciprocal: false,
-      }),
-    ),
-  );
+      });
+    }
+    const described = yield* Ref.get(peer.descriptor);
+    return yield* links.acceptReciprocal(
+      {
+        sessionId: AuthSessionId.make("session:older-peer"),
+        peerEnvironmentId: described.environmentId,
+      },
+      {
+        environmentId: described.environmentId,
+        label: described.label,
+        urls: [peer.url],
+        pairingCode: pairing.credential,
+        access,
+      },
+    );
+  });

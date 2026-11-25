@@ -4,7 +4,6 @@ import {
   ANOTHER_ADDRESS,
   type LinkableMachine,
   linkRequestAnswerInput,
-  linkRequestDefaultAccess,
   linkRequestDisplay,
   linkRequestFailureMessage,
   linkRequestInitialMachine,
@@ -19,7 +18,6 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   AuthAccessWriteScope,
-  type AuthMcpClientAccess,
   type EnvironmentId,
   type OrchestrationV2ProjectedTurnItem,
 } from "@t3tools/contracts";
@@ -34,9 +32,7 @@ import { useEnvironmentScope, usePreparedConnection } from "../../state/session"
 import { mintPairingCodeOn } from "../../state/peerPairingCode";
 import { peerLinkEnvironment, useLinkableMachines } from "../../state/peerLinks";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { accessConfig } from "../auth/ConnectAgentSurface";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
-import { LinkAccessPicker } from "../settings/LinkAccessPicker";
 import { LinkAddressWarning, LinkMachineBadge } from "../settings/LinkMachineSelect";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -55,8 +51,7 @@ const picksMachine = (item: LinkRequestItem) =>
   item.environmentId === undefined && item.url === undefined;
 
 /**
- * Inline card for a link an agent asked the user to make. The user picks the
- * access in a dialog; the pairing code lives only in that dialog's state and
+ * Inline card for a link an agent asked the user to make. The pairing code lives only in that dialog's state and
  * the RPC payload, and is never logged, toasted, or persisted.
  */
 export function LinkRequestCard(props: {
@@ -66,12 +61,7 @@ export function LinkRequestCard(props: {
 }) {
   const { item } = props;
   const messages = useMessages();
-  const display = linkRequestDisplay(
-    item,
-    props.visibility,
-    (access: AuthMcpClientAccess) => messages(accessConfig[access].label),
-    messages,
-  );
+  const display = linkRequestDisplay(item, props.visibility, messages);
   if (display.kind === "answered" || display.kind === "pending-elsewhere") {
     const Icon =
       display.kind === "pending-elsewhere"
@@ -177,8 +167,8 @@ function PendingLinkRequest(props: {
   );
 }
 
-/** The dialog's steps: where to link, then what agents may do there. */
-type LinkStep = "machine" | "access";
+/** The dialog's steps: where to link, then the pairing code and whether to link back. */
+type LinkStep = "machine" | "link";
 
 function LinkRequestDialog(props: {
   readonly environmentId: EnvironmentId;
@@ -196,7 +186,6 @@ function LinkRequestDialog(props: {
   // Null until the user picks; until then the hint's best match is picked.
   const [choice, setChoice] = useState<string | null>(null);
   const [address, setAddress] = useState(item.url ?? "");
-  const [access, setAccess] = useState<AuthMcpClientAccess>(() => linkRequestDefaultAccess(item));
   const [pairingCode, setPairingCode] = useState("");
   const [bothWays, setBothWays] = useState(true);
   // An older environment ignores the reciprocal field, so its links are one way.
@@ -244,10 +233,10 @@ function LinkRequestDialog(props: {
   // An address the agent gave is already filled in; only one the user must type is asked for.
   const asksAddress = needsAddress && item.url === undefined;
   const useExisting = target.kind === "machine" && target.linked;
-  // A named machine with an address it answers at has nothing to choose before access.
+  // A named machine with an address it answers at has nothing to choose before linking.
   const steps: ReadonlyArray<LinkStep> =
-    pickMachine || asksAddress ? ["machine", "access"] : ["access"];
-  const current: LinkStep = steps.includes(step) ? step : "access";
+    pickMachine || asksAddress ? ["machine", "link"] : ["link"];
+  const current: LinkStep = steps.includes(step) ? step : "link";
   const machineReady =
     target.kind !== "none" && (useExisting || !needsAddress || address.trim().length > 0);
   const ready = machineReady && (useExisting || canMint || pairingCode.trim().length > 0);
@@ -255,7 +244,6 @@ function LinkRequestDialog(props: {
   const reset = () => {
     setChoice(null);
     setAddress(item.url ?? "");
-    setAccess(linkRequestDefaultAccess(item));
     setPairingCode("");
     setBothWays(true);
     setStep("machine");
@@ -279,7 +267,7 @@ function LinkRequestDialog(props: {
     }
     let code = pairingCode;
     if (canMint && targetId !== null) {
-      const minted = await mintPairingCodeOn(targetId, access);
+      const minted = await mintPairingCodeOn(targetId);
       if (Result.isFailure(minted)) {
         setMintFailed((failed) => new Set(failed).add(targetId));
         setError(linkRequestFailureMessage(minted.failure, messages));
@@ -290,7 +278,6 @@ function LinkRequestDialog(props: {
     return linkRequestAnswerInput(item, {
       type: "link",
       target: target.kind === "machine" && target.urls.length > 0 ? target : { url: address },
-      access,
       pairingCode: code,
       // An environment that cannot link back gets one way, whatever the box says.
       reciprocal: supportsReciprocal && bothWays,
@@ -337,7 +324,7 @@ function LinkRequestDialog(props: {
   };
 
   // The machine step ends the dialog when the machine is linked here already.
-  const finishesHere = current === "access" || useExisting;
+  const finishesHere = current === "link" || useExisting;
 
   return (
     <Dialog
@@ -362,7 +349,7 @@ function LinkRequestDialog(props: {
             <WizardSteps
               steps={[
                 gt("Machine", { $context: "wizard step title" }),
-                gt("Access", { $context: "wizard step title" }),
+                gt("Link", { $context: "wizard step title" }),
               ]}
               currentStep={steps.indexOf(current)}
               summaries={[target.kind === "none" ? null : targetName, null]}
@@ -383,7 +370,7 @@ function LinkRequestDialog(props: {
             onSubmit={(event) => {
               event.preventDefault();
               if (finishesHere) void submit();
-              else if (machineReady) setStep("access");
+              else if (machineReady) setStep("link");
             }}
           >
             {current === "machine" ? (
@@ -467,7 +454,6 @@ function LinkRequestDialog(props: {
                         </span>
                       </label>
                     )}
-                    <LinkAccessPicker value={access} onChange={setAccess} disabled={busy} />
                     {supportsReciprocal ? (
                       <label className="flex items-start gap-2">
                         <Checkbox
@@ -482,8 +468,8 @@ function LinkRequestDialog(props: {
                           </span>
                           <span className="block text-xs text-muted-foreground">
                             <T>
-                              <Var name="target">{targetName}</Var>'s agents get the same access
-                              here, using a code minted for it. Turn this off to link one way.
+                              <Var name="target">{targetName}</Var>'s agents get full access here,
+                              using a code minted for it. Turn this off to link one way.
                             </T>
                           </span>
                         </span>
@@ -504,7 +490,7 @@ function LinkRequestDialog(props: {
               <p className="text-xs text-muted-foreground">
                 <T>
                   This environment is already linked to <Var>{targetName}</Var>. The agent can use
-                  that link as it is; change its access in Settings → Environments.
+                  that link as it is.
                 </T>
               </p>
             ) : null}
@@ -516,7 +502,7 @@ function LinkRequestDialog(props: {
           </form>
         </WizardPanel>
         <WizardFooter>
-          {current === "access" && steps.length > 1 ? (
+          {current === "link" && steps.length > 1 ? (
             <Button
               variant="outline"
               type="button"

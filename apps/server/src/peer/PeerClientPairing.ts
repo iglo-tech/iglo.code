@@ -255,7 +255,7 @@ const make = Effect.gen(function* () {
     ask(input, client.sessionId, (clientLabel) => ({
       scopes: [],
       clientLabel,
-      link: { access: input.access },
+      link: { access: "full-access" },
     }));
 
   return PeerClientPairing.of({ request, requestForLink });

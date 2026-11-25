@@ -28,7 +28,7 @@ side lists and revokes it in Sharing & access like any other session, and owns i
 - **One link serves both directions (fork).** Upstream links one direction per sign-in. Here, after
   the forward sign-in, the linking environment mints its own one-time peer-link code and offers it
   over `/api/peer-links/reciprocal` ([PeerLinks](../../apps/server/src/peer/PeerLinks.ts)), and the
-  peer links back at the same access. It is on by default; the **Link back** checkbox (`--one-way`
+  peer links back at full access. It is on by default; the **Link back** checkbox (`--one-way`
   on the CLI) opts out, and unset `reciprocal` on the wire means one way, so mixed versions
   interoperate. The accepting side passes `reciprocal: false` so offers never loop, and a failed
   offer revokes its code. Offered addresses are only those the peer's `peerOrigin` accepts
@@ -43,12 +43,18 @@ side lists and revokes it in Sharing & access like any other session, and owns i
 - **The declared id is only a claim.** The peer's environment id rides the OAuth registration as
   `software_version` and is signed into the session (`peid`), but the accept path never moves an
   existing link row whatever address an offer carries. A both-ways link still grants whichever
-  environment you gave a pairing code to a session under the id it claims; choose access accordingly.
+  environment you gave a pairing code to a session under the id it claims, at full access.
 
+- **Every link made here is full access (fork).** `PeerLinks.link`, `linkUnlessLinked`, link-pairing
+  codes and the reciprocal offer ignore any caller's access and use full access, so the choice has
+  no surface. Only an accepted reciprocal offer and rows already stored keep the lower access an
+  older version sent, so mixed versions still link and nothing is migrated. A managed `maxRuntimeMode`
+  below full access does not refuse a link: it caps what the link's agents may start, as for any
+  outside agent, and that machine will not mint a link-pairing code ([`PeerClientPairing`](../../apps/server/src/peer/PeerClientPairing.ts)).
 - **Mode ceilings always narrow.** Forwarded calls carry the calling agent's modes in
   `T3-Mode-Limit`, which the receiving `/mcp` can only intersect downward with the link's approved
   access.
-- **Non-full-access links are fenced by `linkOrigin`.** Threads launched by a peer link (and their
+- **Non-full-access links are fenced by `linkOrigin`.** Only links from an older version are below full access. Threads launched by a peer link (and their
   derived forks, subagents, and spawned threads) carry an immutable `linkOrigin` stamp enforced in
   shared access rules ([`mcp/linkOrigin.ts`](../../apps/server/src/mcp/linkOrigin.ts)). Below full
   access, linked work can mutate only threads with the same origin, cannot touch projects, settings,

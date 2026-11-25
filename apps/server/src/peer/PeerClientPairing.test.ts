@@ -269,10 +269,7 @@ it.effect("a linked environment from before link pairing is never asked for one"
 
       // It would read the request as a client's and hand back a client pairing.
       expect(
-        yield* a.pairing.requestForLink(
-          { environmentId: box.environmentId, access: "auto" },
-          phone,
-        ),
+        yield* a.pairing.requestForLink({ environmentId: box.environmentId }, phone),
       ).toMatchObject({ type: "unsupported", reason: "version" });
       expect(yield* Ref.get(b.bearers)).toEqual([]);
     }),

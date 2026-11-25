@@ -75,8 +75,8 @@ model.
 - **Peer-link client pairing.** Only a full-access peer link may mint a one-time client pairing on
   the linked environment (since full-access agents can already run `iglo.code auth pairing create`). The
   linked side enforces this itself, and the operation stays a human-triggered RPC/HTTP route rather
-  than an MCP tool. The same route mints a code that links another environment at a chosen access
-  level, and the linking side's RPC requires the caller to hold that level's scopes.
+  than an MCP tool. The same route mints a code that links another environment, always at full access, and the
+  linking side's RPC requires the caller to hold full access's scopes.
 
 ### Reusable dev credential
 

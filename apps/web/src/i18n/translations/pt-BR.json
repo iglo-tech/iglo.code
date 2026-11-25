@@ -114,8 +114,6 @@
   "4cded869dea19ab2": "Aguardando uma resposta na thread original",
   "2b94dca2d528688f": "Máquina vinculada",
   "929e93b30d895f49": "{target} vinculado",
-  "5ac4edf5195056fb": "Máquina vinculada · {access}",
-  "36db2352fc10a1f3": "{target} vinculado · {access}",
   "8cc00444f7443feb": "Recusado",
   "289ec1df10840137": "Não foi possível vincular: o outro ambiente recusou",
   "21be308917bd450e": "Não foi possível vincular: {failure}",
@@ -3707,7 +3705,7 @@
   "ea745611e41bb8b5": "Vincular {targetName}",
   "022755e40ab2938b": "Os agentes daqui poderão iniciar, enviar mensagens e aguardar threads lá. Revogue em Compartilhamento e acesso naquela máquina.",
   "54994ff111229ca5": "Máquina",
-  "4bad519bd9c46c7a": "Acesso",
+  "b49658122c4ca22d": "Vincular",
   "57a631f659db8c6b": "Cole o código",
   "5ffc8460ffc939db": "Vinculando…",
   "8b61f3e4b14d099b": "Usar este vínculo",
@@ -3738,23 +3736,23 @@
     ": Configurações → Compartilhamento → Clientes autorizados → Criar link e cole o código aqui."
   ],
   "af1bedb2d6a982f2": "Link back to this environment",
-  "0610b662a0c3bde7": [
+  "53965b4b62dc768b": [
     {
       "i": 1,
       "k": "target",
       "v": "v"
     },
-    "'s agents get the same access here, using a code minted for it. Turn this off to link one way."
+    " terão acesso total aqui, usando um código gerado para isso. Desative para vincular em uma só direção."
   ],
   "a28790f24d566c00": "This environment runs a version that links one way only. Update it to link back automatically.",
-  "c205277bd4ab61d2": [
+  "01e11e81b6a6e923": [
     "Este ambiente já está vinculado a ",
     {
       "i": 1,
       "k": "_gt_value_1",
       "v": "v"
     },
-    ". O agente pode usar esse vínculo como está; altere o acesso em Configurações → Ambientes."
+    ". O agente pode usar esse vínculo como está."
   ],
   "000b0df227182d39": "Outro endereço…",
   "fd07b24350a7643f": "um ambiente vinculado",
@@ -9091,8 +9089,6 @@
     },
     ". Recurso alfa que pode mudar ou quebrar. O iglo.code nunca instala o Simlock."
   ],
-  "3836976622328d61": "O que os agentes daqui podem fazer lá",
-  "b20c269e7ad96f42": "Um agente nunca recebe lá mais acesso do que o próprio modo dele aqui. Abaixo do acesso total, ele só pode alterar threads iniciadas por este vínculo, não as threads, projetos ou configurações daquela máquina.",
   "4474db19bf5700c9": "Outro endereço…",
   "791d30fae1b05310": "Escolha uma máquina",
   "9cab5bd6475291cf": "Verifique este endereço",
@@ -9117,7 +9113,7 @@
   "35d59319f62bd505": "{count, plural, one {# máquina continua vinculada em um sentido.} other {# máquinas continuam vinculadas em um sentido.}}",
   "d2fbaffe08b6cf60": "{count, plural, one {Vincular # máquina} other {Vincular # máquinas}}",
   "8e3378b526d615f4": "Vincular vários…",
-  "b550d04490078bda": "Os agentes daqui poderão então iniciar threads em cada máquina escolhida, enviar mensagens e aguardá-las. Cada vínculo aparece em Clientes autorizados em Compartilhamento e acesso da respectiva máquina, onde pode ser revogado.",
+  "d16d7cd5c0a5fb5a": "Os agentes daqui poderão então iniciar threads em cada máquina escolhida, com acesso total, enviar mensagens e aguardá-las. Cada vínculo aparece em Clientes autorizados em Compartilhamento e acesso da respectiva máquina, onde pode ser revogado.",
   "e1c2c3bd84d7bcd7": "Este app não está conectado a nenhuma das máquinas que você escolheu.",
   "c2553b323479499a": "Este app não conhece outras máquinas. Adicione-as primeiro em Ambientes.",
   "18b1d4d42b945b34": "Máquinas",
@@ -9141,8 +9137,8 @@
   "7500de8d4f99be52": "Revogue \"iglo.code · …\" em Compartilhamento e acesso de {label} para encerrar a sessão lá também.",
   "81c9796bf61b306a": "Não foi possível esquecer o vínculo",
   "130e51beb6cf5aad": "Vincular um ambiente",
-  "122c3e355699e69d": "Os agentes daqui poderão então iniciar threads lá, enviar mensagens e aguardá-las. Ele aparece em Clientes autorizados em Compartilhamento e acesso daquele ambiente, onde pode ser revogado.",
-  "dc9a0b68d101e904": "Já vinculado. Vincular novamente renova o vínculo com o acesso escolhido.",
+  "25bb225c9320ccf9": "Os agentes daqui poderão então iniciar threads lá, com acesso total, enviar mensagens e aguardá-las. Ele aparece em Clientes autorizados em Compartilhamento e acesso daquele ambiente, onde pode ser revogado.",
+  "1b2c76b5140eab75": "Já vinculado. Vincular novamente renova o vínculo.",
   "2fbcbe2d8c56a245": "Preferir",
   "479a7eeae96511fc": "Normal",
   "fd16014a2f23dea9": "Com menos frequência",
