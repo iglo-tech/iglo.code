@@ -47,6 +47,20 @@ export type ServerProviderResetCredits = typeof ServerProviderResetCredits.Type;
 export const ServerProviderUsageLimits = Schema.Struct({
   checkedAt: IsoDateTime,
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
+  /**
+   * Set when a later check failed. `windows` stay the last reading (sparse streamed updates may
+   * still advance individual windows) and `checkedAt` names the newest reading; cross-environment
+   * merges rank by `checkedAt` alone, so a stale reading can win a merge — clients dim and label
+   * it via this field.
+   */
+  stale: Schema.optional(
+    Schema.Struct({
+      /** When the checks started failing. */
+      since: IsoDateTime,
+      /** The failed probe's reason, when it reported one. */
+      message: Schema.optional(TrimmedNonEmptyString),
+    }),
+  ),
   /** A $0 monthly spend cap has no percentage, so it cannot be a window. */
   zeroSpendCap: Schema.optional(Schema.Boolean),
   credentialFingerprint: Schema.optional(TrimmedNonEmptyString),

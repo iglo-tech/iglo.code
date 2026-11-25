@@ -10,11 +10,13 @@ import type { MFunctionType } from "gt-i18n/types";
 import {
   collectExternalUsageLinks as collectExternalUsageLinksWith,
   cursorUsageWindowDetails as cursorUsageWindowDetailsBase,
+  hubAccountName,
   type LimitPool,
   type LimitPresentations,
   providersWithLimits,
   type ResetCreditChoice,
   resetCountdown,
+  staleHubAccountsBehindFreshRows,
   unshownFailedHubAccounts,
 } from "./usageLimits.ts";
 
@@ -89,6 +91,8 @@ export function collectLimitNotices(
   const notices = new Set<string>();
   // A failed hub read needs no notice when another report already shows the account's row.
   const failedAccounts = unshownFailedHubAccounts(presentations);
+  // A stale hub reading deduped behind a fresher fresh native row needs no notice either.
+  const behindFreshRows = staleHubAccountsBehindFreshRows(presentations);
   for (const presentation of presentations.values()) {
     const environmentLabel = presentation.entry.target.label;
     for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
@@ -103,6 +107,10 @@ export function collectLimitNotices(
       const notice = limits ? limitsNotice(limits, resolve) : null;
       const name = provider.displayName?.trim() || String(provider.driver);
       if (notice) notices.add(`${label(environmentLabel, name)}: ${notice}`);
+      // Retained bars after failed checks stay on the cards, but say so here too.
+      else if (limits?.stale !== undefined && limits.windows.length > 0) {
+        notices.add(`${label(environmentLabel, name)}: ${staleNotice(limits.stale, resolve)}`);
+      }
     }
     for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
       if (source.error) {
@@ -118,13 +126,35 @@ export function collectLimitNotices(
       }
       for (const account of source.accounts) {
         const name = failedAccounts.get(account);
-        if (name === undefined) continue;
-        const notice = limitsNotice(account.usageLimits, resolve);
-        notices.add(`${label(environmentLabel, source.label)} · ${name}: ${notice}`);
+        if (name !== undefined) {
+          const notice = limitsNotice(account.usageLimits, resolve);
+          notices.add(`${label(environmentLabel, source.label)} · ${name}: ${notice}`);
+          continue;
+        }
+        // A hub account whose retained bars went stale gets the same notice as a native one,
+        // unless a fresher native row of the same login already shows the account.
+        if (
+          account.usageLimits.stale !== undefined &&
+          account.usageLimits.windows.length > 0 &&
+          !behindFreshRows.has(account)
+        ) {
+          const accountName = account.email ?? hubAccountName(account);
+          notices.add(
+            `${label(environmentLabel, source.label)} · ${accountName}: ${staleNotice(account.usageLimits.stale, resolve)}`,
+          );
+        }
       }
     }
   }
   return [...notices];
+}
+
+/** The probe's own failure reason when it reported one, else the generic stale copy. */
+function staleNotice(
+  stale: { readonly since: string; readonly message?: string | undefined },
+  resolve: MFunctionType,
+): string {
+  return stale.message ?? resolve(msg("Limits are stale; refresh to re-check."));
 }
 
 /** @public */
@@ -218,7 +248,7 @@ export function formatResetsIn(
 ): string | null {
   const countdown = resetCountdown(window, now);
   if (countdown === null) return null;
-  if (countdown.kind === "now") return resolve(msg("resets now"));
+  if (countdown.kind === "now") return resolve(msg("reset"));
   if (countdown.kind === "momentarily") return resolve(msg("Resets momentarily"));
   const duration = formatDuration(countdown.ms, resolve);
   if (style === "in") {

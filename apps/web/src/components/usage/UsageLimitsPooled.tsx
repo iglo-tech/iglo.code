@@ -3,6 +3,7 @@ import {
   collectLimitAccounts,
   collectLimitPools,
   displayLimitWindows,
+  isStaleUsageLimits,
   type LimitAccount,
   type LimitPool,
   type LimitPoolMember,
@@ -10,6 +11,7 @@ import {
   paceRemainingPercent,
   remainingPercent,
   type ResetCreditChoice,
+  windowHasReset,
 } from "@t3tools/shared/usageLimits";
 import { T, useGT, useMessages } from "gt-react";
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
@@ -199,10 +201,16 @@ function SegmentPopover({
       <div className="flex flex-col gap-1 border-t border-border/60 pt-2.5">
         <Row label={gt("Left", { $context: "remaining usage" })}>{remaining}%</Row>
         {window.resetsAt ? (
-          <Row label={gt("Resets", { $context: "when the usage window resets" })}>
-            {formatUpcomingTimestamp(window.resetsAt, timestampFormat, now, undefined, m)}
-            {resetsIn ? ` · ${resetsIn}` : ""}
-          </Row>
+          windowHasReset(window, now) ? (
+            <Row label={gt("Reset", { $context: "a usage window whose reset time passed" })}>
+              {formatUpcomingTimestamp(window.resetsAt, timestampFormat, now, undefined, m)}
+            </Row>
+          ) : (
+            <Row label={gt("Resets", { $context: "when the usage window resets" })}>
+              {formatUpcomingTimestamp(window.resetsAt, timestampFormat, now, undefined, m)}
+              {resetsIn ? ` · ${resetsIn}` : ""}
+            </Row>
+          )
         ) : null}
         {timeLeft !== null ? (
           <Row label={gt("Even pace")}>{gt("{timeLeft}% left by now", { timeLeft })}</Row>
@@ -604,9 +612,32 @@ function PoolWindowCard({
   readonly label?: string | null | undefined;
   readonly description?: string | undefined;
 }) {
+  const gt = useGT();
+  const m = useMessages();
+  const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const nextRefill = pool.resets.find((reset) => reset.at > now && reset.restoresPercent > 0);
+  // The card pools several accounts; it is stale when any reading behind it went stale.
+  const memberLimits = pool.columns.flatMap((column) =>
+    column.window ? [column.account.limits] : [],
+  );
+  const staleMembers = memberLimits.filter((limits) => isStaleUsageLimits(limits));
+  const stale = staleMembers.length > 0;
+  const checkedAt = stale
+    ? staleMembers
+        .map((limits) => limits.stale?.since ?? limits.checkedAt)
+        .reduce((earliest, at) => (at < earliest ? at : earliest))
+    : memberLimits.length > 0
+      ? memberLimits
+          .map((limits) => limits.checkedAt)
+          .reduce((latest, at) => (at > latest ? at : latest))
+      : null;
   return (
-    <div className="grid items-center gap-x-6 gap-y-3 rounded-lg border border-border/60 p-4 md:grid-cols-[11rem_minmax(0,1fr)]">
+    <div
+      className={cn(
+        "grid items-center gap-x-6 gap-y-3 rounded-lg border border-border/60 p-4 md:grid-cols-[11rem_minmax(0,1fr)]",
+        stale && "opacity-60",
+      )}
+    >
       <div className="flex flex-col gap-1">
         {label !== null ? (
           <span className="text-sm font-medium text-foreground">{label ?? pool.label}</span>
@@ -625,6 +656,17 @@ function PoolWindowCard({
         {nextRefill && pool.columns.length > 1 ? (
           <span className="text-xs font-medium text-foreground tabular-nums">
             ↻ +{nextRefill.restoresPercent}%
+          </span>
+        ) : null}
+        {checkedAt !== null ? (
+          <span className="text-2xs text-muted-foreground">
+            {stale
+              ? gt("Stale since {time}", {
+                  time: formatUpcomingTimestamp(checkedAt, timestampFormat, now, undefined, m),
+                })
+              : gt("Last checked {time}", {
+                  time: formatUpcomingTimestamp(checkedAt, timestampFormat, now, undefined, m),
+                })}
           </span>
         ) : null}
       </div>

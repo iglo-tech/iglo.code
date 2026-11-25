@@ -259,7 +259,8 @@ function accountKeyResolver(reports: Iterable<AccountReport>) {
   };
 }
 
-const hubAccountName = (account: { readonly id: string }) => account.id.replace(/\.json$/i, "");
+export const hubAccountName = (account: { readonly id: string }) =>
+  account.id.replace(/\.json$/i, "");
 
 function limitAccountKeyResolver(presentations: LimitPresentations) {
   return accountKeyResolver(
@@ -356,6 +357,8 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       accounts.set(key, next);
       return;
     }
+    // Merges rank by checkedAt alone: a stale reading with a newer sparse tick can win here,
+    // and the winning row is what cards dim and label via `stale` (see ServerProviderUsageLimits).
     const fresher = Date.parse(next.limits.checkedAt) > Date.parse(previous.limits.checkedAt);
     const environments = [
       ...previous.environments,
@@ -482,6 +485,48 @@ export function unshownFailedHubAccounts(
     }
   }
   return failed;
+}
+
+/**
+ * Stale hub readings that a fresher, non-stale native row of the same login already shows, so
+ * they are deduped behind that row and need no notice of their own.
+ */
+export function staleHubAccountsBehindFreshRows(
+  presentations: LimitPresentations,
+): ReadonlySet<UsageLimitSourceAccount> {
+  const resolveKey = limitAccountKeyResolver(presentations);
+  const freshNative = new Map<string, number>();
+  for (const presentation of presentations.values()) {
+    for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
+      const limits = provider.usageLimits;
+      if (!limits || limitsNotice(limits) !== null || isStaleUsageLimits(limits)) continue;
+      const key = resolveKey(nativeReport(provider));
+      const at = Date.parse(limits.checkedAt);
+      if (key !== null && at > (freshNative.get(key) ?? Number.NEGATIVE_INFINITY)) {
+        freshNative.set(key, at);
+      }
+    }
+  }
+  const behind = new Set<UsageLimitSourceAccount>();
+  for (const presentation of presentations.values()) {
+    for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
+      for (const account of source.accounts) {
+        if (account.usageLimits.stale === undefined || account.usageLimits.windows.length === 0) {
+          continue;
+        }
+        const key = resolveKey(account);
+        // The native row wins the merge only when its reading is newer and not stale itself.
+        if (
+          key !== null &&
+          (freshNative.get(key) ?? Number.NEGATIVE_INFINITY) >
+            Date.parse(account.usageLimits.checkedAt)
+        ) {
+          behind.add(account);
+        }
+      }
+    }
+  }
+  return behind;
 }
 
 export interface LimitPoolMember {
@@ -622,16 +667,21 @@ function poolKey(driver: ServerProvider["driver"], window: ServerProviderUsageWi
   return driver === "codex" ? window.kind : `${window.kind}:${window.id}`;
 }
 
-function poolMember(account: LimitAccount, reported: ServerProviderUsageWindow, now: number) {
+function poolMember(account: LimitAccount, reportedRaw: ServerProviderUsageWindow, now: number) {
+  // A window whose reset has passed no longer blocks; show it as refilled.
+  const reported = effectiveUsageWindow(reportedRaw, now);
   const spentWeekly =
     reported.kind === "session"
-      ? account.limits.windows.find(
-          (window) =>
+      ? account.limits.windows.find((raw) => {
+          // A weekly window whose own reset passed is refilled too, so it no longer suppresses.
+          const window = effectiveUsageWindow(raw, now);
+          return (
             window.usedPercent >= 100 &&
             (account.driver === "claudeAgent"
-              ? window.id === "seven_day"
-              : account.driver === "codex" && window.kind === "weekly"),
-        )
+              ? raw.id === "seven_day"
+              : account.driver === "codex" && raw.kind === "weekly")
+          );
+        })
       : undefined;
   if (!spentWeekly) return { account, window: reported, refillPercent: reported.usedPercent };
 
@@ -641,21 +691,23 @@ function poolMember(account: LimitAccount, reported: ServerProviderUsageWindow, 
   let resetsAt: string | undefined;
   let refillPercent = 0;
   // A stale or missing clock cannot tell us when blocked quota becomes usable.
-  if (
-    weeklyReset !== null &&
-    sessionReset !== null &&
-    weeklyReset > cutoff &&
-    sessionReset > cutoff
-  ) {
-    if (sessionReset <= weeklyReset) {
+  if (weeklyReset !== null && weeklyReset > cutoff) {
+    if (sessionReset !== null && sessionReset <= cutoff) {
+      // The session window already reset; the weekly cap is what still blocks, and its
+      // reset time is the known unblock time.
       resetsAt = spentWeekly.resetsAt;
       refillPercent = 100;
-    } else if (reported.usedPercent >= 100) {
-      resetsAt = reported.resetsAt;
-      refillPercent = 100;
-    } else {
-      resetsAt = spentWeekly.resetsAt;
-      refillPercent = 100 - Math.max(0, Math.min(100, reported.usedPercent));
+    } else if (sessionReset !== null && sessionReset > cutoff) {
+      if (sessionReset <= weeklyReset) {
+        resetsAt = spentWeekly.resetsAt;
+        refillPercent = 100;
+      } else if (reported.usedPercent >= 100) {
+        resetsAt = reported.resetsAt;
+        refillPercent = 100;
+      } else {
+        resetsAt = spentWeekly.resetsAt;
+        refillPercent = 100 - Math.max(0, Math.min(100, reported.usedPercent));
+      }
     }
   }
   return {
@@ -773,6 +825,25 @@ function resetMillis(window: ServerProviderUsageWindow): number | null {
   if (window.resetsAt === undefined) return null;
   const at = Date.parse(window.resetsAt);
   return Number.isFinite(at) ? at : null;
+}
+
+/** A window whose reset time has passed is back to full, whatever the stale reading said. */
+export function windowHasReset(window: ServerProviderUsageWindow, now: number): boolean {
+  const at = resetMillis(window);
+  return at !== null && at <= now;
+}
+
+/** The window as it should be displayed at `now`: a reset window reads as fully available. */
+export function effectiveUsageWindow(
+  window: ServerProviderUsageWindow,
+  now: number,
+): ServerProviderUsageWindow {
+  return windowHasReset(window, now) ? { ...window, usedPercent: 0 } : window;
+}
+
+/** A reading whose later checks failed; `checkedAt` still names the last good read. */
+export function isStaleUsageLimits(limits: ServerProviderUsageLimits): boolean {
+  return limits.stale !== undefined;
 }
 
 export function elapsedShare(window: ServerProviderUsageWindow, now: number): number | null {

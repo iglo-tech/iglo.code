@@ -160,6 +160,7 @@ function UsageLimitsBannerBody({
                   accentColor={account.accentColor}
                   windows={account.limits.windows}
                   now={now}
+                  limits={account.limits}
                 />
               )}
               {externalUsage ? (
