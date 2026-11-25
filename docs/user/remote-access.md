@@ -284,11 +284,9 @@ goes, and a linked machine you remove from a device stays removed until it is
 linked again. The device must be able to reach the other machine's address
 (its Tailscale name does); when it cannot, it tries again later.
 
-By default one link serves both directions: the other machine also links back
-to this one, also at full access, using a pairing code this machine mints and
-delivers to it over the link's own sign-in. Uncheck **Link back** in the link
-dialog (or pass `--one-way` in the terminal) to link one direction only, and
-link again from the other side later if you change your mind.
+Every link goes both ways: the other machine also links back to this one, also
+at full access, using a pairing code this machine mints and delivers to it over
+the link's own sign-in. There is no one-way option.
 
 To link many machines at once, choose **Link several…** (it appears once this
 app has two other machines saved). Tick the machines and confirm once. A machine can be ticked when this app is
@@ -311,14 +309,16 @@ server listens on your network (`iglo.code up`). If it has none — say both
 machines sit on a plain LAN with no Tailscale — the link still works this
 direction, and you are told the other machine could not link back.
 The other machine's version must also know how; update it and link again.
+A machine that could not link back keeps the link it has, and **Link back…**
+(see the map below) completes it.
 
 You can also ask an agent to link a machine by name, such as "delegate this to
-my vps". It shows a card in the thread where you pick the machine the same way
-and whether to link back, then approve. An address the agent gives
+my vps". It shows a card in the thread where you pick the machine the same way,
+then approve; the link goes both ways like any other. An address the agent gives
 that this app does not know for one of your machines also needs a pasted code.
 Paste one only for an address you trust: the code is sent there.
 
-- A link has full access, in both directions on a both-ways link. An agent also
+- A link has full access, in both directions. An agent also
   never gets more there than its own mode here, and a managed policy that holds
   a machine below full access still caps what agents may start on it.
 - Threads a link starts are marked **From** and this machine's name there.
@@ -354,12 +354,12 @@ from it. Your session on that environment must manage access there and hold full
 access. The result is a separate link, listed and revocable on the linked
 machine like any other. Links still do not chain.
 
-A link goes one way. To let the other machine's agents work back, tick **Also
-link … back** when you create the link, or select a one-way link and use
-**Link back…**. It is offered when this app is connected to both machines and
-may manage access on each. Two machines linked to each other at the same access
-are drawn as one line with an arrowhead at each end; they are still two links,
-and each is forgotten on its own.
+Two machines linked to each other are drawn as one line with an arrowhead at each
+end; they are still two links, and each is forgotten on its own. Only a link
+made by an older version, or one whose link back failed, goes one way; select it
+and use **Link back…** to complete it. That is offered when this app is
+connected to both machines and may manage access on each. The map names a
+link's access only when it is below full access.
 
 To link one environment to several machines at once, Shift-click the machines
 (or Shift-drag a box around them, or press Space on a focused machine), then

@@ -1,9 +1,4 @@
 import { useAtomValue } from "@effect/atom-react";
-import {
-  linkBackBlockLabel,
-  linkBatchFailureLabel,
-  linkWithMintedCode,
-} from "@t3tools/client-runtime/link-batch";
 import { ANOTHER_ADDRESS, linkRequestFailureMessage } from "@t3tools/client-runtime/link-request";
 import { AuthAccessWriteScope, type EnvironmentId, type PeerLinkSummary } from "@t3tools/contracts";
 import {
@@ -21,12 +16,7 @@ import { type ReactNode, useId, useRef, useState } from "react";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { useEnvironment } from "~/state/environments";
 import { mintPairingCodeOn } from "~/state/peerPairingCode";
-import {
-  peerLinkEnvironment,
-  useLinkableMachines,
-  useLinkBackOffers,
-  useLinkThroughRoutes,
-} from "~/state/peerLinks";
+import { peerLinkEnvironment, useLinkableMachines, useLinkThroughRoutes } from "~/state/peerLinks";
 import { useEnvironments } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { useEnvironmentScope, usePreparedConnection } from "~/state/session";
@@ -34,7 +24,6 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { accessConfig } from "../auth/ConnectAgentSurface";
 import { ConnectionStatusDot } from "../ConnectionStatusDot";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -249,7 +238,6 @@ export function LinkEnvironmentDialog({
   readonly prefill?: LinkEnvironmentPrefill;
 }) {
   const gt = useGT();
-  const m = useMessages();
   const setOpen = onOpenChange;
   // Named in the title: from the map, nothing else on screen says which machine is linking.
   const source = useEnvironment(environmentId);
@@ -282,12 +270,6 @@ export function LinkEnvironmentDialog({
   const inFlight = useRef(false);
   const formId = useId();
   const link = useAtomCommand(peerLinkEnvironment.link, { label: LINK_COMMAND_LABEL });
-  const linkOnTarget = useAtomCommand(peerLinkEnvironment.link, {
-    label: "link environment back",
-    // The failure cause holds the request, and with it the code; keep it out of the console.
-    reportFailure: false,
-    reportDefect: false,
-  });
   const pairThrough = useAtomCommand(peerLinkEnvironment.pairLink, {
     label: "pair link through a linked environment",
     // The answer is a credential; keep it out of the console.
@@ -296,7 +278,6 @@ export function LinkEnvironmentDialog({
   });
   // Machines that would not give a code through a link, so the dialog asks for one instead.
   const [throughFailed, setThroughFailed] = useState<ReadonlySet<EnvironmentId>>(new Set());
-  const [alsoLinkBack, setAlsoLinkBack] = useState(false);
   const selected = choice ?? (machines.length === 0 ? ANOTHER_ADDRESS : null);
   // Only for the machine the dialog opened for: another choice or address is another machine.
   const prefilledThrough =
@@ -338,8 +319,6 @@ export function LinkEnvironmentDialog({
     !throughFailed.has(throughCandidate.environmentId)
       ? throughCandidate
       : null;
-  const linkBack = useLinkBackOffers(environmentId, targetId === null ? [] : [targetId], open);
-  const backOffer = linkBack.offerFor(targetId);
   const ready =
     through !== null ||
     (selected !== null &&
@@ -353,14 +332,13 @@ export function LinkEnvironmentDialog({
       setPairingCode("");
       setMintFailed(new Set());
       setThroughFailed(new Set());
-      setAlsoLinkBack(false);
     }
   };
   // Settles to what to link with, or null after reporting why the linked machine gave no code.
   const resolveThrough = async (target: NonNullable<typeof through>) => {
     const asked = await pairThrough({
       environmentId: target.viaEnvironmentId,
-      input: { environmentId: target.environmentId },
+      input: { environmentId: target.environmentId, access: "full-access" },
     });
     if (asked._tag === "Success" && asked.value.type === "credential") {
       const [url, ...alternateUrls] = asked.value.urls;
@@ -371,6 +349,8 @@ export function LinkEnvironmentDialog({
           expectedEnvironmentId: asked.value.environmentId,
           expectedLabel: asked.value.label,
           pairingCode: asked.value.credential,
+          access: "full-access" as const,
+          reciprocal: true,
         };
       }
     }
@@ -422,45 +402,42 @@ export function LinkEnvironmentDialog({
                   ? {}
                   : { expectedEnvironmentId: machine.environmentId, expectedLabel: machine.label }),
                 pairingCode: code,
+                access: "full-access",
+                reciprocal: true,
               },
             });
-    // The link back is its own link, made on the other machine: it never undoes this one.
-    const back =
-      result?._tag === "Success" &&
-      alsoLinkBack &&
-      backOffer.kind === "offered" &&
-      linkBack.source !== null &&
-      targetId !== null &&
-      // A typed address can answer as another machine: the picked one links back only if it did.
-      result.value.environmentId === targetId
-        ? await linkWithMintedCode({
-            machine: linkBack.source,
-            mint: mintPairingCodeOn,
-            link: async (input) => {
-              const reverse = await linkOnTarget({ environmentId: targetId, input });
-              return reverse._tag === "Success"
-                ? Result.succeed(reverse.value)
-                : Result.fail(squashAtomCommandFailure(reverse));
-            },
-          })
-        : null;
     inFlight.current = false;
     setBusy(false);
     if (result === null) return;
     if (result._tag === "Success") {
-      const names = { source: source?.label ?? "", target: result.value.label };
+      const reciprocal = result.value.reciprocal;
       toastManager.add({
         type: "success",
         title:
-          back?.kind === "linked"
-            ? gt("Linked {source} and {target} both ways", names)
+          reciprocal?.kind === "linked" && source !== null
+            ? gt("Linked {source} and {target} both ways", {
+                source: source.label,
+                target: result.value.label,
+              })
             : gt("Linked {label}", { label: result.value.label }),
       });
-      if (back?.kind === "failed") {
-        failureToast(
-          gt("Could not link {target} back to {source}", names),
-          back.detail ?? linkBatchFailureLabel(back.failure, m),
+      // The link stands whatever came of the link back, so say so.
+      if (reciprocal?.kind === "failed") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            title: gt("Linked {target} one way", { target: result.value.label }),
+            description: reciprocal.message,
+          }),
         );
+      } else if (reciprocal?.kind === "unsupported") {
+        toastManager.add({
+          type: "info",
+          title: gt("Linked {target} one way", { target: result.value.label }),
+          description: gt(
+            "It runs an iglo.code version that does not link back. Update it there, then link again.",
+          ),
+        });
       }
       handleOpenChange(false);
     } else if (!isAtomCommandInterrupted(result)) {
@@ -512,11 +489,7 @@ export function LinkEnvironmentDialog({
                 machines={machines}
                 value={selected}
                 disabled={busy}
-                onChange={(next) => {
-                  // The opt-in names one machine: it does not carry over to another.
-                  if (next !== selected) setAlsoLinkBack(false);
-                  setChoice(next);
-                }}
+                onChange={setChoice}
               />
             ) : null}
             {machine?.linked ? (
@@ -526,10 +499,10 @@ export function LinkEnvironmentDialog({
             ) : null}
             {through !== null ? (
               <p className="text-xs text-muted-foreground">
-                {gt(
-                  "{via} links to {target} at full access, so it gets the pairing code. No code to paste.",
-                  { via: via?.label ?? "", target: through.label },
-                )}
+                {gt("{via} is linked to {target}, so it gets the pairing code. No code to paste.", {
+                  via: via?.label ?? "",
+                  target: through.label,
+                })}
               </p>
             ) : null}
             {needsAddress && through === null ? (
@@ -591,37 +564,6 @@ export function LinkEnvironmentDialog({
                 ) : null}
               </label>
             )}
-            {machine === null || source === null ? null : backOffer.kind === "offered" ? (
-              <label className="flex cursor-pointer items-start gap-2.5 text-sm has-data-disabled:cursor-default">
-                <Checkbox
-                  checked={alsoLinkBack}
-                  disabled={busy}
-                  onCheckedChange={setAlsoLinkBack}
-                />
-                <span className="min-w-0 space-y-0.5">
-                  <span className="block font-medium text-foreground">
-                    {gt("Also link {target} back to {source}", {
-                      source: source.label,
-                      target: machine.label,
-                    })}
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {gt("Agents on {target} can then work on {source} too.", {
-                      source: source.label,
-                      target: machine.label,
-                    })}
-                  </span>
-                </span>
-              </label>
-            ) : backOffer.kind === "blocked" ? (
-              <p className="text-xs text-muted-foreground">
-                {linkBackBlockLabel(
-                  backOffer.reason,
-                  { source: source.label, target: machine.label },
-                  m,
-                )}
-              </p>
-            ) : null}
           </form>
         </DialogPanel>
         <DialogFooter variant="bare">
@@ -661,7 +603,7 @@ export function useForgetPeerLink(environmentId: EnvironmentId, link: PeerLinkSu
   const forget = async () => {
     const confirmed = await (requestConfirmDialog(
       gt(
-        "Forget {label}? Agents here stop working there, and their session on {label} ends too if it answers.",
+        "Forget {label}? Agents here stop working there, their session on {label} ends too if it answers, and devices that joined {label} through this link leave it.",
         { label: link.label },
       ),
       { variant: "destructive" },

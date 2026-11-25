@@ -124,9 +124,14 @@ export class PeerLinks extends Context.Service<
      * Links like `link`, except that a machine whose link has not expired is
      * left as it is, with its pairing code unused.
      */
-    readonly linkUnlessLinked: (
-      input: PeerLinkCreateInput,
-    ) => Effect.Effect<{ readonly link: PeerLink; readonly alreadyLinked: boolean }, PeerLinkError>;
+    readonly linkUnlessLinked: (input: PeerLinkCreateInput) => Effect.Effect<
+      {
+        readonly link: PeerLink;
+        readonly reciprocal: PeerLinkReciprocalOutcome;
+        readonly alreadyLinked: boolean;
+      },
+      PeerLinkError
+    >;
     readonly list: Effect.Effect<ReadonlyArray<PeerLinkSummary>, PeerLinkError>;
     /** The unexpired links' names, from what is stored, without asking any peer. */
     readonly names: Effect.Effect<ReadonlyArray<PeerLinkName>, PeerLinkError>;
@@ -940,10 +945,14 @@ const make = Effect.gen(function* () {
     Effect.map(linkImpl(input), ({ link: linked, reciprocal }) => ({ ...linked, reciprocal }));
   /** Links like `link`, except a machine whose link has not expired is left as it is. */
   const linkUnlessLinked: PeerLinks["Service"]["linkUnlessLinked"] = (input) =>
-    Effect.map(linkImpl(input, { keepLinked: true }), ({ link: linked, alreadyLinked }) => ({
-      link: linked,
-      alreadyLinked,
-    }));
+    Effect.map(
+      linkImpl(input, { keepLinked: true }),
+      ({ link: linked, reciprocal, alreadyLinked }) => ({
+        link: linked,
+        reciprocal,
+        alreadyLinked,
+      }),
+    );
 
   /** A peer's label follows its machine name, so the link takes the one its own address answers with. */
   const withLabel = (link: PeerLink, label: string) =>

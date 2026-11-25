@@ -191,10 +191,13 @@ current when an authorized change replaces a decision.
   mints its own one-time peer-link code and offers it over
   `/api/peer-links/reciprocal`, and the peer links back at the same access with
   the code the offer carried; **Forget** removes the link on both sides and ends
-  both sessions when the peer answers. Default on, with a **Link back**
-  checkbox opt-out (`--one-way` on the CLI). Every link is full access:
+  both sessions when the peer answers. Every first-party caller
+  sends `reciprocal: true` (there is no one-way opt-out; unset on the wire still
+  means one way for older clients). Every link is full access:
   the access choice (picker, `--access`, the `t3_environment_link` access
-  parameter) is removed and the server ignores any access a caller sends, while
+  parameter) is removed and the server ignores any access a caller sends (the client
+  RPC inputs keep an optional `access` that clients still send, because an older
+  server requires it), while
   an accepted reciprocal offer and stored rows keep an older peer's lower access. The offered link-back addresses
   are MagicDNS names probed to answer as this server, even when Serve was
   published by `pair --tailscale` rather than the service, and the CLI reads the
@@ -231,7 +234,7 @@ current when an authorized change replaces a decision.
   optional `reciprocal` so mixed versions decode it, and unset `reciprocal` on
   the wire means one way. The accepting link passes `reciprocal: false` so
   offers never loop, a failed offer revokes its one-time code, and each teardown
-  hop fires only when a row was removed, so the hops stop. Web: the checkbox and outcome notices in
+  hop fires only when a row was removed, so the hops stop. Web: the outcome notices in
   [LinkedEnvironmentsSettings.tsx](../../../apps/web/src/components/settings/LinkedEnvironmentsSettings.tsx)
   and [LinkRequestCard.tsx](../../../apps/web/src/components/chat/LinkRequestCard.tsx),
   the answer field in

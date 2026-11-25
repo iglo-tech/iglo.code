@@ -212,20 +212,28 @@ const linkBatch = Effect.fn("environment.linkBatch")(function* (
             linked: false,
             text: `line ${entry.line}: failed: expected \`<url> <pairing-code>\``,
           })
-        : links.linkUnlessLinked({ url: entry.url, pairingCode: entry.pairingCode }).pipe(
-            Effect.map(({ link, alreadyLinked }) => ({
-              linked: true,
-              text: alreadyLinked
-                ? `${linkBatchEntryName(entry)}: already linked as ${link.label} (${link.environmentId}), left as it is`
-                : `${linkBatchEntryName(entry)}: linked ${link.label} (${link.environmentId})`,
-            })),
-            Effect.catch((error) =>
-              Effect.succeed({
-                linked: false,
-                text: `${linkBatchEntryName(entry)}: ${FAILURE_KIND_LABELS[peerLinkFailureKind(error)]}: ${error.message}`,
-              }),
+        : links
+            .linkUnlessLinked({ url: entry.url, pairingCode: entry.pairingCode, reciprocal: true })
+            .pipe(
+              Effect.map(({ link, reciprocal, alreadyLinked }) => ({
+                linked: true,
+                text: alreadyLinked
+                  ? `${linkBatchEntryName(entry)}: already linked as ${link.label} (${link.environmentId}), left as it is`
+                  : `${linkBatchEntryName(entry)}: linked ${link.label} (${link.environmentId})${
+                      reciprocal.kind === "failed"
+                        ? `; ${reciprocal.message}`
+                        : reciprocal.kind === "unsupported"
+                          ? `; ${link.label} runs an iglo.code version that does not link back`
+                          : ""
+                    }`,
+              })),
+              Effect.catch((error) =>
+                Effect.succeed({
+                  linked: false,
+                  text: `${linkBatchEntryName(entry)}: ${FAILURE_KIND_LABELS[peerLinkFailureKind(error)]}: ${error.message}`,
+                }),
+              ),
             ),
-          ),
     { concurrency: LINK_BATCH_CONCURRENCY },
   );
   const failed = outcomes.filter((outcome) => !outcome.linked).length;
@@ -269,12 +277,6 @@ const environmentLinkCommand = Command.make("link", {
     ),
     Flag.optional,
   ),
-  oneWay: Flag.Boolean("one-way").pipe(
-    Flag.withDescription(
-      "Link only this direction, and leave the other environment unlinked here.",
-    ),
-    Flag.withDefault(false),
-  ),
 }).pipe(
   Command.withDescription(
     "Link another iglo.code environment with full access, so agents here can work there and its agents can work here. It shows up there under Authorized clients in Settings → Sharing & access, where it can be revoked.",
@@ -307,12 +309,10 @@ const environmentLinkCommand = Command.make("link", {
             url,
             alternateUrls: flags.alternateUrl,
             pairingCode,
-            reciprocal: !flags.oneWay,
+            reciprocal: true,
           });
           // An older server's plain link carries no outcome: it linked one way.
-          const reciprocal =
-            created.reciprocal ??
-            (flags.oneWay ? ({ kind: "off" } as const) : ({ kind: "unsupported" } as const));
+          const reciprocal = created.reciprocal ?? ({ kind: "unsupported" } as const);
           yield* Console.log(
             `Linked ${created.label} (${created.environmentId}), until ${DateTime.formatIso(created.expiresAt)}.`,
           );

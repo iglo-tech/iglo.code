@@ -953,6 +953,29 @@ it("reads Node's TLS verification code from anywhere in a cause chain", () => {
 // impostor peer do.
 const makeServedA = () => serveApart(laptop);
 
+it.effect("a batch link links back and reports it, and leaves a linked machine as it is", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      const first = yield* a.links.linkUnlessLinked({
+        url: b.url,
+        pairingCode: pairing.credential,
+        reciprocal: true,
+      });
+      expect(first).toMatchObject({ alreadyLinked: false, reciprocal: { kind: "linked" } });
+      expect(yield* b.links.list).toMatchObject([{ environmentId: laptop.environmentId }]);
+      const again = yield* a.links.linkUnlessLinked({
+        url: b.url,
+        pairingCode: (yield* b.auth.issuePairingCredential()).credential,
+        reciprocal: true,
+      });
+      expect(again).toMatchObject({ alreadyLinked: true, reciprocal: { kind: "off" } });
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
 it.effect("one link serves both directions, and forgetting removes both sides", () =>
   Effect.scoped(
     Effect.gen(function* () {

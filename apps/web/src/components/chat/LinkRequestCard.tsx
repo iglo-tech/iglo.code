@@ -35,7 +35,6 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { LinkAddressWarning, LinkMachineBadge } from "../settings/LinkMachineSelect";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
 import { Dialog } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Radio, RadioGroup } from "../ui/radio-group";
@@ -187,7 +186,6 @@ function LinkRequestDialog(props: {
   const [choice, setChoice] = useState<string | null>(null);
   const [address, setAddress] = useState(item.url ?? "");
   const [pairingCode, setPairingCode] = useState("");
-  const [bothWays, setBothWays] = useState(true);
   // An older environment ignores the reciprocal field, so its links are one way.
   const configs = useServerConfigs();
   const supportsReciprocal =
@@ -245,7 +243,6 @@ function LinkRequestDialog(props: {
     setChoice(null);
     setAddress(item.url ?? "");
     setPairingCode("");
-    setBothWays(true);
     setStep("machine");
     setError(null);
   };
@@ -279,8 +276,6 @@ function LinkRequestDialog(props: {
       type: "link",
       target: target.kind === "machine" && target.urls.length > 0 ? target : { url: address },
       pairingCode: code,
-      // An environment that cannot link back gets one way, whatever the box says.
-      reciprocal: supportsReciprocal && bothWays,
     });
   };
 
@@ -454,34 +449,14 @@ function LinkRequestDialog(props: {
                         </span>
                       </label>
                     )}
-                    {supportsReciprocal ? (
-                      <label className="flex items-start gap-2">
-                        <Checkbox
-                          className="mt-0.5"
-                          checked={bothWays}
-                          onCheckedChange={(checked) => setBothWays(Boolean(checked))}
-                          disabled={busy}
-                        />
-                        <span className="min-w-0 space-y-0.5">
-                          <span className="block text-xs font-medium text-foreground">
-                            <T>Link back to this environment</T>
-                          </span>
-                          <span className="block text-xs text-muted-foreground">
-                            <T>
-                              <Var name="target">{targetName}</Var>'s agents get full access here,
-                              using a code minted for it. Turn this off to link one way.
-                            </T>
-                          </span>
-                        </span>
-                      </label>
-                    ) : (
+                    {!supportsReciprocal ? (
                       <p className="text-xs text-muted-foreground">
                         <T>
                           This environment runs a version that links one way only. Update it to link
                           back automatically.
                         </T>
                       </p>
-                    )}
+                    ) : null}
                   </>
                 )}
               </>

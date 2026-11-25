@@ -338,12 +338,6 @@ export function linkRequestAnswerInput(
           | Pick<LinkableMachine, "environmentId" | "label" | "urls">
           | { readonly url: string };
         readonly pairingCode: string;
-        /**
-         * Also link this environment back. Always sent:
-         * on the wire, unset means one way, so an unset answer would silently
-         * not link back. Defaults to yes.
-         */
-        readonly reciprocal?: boolean;
       }
     | { readonly type: "use-existing"; readonly environmentId: EnvironmentId }
     | { readonly type: "decline" },
@@ -362,7 +356,8 @@ export function linkRequestAnswerInput(
         type: "link",
         urls: [url],
         pairingCode,
-        reciprocal: answer.reciprocal ?? true,
+        access: "full-access",
+        reciprocal: true,
       },
     };
   }
@@ -376,7 +371,8 @@ export function linkRequestAnswerInput(
       label: target.label,
       urls: [first, ...rest],
       pairingCode,
-      reciprocal: answer.reciprocal ?? true,
+      access: "full-access",
+      reciprocal: true,
     },
   };
 }

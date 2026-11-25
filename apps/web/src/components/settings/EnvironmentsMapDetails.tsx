@@ -270,7 +270,7 @@ function FleetSummary({
   );
 }
 
-/** One link as a row: what it reaches, the access in words, where, and how it is doing. */
+/** One link as a row: what it reaches, its access when below full, where, and how it is doing. */
 function LinkButton({
   edge,
   label,
@@ -287,13 +287,17 @@ function LinkButton({
     <li>
       <button
         type="button"
-        className="grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-x-3 rounded-md px-1.5 py-1 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset lg:grid-cols-[auto_minmax(0,10rem)_minmax(0,10rem)_minmax(0,1fr)_auto]"
+        className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 rounded-md px-1.5 py-1 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset lg:grid-cols-[minmax(0,10rem)_auto_minmax(0,1fr)_auto]"
         onClick={() => onSelect({ kind: "edge", id: edge.id })}
       >
-        <AccessMeter access={edge.link.access} className="text-foreground/80" />
         <span className="truncate font-medium text-foreground">{label}</span>
-        <span className="truncate text-foreground/80">
-          {m(accessConfig[edge.link.access].label)}
+        <span className="flex items-center gap-1.5 text-foreground/80">
+          {edge.link.access === "full-access" ? null : (
+            <>
+              <AccessMeter access={edge.link.access} />
+              {m(accessConfig[edge.link.access].label)}
+            </>
+          )}
         </span>
         <span className="hidden truncate font-mono text-2xs text-muted-foreground lg:block">
           {edge.link.urls[0]}
@@ -380,7 +384,7 @@ function StackDetails({
           id,
           label: node.label,
           detail:
-            into.length === 1 && worst !== undefined
+            into.length === 1 && worst !== undefined && worst.link.access !== "full-access"
               ? m(accessConfig[worst.link.access].label)
               : gt("{count, plural, one {# link in} other {# links in}}", { count: into.length }),
           address: node.address,
@@ -427,7 +431,9 @@ function StackDetails({
                   machines: members.length,
                 }),
                 sources.join(", "),
-                ...(stack.sources.length === 1 && only !== undefined
+                ...(stack.sources.length === 1 &&
+                only !== undefined &&
+                only.access !== "full-access"
                   ? [m(accessConfig[only.access].label)]
                   : []),
                 gt("{reachable, plural, =0 {None reachable} other {# reachable}}", {
@@ -826,14 +832,18 @@ function LinkDetails({
         </div>
       </div>
       <dl className="grid max-w-2xl grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
-        <dt className={term}>{gt("Access", { $context: "access level" })}</dt>
-        <dd>
-          <span className="flex items-center gap-2 font-medium text-foreground">
-            <AccessMeter access={link.access} className="text-foreground/80" />
-            {m(access.label)}
-          </span>
-          <span className="text-muted-foreground">{m(access.description)}</span>
-        </dd>
+        {link.access === "full-access" ? null : (
+          <>
+            <dt className={term}>{gt("Access", { $context: "access level" })}</dt>
+            <dd>
+              <span className="flex items-center gap-2 font-medium text-foreground">
+                <AccessMeter access={link.access} className="text-foreground/80" />
+                {m(access.label)}
+              </span>
+              <span className="text-muted-foreground">{m(access.description)}</span>
+            </dd>
+          </>
+        )}
         <dt className={term}>
           {gt("Status", { $context: "state of a link between two machines" })}
         </dt>

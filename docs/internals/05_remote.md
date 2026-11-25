@@ -28,9 +28,10 @@ side lists and revokes it in Sharing & access like any other session, and owns i
 - **One link serves both directions (fork).** Upstream links one direction per sign-in. Here, after
   the forward sign-in, the linking environment mints its own one-time peer-link code and offers it
   over `/api/peer-links/reciprocal` ([PeerLinks](../../apps/server/src/peer/PeerLinks.ts)), and the
-  peer links back at full access. It is on by default; the **Link back** checkbox (`--one-way`
-  on the CLI) opts out, and unset `reciprocal` on the wire means one way, so mixed versions
-  interoperate. The accepting side passes `reciprocal: false` so offers never loop, and a failed
+  peer links back at full access. Every first-party caller sends `reciprocal: true`, so there is no
+  one-way option; unset `reciprocal` on the wire still means one way, so older clients and mixed
+  versions interoperate. A client that may talk to an older server also sends `access`, which
+  this server ignores and an older one requires. The accepting side passes `reciprocal: false` so offers never loop, and a failed
   offer revokes its code. Offered addresses are only those the peer's `peerOrigin` accepts
   ([OwnLinkOrigins](../../apps/server/src/peer/OwnLinkOrigins.ts)): MagicDNS names, probed to
   answer as this environment whatever process published Serve, so a CLI link and a service that

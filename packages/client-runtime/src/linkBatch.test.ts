@@ -92,7 +92,7 @@ describe("runLinkBatch", () => {
       link: async (input) => {
         linked.push(input);
         const failure = failures[input.expectedLabel ?? ""];
-        return failure === undefined ? Result.succeed(null) : Result.fail(failure);
+        return failure === undefined ? Result.succeed({}) : Result.fail(failure);
       },
       refreshLinks: () => {},
       onOutcome: (environmentId) => seen.push(environmentId),
@@ -104,6 +104,8 @@ describe("runLinkBatch", () => {
       expectedEnvironmentId: id("a"),
       expectedLabel: "a",
       pairingCode: `code-for-${id("a")}`,
+      access: "full-access",
+      reciprocal: true,
     });
     // A machine with no code is never linked.
     expect(linked.length).toBe(4);
@@ -152,7 +154,7 @@ describe("runLinkBatch", () => {
       link: async () => {
         await Promise.resolve();
         open -= 1;
-        return Result.succeed(null);
+        return Result.succeed({});
       },
       refreshLinks: () => {},
     });
@@ -168,7 +170,7 @@ describe("runLinkBatch", () => {
         link: async () => {
           await Promise.resolve();
           events.push("link");
-          return fails ? Result.fail(new Error("refused")) : Result.succeed(null);
+          return fails ? Result.fail(new Error("refused")) : Result.succeed({});
         },
         refreshLinks: () => events.push("refresh"),
       });
@@ -245,55 +247,28 @@ describe("linkBackOffer", () => {
 });
 
 describe("runLinkBatch link back", () => {
-  it("links back from each eligible machine, and a reverse failure keeps the forward link", async () => {
-    const source = machine("source");
-    const reverse: Array<unknown> = [];
-    const minted: Array<string> = [];
+  it("reports what the server made of linking back, and keeps the link when it failed", async () => {
     const outcomes = await runLinkBatch({
-      machines: [machine("a"), machine("b"), machine("c"), machine("d")],
-      mint: async (environmentId) => {
-        minted.push(environmentId);
-        return Result.succeed(`code-for-${environmentId}`);
-      },
+      machines: [machine("a"), machine("b"), machine("c")],
+      mint: async (environmentId) => Result.succeed(`code-for-${environmentId}`),
       link: async (input) =>
-        input.expectedLabel === "d" ? Result.fail(new Error("refused")) : Result.succeed(null),
-      back: {
-        source,
-        targets: new Set([id("a"), id("b"), id("d")]),
-        link: async (environmentId, input) => {
-          reverse.push([environmentId, input]);
-          return environmentId === id("b")
-            ? Result.fail(
-                new PeerLinkError({ reason: "unreachable", message: "source did not answer." }),
-              )
-            : Result.succeed(null);
-        },
-      },
+        Result.succeed(
+          input.expectedLabel === "a"
+            ? { reciprocal: { kind: "linked" as const } }
+            : input.expectedLabel === "b"
+              ? { reciprocal: { kind: "failed" as const, message: "b could not link back." } }
+              : {},
+        ),
       refreshLinks: () => {},
     });
     expect(Object.fromEntries(outcomes)).toEqual({
-      [id("a")]: { kind: "linked", back: { kind: "linked" } },
+      [id("a")]: { kind: "linked", reciprocal: { kind: "linked" } },
       [id("b")]: {
         kind: "linked",
-        back: { kind: "failed", failure: "unreachable", detail: "source did not answer." },
+        reciprocal: { kind: "failed", message: "b could not link back." },
       },
-      // Not eligible, so not attempted.
       [id("c")]: { kind: "linked" },
-      // Its own link failed, so nothing links back.
-      [id("d")]: { kind: "failed", failure: "other", detail: null },
     });
-    // The reverse link is made on the machine, with a code minted on the source for it.
-    expect(reverse[0]).toEqual([
-      id("a"),
-      {
-        url: "https://source.example.ts.net",
-        alternateUrls: ["http://100.64.0.1:3773"],
-        expectedEnvironmentId: id("source"),
-        expectedLabel: "source",
-        pairingCode: `code-for-${id("source")}`,
-      },
-    ]);
-    expect(minted.filter((environmentId) => environmentId === id("source")).length).toBe(2);
-    expect(linkBatchSummary(outcomes)).toEqual({ linked: 3, failed: [id("d")] });
+    expect(linkBatchSummary(outcomes)).toEqual({ linked: 3, failed: [] });
   });
 });

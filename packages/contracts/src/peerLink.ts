@@ -50,6 +50,8 @@ export const PeerLinkCreateInput = Schema.Struct({
   alternateUrls: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
   /** A pairing code from the peer (`iglo.code pair` there, or its Connections settings). */
   pairingCode: TrimmedNonEmptyString,
+  /** Ignored by this server, which always links at full access; older servers require it. */
+  access: Schema.optionalKey(AuthMcpClientAccess),
   /**
    * Also link this environment back to the peer, at full access too, when the
    * peer accepts reciprocal links. Unset means no reciprocal link: older
@@ -273,6 +275,8 @@ export type PeerLinkClientPairingInput = typeof PeerLinkClientPairingInput.Type;
  */
 export const PeerLinkLinkPairingInput = Schema.Struct({
   environmentId: EnvironmentId,
+  /** Ignored by this server, which always links at full access; older servers require it. */
+  access: Schema.optionalKey(AuthMcpClientAccess),
 });
 export type PeerLinkLinkPairingInput = typeof PeerLinkLinkPairingInput.Type;
 
@@ -348,6 +352,8 @@ export const PeerLinkRequestAnswerInput = Schema.Struct({
       label: Schema.optionalKey(TrimmedNonEmptyString),
       /** The addresses the client knows for that machine, most preferred first. */
       urls: Schema.NonEmptyArray(TrimmedNonEmptyString),
+      /** Ignored by this server, which always links at full access; older servers require it. */
+      access: Schema.optionalKey(AuthMcpClientAccess),
       pairingCode: TrimmedNonEmptyString,
       /** Also link this environment back to that machine. Unset means one way. */
       reciprocal: Schema.optionalKey(Schema.Boolean),

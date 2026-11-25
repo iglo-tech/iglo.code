@@ -1199,7 +1199,9 @@ function connectAvailabilityText(
 }
 
 function linkSummary(edge: FleetLinkEdge, gt: GT, m: Messages): string {
-  return `${m(accessConfig[edge.link.access].label)}, ${healthLabel(edge.health, gt)}`;
+  return edge.link.access === "full-access"
+    ? healthLabel(edge.health, gt)
+    : `${m(accessConfig[edge.link.access].label)}, ${healthLabel(edge.health, gt)}`;
 }
 
 /** A link in words, for the pointer and for assistive tech. A two-way link names each direction. */
@@ -1218,16 +1220,26 @@ function linkName(
         target,
         summary: linkSummary(edge, gt, m),
       })
-    : gt(
-        "Two-way link between {source} and {target}, {access}. {source} to {target}: {forward}. {target} to {source}: {back}",
-        {
-          source,
-          target,
-          access: m(accessConfig[edge.link.access].label),
-          forward: healthLabel(edge.health, gt),
-          back: healthLabel(back.health, gt),
-        },
-      );
+    : edge.link.access === "full-access"
+      ? gt(
+          "Two-way link between {source} and {target}. {source} to {target}: {forward}. {target} to {source}: {back}",
+          {
+            source,
+            target,
+            forward: healthLabel(edge.health, gt),
+            back: healthLabel(back.health, gt),
+          },
+        )
+      : gt(
+          "Two-way link between {source} and {target}, {access}. {source} to {target}: {forward}. {target} to {source}: {back}",
+          {
+            source,
+            target,
+            access: m(accessConfig[edge.link.access].label),
+            forward: healthLabel(edge.health, gt),
+            back: healthLabel(back.health, gt),
+          },
+        );
 }
 
 /**
@@ -1797,11 +1809,17 @@ const FleetScene = memo(function FleetScene({
             {back === undefined ? null : (
               <ArrowUpDownIcon aria-hidden className="size-3 shrink-0" />
             )}
-            <AccessMeter
-              access={edge.link.access}
-              className={cn(lit !== null && !lit.edges.has(edge.id) && "opacity-45")}
-            />
-            <span className="truncate">{m(accessConfig[edge.link.access].label)}</span>
+            {edge.link.access === "full-access" ? null : (
+              <AccessMeter
+                access={edge.link.access}
+                className={cn(lit !== null && !lit.edges.has(edge.id) && "opacity-45")}
+              />
+            )}
+            <span className="truncate">
+              {edge.link.access === "full-access"
+                ? healthLabel(health, gt)
+                : m(accessConfig[edge.link.access].label)}
+            </span>
           </button>
         );
       })}
@@ -1820,11 +1838,13 @@ const FleetScene = memo(function FleetScene({
           group !== null
             ? range
             : stack.sources.length === 1 && only !== undefined
-              ? gt("{access}. {reachable} of {count} reachable", {
-                  access: m(accessConfig[only.access].label),
-                  reachable: stack.reachable,
-                  count,
-                })
+              ? only.access === "full-access"
+                ? gt("{reachable} of {count} reachable", { reachable: stack.reachable, count })
+                : gt("{access}. {reachable} of {count} reachable", {
+                    access: m(accessConfig[only.access].label),
+                    reachable: stack.reachable,
+                    count,
+                  })
               : gt("{reachable} of {count} reachable, from {sources} environments", {
                   reachable: stack.reachable,
                   count,
@@ -1903,7 +1923,9 @@ const FleetScene = memo(function FleetScene({
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5 text-2xs leading-4 text-muted-foreground">
-                    {only !== undefined && stack.sources.length === 1 ? (
+                    {only !== undefined &&
+                    stack.sources.length === 1 &&
+                    only.access !== "full-access" ? (
                       <AccessMeter access={only.access} className="text-foreground/70" />
                     ) : null}
                     <span className="whitespace-nowrap tabular-nums">
@@ -2066,13 +2088,15 @@ const FleetScene = memo(function FleetScene({
                           $context:
                             "how many machines hold a link to this machine; pairs with '# links out'",
                         })
-                      : first.health.kind === "reachable" && first.health.expiresInDays === null
-                        ? m(accessConfig[first.link.access].label)
-                        : `${m(accessConfig[first.link.access].label)} · ${healthLabel(first.health, gt)}`}
+                      : first.link.access === "full-access"
+                        ? healthLabel(first.health, gt)
+                        : first.health.kind === "reachable" && first.health.expiresInDays === null
+                          ? m(accessConfig[first.link.access].label)
+                          : `${m(accessConfig[first.link.access].label)} · ${healthLabel(first.health, gt)}`}
                   </span>
                 )}
               </span>
-              {compact || !shown ? null : (
+              {compact || !shown || shown.link.access === "full-access" ? null : (
                 <AccessMeter access={shown.link.access} className="text-foreground/70" />
               )}
             </button>

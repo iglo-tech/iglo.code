@@ -15,7 +15,7 @@ import { useId, useRef, useState } from "react";
 
 import { useEnvironments } from "~/state/environments";
 import { mintPairingCodeOn } from "~/state/peerPairingCode";
-import { peerLinkEnvironment, useLinkableMachines, useLinkBackOffers } from "~/state/peerLinks";
+import { peerLinkEnvironment, useLinkableMachines } from "~/state/peerLinks";
 import { useEnvironmentQuery } from "~/state/query";
 import { useEnvironmentsWithScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -104,30 +104,17 @@ export function LinkSeveralEnvironmentsDialog({
     label: "link several environments",
     ...quiet,
   });
-  // Each machine links back once, so each refreshes its own list.
-  const linkOn = useAtomCommand(peerLinkEnvironment.link, {
-    label: "link environment back",
-    ...quiet,
-  });
-  const [alsoLinkBack, setAlsoLinkBack] = useState(false);
   const candidates = linkBatchCandidates(machines, writable, linksState);
   const selectable = candidates.flatMap(({ machine, blocked }) =>
     blocked === null && outcomes.get(machine.environmentId)?.kind !== "linked" ? [machine] : [],
   );
   const chosen = selectable.filter((machine) => selected.has(machine.environmentId));
-  const linkBack = useLinkBackOffers(
-    environmentId,
-    selectable.map((machine) => machine.environmentId),
-    open,
-  );
-  const canLinkBack = (machine: { readonly environmentId: EnvironmentId }) =>
-    linkBack.offerFor(machine.environmentId).kind === "offered";
-  const backOffered = linkBack.source !== null && selectable.some(canLinkBack);
-  const oneWayOnly = chosen.filter((machine) => !canLinkBack(machine)).length;
   const busy = linking.size > 0;
   const summary = linkBatchSummary(outcomes);
-  const backFailed = [...outcomes.values()].filter(
-    (outcome) => outcome.kind === "linked" && outcome.back?.kind === "failed",
+  const oneWay = [...outcomes.values()].filter(
+    (outcome) =>
+      outcome.kind === "linked" &&
+      (outcome.reciprocal?.kind === "failed" || outcome.reciprocal?.kind === "unsupported"),
   ).length;
   // Picked on the map, but only another machine's link names them: this app has no session there.
   const unlisted = (preset ?? []).filter(
@@ -139,7 +126,6 @@ export function LinkSeveralEnvironmentsDialog({
     if (!next) {
       setSelected(NO_MACHINES);
       setOutcomes(NO_OUTCOMES);
-      setAlsoLinkBack(false);
     }
   };
   const toggle = (id: EnvironmentId, checked: boolean) =>
@@ -162,20 +148,6 @@ export function LinkSeveralEnvironmentsDialog({
           ? Result.succeed(result.value)
           : Result.fail(squashAtomCommandFailure(result));
       },
-      ...(alsoLinkBack && linkBack.source !== null
-        ? {
-            back: {
-              source: linkBack.source,
-              targets: new Set(chosen.filter(canLinkBack).map((machine) => machine.environmentId)),
-              link: async (targetId, input) => {
-                const result = await linkOn({ environmentId: targetId, input });
-                return result._tag === "Success"
-                  ? Result.succeed(result.value)
-                  : Result.fail(squashAtomCommandFailure(result));
-              },
-            },
-          }
-        : {}),
       refreshLinks: links.refresh,
       onOutcome: (id, outcome) => {
         setOutcomes((current) => new Map(current).set(id, outcome));
@@ -289,16 +261,16 @@ export function LinkSeveralEnvironmentsDialog({
                     const id = machine.environmentId;
                     const outcome = outcomes.get(id);
                     const available = blocked === null && outcome?.kind !== "linked";
-                    const back = outcome?.kind === "linked" ? outcome.back : undefined;
+                    const reciprocal = outcome?.kind === "linked" ? outcome.reciprocal : undefined;
                     const status = linking.has(id)
                       ? gt("Linking…")
                       : outcome?.kind === "linked"
-                        ? back?.kind === "linked"
+                        ? reciprocal?.kind === "linked"
                           ? gt("Linked both ways", {
                               $context:
                                 "status of a machine that was just linked in both directions",
                             })
-                          : back?.kind === "failed"
+                          : reciprocal?.kind === "failed" || reciprocal?.kind === "unsupported"
                             ? gt("Linked one way", {
                                 $context:
                                   "status of a machine: the link to it was made, the link back from it failed",
@@ -328,18 +300,24 @@ export function LinkSeveralEnvironmentsDialog({
                                 {outcome.detail}
                               </span>
                             ) : null}
-                            {back?.kind === "failed" ? (
+                            {reciprocal?.kind === "failed" ? (
                               <span className="block text-xs text-destructive">
                                 {gt("Could not link back: {reason}", {
-                                  reason: back.detail ?? linkBatchFailureLabel(back.failure, m),
+                                  reason: reciprocal.message,
                                 })}
+                              </span>
+                            ) : reciprocal?.kind === "unsupported" ? (
+                              <span className="block text-xs text-muted-foreground">
+                                {gt(
+                                  "It runs an iglo.code version that does not link back. Update it there, then link again.",
+                                )}
                               </span>
                             ) : null}
                           </span>
                           {status === null ? null : (
                             <span
                               className={
-                                outcome?.kind === "failed" || back?.kind === "failed"
+                                outcome?.kind === "failed" || reciprocal?.kind === "failed"
                                   ? "shrink-0 text-xs text-destructive"
                                   : "shrink-0 text-xs text-muted-foreground"
                               }
@@ -372,36 +350,13 @@ export function LinkSeveralEnvironmentsDialog({
                       "Linked {linked} of {total}. The ones that failed stay selected, so you can try them again.",
                       { linked: summary.linked, total: outcomes.size },
                     )}
-                {backFailed > 0
+                {oneWay > 0
                   ? ` ${gt(
                       "{count, plural, one {# machine could not link back.} other {# machines could not link back.}}",
-                      { count: backFailed },
+                      { count: oneWay },
                     )}`
                   : null}
               </p>
-            ) : null}
-            {backOffered && sourceLabel !== undefined ? (
-              <label className="flex cursor-pointer items-start gap-2.5 text-sm has-data-disabled:cursor-default">
-                <Checkbox
-                  checked={alsoLinkBack}
-                  disabled={busy}
-                  onCheckedChange={setAlsoLinkBack}
-                />
-                <span className="min-w-0 space-y-0.5">
-                  <span className="block font-medium text-foreground">
-                    {gt("Also link each machine back to {source}", { source: sourceLabel })}
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {gt("Agents there can then work on {source} too.", { source: sourceLabel })}
-                    {alsoLinkBack && oneWayOnly > 0
-                      ? ` ${gt(
-                          "{count, plural, one {# machine stays one-way.} other {# machines stay one-way.}}",
-                          { count: oneWayOnly },
-                        )}`
-                      : null}
-                  </span>
-                </span>
-              </label>
             ) : null}
           </form>
         </DialogPanel>
