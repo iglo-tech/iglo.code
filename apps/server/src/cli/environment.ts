@@ -272,7 +272,7 @@ const environmentLinkCommand = Command.make("link", {
   ),
 }).pipe(
   Command.withDescription(
-    "Link another T3 Code environment, so agents here can work there and its agents can work here. It shows up there under Authorized clients in Settings → Sharing & access, where it can be revoked.",
+    "Link another iglo.code environment, so agents here can work there and its agents can work here. It shows up there under Authorized clients in Settings → Sharing & access, where it can be revoked.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
@@ -322,7 +322,7 @@ const environmentLinkCommand = Command.make("link", {
               break;
             case "unsupported":
               yield* Console.log(
-                `${created.label} runs a T3 Code version that does not link back. Update it there, then link again for both ways.`,
+                `${created.label} runs an iglo.code version that does not link back. Update it there, then link again for both ways.`,
               );
               break;
             case "failed":
@@ -384,7 +384,7 @@ const environmentUnlinkCommand = Command.make("unlink", {
 );
 
 export const environmentCommand = Command.make("environment").pipe(
-  Command.withDescription("Link other T3 Code environments, so agents here can work there."),
+  Command.withDescription("Link other iglo.code environments, so agents here can work there."),
   Command.withSubcommands([
     environmentLinkCommand,
     environmentListCommand,

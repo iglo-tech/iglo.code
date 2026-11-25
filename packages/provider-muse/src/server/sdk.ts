@@ -159,7 +159,7 @@ export function museServeArgs(
 
 export function museInitializeParams(readOnly = false) {
   return {
-    clientInfo: { name: "iglo_code", title: "T3 Code", version: "1" },
+    clientInfo: { name: "iglo_code", title: "iglo.code", version: "1" },
     capabilities: { requestedCapabilities: readOnly ? [] : ["sessionMcp"] },
   };
 }

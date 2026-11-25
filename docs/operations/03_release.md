@@ -1,6 +1,6 @@
 # Releases and deployments
 
-> For maintainers. Using T3 Code? See [docs/user](../user/).
+> For maintainers. Using iglo.code? See [docs/user](../user/).
 
 This fork has no CI: checks and release builds run locally. Nothing is published to npm, and
 tags do not deploy web previews or production.

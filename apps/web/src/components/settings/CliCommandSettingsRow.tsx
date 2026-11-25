@@ -63,14 +63,14 @@ export function CliCommandSettingsRow() {
   const description = state.shadowedBy
     ? resolve(
         msg(
-          "Another iglo.code at {path} runs first in a new terminal. Remove it to use T3 Code's.",
+          "Another iglo.code at {path} runs first in a new terminal. Remove it to use iglo.code's.",
           {
             path: state.shadowedBy,
           },
         ),
       )
     : !installed
-      ? resolve(msg("Run T3 Code's CLI as `iglo.code` from any terminal."))
+      ? resolve(msg("Run iglo.code's CLI as `iglo.code` from any terminal."))
       : state.onPath
         ? resolve(
             msg("Installed at {path}. Open a new terminal to use it.", {

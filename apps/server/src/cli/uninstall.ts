@@ -306,6 +306,6 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
     }
   }
   yield* Console.log("");
-  yield* Console.log("iglo.code is uninstalled. Thanks for trying T3 Code.");
+  yield* Console.log("iglo.code is uninstalled. Thanks for trying iglo.code.");
   yield* logOtherHomeService(plan);
 });

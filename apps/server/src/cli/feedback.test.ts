@@ -59,7 +59,7 @@ it("feedback subjects name every listed iglo.code command", () => {
 
 const hidden = (tool: string) =>
   new McpBridge.AcpMcpBridgeError({
-    message: "T3 Code MCP tools/call failed.",
+    message: "iglo.code MCP tools/call failed.",
     rpcError: { code: -32602, message: `Tool '${tool}' not found` },
   });
 
@@ -115,7 +115,7 @@ it.effect("points to Labs only when the server hides the feedback tool", () =>
           ),
         stderr: `Could not reach the iglo.code server at ${runtimeState.origin}.`,
       },
-      { args: submit, running: false, stderr: "No running T3 Code server uses" },
+      { args: submit, running: false, stderr: "No running iglo.code server uses" },
     ];
     for (const { args, running, call, stderr } of cases) {
       yield* running === false

@@ -678,7 +678,8 @@ describe("fork identity", () => {
       "apps/server/src/fine.ts":
         'import { x } from "@t3tools/shared";\nconst T3_PROJECT_FILE_NAME = "iglo.code.json";\nconst url = "https://app.t3.codes";\nprocess.env.T3_ACP_FAIL_PROMPT;\n',
       "docs/user/install.md": "Run `t3 serve` or the desktop app.\n",
-      "docs/internals/notes.md": "Upstream T3 Code has a desktop app.\n",
+      "docs/internals/notes.md": "Upstream has a desktop app.\n",
+      "apps/web/src/copy.ts": 'export const title = "Enjoying T3 Code?";\n',
       "scripts/tool.py": "print('hi')\n",
       ".repos/effect/build.py": "print('vendored')\n",
     };
@@ -693,6 +694,7 @@ describe("fork identity", () => {
       "apps/server/src/config.ts env var T3CODE_*",
       "apps/server/src/config.ts ~/.t3 or worktree .t3 path",
       "apps/server/src/refs.ts git ref refs/t3",
+      "apps/web/src/copy.ts product name",
       "docs/user/install.md desktop or mobile app",
       "docs/user/install.md t3 CLI command",
       "scripts/tool.py Python file",

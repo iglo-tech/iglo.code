@@ -22,7 +22,7 @@ export const APPARMOR_PROFILE_PATH = "/etc/apparmor.d/t3-chrome";
 export const LEGACY_APPARMOR_PROFILE_PATH = "/etc/apparmor.d/t3-chrome-headless-shell";
 
 /** Attaches to the Chrome binaries under `tools/chrome/<platform>/<version>/`; covers the crashpad helper too. */
-export const APPARMOR_PROFILE = `# Written by \`iglo.code browser setup\`: lets T3 Code's browser use Chrome's sandbox.
+export const APPARMOR_PROFILE = `# Written by \`iglo.code browser setup\`: lets iglo.code's browser use Chrome's sandbox.
 abi <abi/4.0>,
 include <tunables/global>
 

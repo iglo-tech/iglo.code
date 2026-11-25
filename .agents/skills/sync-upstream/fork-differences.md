@@ -7,13 +7,20 @@ Change a fork decision only when the maintainer requests it. Keep this list
 current when an authorized change replaces a decision.
 
 - **Identity and repository tooling.** Keep the iglo.code name, branding, README,
-  repo-local skills, and fork-specific AGENTS.md guidance. The igloo icon set
+  repo-local skills, and fork-specific AGENTS.md guidance. User-facing, CLI,
+  server, i18n, and agent-facing product copy uses `iglo.code` rather than
+  `T3 Code` (enforced repo-wide by `check-fork-identity.ts`, with explicit
+  attribution exceptions only). The igloo icon set
   (`assets/iglo`, `apps/web/public` favicons, 192/512 px app icons, and
   `manifest.webmanifest`) replaces upstream's T3 icons; keep the installable web
   app's manifest entries. Upstream attribution
   and internal code names that never leave the process (`@t3tools/*` packages,
   the `t3` workspace package, TypeScript identifiers, source file names) remain
   valid; renaming them only causes merge conflicts.
+- **No GitHub star prompt.** Upstream's "Enjoying T3 Code? Give us a star"
+  popup (`apps/web/src/components/GitHubStarPrompt.*`), its composer send hook
+  in `useComposerSend.ts`, and the web `canvas-confetti` dependencies are
+  removed and pruned in `fork-scope.ts`.
 - **TypeScript on Bun only.** Repository tooling, including these sync helpers, is
   TypeScript run with Bun. The fork keeps no Python: imports drop upstream `.py`
   files and the identity check fails on any tracked one. Port a needed upstream

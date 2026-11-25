@@ -1,6 +1,6 @@
 ---
 name: test-t3-app
-description: Test T3 Code's web UI through its built-in Browser panel against isolated development state. Use for browser verification, browser pairing recovery, and test fixtures.
+description: Test iglo.code's web UI through its built-in Browser panel against isolated development state. Use for browser verification, browser pairing recovery, and test fixtures.
 ---
 
 # Test T3 web

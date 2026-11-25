@@ -95,6 +95,8 @@ export const REMOVED_PATHS = [
   ".cursor/rules/cursor-cloud.mdc",
   // Old project filter combobox row replaced by Discord project switcher rail.
   "apps/web/src/components/ProjectComboboxRow.tsx",
+  // Upstream GitHub star nag popup removed in iglo.code.
+  "apps/web/src/components/GitHubStarPrompt.*",
 ];
 
 export const mobileDependency = (name: string) =>

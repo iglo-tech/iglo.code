@@ -118,7 +118,7 @@ revocation and ceilings hold, not what a full-scope session can do once issued.
   Choosing a host does not make it trusted: what a configured endpoint can do
   to the server or its clients stays in scope.
 - An attacker already running code as the same OS user. That includes one whose
-  only move is to rewrite files that user owns outside a workspace: T3 Code's
+  only move is to rewrite files that user owns outside a workspace: iglo.code's
   data directory, its installed helpers, the user's own config. Another OS
   account on the same machine is not this attacker; neither is repository
   content or an agent below full access, which write inside a workspace without

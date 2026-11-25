@@ -199,7 +199,7 @@ it.effect("links with a pairing code, and the peer holds its agents to the limit
       });
       // B lists the link under A's name, where it can be revoked.
       expect((yield* linkedSessions(b)).map((session) => session.client.label)).toEqual([
-        "T3 Code · Laptop",
+        "iglo.code · Laptop",
       ]);
       expect(
         (yield* a.links.list).map(({ environmentId, status }) => [environmentId, status]),
@@ -208,8 +208,8 @@ it.effect("links with a pairing code, and the peer holds its agents to the limit
       // The caller's limits narrow the link's access; they never widen it.
       expect(
         yield* probe(a, { runtimeMode: "approval-required", interactionMode: "plan" }),
-      ).toEqual({ caller: "T3 Code · Laptop", modes: "approval-required/plan" });
-      expect(yield* probe(a)).toEqual({ caller: "T3 Code · Laptop", modes: "auto/default" });
+      ).toEqual({ caller: "iglo.code · Laptop", modes: "approval-required/plan" });
+      expect(yield* probe(a)).toEqual({ caller: "iglo.code · Laptop", modes: "auto/default" });
 
       // A refusal keeps the peer's reason.
       const notFound = yield* probe(a, undefined, "refuse").pipe(Effect.flip);
@@ -267,7 +267,7 @@ it.effect(
         expect(waiting.code).toBe("orchestration_error");
         expect(waiting.message).toContain("has Linked environments turned off");
         yield* b.settings.updateSettings({ linkedEnvironmentsEnabled: true });
-        expect(yield* probe(a)).toEqual({ caller: "T3 Code · Laptop", modes: "auto/default" });
+        expect(yield* probe(a)).toEqual({ caller: "iglo.code · Laptop", modes: "auto/default" });
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -866,7 +866,7 @@ it.effect("linking a picked machine that answers nowhere names it and links noth
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.live("linking an address with nothing listening says so, unlike one that is not T3 Code", () =>
+it.live("linking an address with nothing listening says so, unlike one that is not iglo.code", () =>
   Effect.scoped(
     Effect.gen(function* () {
       // Any test worker can reuse a closed ephemeral port; port 2 is privileged and outside that range.
@@ -881,7 +881,7 @@ it.live("linking an address with nothing listening says so, unlike one that is n
         a.links.link({ url, pairingCode: "unused", access: "auto" }).pipe(Effect.flip);
       expect((yield* linking(closed)).message).toBe(`${closed} did not answer (ECONNREFUSED).`);
       expect((yield* linking(notT3)).message).toBe(
-        `${notT3} answered, but not as a T3 Code environment this version understands.`,
+        `${notT3} answered, but not as an iglo.code environment this version understands.`,
       );
       expect(yield* a.links.list).toEqual([]);
     }),
@@ -980,10 +980,10 @@ it.effect("one link serves both directions, and forgetting removes both sides", 
       ]);
       // Each side's session for the other, as each Sharing & access lists.
       expect((yield* linkedSessions(b)).map((session) => session.client.label)).toEqual([
-        "T3 Code · Laptop",
+        "iglo.code · Laptop",
       ]);
       expect((yield* linkedSessions(a)).map((session) => session.client.label)).toEqual([
-        "T3 Code · Box",
+        "iglo.code · Box",
       ]);
       // Forgetting here ends both halves: the row on each side, and the session each held there.
       const removed = yield* a.links.unlink(box.environmentId);
@@ -1012,7 +1012,7 @@ it.effect("a link asked to stay one way leaves the peer unlinked back", () =>
       expect(yield* b.links.list).toEqual([]);
       // The forward half still stands, as one-way links always have.
       expect((yield* linkedSessions(b)).map((session) => session.client.label)).toEqual([
-        "T3 Code · Laptop",
+        "iglo.code · Laptop",
       ]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
@@ -1118,7 +1118,7 @@ it.effect("a teardown over a link from before this change ends its session and n
       const b = yield* serveB(box);
       // A peer-link session that declared no environment id, as an older iglo.code signs in.
       const session = yield* b.auth.issueMcpClientSession({
-        label: "T3 Code · Old laptop",
+        label: "iglo.code · Old laptop",
         access: "auto",
         peerLink: true,
         client: { deviceType: "bot" },
@@ -1174,7 +1174,7 @@ it.effect(
         expect(Option.isSome(yield* a.links.get(box.environmentId))).toBe(true);
         expect(yield* b.links.list).toEqual([]);
         expect((yield* linkedSessions(b)).map((session) => session.client.label)).toEqual([
-          "T3 Code · Laptop",
+          "iglo.code · Laptop",
         ]);
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
@@ -1352,7 +1352,7 @@ it.effect("a teardown only touches the row its own session is bound to", () =>
       });
       // A second linked peer session on B, claiming to be A.
       const impostorSession = yield* b.auth.issueMcpClientSession({
-        label: "T3 Code · Laptop",
+        label: "iglo.code · Laptop",
         access: "auto",
         peerLink: true,
         peerEnvironmentId: laptop.environmentId,
@@ -1463,7 +1463,7 @@ it.effect(
         expect(removed.endedThere).toBe(true);
         expect(removed.remote?.kind).toBe("off");
         if (removed.remote?.kind === "off") {
-          expect(removed.remote.message).toContain("runs a T3 Code version");
+          expect(removed.remote.message).toContain("runs an iglo.code version");
           expect(removed.remote.message).toContain("Connections");
         }
         // No teardown call was made: the old peer has no such route.
@@ -1501,7 +1501,7 @@ it.live("a failed offer's answer does not echo per-address probe results", () =>
       const b = yield* serveB(box);
       // The offering session on B names Laptop.
       const session = yield* b.auth.issueMcpClientSession({
-        label: "T3 Code · Laptop",
+        label: "iglo.code · Laptop",
         access: "auto",
         peerLink: true,
         peerEnvironmentId: laptop.environmentId,

@@ -101,7 +101,7 @@ export interface ResolvedPeerLink {
 }
 
 /** What a link's session is called in the peer's Connections, before this environment's label. */
-export const LINK_CLIENT_NAME_PREFIX = "T3 Code · ";
+export const LINK_CLIENT_NAME_PREFIX = "iglo.code · ";
 
 export const LINKED_ENVIRONMENTS_OFF =
   "Linked environments is off on this machine. Turn it on in Settings → Labs.";
@@ -261,7 +261,7 @@ const connectionCode = (cause: unknown) =>
     .map((error) => (Predicate.hasProperty(error, "code") ? error.code : undefined))
     .find(Predicate.isString);
 
-/** Why `origin` did not answer as T3 Code, short enough for a toast. Never echoes a body. */
+/** Why `origin` did not answer as iglo.code, short enough for a toast. Never echoes a body. */
 const probeFailure = (
   origin: string,
   error: HttpClientError.HttpClientError | Schema.SchemaError | Cause.TimeoutError,
@@ -283,12 +283,12 @@ const probeFailure = (
   }
   return new PeerLinkError({
     reason: "not_a_t3_environment",
-    message: `${origin} answered, but not as a T3 Code environment this version understands.`,
+    message: `${origin} answered, but not as an iglo.code environment this version understands.`,
   });
 };
 
 /**
- * A route the server does not have, which on a T3 Code peer means an older
+ * A route the server does not have, which on an iglo.code peer means an older
  * version. An undeclared status arrives as a DecodeError, which carries the
  * response too, so match the status whatever the reason is.
  */
@@ -322,7 +322,7 @@ const reciprocalOfferFailure = (peer: string, error: unknown) => {
   }
   if (HttpClientError.isHttpClientError(error)) {
     return missingEndpoint(error)
-      ? `${peer} runs a T3 Code version that does not link back. Update it, then link again.`
+      ? `${peer} runs an iglo.code version that does not link back. Update it, then link again.`
       : `${peer} stopped answering while linking back.`;
   }
   return `${peer} answered in a shape this version does not understand. Update both environments.`;
@@ -330,7 +330,7 @@ const reciprocalOfferFailure = (peer: string, error: unknown) => {
 
 /** Why the peer kept its side when it was asked to forget, in words a user can act on. */
 const teardownFailure = (peer: string, selfLabel: string, error: unknown) => {
-  const revokeThere = `Revoke "T3 Code · ${selfLabel}" in ${peer}'s Sharing & access to end this side's session there.`;
+  const revokeThere = `Revoke "iglo.code · ${selfLabel}" in ${peer}'s Sharing & access to end this side's session there.`;
   if (isPeerLinkReciprocalError(error)) {
     return `${peer} could not forget its link back: ${error.message}`;
   }
@@ -342,7 +342,7 @@ const teardownFailure = (peer: string, selfLabel: string, error: unknown) => {
   }
   if (HttpClientError.isHttpClientError(error)) {
     return missingEndpoint(error)
-      ? `${peer} runs a T3 Code version that cannot forget a link from here. ${revokeThere}`
+      ? `${peer} runs an iglo.code version that cannot forget a link from here. ${revokeThere}`
       : `${peer} stopped answering. Forget its link there, in its Connections. ${revokeThere}`;
   }
   return `${peer} answered in a shape this version does not understand. Forget its link there, in its Connections. ${revokeThere}`;
@@ -391,7 +391,7 @@ const make = Effect.gen(function* () {
       Effect.provideService(HttpClient.HttpClient, peerHttpClient),
     );
 
-  /** The environment answering at `origin`, or why nothing there answers as T3 Code. */
+  /** The environment answering at `origin`, or why nothing there answers as iglo.code. */
   const probe = (origin: string) => {
     const timeout = probeTimeout(origin);
     return clientFor(origin).pipe(
@@ -795,7 +795,7 @@ const make = Effect.gen(function* () {
     if (!linkLimitsHold(peer)) {
       return yield* new PeerLinkError({
         reason: "incompatible",
-        message: `${peer.label} runs a T3 Code version that cannot keep a linked agent's limits. Update it, then link again.`,
+        message: `${peer.label} runs an iglo.code version that cannot keep a linked agent's limits. Update it, then link again.`,
       });
     }
     const issued = yield* signIn(
@@ -1036,7 +1036,7 @@ const make = Effect.gen(function* () {
           ? { kind: "removed" }
           : {
               kind: "kept",
-              message: `${args.label} kept its link back here. Revoke "T3 Code · ${args.label}" in this machine's Sharing & access to end its session here.`,
+              message: `${args.label} kept its link back here. Revoke "iglo.code · ${args.label}" in this machine's Sharing & access to end its session here.`,
             },
       ),
       Effect.catch((error) =>
@@ -1119,7 +1119,7 @@ const make = Effect.gen(function* () {
           endedThere: false,
           remote: {
             kind: "off",
-            message: `${link.label} did not answer. Forget its link there, in its Connections, and revoke "T3 Code · ${self.label}" in ${link.label}'s Sharing & access to end this side's session there.`,
+            message: `${link.label} did not answer. Forget its link there, in its Connections, and revoke "iglo.code · ${self.label}" in ${link.label}'s Sharing & access to end this side's session there.`,
           } satisfies PeerLinkTeardownOutcome,
         };
       }
@@ -1133,8 +1133,8 @@ const make = Effect.gen(function* () {
           remote: {
             kind: "off",
             message: endedThere
-              ? `${link.label} ended this side's session there, but runs a T3 Code version that cannot forget a link from here. Forget its link back in its Connections.`
-              : `${link.label} runs a T3 Code version that cannot forget a link from here. Revoke "T3 Code · ${self.label}" in ${link.label}'s Sharing & access to end this side's session there.`,
+              ? `${link.label} ended this side's session there, but runs an iglo.code version that cannot forget a link from here. Forget its link back in its Connections.`
+              : `${link.label} runs an iglo.code version that cannot forget a link from here. Revoke "iglo.code · ${self.label}" in ${link.label}'s Sharing & access to end this side's session there.`,
           } satisfies PeerLinkTeardownOutcome,
         };
       }
@@ -1338,7 +1338,7 @@ const make = Effect.gen(function* () {
       if (!linkLimitsHold(peer)) {
         return yield* new PeerLinkError({
           reason: "incompatible",
-          message: `${link.label} runs a T3 Code version that cannot keep a linked agent's limits. Update it, then link again.`,
+          message: `${link.label} runs an iglo.code version that cannot keep a linked agent's limits. Update it, then link again.`,
         });
       }
       return {

@@ -44,7 +44,7 @@ const RULES: Rule[] = [
     scope: DOCS,
   },
   { label: "T3 Connect", pattern: /T3 Connect|app\.t3\.codes/g, scope: DOCS },
-  { label: "product name", pattern: /\bT3 Code\b/g, scope: DOCS },
+  { label: "product name", pattern: /\bT3 Code\b/g },
 ];
 
 // Tests and recording tools use arbitrary ports and their own T3_* knobs; nothing ships them.
@@ -66,6 +66,21 @@ const ALLOW: [string, string, string][] = [
     "service label",
     "upstream's trademark policy, kept verbatim; it names T3 Code's own apps",
   ],
+  ["TRADEMARK.md", "product name", "upstream's trademark policy, kept verbatim"],
+  ["CONTRIBUTING.md", "product name", "upstream contribution guide and trademark notice"],
+  ["AGENTS.md", "product name", "documents fork scope and upstream T3 Code attribution"],
+  [".github/SECURITY.md", "product name", "upstream security reporting notice"],
+  [
+    "docs/internals/06_t3-connect.md",
+    "product name",
+    "names upstream T3 Code where T3 Connect lives",
+  ],
+  [
+    "apps/server/src/cloud/publicConfig.ts",
+    "product name",
+    "comment explaining why upstream T3 Code Connect env vars stay ignored",
+  ],
+  ["patches/", "product name", "upstream patch comments; editing changes the lockfile patch hash"],
   [
     "packages/provider-grok/src/server/driver.test.ts",
     "npx t3 command",

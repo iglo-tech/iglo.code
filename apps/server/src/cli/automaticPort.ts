@@ -67,7 +67,7 @@ export const make = Effect.gen(function* () {
     }
     return yield* new CliError.UserError({
       cause:
-        "Windows is already using every port T3 Code tried. Pass --port or set IGLO_CODE_PORT to a port Windows is not using.",
+        "Windows is already using every port iglo.code tried. Pass --port or set IGLO_CODE_PORT to a port Windows is not using.",
     });
   });
 });

@@ -206,7 +206,7 @@ function SwitchPlan({
           ? [gt("This app's updates are off here, so reinstall it yourself to switch.")]
           : []),
         ...(switchesLocal && isMacPlatform(navigator.platform)
-          ? [gt("If T3 Code does not reopen after it restarts, open it again.")]
+          ? [gt("If iglo.code does not reopen after it restarts, open it again.")]
           : []),
       ]}
       restarts={everything.restarts}

@@ -322,7 +322,7 @@ function LinkRequestDialog(props: {
           type: "info",
           title: gt("Linked {target} one way", { target: targetName }),
           description: gt(
-            "It runs a T3 Code version that does not link back. Update it there, then link again.",
+            "It runs an iglo.code version that does not link back. Update it there, then link again.",
           ),
         });
       }

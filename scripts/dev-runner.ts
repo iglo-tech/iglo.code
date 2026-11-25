@@ -953,7 +953,7 @@ const devRunnerCli = Command.make("dev-runner", {
   ),
   t3Home: Flag.String("home-dir").pipe(
     Flag.withDescription(
-      "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to IGLO_CODE_HOME). Inside a git worktree this defaults to that worktree's own .iglo.code so dev state stays off the shared home.",
+      "Explicit iglo.code data directory; runtime state is stored under userdata (equivalent to IGLO_CODE_HOME). Inside a git worktree this defaults to that worktree's own .iglo.code so dev state stays off the shared home.",
     ),
     Flag.optional,
     Flag.map(Option.getOrUndefined),

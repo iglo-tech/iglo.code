@@ -66,7 +66,7 @@ const connectUnavailableCommand = Command.make("connect", {
 export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
   Command.make("iglo.code", { ...sharedServerCommandFlags }).pipe(
     Command.withDescription(
-      "Run T3 Code in this terminal and open it in your browser. To use it from your other devices, run `iglo.code up`.",
+      "Run iglo.code in this terminal and open it in your browser. To use it from your other devices, run `iglo.code up`.",
     ),
     Command.withHandler(runDefaultServerCommand),
     Command.withSubcommands([
