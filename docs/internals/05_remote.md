@@ -51,6 +51,11 @@ side lists and revokes it in Sharing & access like any other session, and owns i
   older version sent, so mixed versions still link and nothing is migrated. A managed `maxRuntimeMode`
   below full access does not refuse a link: it caps what the link's agents may start, as for any
   outside agent, and that machine will not mint a link-pairing code ([`PeerClientPairing`](../../apps/server/src/peer/PeerClientPairing.ts)).
+- **Devices follow links (fork).** The web client joins every machine its connected machines link
+  to through the client pairing a full-access link mints
+  ([LinkedEnvironmentsAutoConnect](../../apps/web/src/components/LinkedEnvironmentsAutoConnect.tsx)),
+  so that pairing must stay available on every link. Only machines joined that way are marked
+  (device-local), and only marked ones are dropped when no connected machine links to them any more.
 - **Mode ceilings always narrow.** Forwarded calls carry the calling agent's modes in
   `T3-Mode-Limit`, which the receiving `/mcp` can only intersect downward with the link's approved
   access.

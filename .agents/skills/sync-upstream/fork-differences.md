@@ -198,7 +198,10 @@ current when an authorized change replaces a decision.
   an accepted reciprocal offer and stored rows keep an older peer's lower access. The offered link-back addresses
   are MagicDNS names probed to answer as this server, even when Serve was
   published by `pair --tailscale` rather than the service, and the CLI reads the
-  running server's bind and port from its runtime state. Upstream's one-way pieces stay
+  running server's bind and port from its runtime state. Devices follow links: the web client connects itself to every machine its
+  connected machines link to, through the one-step link pairing
+  ([LinkedEnvironmentsAutoConnect](../../../apps/web/src/components/LinkedEnvironmentsAutoConnect.tsx)),
+  and drops the ones it joined that way when the link goes. Upstream's one-way pieces stay
   intact underneath, so reconcile at their boundaries rather than freezing:
   [PeerLinks.ts](../../../apps/server/src/peer/PeerLinks.ts) (offer, accept,
   teardown hop),
