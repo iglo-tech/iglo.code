@@ -396,10 +396,20 @@ export function parseDfOutput(output: string, platform: NodeJS.Platform): readon
     });
   }
 
-  return [...byMount.values()].sort((a, b) => {
+  const sorted = [...byMount.values()].sort((a, b) => {
     if (a.mountPoint === "/") return -1;
     if (b.mountPoint === "/") return 1;
     return a.mountPoint.localeCompare(b.mountPoint);
+  });
+  // btrfs subvolumes and bind mounts show one device at many paths; list it once, where it
+  // is mounted highest, so totals do not count the same space twice.
+  const seenDevices = new Set<string>();
+  return sorted.filter((disk) => {
+    if (!disk.filesystem.startsWith("/")) return true;
+    const device = `${disk.filesystem}:${disk.totalBytes}`;
+    if (seenDevices.has(device)) return false;
+    seenDevices.add(device);
+    return true;
   });
 }
 

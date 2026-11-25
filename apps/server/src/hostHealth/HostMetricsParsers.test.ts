@@ -182,6 +182,20 @@ describe("df", () => {
     );
   });
 
+  it("lists a device mounted at several paths once, at its highest mount", () => {
+    const output = [
+      "Filesystem 1024-blocks Used Available Capacity Mounted on",
+      "/dev/nvme0n1p2 240920760 23503760 217049776 10% /home",
+      "/dev/nvme0n1p2 240920760 23503760 217049776 10% /",
+      "/dev/nvme0n1p2 240920760 23503760 217049776 10% /var/log",
+      "/dev/nvme0n1p1 4193152 950112 3243040 23% /boot",
+    ].join("\n");
+    assert.deepStrictEqual(
+      parseDfOutput(output, "linux").map((disk) => disk.mountPoint),
+      ["/", "/boot"],
+    );
+  });
+
   it("shows the macOS Data volume as the root disk, whichever line comes first", () => {
     const lines = [
       "/dev/disk3s1s1 971350180 10000000 500000000 2% /",
