@@ -150,6 +150,11 @@ current when an authorized change replaces a decision.
   Update everything as the servers' target, and offer Reload once the server
   runs ahead of the page. See [appRelease.ts](../../../apps/web/src/state/appRelease.ts);
   keep the web branches when upstream changes the desktop update UI.
+  A UI update supersedes a deferred local install (`iglo.code update` that
+  skipped the restart): the service launcher starts the trial from the running
+  server instead of rejecting with "Service selection changed", and the commit
+  clears `.restart-pending`. See `#selectUpdate` in
+  [serviceLauncher.ts](../../../apps/server/src/serviceLauncher.ts).
 - **Device and remote features.** Retain the Device panel, local/SSH device hosts,
   `expo-device-hub`, `agent-device`, provider helpers, Browser streams, and
   local, LAN, Tailscale, and SSH connections. Device tool installation and execution
