@@ -127,7 +127,7 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
         Effect.sync(() => {
           refreshLinks(registry, environmentId);
           // A both-ways link changed the peer's list too.
-          registry.refresh(list({ environmentId: result.environmentId, input: {} }));
+          refreshLinks(registry, result.environmentId);
         }),
     }),
     // Leaves the list alone: a batch refreshes it once, when it ends (`runLinkBatch`).
@@ -142,7 +142,7 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
         Effect.sync(() => {
           refreshLinks(registry, environmentId);
           // The teardown may have removed the peer's link back.
-          registry.refresh(list({ environmentId: input.environmentId, input: {} }));
+          refreshLinks(registry, input.environmentId);
         }),
     }),
     threadView: (target: LinkedThreadViewTarget) => threadView(threadViewKey(target)),
@@ -196,7 +196,7 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
           refreshLinks(registry, environmentId);
           // A link answer changed the peer's list too.
           if (result?.result !== undefined) {
-            registry.refresh(list({ environmentId: result.result.environmentId, input: {} }));
+            refreshLinks(registry, result.result.environmentId);
           }
         }),
     }),

@@ -6,6 +6,7 @@ import {
 import type { DesktopSshEnvironmentTarget, EnvironmentId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import { linkedAutoConnectStore } from "./linkedAutoConnectStore";
 import { connectionAtomRuntime } from "./runtime";
 
 const onboardingScheduler = createAtomCommandScheduler();
@@ -20,6 +21,11 @@ export const connectPairing = createRuntimeCommand(connectionAtomRuntime, {
   execute: (input: ConnectionOnboarding.PairingConnectionInput) =>
     ConnectionOnboarding.ConnectionOnboarding.pipe(
       Effect.flatMap((onboarding) => onboarding.registerPairing(input)),
+      // Paired here: the machine is this device's own now, so no link going takes it away.
+      // Joining through a link marks it again once this returns.
+      Effect.tap((environmentId) =>
+        Effect.sync(() => linkedAutoConnectStore.setMarked([environmentId], false)),
+      ),
     ),
 });
 
