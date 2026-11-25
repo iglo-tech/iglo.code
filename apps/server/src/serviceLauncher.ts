@@ -698,6 +698,11 @@ async function discardDatabaseBackup(baseDir: string, updateId: string): Promise
   await syncDirectory(NodePath.dirname(backupDir));
 }
 
+const sameSelection = (a: ServiceState, b: ServiceState) =>
+  a.activeVersion === b.activeVersion &&
+  a.update?.id === b.update?.id &&
+  a.update?.status === b.update?.status;
+
 export async function readServiceState(filePath: string): Promise<ServiceState> {
   const contents = await NodeFSP.readFile(filePath, "utf8");
   const state = parseServiceState(contents) ?? adoptLegacyServiceState(contents);
@@ -1122,11 +1127,7 @@ export class Launcher {
       const selected = await readServiceState(this.#statePath);
       // Local installs replace the selection and clear its update record. An old
       // launcher must not restore its own selection when asked to update again.
-      if (
-        selected.activeVersion !== this.#state.activeVersion ||
-        selected.update?.id !== this.#state.update?.id ||
-        selected.update?.status !== this.#state.update?.status
-      ) {
+      if (!sameSelection(selected, this.#state)) {
         throw new Error("Service selection changed. Restart the service before updating.");
       }
       await writeServiceState(this.#statePath, next);
@@ -1136,23 +1137,41 @@ export class Launcher {
     }
   }
 
-  async #recover(): Promise<void> {
-    await this.#claimServing();
-    // Clear old stop markers to preserve future tunnels; clear restart-pending only for the awaited version to avoid CLI races.
-    await NodeFSP.rm(stopMarkerPath(this.#baseDir), { force: true }).catch(() => undefined);
+  // A deferred local install (`iglo.code update` that skipped the restart) selects a version this launcher
+  // never restarted into. A remote update supersedes it, starting from the running child, so
+  // its trial and rollback stay anchored to what actually runs.
+  async #selectUpdate(pending: PendingServiceUpdate): Promise<void> {
+    const release = await acquireServiceSelectionLock(this.#statePath);
+    try {
+      const selected = await readServiceState(this.#statePath);
+      if (!sameSelection(selected, this.#state) && selected.update?.status === "pending") {
+        throw new Error("Another server update is already pending.");
+      }
+      const next: ServiceState = {
+        ...this.#state,
+        activeVersion: pending.fromVersion,
+        update: pending,
+      };
+      await writeServiceState(this.#statePath, next);
+      this.#state = next;
+    } finally {
+      release();
+    }
+  }
+
+  // Clears the restart-pending marker only for a version this launcher now runs; a newer
+  // deferred install keeps waiting for its restart.
+  async #clearRestartPending(): Promise<void> {
     const restartPending = restartPendingPath(this.#baseDir);
     try {
       const release = await acquireServiceSelectionLock(this.#statePath);
       try {
         const selected = await readServiceState(this.#statePath);
-        const awaitedVersion = await NodeFSP.readFile(restartPending, "utf8").catch(
-          () => undefined,
-        );
-        const awaited = awaitedVersion?.trim();
+        const awaited = (
+          await NodeFSP.readFile(restartPending, "utf8").catch(() => undefined)
+        )?.trim();
         if (
-          selected.activeVersion === this.#state.activeVersion &&
-          selected.update?.id === this.#state.update?.id &&
-          selected.update?.status === this.#state.update?.status &&
+          sameSelection(selected, this.#state) &&
           awaited !== undefined &&
           isExactServiceVersion(awaited) &&
           compareExactServiceVersions(awaited, this.#state.activeVersion) <= 0
@@ -1167,6 +1186,13 @@ export class Launcher {
         `[service-launcher] Could not clear ${restartPending}: ${error instanceof Error ? error.message : String(error)}\n`,
       );
     }
+  }
+
+  async #recover(): Promise<void> {
+    await this.#claimServing();
+    // Clear old stop markers to preserve future tunnels.
+    await NodeFSP.rm(stopMarkerPath(this.#baseDir), { force: true }).catch(() => undefined);
+    await this.#clearRestartPending();
     const update = this.#state.update;
     if (update?.status !== "pending") {
       if (update !== undefined) {
@@ -1341,9 +1367,8 @@ export class Launcher {
       dbPath: message.dbPath,
       status: "pending",
     };
-    const next: ServiceState = { ...this.#state, update: pending };
     try {
-      await this.#selectState(next);
+      await this.#selectUpdate(pending);
     } catch (error) {
       await reject(error instanceof Error ? error.message : String(error));
       return;
@@ -1400,6 +1425,7 @@ export class Launcher {
     } finally {
       await discardDatabaseBackup(this.#baseDir, committed.id).catch(() => undefined);
       await this.#repointServiceUnit(committed.targetVersion);
+      await this.#clearRestartPending();
     }
   }
 
@@ -1413,13 +1439,7 @@ export class Launcher {
         // The installer writes state before the unit under this lease. Do not
         // acquire its state lease here: the installer takes that lease first.
         const selected = await readServiceState(this.#statePath);
-        if (
-          selected.activeVersion !== this.#state.activeVersion ||
-          selected.update?.id !== this.#state.update?.id ||
-          selected.update?.status !== this.#state.update?.status
-        ) {
-          return;
-        }
+        if (!sameSelection(selected, this.#state)) return;
         const contents = decodeServiceUnit(await NodeFSP.readFile(unit.path));
         const installedBaseDir = serviceUnitBaseDirOf(contents);
         const real = (dir: string) => NodeFSP.realpath(dir).catch(() => NodePath.resolve(dir));

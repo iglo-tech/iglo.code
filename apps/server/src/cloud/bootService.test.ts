@@ -1071,19 +1071,11 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
             },
           }),
         );
-        const rejection = path.join(plan.baseDir, "rejected-update");
-        const databasePath = path.join(plan.baseDir, "state.sqlite");
-        yield* fs.writeFileString(databasePath, "database");
         yield* fs.writeFileString(
           runtime.entryPath,
           `#!${process.execPath}
-import { writeFileSync } from "node:fs";
 process.on("message", message => {
-  if (message === "request-update") process.send({ type: "request-update", targetVersion: "1.2.5", dbPath: ${JSON.stringify(databasePath)} });
-  if (message.type === "update-rejected") {
-    writeFileSync(${JSON.stringify(rejection)}, message.reason);
-    process.exit(0);
-  }
+  if (message === "installed") process.exit(0);
 });
 `,
         );
@@ -1103,7 +1095,7 @@ const server = Promise.withResolvers();
 const originalSpawn = cp.spawn;
 cp.spawn = (...args) => { const child = originalSpawn(...args); server.resolve(child); return child; };
 process.on("message", async message => {
-  if (message === "installed") (await server.promise).send("request-update");
+  if (message === "installed") (await server.promise).send("installed");
 });
 const originalRead = fs.readFile;
 fs.readFile = async (...args) => {
@@ -1179,7 +1171,6 @@ process.disconnect();
         yield* Fiber.join(installing);
         child.send("installed");
         yield* Effect.promise(() => exited);
-        expect(yield* fs.readFileString(rejection)).toContain("Service selection changed");
         expect(parseServiceState(yield* fs.readFileString(statePath))).toEqual({
           protocol: SERVICE_LAUNCHER_PROTOCOL,
           activeVersion: "1.2.4",

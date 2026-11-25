@@ -1467,6 +1467,80 @@ if (context.update?.status === "pending") {
       }),
   );
 
+  it.effect("updates over a local install that is still waiting for its restart", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-service-deferred-" });
+      const statePath = path.join(root, "runtime", "service-state.json");
+      const restartPending = path.join(root, "runtime", SERVICE_RESTART_PENDING_FILE);
+      const databasePath = path.join(root, "userdata", "state.sqlite");
+      const activatedPath = path.join(root, "activated");
+      yield* fs.makeDirectory(path.dirname(databasePath), { recursive: true });
+      yield* fs.writeFileString(databasePath, "before trial");
+      const unit = yield* fakeServiceUnit(fs, path, root, "1.1.0");
+      const childSource = `
+import { writeFileSync } from "node:fs";
+const context = JSON.parse(process.env.IGLO_CODE_SERVICE_LAUNCHER_CONTEXT);
+if (context.update?.status === "pending") {
+  process.on("message", (message) => {
+    if (message.type === "committed") {
+      writeFileSync(${JSON.stringify(activatedPath)}, message.updateId);
+      process.exit(0);
+    }
+  });
+  process.send({ type: "prepared", updateId: context.update.id });
+} else if (context.update === undefined) {
+  process.on("message", (message) => {
+    if (message.type === "update-rejected") {
+      writeFileSync(${JSON.stringify(activatedPath)}, "rejected: " + message.reason);
+      process.exit(0);
+    }
+  });
+  process.send({ type: "request-update", targetVersion: "1.1.0", dbPath: ${JSON.stringify(databasePath)} });
+  setInterval(() => {}, 1_000);
+} else {
+  process.exit(0);
+}
+`;
+      for (const version of ["1.0.0", "1.1.0"]) {
+        yield* writeFakeRuntime(
+          fs,
+          path,
+          path.join(root, "runtime", "versions", version),
+          childSource,
+        );
+      }
+      // The launcher still runs 1.0.0 while `iglo.code update` selected 1.1.0 without a restart.
+      yield* Effect.promise(() =>
+        writeServiceState(statePath, {
+          protocol: SERVICE_LAUNCHER_PROTOCOL,
+          activeVersion: "1.1.0",
+        }),
+      );
+      yield* fs.writeFileString(restartPending, "1.1.0\n");
+      const launcher = new Launcher(
+        root,
+        { protocol: SERVICE_LAUNCHER_PROTOCOL, activeVersion: "1.0.0" },
+        { serviceUnit: unit },
+      );
+      const failure = yield* Effect.promise(() =>
+        launcher.run().then(
+          () => "launcher unexpectedly completed",
+          (cause: unknown) => String(cause),
+        ),
+      );
+      assert.include(failure, "Active child exited unexpectedly (0)");
+      const state = yield* Effect.promise(() => readServiceState(statePath));
+      assert.equal(state.activeVersion, "1.1.0");
+      assert.equal(state.update?.status, "committed");
+      assert.equal(state.update?.status === "committed" && state.update.fromVersion, "1.0.0");
+      assert.equal(yield* fs.readFileString(activatedPath), state.update?.id);
+      assert.isFalse(yield* fs.exists(restartPending));
+      assert.equal(unit.loadedContents, renderBootServiceUnit(unitPlan(root, "1.1.0")));
+    }),
+  );
+
   it.effect("rolls back invalid trials with the startup environment", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
