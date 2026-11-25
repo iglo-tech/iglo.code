@@ -33,6 +33,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { expandHomePath } from "../os-jank.ts";
+import { readLiveServerRuntimeState } from "../serverRuntimeState.ts";
 import { authLocationFlags, type CliAuthLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
 /**
@@ -46,6 +47,17 @@ const runWithPeerLinks = Effect.fn("environment.runWithPeerLinks")(function* <A,
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel, options);
+  // This process is not the server: offer a link back where the running one listens.
+  const running = yield* readLiveServerRuntimeState(config.serverRuntimeStatePath);
+  const serverConfig = Option.match(running, {
+    onNone: () => config,
+    onSome: ({ host, port, privateNetworkOnly }) => ({
+      ...config,
+      host,
+      port,
+      privateNetworkOnly: privateNetworkOnly ?? config.privateNetworkOnly,
+    }),
+  });
   return yield* PeerLinks.PeerLinks.pipe(
     Effect.flatMap(run),
     // A refused or unreachable link is an expected outcome: print its message, not a stack.
@@ -90,6 +102,7 @@ const runWithPeerLinks = Effect.fn("environment.runWithPeerLinks")(function* <A,
             Layer.provide(
               DirectEndpoints.layer.pipe(
                 Layer.provide(FetchHttpClient.layer),
+                Layer.provide(ServerConfig.layer(serverConfig)),
                 Layer.provideMerge(
                   ServerEnvironment.layer.pipe(
                     Layer.provide(

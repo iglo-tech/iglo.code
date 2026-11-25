@@ -164,7 +164,10 @@ current when an authorized change replaces a decision.
   `/api/peer-links/reciprocal`, and the peer links back at the same access with
   the code the offer carried; **Forget** removes the link on both sides and ends
   both sessions when the peer answers. Default on, with a **Link back**
-  checkbox opt-out (`--one-way` on the CLI). Upstream's one-way pieces stay
+  checkbox opt-out (`--one-way` on the CLI). The offered link-back addresses
+  are MagicDNS names probed to answer as this server, even when Serve was
+  published by `pair --tailscale` rather than the service, and the CLI reads the
+  running server's bind and port from its runtime state. Upstream's one-way pieces stay
   intact underneath, so reconcile at their boundaries rather than freezing:
   [PeerLinks.ts](../../../apps/server/src/peer/PeerLinks.ts) (offer, accept,
   teardown hop),

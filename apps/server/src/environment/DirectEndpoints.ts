@@ -42,6 +42,12 @@ export class DirectEndpoints extends Context.Service<
   {
     readonly resolveAvailable: () => Effect.Effect<ReadonlyArray<ServerDirectEndpoint>>;
     readonly resolve: () => Effect.Effect<ReadonlyArray<ServerDirectEndpoint>>;
+    /**
+     * This machine's MagicDNS addresses that answer as this server: the Serve
+     * HTTPS address even when another process published it, and the plain-http
+     * name while the server listens on its tailnet address.
+     */
+    readonly resolveTailnetNames: () => Effect.Effect<ReadonlyArray<ServerDirectEndpoint>>;
   }
 >()("t3/environment/DirectEndpoints") {}
 
@@ -208,36 +214,57 @@ export const make = Effect.gen(function* () {
     return endpoints;
   });
 
+  /** The base URLs among `candidates` that answer as this server, in order. */
+  const answering = (candidates: (magicDnsName: string) => ReadonlyArray<string>) =>
+    readTailscaleStatus.pipe(
+      Effect.flatMap(({ magicDnsName }) =>
+        Effect.forEach(
+          magicDnsName === null ? [] : candidates(magicDnsName),
+          (baseUrl) =>
+            probeTailscaleHttpsEndpoint({ baseUrl, environmentId }).pipe(
+              Effect.map((reachable) => (reachable ? [baseUrl] : [])),
+            ),
+          { concurrency: "unbounded" },
+        ),
+      ),
+      Effect.map((found) => found.flat()),
+      Effect.timeoutOption(TAILSCALE_ENDPOINT_TIMEOUT),
+      Effect.map(Option.getOrElse((): ReadonlyArray<string> => [])),
+      Effect.orElseSucceed((): ReadonlyArray<string> => []),
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    );
+
+  const serveUrl = (magicDnsName: string) =>
+    buildTailscaleHttpsBaseUrl({ magicDnsName, servePort: config.tailscaleServePort });
+
   const resolve = Effect.gen(function* () {
     // Serve setup can fail without stopping startup; advertise only after it answers as this server.
     if (config.tailscaleServeEnabled) {
-      const servedUrl = yield* readTailscaleStatus.pipe(
-        Effect.map((status) => status.magicDnsName),
-        Effect.flatMap((magicDnsName) => {
-          if (magicDnsName === null) return Effect.succeed(null);
-          const httpBaseUrl = buildTailscaleHttpsBaseUrl({
-            magicDnsName,
-            servePort: config.tailscaleServePort,
-          });
-          return probeTailscaleHttpsEndpoint({ baseUrl: httpBaseUrl, environmentId }).pipe(
-            Effect.map((reachable) => (reachable ? httpBaseUrl : null)),
-          );
-        }),
-        Effect.timeoutOption(TAILSCALE_ENDPOINT_TIMEOUT),
-        Effect.map(Option.flatMap(Option.fromNullishOr)),
-        Effect.orElseSucceed(() => Option.none<string>()),
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.provideService(HttpClient.HttpClient, httpClient),
-      );
-      yield* Ref.set(servedEndpoint, servedUrl);
+      const [servedUrl] = yield* answering((magicDnsName) => [serveUrl(magicDnsName)]);
+      yield* Ref.set(servedEndpoint, Option.fromNullishOr(servedUrl));
     }
     return yield* resolveAvailable();
+  });
+
+  const resolveTailnetNames = Effect.gen(function* () {
+    const listensOnTailnet = (yield* resolveAvailable()).some(
+      (endpoint) => endpoint.kind === "tailnet" && endpoint.httpBaseUrl.startsWith("http:"),
+    );
+    const found = yield* answering((magicDnsName) => [
+      serveUrl(magicDnsName),
+      ...(listensOnTailnet ? [`http://${magicDnsName}:${config.port}/`] : []),
+    ]);
+    return found.map((httpBaseUrl): ServerDirectEndpoint => ({ kind: "tailnet", httpBaseUrl }));
   });
 
   return DirectEndpoints.of({
     resolveAvailable,
     resolve: Effect.fn("DirectEndpoints.resolve")(function () {
       return resolve;
+    }),
+    resolveTailnetNames: Effect.fn("DirectEndpoints.resolveTailnetNames")(function () {
+      return resolveTailnetNames;
     }),
   });
 });

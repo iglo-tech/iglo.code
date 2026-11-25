@@ -297,9 +297,11 @@ they are, and exits non-zero if any line failed, so the same file can be run
 again with fresh codes for the failures.
 
 The link back needs an address on this machine the other one can reach and
-send credentials to: its Tailscale address (Tailscale HTTPS counts). If it has
-none — say both machines sit on a plain LAN with no Tailscale — the link still
-works this direction, and you are told the other machine could not link back.
+send credentials to: its Tailscale name, either its Tailscale HTTPS address
+(`iglo.code pair --tailscale` publishes one) or its `*.ts.net` name when the
+server listens on your network (`iglo.code up`). If it has none — say both
+machines sit on a plain LAN with no Tailscale — the link still works this
+direction, and you are told the other machine could not link back.
 The other machine's version must also know how; update it and link again.
 
 You can also ask an agent to link a machine by name, such as "delegate this to

@@ -1,4 +1,5 @@
 import type { ServerDirectEndpoint } from "@t3tools/contracts";
+import { isTailnetHost } from "@t3tools/shared/hostClassification";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -6,9 +7,9 @@ import * as Layer from "effect/Layer";
 import * as DirectEndpoints from "../environment/DirectEndpoints.ts";
 
 /**
- * Where this environment answers for a peer linking back. Only tailnet
- * entries qualify: the peer's own address rules refuse plain-http LAN and
- * loopback, so offering those only buries the honest "no address" outcome.
+ * Where this environment answers for a peer linking back: only the tailnet
+ * addresses the peer's own address rules accept, so offering the rest only
+ * buries the honest "no address" outcome.
  */
 export class OwnLinkOrigins extends Context.Service<
   OwnLinkOrigins,
@@ -18,15 +19,24 @@ export class OwnLinkOrigins extends Context.Service<
   }
 >()("t3/peer/OwnLinkOrigins") {}
 
-const originOf = (endpoint: ServerDirectEndpoint) =>
-  URL.parse(endpoint.httpBaseUrl)?.origin ?? endpoint.httpBaseUrl;
+/**
+ * Mirrors `peerOrigin` in PeerLinks: plain http only to a MagicDNS name or
+ * Tailscale's IPv6 range. A 100.64.0.0/10 address alone is refused there,
+ * since other VPNs share that range.
+ */
+const peerAccepts = (url: URL) => url.protocol === "https:" || isTailnetHost(url.hostname);
 
-/** The tailnet origins, which are the ones a peer can link back over. */
+/** The tailnet origins a peer accepts, which are the ones it can link back over. */
 export function ownOriginsFor(input: {
   readonly endpoints: ReadonlyArray<ServerDirectEndpoint>;
 }): ReadonlyArray<string> {
   return [
-    ...new Set(input.endpoints.filter((endpoint) => endpoint.kind === "tailnet").map(originOf)),
+    ...new Set(
+      input.endpoints.flatMap((endpoint) => {
+        const url = URL.parse(endpoint.httpBaseUrl);
+        return endpoint.kind === "tailnet" && url !== null && peerAccepts(url) ? [url.origin] : [];
+      }),
+    ),
   ];
 }
 
@@ -35,9 +45,13 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
     return OwnLinkOrigins.of({
-      // resolve(), not resolveAvailable(): it is what probes and advertises the
-      // Tailscale Serve address, which a CLI run would otherwise never offer.
-      origins: Effect.map(directEndpoints.resolve(), (endpoints) => ownOriginsFor({ endpoints })),
+      // The MagicDNS names come first, so the peer's first try is an https one.
+      origins: Effect.zipWith(
+        directEndpoints.resolveTailnetNames(),
+        directEndpoints.resolveAvailable(),
+        (names, bound) => ownOriginsFor({ endpoints: [...names, ...bound] }),
+        { concurrent: true },
+      ),
     });
   }),
 );

@@ -31,9 +31,11 @@ side lists and revokes it in Sharing & access like any other session, and owns i
   peer links back at the same access. It is on by default; the **Link back** checkbox (`--one-way`
   on the CLI) opts out, and unset `reciprocal` on the wire means one way, so mixed versions
   interoperate. The accepting side passes `reciprocal: false` so offers never loop, and a failed
-  offer revokes its code. Offered addresses are tailnet entries only
-  ([OwnLinkOrigins](../../apps/server/src/peer/OwnLinkOrigins.ts)): the peer's own address rules refuse
-  plain-http LAN and loopback.
+  offer revokes its code. Offered addresses are only those the peer's `peerOrigin` accepts
+  ([OwnLinkOrigins](../../apps/server/src/peer/OwnLinkOrigins.ts)): MagicDNS names, probed to
+  answer as this environment whatever process published Serve, so a CLI link and a service that
+  never set `IGLO_CODE_TAILSCALE_SERVE` still offer one. A bare 100.64.0.0/10 address is refused
+  there, since other VPNs share the range, so it is never offered.
 - **Forget is two teardowns.** `PeerLinks.unlink` removes the link and revokes the peer's session
   here, then asks the peer over `/api/peer-links/teardown` to do the same; each hop fires only when
   a row was removed, so the hops stop. Each row's `peer_session_id` names the one session that may
