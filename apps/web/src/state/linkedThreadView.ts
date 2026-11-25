@@ -12,6 +12,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
 
 import type { TurnItemSource } from "../components/chat/timelineRowContext";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
+import { linkedAutoConnectStore } from "../connection/linkedAutoConnectStore";
 import { connectPairing, reachesEnvironment } from "../connection/onboarding";
 import { openLinkedThreadRead } from "../lib/sideChatPane";
 import type { LinkedThreadSurface } from "../linkedThreadSurface";
@@ -249,6 +250,8 @@ export function useConnectLinkedEnvironment(
       return outcome;
     }
     if (outcome.type === "connected") {
+      // Joined through the link, so it leaves this device again when the link goes.
+      linkedAutoConnectStore.join(surface.environmentId);
       setState({ phase: "idle" });
       if (tabClosed) return outcome;
       // The thread opens where every thread on a connected environment does, so its tab is done.

@@ -98,6 +98,7 @@ import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { RemoveT3ConnectEnvironmentDialog } from "../clerk/RemoveT3ConnectEnvironmentDialog";
 import { authEnvironment } from "~/state/auth";
 import { environmentCatalog } from "~/connection/catalog";
+import { linkedAutoConnectStore } from "~/connection/linkedAutoConnectStore";
 import {
   readEnvironmentScope,
   useEnvironmentScope,
@@ -750,6 +751,8 @@ function ConnectionsSettingsContent({
     setSavedBackendError(null);
     const result = await removeEnvironment(environmentId);
     setRemovingSavedEnvironmentId(null);
+    // A machine still linked would otherwise come straight back through the link.
+    if (result._tag === "Success") linkedAutoConnectStore.dismiss(environmentId);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       const message =

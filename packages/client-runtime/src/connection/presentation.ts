@@ -28,6 +28,8 @@ export interface EnvironmentConnectionPresentation {
    * says where to approve it and shows the code, and is not a failure.
    */
   readonly awaitingApproval?: true;
+  /** Set when blocked because the host refused this device's credential. */
+  readonly credentialRefused?: true;
 }
 
 /**
@@ -89,6 +91,7 @@ export function presentConnectionState(
       return {
         phase: state.lastFailure?.reason === "unsupported" ? "unsupported" : "error",
         ...failureError(state.lastFailure),
+        ...(state.lastFailure?.reason === "authentication" ? { credentialRefused: true } : {}),
       };
   }
 }

@@ -1,27 +1,43 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, PeerLinkName } from "@t3tools/contracts";
 
-const MARKS_KEY = "iglo.code:linked-auto-connect:v1";
+const STORAGE_KEY = "iglo.code:linked-machines:v1";
 // A machine that could not be joined waits longer each time, up to a few hours.
 const FIRST_WAIT_MS = 2 * 60_000;
 const LONGEST_WAIT_MS = 4 * 60 * 60_000;
 
 export interface LinkedAutoConnectState {
   /** Machines this device joined through a link, so it may leave them when the link goes. */
-  readonly marks: ReadonlySet<EnvironmentId>;
+  readonly joined: ReadonlySet<EnvironmentId>;
+  /** Linked machines the user removed from this device, kept away while still linked. */
+  readonly dismissed: ReadonlySet<EnvironmentId>;
+  /** What each machine last linked to, for while it is asleep, offline or switched off. */
+  readonly links: ReadonlyMap<EnvironmentId, ReadonlyArray<PeerLinkName>>;
   /** Machines that could not be joined lately. */
   readonly waiting: ReadonlySet<EnvironmentId>;
 }
 
-function readMarks(): ReadonlySet<EnvironmentId> {
+type Persisted = Pick<LinkedAutoConnectState, "joined" | "dismissed" | "links">;
+
+const ids = (value: unknown): Set<EnvironmentId> =>
+  new Set(
+    Array.isArray(value) ? value.filter((id): id is EnvironmentId => typeof id === "string") : [],
+  );
+
+function readPersisted(): Persisted {
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(MARKS_KEY) ?? "[]");
-    return new Set(
-      Array.isArray(parsed)
-        ? parsed.filter((id): id is EnvironmentId => typeof id === "string")
-        : [],
-    );
+    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    const links = new Map<EnvironmentId, ReadonlyArray<PeerLinkName>>();
+    if (typeof parsed.links === "object" && parsed.links !== null) {
+      for (const [id, list] of Object.entries(parsed.links)) {
+        if (Array.isArray(list)) links.set(id as EnvironmentId, list as PeerLinkName[]);
+      }
+    }
+    return { joined: ids(parsed.joined), dismissed: ids(parsed.dismissed), links };
   } catch {
-    return new Set();
+    return { joined: new Set(), dismissed: new Set(), links: new Map() };
   }
 }
 
@@ -32,17 +48,51 @@ const timers = new Map<EnvironmentId, { handle: ReturnType<typeof setTimeout>; m
 const knownUrls = new Map<EnvironmentId, ReadonlyArray<string>>();
 
 const current = (): LinkedAutoConnectState =>
-  (state ??= { marks: readMarks(), waiting: new Set() });
+  (state ??= { ...readPersisted(), waiting: new Set() });
 
 function update(next: LinkedAutoConnectState) {
   state = next;
   for (const listener of listeners) listener();
 }
 
-// Another tab joined or left a machine.
+/** Applies `change` to what is stored now, since another tab may have written since. */
+function persist(
+  change: (next: {
+    joined: Set<EnvironmentId>;
+    dismissed: Set<EnvironmentId>;
+    links: Map<EnvironmentId, ReadonlyArray<PeerLinkName>>;
+  }) => void,
+) {
+  const stored = readPersisted();
+  const next = {
+    joined: new Set(stored.joined),
+    dismissed: new Set(stored.dismissed),
+    links: new Map(stored.links),
+  };
+  change(next);
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        joined: [...next.joined],
+        dismissed: [...next.dismissed],
+        links: Object.fromEntries(next.links),
+      }),
+    );
+  } catch {
+    // Without storage the device still joins linked machines; it only forgets them on reload.
+  }
+  update({ ...current(), ...next });
+}
+
 const onStorage = (event: StorageEvent) => {
-  if (event.key === MARKS_KEY) update({ ...current(), marks: readMarks() });
+  if (event.key === STORAGE_KEY) update({ ...current(), ...readPersisted() });
 };
+
+const sameLinks = (a: ReadonlyArray<PeerLinkName> | undefined, b: ReadonlyArray<PeerLinkName>) =>
+  a !== undefined &&
+  a.length === b.length &&
+  a.every((link, index) => link.environmentId === b[index]?.environmentId);
 
 export const linkedAutoConnectStore = {
   subscribe: (listener: () => void) => {
@@ -54,19 +104,51 @@ export const linkedAutoConnectStore = {
     };
   },
   getSnapshot: current,
-  setMarked: (environmentIds: ReadonlyArray<EnvironmentId>, marked: boolean) => {
-    // Read again first: another tab may have written since this one last did.
-    const marks = new Set(readMarks());
-    for (const id of environmentIds) {
-      if (marked) marks.add(id);
-      else marks.delete(id);
-    }
-    try {
-      window.localStorage.setItem(MARKS_KEY, JSON.stringify([...marks]));
-    } catch {
-      // Without storage the device still joins linked machines; it only cannot leave them later.
-    }
-    update({ ...current(), marks });
+  /** Joined through a link. */
+  join: (environmentId: EnvironmentId) =>
+    persist((next) => {
+      next.joined.add(environmentId);
+      next.dismissed.delete(environmentId);
+    }),
+  /** Paired by hand: the machine is this device's own, so no link going takes it away. */
+  own: (environmentId: EnvironmentId) => {
+    const { joined, dismissed } = current();
+    if (!joined.has(environmentId) && !dismissed.has(environmentId)) return;
+    persist((next) => {
+      next.joined.delete(environmentId);
+      next.dismissed.delete(environmentId);
+    });
+  },
+  /** Removed from this device by the user: kept away while still linked. */
+  dismiss: (environmentId: EnvironmentId) =>
+    persist((next) => {
+      next.joined.delete(environmentId);
+      next.dismissed.add(environmentId);
+      next.links.delete(environmentId);
+    }),
+  /** Left because no link reaches it any more. */
+  leave: (environmentId: EnvironmentId) =>
+    persist((next) => {
+      next.joined.delete(environmentId);
+      next.links.delete(environmentId);
+    }),
+  clear: (input: {
+    readonly joined: ReadonlyArray<EnvironmentId>;
+    readonly dismissed: ReadonlyArray<EnvironmentId>;
+  }) => {
+    if (input.joined.length === 0 && input.dismissed.length === 0) return;
+    persist((next) => {
+      for (const id of input.joined) next.joined.delete(id);
+      for (const id of input.dismissed) next.dismissed.delete(id);
+    });
+  },
+  /** Keeps what each machine links to now, written only when it changed. */
+  rememberLinks: (live: ReadonlyMap<EnvironmentId, ReadonlyArray<PeerLinkName>>) => {
+    const changed = [...live].filter(([id, links]) => !sameLinks(current().links.get(id), links));
+    if (changed.length === 0) return;
+    persist((next) => {
+      for (const [id, links] of changed) next.links.set(id, links);
+    });
   },
   /** Leaves `environmentId` alone for a while, longer each time; the wait ends on its own. */
   wait: (environmentId: EnvironmentId) => {
@@ -83,6 +165,7 @@ export const linkedAutoConnectStore = {
   },
   /** Starts afresh: the machine joined, or its link went. */
   clearWaits: (environmentIds: ReadonlyArray<EnvironmentId>) => {
+    if (environmentIds.length === 0) return;
     for (const id of environmentIds) {
       const timer = timers.get(id);
       if (timer !== undefined) clearTimeout(timer.handle);

@@ -8,7 +8,7 @@ import {
 import { connectLinkedEnvironment } from "@t3tools/client-runtime/linked-thread";
 import { AuthAccessWriteScope, type EnvironmentId, type PeerLinkName } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
-import { useContext, useEffect, useEffectEvent, useSyncExternalStore } from "react";
+import { useContext, useEffect, useEffectEvent, useState, useSyncExternalStore } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
 import { linkedAutoConnectStore } from "../connection/linkedAutoConnectStore";
@@ -23,7 +23,7 @@ import { useAtomCommand } from "../state/use-atom-command";
 
 // Links made on another machine or in the CLI are not pushed to this device.
 const LINKS_REFRESH_MS = 60_000;
-const LOCK_NAME = "iglo.code:linked-auto-connect";
+const LEADER_LOCK = "iglo.code:linked-auto-connect";
 
 const linkNamesAtom = environmentAtomList("linked-auto-connect:names", (environmentId) =>
   peerLinkEnvironment.names({ environmentId, input: {} }),
@@ -31,16 +31,8 @@ const linkNamesAtom = environmentAtomList("linked-auto-connect:names", (environm
 
 const inFlight = new Set<EnvironmentId>();
 
-/** One tab at a time joins or leaves machines, so two tabs never pair the same one twice. */
-const exclusively = (work: () => Promise<void>): Promise<void> =>
-  typeof navigator !== "undefined" && navigator.locks !== undefined
-    ? navigator.locks.request(LOCK_NAME, { ifAvailable: true }, (lock) =>
-        lock === null ? undefined : work(),
-      )
-    : work();
-
-/** What `environment` links to, or null while that is unknown or its links are paused. */
-function knownLinks(
+/** What `environment` links to now, or null while unknown or its links are paused. */
+function liveLinks(
   environment: EnvironmentPresentation,
   names: AsyncResult.AsyncResult<{ readonly links: ReadonlyArray<PeerLinkName> }, unknown> | null,
 ): ReadonlyArray<PeerLinkName> | null {
@@ -55,12 +47,41 @@ function knownLinks(
 /**
  * Keeps this device connected to every machine its machines link to. A device is paired with one
  * machine; linking that machine to others is what brings them here, and forgetting the link takes
- * them away again. Machines paired by hand are never removed.
+ * them away again. Machines paired by hand are never removed. One tab acts for the device, so two
+ * never pair the same machine; the next one takes over when it closes.
  */
 export function LinkedEnvironmentsAutoConnect() {
+  const [leader, setLeader] = useState(
+    () => typeof navigator === "undefined" || navigator.locks === undefined,
+  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds a Web Lock for as long as this tab is open, so one tab acts for the device
+  useEffect(() => {
+    if (typeof navigator === "undefined" || navigator.locks === undefined) return;
+    const abort = new AbortController();
+    let release: (() => void) | undefined;
+    navigator.locks
+      .request(
+        LEADER_LOCK,
+        { signal: abort.signal },
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+            setLeader(true);
+          }),
+      )
+      .catch(() => undefined);
+    return () => {
+      abort.abort();
+      release?.();
+    };
+  }, []);
+  return leader ? <LinkedEnvironmentsAutoConnectLeader /> : null;
+}
+
+function LinkedEnvironmentsAutoConnectLeader() {
   const { environments, isReady } = useEnvironments();
   const registry = useContext(RegistryContext);
-  const { marks, waiting } = useSyncExternalStore(
+  const stored = useSyncExternalStore(
     linkedAutoConnectStore.subscribe,
     linkedAutoConnectStore.getSnapshot,
   );
@@ -83,6 +104,12 @@ export function LinkedEnvironmentsAutoConnect() {
   const mayPair = useEnvironmentsWithScope(offering, AuthAccessWriteScope);
   const isPrimary = (environment: EnvironmentPresentation) =>
     environment.entry.target._tag === "PrimaryConnectionTarget";
+  const live = new Map(
+    environments.flatMap((environment) => {
+      const links = liveLinks(environment, namesById.get(environment.environmentId) ?? null);
+      return links === null ? [] : [[environment.environmentId, links] as const];
+    }),
+  );
   // Until the catalog and this app's own machine are in, a missing machine is only not loaded yet.
   const loaded =
     isReady && (!expectsPrimaryEnvironment() || environments.some((env) => isPrimary(env)));
@@ -90,16 +117,21 @@ export function LinkedEnvironmentsAutoConnect() {
     ? planLinkedAutoConnect({
         environments: environments.map((environment): LinkingEnvironment => ({
           environmentId: environment.environmentId,
-          links: knownLinks(environment, namesById.get(environment.environmentId) ?? null),
+          links:
+            live.get(environment.environmentId) ??
+            stored.links.get(environment.environmentId) ??
+            null,
           mayPair: mayPair.has(environment.environmentId),
           primary: isPrimary(environment),
+          refused: environment.connection.credentialRefused === true,
         })),
-        marked: marks,
-        waiting,
+        joined: stored.joined,
+        dismissed: stored.dismissed,
+        waiting: stored.waiting,
       })
     : null;
 
-  const reachableUrl = async (environmentId: EnvironmentId, urls: ReadonlyArray<string>) => {
+  const reachesAny = async (environmentId: EnvironmentId, urls: ReadonlyArray<string>) => {
     for (const host of urls) {
       const result = await reaches({ host, environmentId });
       if (result._tag === "Success" && result.value) return true;
@@ -110,7 +142,7 @@ export function LinkedEnvironmentsAutoConnect() {
   const join = async (target: LinkedAutoConnectPlan["connect"][number]) => {
     // A code is minted only once this device is known to reach the machine, after a first try.
     const known = linkedAutoConnectStore.knownUrls(target.environmentId);
-    if (known !== undefined && !(await reachableUrl(target.environmentId, known))) return false;
+    if (known !== undefined && !(await reachesAny(target.environmentId, known))) return false;
     const outcome = await connectLinkedEnvironment({
       label: target.label,
       requestPairing: async () => {
@@ -138,35 +170,42 @@ export function LinkedEnvironmentsAutoConnect() {
     return outcome.type === "connected";
   };
 
-  const apply = useEffectEvent((plan: LinkedAutoConnectPlan) =>
-    exclusively(async () => {
-      if (plan.clearWaits.length > 0) linkedAutoConnectStore.clearWaits(plan.clearWaits);
-      if (plan.clearMarks.length > 0) linkedAutoConnectStore.setMarked(plan.clearMarks, false);
-      for (const environmentId of plan.forget) {
-        if (inFlight.has(environmentId)) continue;
-        inFlight.add(environmentId);
-        const result = await remove(environmentId).finally(() => inFlight.delete(environmentId));
-        if (result._tag === "Success") linkedAutoConnectStore.setMarked([environmentId], false);
-      }
-      for (const target of plan.connect) {
-        if (inFlight.has(target.environmentId)) continue;
-        inFlight.add(target.environmentId);
-        const joined = await join(target).finally(() => inFlight.delete(target.environmentId));
-        if (joined) {
-          linkedAutoConnectStore.clearWaits([target.environmentId]);
-          linkedAutoConnectStore.setMarked([target.environmentId], true);
-        } else {
-          linkedAutoConnectStore.wait(target.environmentId);
-        }
-      }
-    }),
-  );
+  const removeOnce = async (environmentId: EnvironmentId, then: () => void) => {
+    if (inFlight.has(environmentId)) return;
+    inFlight.add(environmentId);
+    const result = await remove(environmentId).finally(() => inFlight.delete(environmentId));
+    if (result._tag === "Success") then();
+  };
 
-  const planKey = plan === null ? null : JSON.stringify(plan);
+  const apply = useEffectEvent(async (plan: LinkedAutoConnectPlan) => {
+    linkedAutoConnectStore.rememberLinks(live);
+    linkedAutoConnectStore.clearWaits(plan.clearWaits);
+    linkedAutoConnectStore.clear({ joined: plan.clearJoined, dismissed: plan.clearDismissed });
+    for (const environmentId of plan.forget) {
+      // It may have been paired by hand since this plan was made.
+      if (!linkedAutoConnectStore.getSnapshot().joined.has(environmentId)) continue;
+      await removeOnce(environmentId, () => linkedAutoConnectStore.leave(environmentId));
+    }
+    // Still joined, so the next plan joins it again with a fresh session.
+    for (const environmentId of plan.rejoin) await removeOnce(environmentId, () => undefined);
+    for (const target of plan.connect) {
+      if (inFlight.has(target.environmentId)) continue;
+      inFlight.add(target.environmentId);
+      const joined = await join(target).finally(() => inFlight.delete(target.environmentId));
+      if (joined) {
+        linkedAutoConnectStore.clearWaits([target.environmentId]);
+        linkedAutoConnectStore.join(target.environmentId);
+      } else {
+        linkedAutoConnectStore.wait(target.environmentId);
+      }
+    }
+  });
+
+  const applyKey = plan === null ? null : JSON.stringify({ plan, live: Object.fromEntries(live) });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- joining and leaving linked machines is connection work outside React, started when the links say so
   useEffect(() => {
-    if (planKey !== null) void apply(JSON.parse(planKey) as LinkedAutoConnectPlan);
-  }, [planKey]);
+    if (applyKey !== null) void apply(JSON.parse(applyKey).plan as LinkedAutoConnectPlan);
+  }, [applyKey]);
 
   useLiveRefresh(
     offeringKey === ""

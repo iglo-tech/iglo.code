@@ -11,7 +11,8 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { AuthAccessWriteScope, type EnvironmentId } from "@t3tools/contracts";
 import * as Result from "effect/Result";
 import { T, useGT, useMessages } from "gt-react";
-import { useId, useRef, useState } from "react";
+import { RegistryContext } from "@effect/atom-react";
+import { useContext, useId, useRef, useState } from "react";
 
 import { useEnvironments } from "~/state/environments";
 import { mintPairingCodeOn } from "~/state/peerPairingCode";
@@ -92,6 +93,7 @@ export function LinkSeveralEnvironmentsDialog({
     open ? peerLinkEnvironment.list({ environmentId, input: {} }) : null,
   );
   const linksState = linkListState(links);
+  const registry = useContext(RegistryContext);
   const writable = useEnvironmentsWithScope(machines, AuthAccessWriteScope);
   const [selected, setSelected] = useState<ReadonlySet<EnvironmentId>>(() => new Set(preset));
   const [outcomes, setOutcomes] = useState(NO_OUTCOMES);
@@ -148,7 +150,13 @@ export function LinkSeveralEnvironmentsDialog({
           ? Result.succeed(result.value)
           : Result.fail(squashAtomCommandFailure(result));
       },
-      refreshLinks: links.refresh,
+      // Devices follow link names, on this machine and each linked one.
+      refreshLinks: () => {
+        links.refresh();
+        for (const id of [environmentId, ...chosen.map((machine) => machine.environmentId)]) {
+          registry.refresh(peerLinkEnvironment.names({ environmentId: id, input: {} }));
+        }
+      },
       onOutcome: (id, outcome) => {
         setOutcomes((current) => new Map(current).set(id, outcome));
         setLinking((current) => {

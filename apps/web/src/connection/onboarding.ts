@@ -21,11 +21,9 @@ export const connectPairing = createRuntimeCommand(connectionAtomRuntime, {
   execute: (input: ConnectionOnboarding.PairingConnectionInput) =>
     ConnectionOnboarding.ConnectionOnboarding.pipe(
       Effect.flatMap((onboarding) => onboarding.registerPairing(input)),
-      // Paired here: the machine is this device's own now, so no link going takes it away.
-      // Joining through a link marks it again once this returns.
-      Effect.tap((environmentId) =>
-        Effect.sync(() => linkedAutoConnectStore.setMarked([environmentId], false)),
-      ),
+      // Paired here: the machine is this device's own now. Joining through a link marks it
+      // joined again once this returns.
+      Effect.tap((environmentId) => Effect.sync(() => linkedAutoConnectStore.own(environmentId))),
     ),
 });
 

@@ -55,8 +55,10 @@ side lists and revokes it in Sharing & access like any other session, and owns i
 - **Devices follow links (fork).** The web client joins every machine its connected machines link
   to through the client pairing a full-access link mints
   ([LinkedEnvironmentsAutoConnect](../../apps/web/src/components/LinkedEnvironmentsAutoConnect.tsx)),
-  so that pairing must stay available on every link. Only machines joined that way are marked
-  (device-local), and only marked ones are dropped when no connected machine links to them any more.
+  so that pairing must stay available on every link. The device keeps, per browser, which machines
+  it joined that way, which the user removed while linked, and each machine's last link list; it
+  drops a joined machine once no machine it holds on its own reaches it, chains included. The
+  catalog is not synced across tabs, so one tab (a held Web Lock) acts for the device.
 - **Mode ceilings always narrow.** Forwarded calls carry the calling agent's modes in
   `T3-Mode-Limit`, which the receiving `/mcp` can only intersect downward with the link's approved
   access.
