@@ -101,6 +101,7 @@ describe("V2 preview upgrade", () => {
         [119, "ForkHistoryMembership"],
         [120, "WorkflowMailSender"],
         [121, "WorkflowPools"],
+        [122, "WorkflowRunSubject"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -245,6 +246,7 @@ describe("V2 preview upgrade", () => {
         [119, "ForkHistoryMembership"],
         [120, "WorkflowMailSender"],
         [121, "WorkflowPools"],
+        [122, "WorkflowRunSubject"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
