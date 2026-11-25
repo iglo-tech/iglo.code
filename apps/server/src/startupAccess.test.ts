@@ -12,6 +12,7 @@ import * as TestClock from "effect/testing/TestClock";
 import {
   acceptsPrivateNetworkConnection,
   closeNonPrivateNetworkConnections,
+  formatHeadlessServeOutput,
   loopbackUrlHostForAddress,
   resolveHeadlessConnectionString,
   resolveLocalOrigin,
@@ -116,6 +117,19 @@ it("targets the bound interface when the listener binds a specific address", () 
   expect(hostFor("127.0.0.1")).toBe("127.0.0.1");
   expect(hostFor("127.0.0.2")).toBe("127.0.0.2");
   expect(hostFor("100.101.102.103")).toBe("100.101.102.103");
+});
+
+it("prints the pairing URL without an app link", () => {
+  const pairingUrl = "http://192.168.1.42:4773/pair#token=ABC123";
+  const output = formatHeadlessServeOutput({
+    connectionString: "http://192.168.1.42:4773",
+    token: "ABC123",
+    pairingUrl,
+  });
+
+  expect(output).toContain(`Pairing URL: ${pairingUrl}`);
+  expect(output).not.toContain("App link");
+  expect(output).not.toContain("t3code://");
 });
 
 describe("acceptsPrivateNetworkConnection", () => {

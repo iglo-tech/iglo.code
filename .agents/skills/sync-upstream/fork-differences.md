@@ -75,6 +75,12 @@ current when an authorized change replaces a decision.
   `cloud/publicConfig.ts`, which read no env var or build define; keep upstream's
   relay/Clerk defines out of the Vite configs, and keep `infra/relay`, its catalog
   entries, and its patches removed.
+- **No mobile app pairing link.** `iglo.code pair` and headless startup output
+  (`cli/pair.ts`, `startupAccess.ts`) print the pairing URL, token, and a QR
+  code of the pairing URL, never upstream's `App link: t3code://pair?…` line
+  for the removed mobile app. Keep `buildPairingAppLink` out of
+  `packages/shared/src/remote.ts`; `readPairingAppLink` may stay for imported
+  dormant desktop code.
 - **Local development.** The maintainer uses the local toolchain. Keep
   `.devcontainer/` and its numbered internals/operations docs removed, along with their
   configuration and documentation references. Upstream's pruned numbered docs
