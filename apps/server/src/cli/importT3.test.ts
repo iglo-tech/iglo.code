@@ -12,6 +12,10 @@ import * as NodeSqlite from "node:sqlite";
 
 import { migrationEntries, migrationManifest, runMigrations } from "../persistence/Migrations.ts";
 import {
+  FIRST_UPSTREAM_DIVERGENT_ID,
+  FORK_ONLY_MIGRATION_IDS,
+} from "../persistence/reconcileUpstreamMigrationLedger.ts";
+import {
   ImportDestinationInUseError,
   ImportDestinationNotCleanError,
   ImportError,
@@ -81,6 +85,10 @@ const seedSourceHome = Effect.fn("seedImportT3SourceHome")(function* (
   yield* fs.makeDirectory(path.join(stateDir, "clerk"), { recursive: true });
   yield* fs.writeFileString(path.join(stateDir, "clerk", "session.json"), "{}");
   yield* fs.writeFileString(path.join(stateDir, "cloud-auth-token.json"), "credential");
+  yield* fs.writeFileString(path.join(sourceHome, "service.env"), "SERVICE_LAN=true\n");
+  yield* fs.makeDirectory(path.join(stateDir, "provider-processes"), { recursive: true });
+  yield* fs.writeFileString(path.join(stateDir, "provider-processes", "live.json"), "{}");
+  yield* fs.writeFileString(path.join(stateDir, "host-metrics.sqlite"), "metrics");
 
   yield* withDatabase(
     databasePath,
@@ -88,12 +96,14 @@ const seedSourceHome = Effect.fn("seedImportT3SourceHome")(function* (
       const sql = yield* SqlClient.SqlClient;
       // Production databases run in WAL mode; a clean stop removes -wal/-shm.
       yield* sql.unsafe("PRAGMA journal_mode = WAL").unprepared;
-      yield* runMigrations({ toMigrationInclusive: 58 });
-      for (const [forkId, name, migration] of migrationEntries.filter(
-        ([id]) => id > 60 && id <= throughForkId,
-      )) {
+      yield* runMigrations({ toMigrationInclusive: FIRST_UPSTREAM_DIVERGENT_ID - 1 });
+      let upstreamId = FIRST_UPSTREAM_DIVERGENT_ID - 1;
+      for (const [forkId, name, migration] of migrationEntries) {
+        if (forkId < FIRST_UPSTREAM_DIVERGENT_ID || FORK_ONLY_MIGRATION_IDS.has(forkId)) continue;
+        upstreamId += 1;
+        if (forkId > throughForkId) break;
         yield* migration;
-        yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${forkId - 2}, ${name})`;
+        yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${upstreamId}, ${name})`;
       }
       yield* sql`INSERT INTO auth_sessions (session_id, subject, scopes, method, issued_at, expires_at)
         VALUES ('session:imported', 'owner', '[]', 'pairing', '2026-11-01', '2027-11-01')`;
@@ -223,6 +233,9 @@ it.layer(NodeServices.layer)("importT3", (it) => {
         yield* fs.exists(path.join(destinationHome, "themes", "desktop-wallpaper.json")),
       );
       assert.isFalse(yield* fs.exists(path.join(destinationStateDir, "logs")));
+      assert.isFalse(yield* fs.exists(path.join(destinationHome, "service.env")));
+      assert.isFalse(yield* fs.exists(path.join(destinationStateDir, "provider-processes")));
+      assert.isFalse(yield* fs.exists(path.join(destinationStateDir, "host-metrics.sqlite")));
       assert.isFalse(
         yield* fs.exists(path.join(destinationStateDir, "statev2.sqlite.import-snapshot")),
       );
@@ -242,7 +255,7 @@ it.layer(NodeServices.layer)("importT3", (it) => {
       );
       assert.strictEqual(
         sourceLedger[sourceLedger.length - 1]?.migration_id,
-        (migrationManifest.at(-1)?.[0] ?? 0) - 2,
+        migrationManifest.length - FORK_ONLY_MIGRATION_IDS.size,
       );
     }),
   );
@@ -540,6 +553,10 @@ it.layer(NodeServices.layer)("importT3", (it) => {
           yield* runMigrations();
         }),
       );
+      // Stopped WAL databases can leave 0-byte -wal / -shm sidecars behind; an empty database
+      // with its own sidecars is still replaceable, and its sidecars are removed before promotion.
+      yield* fs.writeFileString(`${destinationDatabase}-wal`, "");
+      yield* fs.writeFileString(`${destinationDatabase}-shm`, "");
 
       yield* runImportT3({ sourceHome, destinationHome });
 
@@ -695,24 +712,26 @@ it.layer(NodeServices.layer)("importT3", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const root = yield* fs.makeTempDirectoryScoped({ prefix: "import-t3-midstream-" });
-      const sourceHome = path.join(root, "t3-home");
-      const destinationHome = path.join(root, "iglo-home");
-      yield* seedSourceHome(sourceHome, 62);
-      yield* runImportT3({ sourceHome, destinationHome });
-      yield* withDatabase(
-        path.join(destinationHome, "userdata", "statev2.sqlite"),
-        Effect.gen(function* () {
-          const sql = yield* SqlClient.SqlClient;
-          // The reconcile renumbered the ledger and the import finished the pending migrations.
-          assert.deepStrictEqual(yield* runMigrations(), []);
-          const ledger = yield* sql<{ readonly migration_id: number; readonly name: string }>`
-            SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id`;
-          assert.strictEqual(
-            Number(ledger[ledger.length - 1]?.migration_id),
-            migrationManifest.at(-1)?.[0],
-          );
-        }),
-      );
+      for (const throughForkId of [62, 114]) {
+        const sourceHome = path.join(root, `t3-home-${throughForkId}`);
+        const destinationHome = path.join(root, `iglo-home-${throughForkId}`);
+        yield* seedSourceHome(sourceHome, throughForkId);
+        yield* runImportT3({ sourceHome, destinationHome });
+        yield* withDatabase(
+          path.join(destinationHome, "userdata", "statev2.sqlite"),
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            // The reconcile renumbered the ledger and the import finished the pending migrations.
+            assert.deepStrictEqual(yield* runMigrations(), []);
+            const ledger = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+              SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id`;
+            assert.strictEqual(
+              Number(ledger[ledger.length - 1]?.migration_id),
+              migrationManifest.at(-1)?.[0],
+            );
+          }),
+        );
+      }
     }),
   );
 

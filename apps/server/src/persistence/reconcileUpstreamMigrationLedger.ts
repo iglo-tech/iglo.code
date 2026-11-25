@@ -5,10 +5,23 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { migrationManifest } from "./Migrations.ts";
 import Migration0059 from "./Migrations/059_ScheduledTaskDelivery.ts";
 import Migration0060 from "./Migrations/060_ScheduleDispatchTargets.ts";
+import Migration0105 from "./Migrations/105_PeerLinkSessionBinding.ts";
 
-// The fork carries two extra migrations at 59/60, so every upstream T3 Code migration from 59 on
-// sits two ids lower there. Renumber by name so later upstream releases stay importable after a sync.
-export const FIRST_UPSTREAM_DIVERGENT_ID = 59;
+// Fork-only migrations interleaved into upstream T3 Code's sequence. Every upstream migration
+// after each insertion sits lower there by the count of preceding fork-only migrations.
+// Keep ordered by id; when adding a new fork-only migration, append it here and run the
+// reconcileUpstreamMigrationLedger and importT3 tests.
+export const FORK_ONLY_MIGRATIONS = [
+  [59, "ScheduledTaskDelivery", Migration0059],
+  [60, "ScheduleDispatchTargets", Migration0060],
+  [105, "PeerLinkSessionBinding", Migration0105],
+] as const;
+
+export const FORK_ONLY_MIGRATION_IDS: ReadonlySet<number> = new Set<number>(
+  FORK_ONLY_MIGRATIONS.map(([id]) => id),
+);
+
+export const FIRST_UPSTREAM_DIVERGENT_ID = FORK_ONLY_MIGRATIONS[0][0];
 
 export interface UpstreamMigrationRow {
   readonly id: number;
@@ -17,12 +30,17 @@ export interface UpstreamMigrationRow {
 
 export type UpstreamLedgerPlan =
   | { readonly kind: "already-current" }
-  | { readonly kind: "upstream"; readonly rows: ReadonlyArray<UpstreamMigrationRow> }
+  | {
+      readonly kind: "upstream";
+      readonly rows: ReadonlyArray<UpstreamMigrationRow>;
+      readonly missingForkMigrations: ReadonlyArray<readonly [id: number, name: string]>;
+    }
   | { readonly kind: "refused"; readonly detail: string };
 
 export function planUpstreamLedger(
   recorded: ReadonlyArray<UpstreamMigrationRow>,
   manifest: ReadonlyArray<readonly [id: number, name: string]> = migrationManifest,
+  forkOnlyIds: ReadonlySet<number> = FORK_ONLY_MIGRATION_IDS,
 ): UpstreamLedgerPlan {
   if (recorded.length === 0) {
     return { kind: "refused", detail: "no migrations are recorded in this database" };
@@ -31,8 +49,18 @@ export function planUpstreamLedger(
   if (recorded.every((row) => forkNameById.get(row.id) === row.name)) {
     return { kind: "already-current" };
   }
+  // Every non-fork entry in `manifest` appears in upstream T3 Code in the same relative order,
+  // numbered densely from 1. Each fork-only migration inserted earlier shifts later upstream ids.
+  const expectedUpstreamByForkId = new Map<number, number>();
+  let upstreamOrdinal = 0;
+  for (const [id] of manifest) {
+    if (forkOnlyIds.has(id)) continue;
+    upstreamOrdinal += 1;
+    expectedUpstreamByForkId.set(id, upstreamOrdinal);
+  }
   const forkIdByName = new Map(manifest.map(([id, name]) => [name, id] as const));
   const rows: Array<UpstreamMigrationRow> = [];
+  let maxMappedForkId = 0;
   for (const row of recorded) {
     const forkId = forkIdByName.get(row.name);
     if (forkId === undefined) {
@@ -41,16 +69,28 @@ export function planUpstreamLedger(
         detail: `migration ${row.id}_${row.name} is unknown to this iglo.code build`,
       };
     }
-    const expectedId = row.id < FIRST_UPSTREAM_DIVERGENT_ID ? row.id : row.id + 2;
-    if (forkId !== expectedId) {
+    const expectedUpstreamId = expectedUpstreamByForkId.get(forkId);
+    if (expectedUpstreamId === undefined) {
       return {
         kind: "refused",
-        detail: `migration ${row.id}_${row.name} would move to ${forkId}, not ${expectedId}; the history is neither upstream T3 Code nor this build`,
+        detail: `migration ${row.id}_${row.name} is a fork-only migration; the history is neither upstream T3 Code nor this build`,
       };
     }
-    rows.push(row.id < FIRST_UPSTREAM_DIVERGENT_ID ? row : { id: forkId, name: row.name });
+    if (row.id !== expectedUpstreamId) {
+      return {
+        kind: "refused",
+        detail: `migration ${row.id}_${row.name} is at upstream id ${row.id}, expected ${expectedUpstreamId} (fork id ${forkId}); the history is neither upstream T3 Code nor this build`,
+      };
+    }
+    if (forkId > maxMappedForkId) maxMappedForkId = forkId;
+    rows.push({ id: forkId, name: row.name });
   }
-  return { kind: "upstream", rows };
+  // Only apply fork-only migrations that sit below the highest recorded upstream migration;
+  // any fork-only migration above maxMappedForkId will run in normal order via runMigrations().
+  const missingForkMigrations = manifest.filter(
+    ([id]) => forkOnlyIds.has(id) && id < maxMappedForkId,
+  );
+  return { kind: "upstream", rows, missingForkMigrations };
 }
 
 export class UpstreamLedgerError extends Schema.TaggedError<UpstreamLedgerError>()(
@@ -62,13 +102,16 @@ export class UpstreamLedgerError extends Schema.TaggedError<UpstreamLedgerError>
   }
 }
 
-const APPLIED_UPSTREAM_GAP: ReadonlyArray<readonly [id: number, name: string]> = [
-  [59, "ScheduledTaskDelivery"],
-  [60, "ScheduleDispatchTargets"],
-];
+const forkOnlyMigrationById = new Map<
+  number,
+  {
+    readonly name: string;
+    readonly effect: (typeof FORK_ONLY_MIGRATIONS)[number][2];
+  }
+>(FORK_ONLY_MIGRATIONS.map(([id, name, effect]) => [id, { name, effect }] as const));
 
-/** One-time import step: renumber an upstream T3 Code ledger to this build's ids and apply the
- * fork-only migrations the source never ran. A fork-shaped ledger is left untouched. */
+/** One-time import step: renumber an upstream T3 Code ledger to this build's ids and apply any
+ * fork-only migrations sitting below the source's head. A fork-shaped ledger is left untouched. */
 export const reconcileUpstreamMigrationLedger = Effect.fn("reconcileUpstreamMigrationLedger")(
   function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -86,21 +129,28 @@ export const reconcileUpstreamMigrationLedger = Effect.fn("reconcileUpstreamMigr
     if (plan.kind === "already-current") return [];
     yield* sql.withTransaction(
       Effect.gen(function* () {
-        yield* Migration0059;
-        yield* Migration0060;
+        for (const [id, name] of plan.missingForkMigrations) {
+          const entry = forkOnlyMigrationById.get(id);
+          if (entry === undefined || entry.name !== name) {
+            return yield* new UpstreamLedgerError({
+              detail: `missing fork-only migration ${id}_${name} has no registered handler`,
+            });
+          }
+          yield* entry.effect;
+        }
         yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= ${FIRST_UPSTREAM_DIVERGENT_ID}`;
         const createdAtByName = new Map(recorded.map((row) => [row.name, row.created_at] as const));
-        const rewritten = plan.rows.filter((row) => row.id >= FIRST_UPSTREAM_DIVERGENT_ID + 2);
+        const rewritten = plan.rows.filter((row) => row.id >= FIRST_UPSTREAM_DIVERGENT_ID);
         for (const row of rewritten) {
           const createdAt = createdAtByName.get(row.name) ?? null;
           yield* sql`INSERT INTO effect_sql_migrations (migration_id, name, created_at)
             VALUES (${row.id}, ${row.name}, ${createdAt})`;
         }
-        for (const [id, name] of APPLIED_UPSTREAM_GAP) {
+        for (const [id, name] of plan.missingForkMigrations) {
           yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
         }
       }),
     );
-    return APPLIED_UPSTREAM_GAP;
+    return plan.missingForkMigrations;
   },
 );

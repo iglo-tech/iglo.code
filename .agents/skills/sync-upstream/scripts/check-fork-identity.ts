@@ -124,6 +124,31 @@ const ALLOW: [string, string, string][] = [
     "default source home of the sanctioned one-time import; opened only through a private staged copy, never written",
   ],
   [
+    "apps/server/src/cli/importT3.ts",
+    "product name",
+    "user-facing prompts and errors of the sanctioned T3 Code import command",
+  ],
+  [
+    "apps/server/src/cli/importT3.test.ts",
+    "product name",
+    "tests for the sanctioned T3 Code import command",
+  ],
+  [
+    "apps/server/src/cli/server.ts",
+    "product name",
+    "comment documenting the sanctioned first-run T3 Code import offer",
+  ],
+  [
+    "apps/server/src/persistence/reconcileUpstreamMigrationLedger.ts",
+    "product name",
+    "reconciles an upstream T3 Code migration ledger during the sanctioned import",
+  ],
+  [
+    "apps/server/src/persistence/reconcileUpstreamMigrationLedger.test.ts",
+    "product name",
+    "tests for upstream T3 Code migration ledger reconciliation",
+  ],
+  [
     "docs/user/install.md",
     "product name",
     "the migration link names the upstream project users migrate from",

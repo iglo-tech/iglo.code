@@ -134,13 +134,14 @@ bun .agents/skills/sync-upstream/scripts/check-fork-identity.ts
 ```
 
 An upstream merge that adds, renumbers, or inserts migrations must keep the
-T3 Code import's ledger reconcile in shape: the fork-only migrations sit two ids
-below upstream's from id 59, and
-`apps/server/src/persistence/reconcileUpstreamMigrationLedger.ts` encodes that
-offset and refuses anything else. New upstream migrations need no change there
-(the mapping is name-driven), but a renumbered fork offset or an inserted
-fork-only migration means updating that file and
-`apps/server/src/cli/importT3.ts` with it. After any migration change, run:
+T3 Code import's ledger reconcile in shape:
+`FORK_ONLY_MIGRATIONS` in
+`apps/server/src/persistence/reconcileUpstreamMigrationLedger.ts` lists every
+fork-only migration (`59_ScheduledTaskDelivery`, `60_ScheduleDispatchTargets`,
+`105_PeerLinkSessionBinding`) and derives the dense upstream id mapping from
+`migrationManifest` by name. New upstream migrations need no change there, but
+adding or renumbering a fork-only migration means updating
+`FORK_ONLY_MIGRATIONS` with it. After any migration change, run:
 
 ```sh
 vp test run apps/server/src/persistence/reconcileUpstreamMigrationLedger.test.ts apps/server/src/cli/importT3.test.ts

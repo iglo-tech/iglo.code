@@ -177,6 +177,7 @@ const EXCLUDED_HOME_ENTRIES = new Set([
   "caches",
   "projects",
   "runtime",
+  "service.env",
   "worktrees",
   "worktree-backups",
   "scratch",
@@ -184,6 +185,11 @@ const EXCLUDED_HOME_ENTRIES = new Set([
   "tools",
   "userdata/clerk",
   "userdata/cloud-auth-token.json",
+  "userdata/host-metrics.sqlite",
+  "userdata/host-metrics.sqlite-wal",
+  "userdata/host-metrics.sqlite-shm",
+  "userdata/host-metrics.sqlite-journal",
+  "userdata/provider-processes",
   "userdata/relay-clients",
   "userdata/shell-environment-cache.json",
   "userdata/logs",
@@ -298,9 +304,11 @@ const copyHomeTree = Effect.fn("runImportT3.copyHomeTree")(function* (
         yield* fs.makeDirectory(destinationEntry, { recursive: true });
         directoryModes.push([relative, stat.mode]);
         pending.push(relative);
-      } else {
+      } else if (stat.type === "File") {
         yield* fs.copy(sourceEntry, destinationEntry, { overwrite: true });
         yield* fs.chmod(destinationEntry, stat.mode);
+      } else {
+        yield* Console.log(`Skipping '${relative}': special file (${stat.type}).`);
       }
     }
   }
@@ -333,7 +341,7 @@ const measureHomeTree = Effect.fn("runImportT3.measureHomeTree")(function* (sour
         .pipe(Effect.orElseSucceed(() => null));
       if (stat === null) continue;
       if (stat.type === "Directory") pending.push(relative);
-      else {
+      else if (stat.type === "File" || stat.type === "SymbolicLink") {
         files += 1;
         bytes += Number(stat.size);
       }
@@ -522,10 +530,11 @@ const ownerIsLive = Effect.fn("runImportT3.ownerIsLive")(function* (
   const recordedAt = Date.parse(state.startedAt);
   if (!Number.isFinite(recordedAt)) return true;
   const platform = yield* HostProcess.Platform;
+  const hostEnv = yield* HostProcess.Environment;
   const runner = yield* ProcessRunner.ProcessRunner;
   const result = yield* runner
     .run({
-      ...legacyOwnerStartTimeCommand(state.pid, platform),
+      ...legacyOwnerStartTimeCommand(state.pid, platform, hostEnv),
       timeout: Duration.seconds(2),
       maxOutputBytes: 16_384,
     })
@@ -615,16 +624,18 @@ export const runImportT3 = Effect.fn("runImportT3")(function* (input: {
       return yield* new ImportDestinationInUseError({ destinationHome });
     }
   }
-  // A sidecar without its database (the user moved only statev2.sqlite) corrupts whatever lands
-  // next to it: SQLite replays an existing -wal no matter what the database header says. A
-  // database file on its own is checked for emptiness under the lock, inside the scope below.
-  const destinationHasSidecarsOrLegacy = Effect.gen(function* () {
+  // An orphan sidecar (user moved only statev2.sqlite) corrupts the imported DB when SQLite
+  // replays it. When statev2.sqlite itself exists (possibly with its own -wal/-shm from a stopped
+  // first boot), emptiness is checked under the lock below and its sidecars are removed with it.
+  const destinationHasOrphanSidecarsOrLegacy = Effect.gen(function* () {
+    if (yield* fs.exists(path.join(destinationStateDir, "state.sqlite"))) return true;
+    if (yield* fs.exists(destinationDatabasePath)) return false;
     for (const suffix of DATABASE_SIDECAR_SUFFIXES) {
       if (yield* fs.exists(`${destinationDatabasePath}${suffix}`)) return true;
     }
-    return yield* fs.exists(path.join(destinationStateDir, "state.sqlite"));
+    return false;
   });
-  if (yield* destinationHasSidecarsOrLegacy) {
+  if (yield* destinationHasOrphanSidecarsOrLegacy) {
     return yield* new ImportDestinationNotCleanError({ destinationHome });
   }
   const liveOwner = yield* readPersistedServerRuntimeState(sourceRuntimeStatePath).pipe(
@@ -717,7 +728,7 @@ export const runImportT3 = Effect.fn("runImportT3")(function* (input: {
         path.join(destinationStateDir, "server-runtime.json"),
       );
       // Re-check under the lock: another process could have created state while preflight ran.
-      if (yield* destinationHasSidecarsOrLegacy) {
+      if (yield* destinationHasOrphanSidecarsOrLegacy) {
         return yield* new ImportDestinationNotCleanError({ destinationHome });
       }
       // A database the first boot created but never used (no projects, no threads) may be
@@ -787,6 +798,9 @@ export const runImportT3 = Effect.fn("runImportT3")(function* (input: {
       // failed import leaves no database behind, so the ask-once offer survives and retries work.
       if (destinationDatabaseExisted) {
         yield* fs.remove(destinationDatabasePath, { force: true });
+        for (const suffix of DATABASE_SIDECAR_SUFFIXES) {
+          yield* fs.remove(`${destinationDatabasePath}${suffix}`, { force: true });
+        }
       }
       yield* fs.rename(snapshotPath, destinationDatabasePath);
       const size = Number((yield* fs.stat(destinationDatabasePath)).size);
