@@ -12,9 +12,11 @@ import { AsyncResult, Atom } from "effect/reactivity";
 
 import type { TurnItemSource } from "../components/chat/timelineRowContext";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
+import { environmentCatalog } from "../connection/catalog";
 import { linkedAutoConnectStore } from "../connection/linkedAutoConnectStore";
 import { connectPairing, reachesEnvironment } from "../connection/onboarding";
 import { openLinkedThreadRead } from "../lib/sideChatPane";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import type { LinkedThreadSurface } from "../linkedThreadSurface";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useEnvironment } from "./environments";
@@ -208,6 +210,10 @@ export function useConnectLinkedEnvironment(
     void navigate({ to: "/settings/connections" });
   };
   const connect = async () => {
+    // A machine already saved here was paired by hand; connecting it again keeps it the user's.
+    const alreadySaved = appAtomRegistry
+      .get(environmentCatalog.catalogValueAtom)
+      .entries.has(surface.environmentId);
     setState({ phase: "connecting" });
     const startedOn = router.state.location.href;
     let tabClosed = false;
@@ -252,7 +258,7 @@ export function useConnectLinkedEnvironment(
     }
     if (outcome.type === "connected") {
       // Joined through the link, so it leaves this device again when the link goes.
-      linkedAutoConnectStore.join(surface.environmentId);
+      if (!alreadySaved) linkedAutoConnectStore.join(surface.environmentId);
       setState({ phase: "idle" });
       if (tabClosed) return outcome;
       // The thread opens where every thread on a connected environment does, so its tab is done.

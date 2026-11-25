@@ -107,6 +107,8 @@ export function LinkedEnvironmentsAutoConnect() {
           { signal: controller.signal },
           () =>
             new Promise<void>((resolve) => {
+              // Granted just as the tab hid: let the lock go to the tab now in use.
+              if (abort !== controller) return resolve();
               release = resolve;
               setLeader(true);
             }),
