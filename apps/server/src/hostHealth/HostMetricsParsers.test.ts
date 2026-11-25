@@ -189,10 +189,12 @@ describe("df", () => {
       "/dev/nvme0n1p2 240920760 23503760 217049776 10% /",
       "/dev/nvme0n1p2 240920760 23503760 217049776 10% /var/log",
       "/dev/nvme0n1p1 4193152 950112 3243040 23% /boot",
+      "/dev/sdb1 900000000 100000000 800000000 12% /home/alice/data",
+      "/dev/sdb1 900000000 100000000 800000000 12% /mnt/data",
     ].join("\n");
     assert.deepStrictEqual(
       parseDfOutput(output, "linux").map((disk) => disk.mountPoint),
-      ["/", "/boot"],
+      ["/", "/boot", "/mnt/data"],
     );
   });
 

@@ -9,7 +9,10 @@ export interface DotMatrixInput {
   readonly toMs: number;
   /** A column with no sample repeats the one before while the last sample is this recent. */
   readonly maxGapMs: number;
-  readonly max: number;
+  /** A fixed top, as 100 for percentages. Without one the scale fits the tallest stacked column. */
+  readonly max?: number;
+  /** The lowest top a fitted scale may use, as total RAM for a chart that stacks swap on it. */
+  readonly floor?: number;
   readonly columns: number;
   readonly rows: number;
 }
@@ -26,9 +29,12 @@ export interface DotColumn {
  * Buckets samples into columns of dots. Each column keeps its peak, so short spikes stay visible
  * at long ranges; a column with no samples stays dark unless it falls inside a sampling gap.
  */
-export function dotColumns(input: DotMatrixInput): ReadonlyArray<DotColumn | null> {
-  const { columns, rows, max } = input;
-  if (columns <= 0 || rows <= 0) return [];
+export function dotColumns(input: DotMatrixInput): {
+  readonly columns: ReadonlyArray<DotColumn | null>;
+  readonly max: number;
+} {
+  const { columns, rows } = input;
+  if (columns <= 0 || rows <= 0) return { columns: [], max: input.max ?? 1 };
   const span = input.toMs - input.fromMs;
   const peaks: Array<Array<number | null> | null> = Array.from({ length: columns }, () => null);
   const lastAt: Array<number> = Array.from({ length: columns }, () => 0);
@@ -45,6 +51,14 @@ export function dotColumns(input: DotMatrixInput): ReadonlyArray<DotColumn | nul
     });
     lastAt[column] = Math.max(lastAt[column] ?? 0, at);
   }
+
+  let peak = 0;
+  for (const bucket of peaks) {
+    const sum = bucket?.reduce<number>((total, value) => total + Math.max(0, value ?? 0), 0) ?? 0;
+    if (sum > peak) peak = sum;
+  }
+  const max =
+    input.max ?? (input.floor !== undefined && peak <= input.floor ? input.floor : niceMax(peak));
 
   const result: Array<DotColumn | null> = [];
   let previous: DotColumn | null = null;
@@ -71,7 +85,7 @@ export function dotColumns(input: DotMatrixInput): ReadonlyArray<DotColumn | nul
     previous = { dots, values: bucket, at: lastAt[column] ?? 0 };
     result.push(previous);
   }
-  return result;
+  return { columns: result, max };
 }
 
 /** 1, 2 or 5 times a power of ten at or above `peak`, so a scale reads cleanly. */

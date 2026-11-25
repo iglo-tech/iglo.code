@@ -120,7 +120,9 @@ function Meter({
           style={{ width: `${Math.max(0, Math.min(100, percent ?? 0))}%` }}
         />
       </span>
-      <span className="text-right font-semibold tabular-nums text-foreground">{value}</span>
+      <span className="min-w-16 whitespace-nowrap text-right font-semibold tabular-nums text-foreground">
+        {value}
+      </span>
     </div>
   );
 }

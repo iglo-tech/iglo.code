@@ -126,12 +126,14 @@ function HistoryChart({
   tone,
   series,
   fixedMax,
+  minMax,
   formatValue,
 }: {
   readonly charts: HistoryCharts | null;
   readonly tone: HealthTone;
   readonly series: (points: HostHealthHistory["points"]) => ReadonlyArray<DotMatrixSeries>;
   readonly fixedMax?: number;
+  readonly minMax?: number;
   readonly formatValue: (value: number) => string;
 }) {
   if (charts === null || charts.points.length === 0) return null;
@@ -146,6 +148,7 @@ function HistoryChart({
       series={series(charts.points)}
       formatValue={formatValue}
       {...(fixedMax === undefined ? {} : { fixedMax })}
+      {...(minMax === undefined ? {} : { minMax })}
     />
   );
 }
@@ -296,7 +299,7 @@ function MemoryCard({ snapshot, charts }: CardProps) {
         charts={charts}
         tone={tone}
         formatValue={formatBytes}
-        {...(total > 0 ? { fixedMax: total } : {})}
+        {...(total > 0 ? { minMax: total } : {})}
         series={(points) => [
           {
             label: gt("Used", { $context: "memory in use" }),
@@ -421,20 +424,21 @@ function DiskIoCard({ snapshot, charts }: CardProps) {
 function NetworkCard({ snapshot, charts }: CardProps) {
   const gt = useGT();
   const tone = HEALTH_TONES.network;
-  const peak =
-    charts === null
-      ? null
-      : Math.max(0, ...charts.points.map((point) => point.netRxBytesPerSec ?? 0));
+  let peak: number | null = null;
+  for (const point of charts?.points ?? []) {
+    const rate = point.netRxBytesPerSec;
+    if (rate !== null && (peak === null || rate > peak)) peak = rate;
+  }
   return (
     <HealthCard.Root>
       <HealthCard.Header tone={tone} icon={NetworkIcon} title={gt("Network")} />
       <HealthCard.Hero
-        label={gt("Downloading")}
+        label={gt("Downloading", { $context: "network download rate" })}
         value={formatRate(snapshot.network.rxBytesPerSec)}
       />
       <HealthCard.Stats>
         <HealthCard.Stat
-          label={gt("Uploading")}
+          label={gt("Uploading", { $context: "network upload rate" })}
           value={formatRate(snapshot.network.txBytesPerSec)}
         />
         <HealthCard.Stat
@@ -625,7 +629,8 @@ function Ring({
         {segments.map((segment, index) => {
           const length = lengths[index] ?? 0;
           const offset = lengths.slice(0, index).reduce((sum, value) => sum + value, 0);
-          const dash = Math.max(0, length - 1.5);
+          // Butt caps end where the segment does; the gap only separates neighbours.
+          const dash = segments.length > 1 ? Math.max(0, length - 1) : length;
           return (
             <circle
               key={segment.label}
@@ -634,7 +639,6 @@ function Ring({
               r={RING_RADIUS}
               fill="none"
               strokeWidth={4}
-              strokeLinecap="round"
               className={segment.ring}
               strokeDasharray={`${dash} ${100 - dash}`}
               strokeDashoffset={-offset}
@@ -732,7 +736,7 @@ const DEFAULT_CRITICAL_CELSIUS = 100;
 function SensorsCard({ snapshot }: { readonly snapshot: HostHealthSnapshot }) {
   const gt = useGT();
   const tone = HEALTH_TONES.temperature;
-  const alerting = new Set(snapshot.alerts.map((alert) => alert.id));
+  const severity = new Map(snapshot.alerts.map((alert) => [alert.id, alert.severity]));
   return (
     <HealthCard.Root>
       <HealthCard.Header
@@ -743,14 +747,20 @@ function SensorsCard({ snapshot }: { readonly snapshot: HostHealthSnapshot }) {
           count: snapshot.sensors.length,
         })}
       />
-      <div className="grid gap-x-8 gap-y-5 md:grid-cols-2 xl:grid-cols-3">
+      <div className="gap-x-8 md:columns-2 xl:columns-3">
         {sensorsByChip(snapshot.sensors).map(({ chip, sensors }) => (
-          <div key={chip} className="flex min-w-0 flex-col gap-2">
+          <div key={chip} className="mb-5 flex min-w-0 break-inside-avoid flex-col gap-2">
             <h3 className="truncate font-mono text-2xs font-medium text-muted-foreground">
               {chip}
             </h3>
             {sensors.map((sensor) => {
-              const hot = alerting.has(`temp:${sensor.id}`) || alerting.has(`fan:${sensor.id}`);
+              const alert = severity.get(`temp:${sensor.id}`) ?? severity.get(`fan:${sensor.id}`);
+              const alertText =
+                alert === "critical"
+                  ? "text-destructive-foreground"
+                  : alert === "warning"
+                    ? "text-warning-foreground"
+                    : undefined;
               if (sensor.kind !== "temperature") {
                 return (
                   <div
@@ -760,8 +770,8 @@ function SensorsCard({ snapshot }: { readonly snapshot: HostHealthSnapshot }) {
                     <span className="truncate text-muted-foreground">{sensor.label}</span>
                     <span
                       className={cn(
-                        "font-semibold tabular-nums",
-                        hot ? "text-destructive-foreground" : "text-foreground",
+                        "shrink-0 whitespace-nowrap font-semibold tabular-nums",
+                        alertText ?? "text-foreground",
                       )}
                     >
                       {formatSensorValue(sensor)}
@@ -777,12 +787,14 @@ function SensorsCard({ snapshot }: { readonly snapshot: HostHealthSnapshot }) {
                   key={sensor.id}
                   label={sensor.label}
                   percent={percent}
-                  value={
-                    <span className={hot ? "text-destructive-foreground" : undefined}>
-                      {formatSensorValue(sensor)}
-                    </span>
+                  value={<span className={alertText}>{formatSensorValue(sensor)}</span>}
+                  fillClassName={
+                    alert === "critical"
+                      ? "bg-destructive"
+                      : alert === "warning"
+                        ? "bg-warning"
+                        : tone.swatch
                   }
-                  fillClassName={hot ? "bg-destructive" : usageFillClass(percent, "bg-rose-500")}
                   trackClassName={tone.track}
                 />
               );

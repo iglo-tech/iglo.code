@@ -5,7 +5,7 @@ import { usePrimarySettings } from "../../hooks/useSettings";
 import { observeResize } from "../../lib/observeResize";
 import { cn } from "../../lib/utils";
 import { formatDateTimeTimestamp } from "../../timestampFormat";
-import { DOT_PITCH, dotColumns, niceMax } from "./dotMatrix.logic";
+import { DOT_PITCH, dotColumns } from "./dotMatrix.logic";
 import type { HealthTone } from "./healthTones";
 
 export interface DotMatrixSeries {
@@ -26,6 +26,7 @@ export function DotMatrixChart({
   toMs,
   maxGapMs,
   fixedMax,
+  minMax,
   rows,
   formatValue,
   axis = true,
@@ -39,6 +40,8 @@ export function DotMatrixChart({
   readonly maxGapMs: number;
   /** A fixed top, as 100 for percentages; otherwise the scale fits the peak. */
   readonly fixedMax?: number;
+  /** The lowest top a fitted scale may use. */
+  readonly minMax?: number;
   readonly rows: number;
   readonly formatValue: (value: number) => string;
   /** Show the time axis and, under the pointer, the column's reading. */
@@ -50,14 +53,14 @@ export function DotMatrixChart({
   const [columnCount, setColumnCount] = useState(0);
   const [hovered, setHovered] = useState<number | null>(null);
 
-  const max = fixedMax ?? niceMax(stackedPeak(series.map((entry) => entry.values)));
-  const columns = dotColumns({
+  const { columns } = dotColumns({
     timestamps,
     series: series.map((entry) => entry.values),
     fromMs,
     toMs,
     maxGapMs,
-    max,
+    ...(fixedMax === undefined ? {} : { max: fixedMax }),
+    ...(minMax === undefined ? {} : { floor: minMax }),
     columns: columnCount,
     rows,
   });
@@ -71,7 +74,7 @@ export function DotMatrixChart({
     update();
     return observeResize(element, update);
   };
-  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  const onPointerMove = (event: PointerEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
     const column = Math.floor((event.clientX - box.left) / DOT_PITCH);
     setHovered(column >= 0 && column < columnCount ? column : null);
@@ -82,13 +85,18 @@ export function DotMatrixChart({
       <div className={cn("rounded-lg p-2", tone.tray)}>
         <div
           ref={measure}
-          className="flex touch-none justify-center"
+          className={cn("flex justify-center", axis && "touch-pan-y")}
           style={{ height }}
-          onPointerMove={axis ? onPointerMove : undefined}
-          onPointerLeave={axis ? () => setHovered(null) : undefined}
         >
           {columnCount === 0 ? null : (
-            <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden>
+            <svg
+              width={width}
+              height={height}
+              viewBox={`0 0 ${width} ${height}`}
+              aria-hidden
+              onPointerMove={axis ? onPointerMove : undefined}
+              onPointerLeave={axis ? () => setHovered(null) : undefined}
+            >
               <defs>
                 <pattern
                   id={`${id}-dots`}
@@ -139,7 +147,7 @@ export function DotMatrixChart({
         </div>
       </div>
       {!axis ? null : reading !== null ? (
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 px-1 text-3xs tabular-nums text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-x-3 overflow-hidden whitespace-nowrap px-1 text-3xs tabular-nums text-muted-foreground">
           <time dateTime={new Date(reading.at).toISOString()}>
             {formatDateTimeTimestamp(new Date(reading.at).toISOString(), timestampFormat)}
           </time>
@@ -166,17 +174,6 @@ export function DotMatrixChart({
       )}
     </div>
   );
-}
-
-function stackedPeak(series: ReadonlyArray<ReadonlyArray<number | null>>): number {
-  let peak = 0;
-  const length = Math.max(0, ...series.map((values) => values.length));
-  for (let index = 0; index < length; index += 1) {
-    let sum = 0;
-    for (const values of series) sum += Math.max(0, values[index] ?? 0);
-    if (sum > peak) peak = sum;
-  }
-  return peak;
 }
 
 const MINUTE = 60_000;
