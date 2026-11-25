@@ -158,7 +158,7 @@ it.layer(NodeServices.layer)("iglo.code update under a managed policy", (it) => 
   it.effect("refuses to update when updates are off", () =>
     Effect.gen(function* () {
       const error = yield* runWithPolicy({ mode: "off" });
-      assert.equal(error.message, "Example Corp manages T3 Code updates.");
+      assert.equal(error.message, "Example Corp manages iglo.code updates.");
     }),
   );
 
@@ -175,7 +175,7 @@ it.layer(NodeServices.layer)("iglo.code update under a managed policy", (it) => 
       for (const error of [byChannel, byVersion]) {
         assert.equal(
           error.message,
-          "Example Corp manages T3 Code updates. Only stable releases can be installed.",
+          "Example Corp manages iglo.code updates. Only stable releases can be installed.",
         );
       }
     }),
@@ -227,6 +227,32 @@ it.layer(NodeServices.layer)("iglo.code update launcher", (it) => {
       // Replaced, not written through.
       assert.equal(yield* fs.readFileString(oldExe), "");
     }).pipe(Effect.scoped, Effect.provideService(HostProcess.Platform, "linux")),
+  );
+
+  it.effect("repoints a recorded Windows launcher outside PATH", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const baseDir = path.join(root, "home");
+      const runtimeDir = path.join(baseDir, "runtime");
+      const launcher = path.join(root, "custom bin", "iglo.code.cmd");
+      const launchedAs = path.join(runtimeDir, "versions", "1.0.0", "t3.exe");
+      const targetEntryPath = path.join(runtimeDir, "versions", "2.0.0", "t3.exe");
+      yield* fs.makeDirectory(runtimeDir, { recursive: true });
+      yield* fs.makeDirectory(path.dirname(launcher), { recursive: true });
+      yield* fs.writeFileString(launcher, `@echo off\r\n"${launchedAs}" %*`);
+      yield* fs.writeFileString(path.join(runtimeDir, "launchers"), `${launcher}\r\n`);
+
+      const repointed = yield* repointLauncher({ launchedAs, baseDir, targetEntryPath });
+
+      assert.equal(Option.getOrUndefined(repointed), launcher);
+      assert.equal(yield* fs.readFileString(launcher), `@echo off\r\n"${targetEntryPath}" %*`);
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(HostProcess.Platform, "win32"),
+      Effect.provideService(HostProcess.Environment, { PATH: "" }),
+    ),
   );
 
   it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
@@ -305,7 +331,7 @@ it.layer(NodeServices.layer)("iglo.code update launcher", (it) => {
     { name: "no launcher records", recorded: undefined },
     { name: "an empty launcher record", recorded: "" },
     { name: "whole launcher records", recorded: "/opt/t3\n" },
-    { name: "Windows launcher records", recorded: "C:\\t3.cmd\r\n" },
+    { name: "Windows launcher records", recorded: "C:\\iglo.code.cmd\r\n" },
     // An interrupted append cut this record short.
     { name: "an unterminated launcher record", recorded: "/opt/t" },
     // Another process's append is cut short after iglo.code update reads the records.
@@ -657,7 +683,7 @@ it.layer(NodeServices.layer)("t3 update checks the database before switching", (
       launcherProtocol: 3,
       preflight: preflightOutput("", 1),
       failure:
-        "t3@0.1.8 could not confirm it supports this database (its check exited with code 1), so t3 did not switch to it.",
+        "iglo.code@0.1.8 could not confirm it supports this database (its check exited with code 1), so iglo.code did not switch to it.",
     },
     {
       // Newer builds keep accepting the current launcher protocol, which may drop 3.

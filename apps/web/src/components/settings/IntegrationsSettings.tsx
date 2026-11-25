@@ -117,6 +117,7 @@ import {
 } from "./settingsLayout";
 import { useSearchableSetting } from "./settingsSearch";
 import { AdvancedSettings } from "./AdvancedSettings";
+import { commitNumberFieldOnEnter } from "./commitNumberFieldOnEnter";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { BrowserImportWizard, type WizardTarget } from "./BrowserImportWizard";
 import type { ImportOutcome } from "./browserImportWizard.logic";
@@ -444,7 +445,10 @@ function BrowserViewportSetting({ disabled }: { readonly disabled: boolean }) {
                 onValueCommitted={(value) => commitDimension("width", value)}
               >
                 <NumberFieldGroup>
-                  <NumberFieldInput aria-label={gt("Default viewport width")} />
+                  <NumberFieldInput
+                    aria-label={gt("Default viewport width")}
+                    onKeyDown={commitNumberFieldOnEnter}
+                  />
                 </NumberFieldGroup>
               </NumberField>
               <span className="text-xs text-muted-foreground">×</span>
@@ -459,7 +463,10 @@ function BrowserViewportSetting({ disabled }: { readonly disabled: boolean }) {
                 onValueCommitted={(value) => commitDimension("height", value)}
               >
                 <NumberFieldGroup>
-                  <NumberFieldInput aria-label={gt("Default viewport height")} />
+                  <NumberFieldInput
+                    aria-label={gt("Default viewport height")}
+                    onKeyDown={commitNumberFieldOnEnter}
+                  />
                 </NumberFieldGroup>
               </NumberField>
               <Tooltip>
@@ -843,12 +850,12 @@ export function PullRequestLinksOpenInAppSetting() {
     <SettingsRow
       {...searchableSetting("pull-request-links-open-in-app")}
       description={gt(
-        "Clicking a pull request link opens it in T3 Code. Turn off to open pull request links like any other link, on your git host.",
+        "Clicking a pull request link opens it in iglo.code. Turn off to open pull request links like any other link, on your git host.",
       )}
       resetAction={
         openInApp ? null : (
           <SettingResetButton
-            ariaLabel={gt("Reset open pull requests in T3 Code to default")}
+            ariaLabel={gt("Reset open pull requests in iglo.code to default")}
             onClick={() => updateSettings({ pullRequestLinksOpenInApp: true })}
           />
         )
@@ -859,7 +866,7 @@ export function PullRequestLinksOpenInAppSetting() {
           onCheckedChange={(checked) =>
             updateSettings({ pullRequestLinksOpenInApp: Boolean(checked) })
           }
-          aria-label={gt("Open pull requests in T3 Code")}
+          aria-label={gt("Open pull requests in iglo.code")}
         />
       }
     />

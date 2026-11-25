@@ -4,12 +4,67 @@
   "rules": { "types": "off", "nsTypes": "off" },
   // These executables are supplied by the OS or installed separately from npm.
   "ignoreBinaries": ["file", "mkfifo", "pkill", "pkg-config", "plutil", "sips"],
+  // Upstream-owned exports whose only consumers are upstream's desktop, mobile and T3 Connect
+  // code, which this fork removes. Unexporting them would conflict on every upstream sync.
+  "ignoreIssues": {
+    "apps/server/src/cloud/publicConfig.ts": ["duplicates"],
+    "apps/server/scripts/migrate-dev-db.ts": ["exports"],
+    "packages/client-runtime/src/issueLinks.ts": ["exports"],
+    "packages/client-runtime/src/issueList.ts": ["exports"],
+    "packages/client-runtime/src/locales.ts": ["exports"],
+    "packages/client-runtime/src/operations/projects.ts": ["exports"],
+    "packages/client-runtime/src/platform/threadCacheEncoding.ts": ["exports"],
+    "packages/client-runtime/src/pullRequestMarkdown.ts": ["exports"],
+    "packages/client-runtime/src/sourceControlClients.ts": ["exports"],
+    "packages/client-runtime/src/state/attachments.ts": ["exports"],
+    "packages/client-runtime/src/state/device.ts": ["exports"],
+    "packages/client-runtime/src/state/models.ts": ["exports"],
+    "packages/client-runtime/src/state/outdatedServerUpdate.ts": ["exports"],
+    "packages/client-runtime/src/state/presentation.ts": ["exports"],
+    "packages/client-runtime/src/state/projectGrouping.ts": ["exports"],
+    "packages/client-runtime/src/state/projects.ts": ["exports"],
+    "packages/client-runtime/src/state/pullRequests.ts": ["exports"],
+    "packages/client-runtime/src/state/shell.ts": ["exports"],
+    "packages/client-runtime/src/state/shellPullRequests.ts": ["exports"],
+    "packages/client-runtime/src/state/subagentRuntime.ts": ["exports"],
+    "packages/client-runtime/src/state/terminalOutput.ts": ["exports"],
+    "packages/client-runtime/src/state/terminalSession.ts": ["exports"],
+    "packages/client-runtime/src/state/threadState.ts": ["exports"],
+    "packages/client-runtime/src/textPaste.ts": ["exports"],
+    "packages/client-runtime/src/voice-input/index.ts": ["exports"],
+    "packages/client-runtime/src/work-log/presentation.ts": ["exports"],
+    "packages/client-runtime/src/zip/zipErrorMessages.ts": ["exports"],
+    "packages/contracts/src/chatAttachment.ts": ["exports"],
+    "packages/contracts/src/editor.ts": ["exports"],
+    "packages/contracts/src/ipc.ts": ["exports"],
+    "packages/contracts/src/settings.ts": ["exports"],
+    "packages/shared/src/HostProcess.ts": ["exports"],
+    "packages/shared/src/cliRelease.ts": ["exports"],
+    "packages/shared/src/codexAuthCallback.ts": ["exports"],
+    "packages/shared/src/databaseMigrationLog.ts": ["exports"],
+    "packages/shared/src/fileLinks.ts": ["exports"],
+    "packages/shared/src/filePreview.ts": ["exports"],
+    "packages/shared/src/markdownLinks.ts": ["exports"],
+    "packages/shared/src/remote.ts": ["exports"],
+    "packages/shared/src/shell.ts": ["exports"],
+    "packages/shared/src/textDirection.ts": ["exports"],
+    "packages/shared/src/themePalettes.ts": ["exports"],
+    "packages/shared/src/themePreview.ts": ["exports"],
+    "packages/shared/src/thirdPartyLicenses.ts": ["exports"],
+    "packages/source-control-core/src/shared/definition.ts": ["exports"],
+    "packages/ssh/src/tunnel.ts": ["exports"],
+    "packages/tailscale/src/tailscale.ts": ["exports"],
+  },
   "workspaces": {
     ".": {
       // Keep vendored reference repositories outside the root project.
       "project": ["*.{js,mjs,cjs,ts,mts,cts}"],
       // CodeRabbit loads its configuration by filename.
       "entry": [".coderabbit.config.ts"],
+    },
+    "evals": {
+      // The grader loads these answers by path, as the server loads a definitions file.
+      "entry": ["workflow-authoring/fixtures/*.ts"],
     },
     "scripts": {
       // Knip loads its preprocessor through a CLI option; worktree setup (from iglo.code.json) run directly.
@@ -23,6 +78,7 @@
         "build-cli-archive.ts",
         "export-brand-icons.ts",
         "i18n-check.ts",
+        "release-local.ts",
         "release-smoke.ts",
         "resolve-nightly-release.ts",
         "smoke-cli-archive.ts",
@@ -71,15 +127,11 @@
       ],
     },
     "apps/web": {
-      // The fork's plugin integration tests load this through createRequire.
-      "ignoreDependencies": ["jsdom"],
       // Worktree setup (scripts/setup-worktree.ts) runs this directly, and evidence
       // fixtures run under node.
       "entry": [
         "scripts/warm-dep-cache.ts",
         "scripts/verify-built-boot.ts",
-        "integration/setup.ts",
-        "integration/vite.config.ts",
         "test/fixtures/**/*.mjs",
       ],
       // UI component modules are copied and adapted as cohesive sets. Keep their

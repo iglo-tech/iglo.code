@@ -1,10 +1,14 @@
 import { RegistryContext } from "@effect/atom-react";
+import * as Effect from "effect/Effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import {
   DEFAULT_UNIFIED_SETTINGS,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
+  ProviderDriverKind,
+  type ServerProvider,
+  type UnifiedSettings,
   ScheduledTaskId,
   ThreadId,
   type ScheduledTask,
@@ -13,9 +17,11 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
+import { createModelCapabilities } from "@t3tools/shared/model";
 import { act, render } from "../../../test/render";
-import { ScheduledTasksSettings } from "./ScheduledTasksSettings";
+import { ScheduledTaskPage, ScheduledTasksSettings } from "./ScheduledTasksSettings";
 import { ConfirmDialogHost } from "../ConfirmDialogHost";
+import { toastManager } from "../ui/toast";
 
 const environmentId = EnvironmentId.make("laptop");
 const projectId = ProjectId.make("project");
@@ -57,8 +63,12 @@ const threadFamilyRead = {
 const state = vi.hoisted(() => ({
   connected: true,
   tasksLoaded: true,
-  secondary: false,
   remove: vi.fn(),
+  tasks: [] as ScheduledTask[],
+  secondary: false,
+  providers: null as unknown as Atom.Writable<ReadonlyArray<ServerProvider>>,
+  settings: null as unknown as UnifiedSettings,
+  upsert: vi.fn(),
 }));
 const secondaryId = EnvironmentId.make("secondary");
 const permissions = new Map<string, Atom.Writable<boolean>>();
@@ -66,8 +76,12 @@ const permissions = new Map<string, Atom.Writable<boolean>>();
 function setup() {
   state.connected = true;
   state.tasksLoaded = true;
-  state.remove.mockReset().mockResolvedValue({ _tag: "Success", value: { id: task.id } });
+  state.remove.mockReset().mockReturnValue(Effect.succeed({ id: task.id }));
+  state.tasks = [task];
   state.secondary = false;
+  state.providers = Atom.make<ReadonlyArray<ServerProvider>>([]);
+  state.settings = DEFAULT_UNIFIED_SETTINGS;
+  state.upsert.mockReset().mockReturnValue(Effect.succeed({ task }));
   permissions.clear();
   permissions.set(environmentId, Atom.make(true));
   permissions.set(secondaryId, Atom.make(true));
@@ -126,8 +140,10 @@ vi.mock(import("../../state/server"), async (original) => {
         ...actual.serverEnvironment.deleteScheduledTask,
         run: state.remove,
       },
+      providersValueAtom: (() => state.providers) as never,
       upsertScheduledTask: {
         ...actual.serverEnvironment.upsertScheduledTask,
+        run: state.upsert,
         permissionAtom: (id: string | null) => permissions.get(id ?? "")!,
       },
     },
@@ -147,7 +163,7 @@ vi.mock(import("../../state/query"), async (original) => ({
     data:
       request === null || request === threadFamilyRead
         ? request
-        : { tasks: state.tasksLoaded ? [task] : [] },
+        : { tasks: state.tasksLoaded ? state.tasks : [] },
     error: null,
     isPending: false,
     refresh: vi.fn(),
@@ -160,12 +176,76 @@ vi.mock(import("../../state/environments"), async (original) => ({
 }));
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
-  useProjects: (() => [{ id: projectId, environmentId, title: "Project" }]) as never,
+  useProjects: (() => [
+    { id: projectId, environmentId, title: "Project", workspaceRoot: "/repo" },
+  ]) as never,
 }));
+// Most cases register no providers; a save still needs a model to send.
+vi.mock(import("./scheduledTasksSettings.logic"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    scheduledTaskDefaultModel: (...args: Parameters<typeof actual.scheduledTaskDefaultModel>) =>
+      actual.scheduledTaskDefaultModel(...args) ?? task.modelSelection,
+  };
+});
 vi.mock(import("../../hooks/useSettings"), async (original) => ({
   ...(await original()),
-  useEnvironmentSettings: (() => DEFAULT_UNIFIED_SETTINGS) as never,
+  useEnvironmentSettings: (() => state.settings) as never,
 }));
+
+function setupEffortTask() {
+  setup();
+  const selection = {
+    ...task.modelSelection,
+    options: [{ id: "reasoningEffort", value: "high" }],
+  };
+  state.tasks = [{ ...task, threadId: null, modelSelection: selection }];
+  state.settings = { ...DEFAULT_UNIFIED_SETTINGS, defaultModelSelection: selection };
+  state.providers = Atom.make<ReadonlyArray<ServerProvider>>([
+    {
+      instanceId: selection.instanceId,
+      driver: ProviderDriverKind.make("codex"),
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: "2026-11-03T00:00:00.000Z",
+      models: [
+        {
+          slug: selection.model,
+          name: "GPT-5.4",
+          isCustom: false,
+          capabilities: createModelCapabilities({
+            optionDescriptors: [
+              {
+                id: "reasoningEffort",
+                label: "Reasoning effort",
+                type: "select",
+                options: [
+                  { id: "low", label: "Low", isDefault: true },
+                  { id: "high", label: "High" },
+                ],
+                currentValue: "low",
+              },
+            ],
+          }),
+        },
+        { slug: "plain", name: "Plain model", isCustom: false, capabilities: null },
+        { slug: "gpt-5.5", name: "Bound model", isCustom: false, capabilities: null },
+      ],
+      skills: [],
+      slashCommands: [],
+    },
+  ]);
+  return selection;
+}
+
+async function fillTitleAndPrompt() {
+  await userEvent.fill(page.getByRole("textbox", { name: "Name" }), "Effort task");
+  await userEvent.fill(page.getByRole("textbox", { name: "Prompt", exact: true }), "Review issues");
+}
 
 describe("ScheduledTasksSettings", () => {
   it("only deletes a scheduled task after confirmation, including after cancelling", async () => {
@@ -196,6 +276,67 @@ describe("ScheduledTasksSettings", () => {
     );
   });
 
+  it.each([false, true])(
+    "keeps model options when the same model is reselected (existing task: %s)",
+    async (editing) => {
+      const selection = setupEffortTask();
+      await using screen = await render(
+        <ScheduledTasksSettings {...(editing ? { taskId: task.id } : {})} />,
+      );
+      if (!editing) {
+        await screen.getByRole("button", { name: "New task" }).click();
+        await page.getByRole("combobox", { name: "Workspace" }).click();
+        await page.getByRole("option", { name: "Use the project checkout" }).click();
+      }
+      await fillTitleAndPrompt();
+      await page.getByRole("button", { name: "GPT-5.4", exact: true }).click();
+      await page.getByRole("option", { name: /GPT-5.4/ }).click();
+      await expect.element(page.getByRole("button", { name: "High", exact: true })).toBeVisible();
+      await page.getByRole("button", { name: editing ? "Save task" : "Create task" }).click();
+      await vi.waitFor(() =>
+        expect(state.upsert).toHaveBeenLastCalledWith(expect.anything(), {
+          environmentId,
+          input: expect.objectContaining({ modelSelection: selection }),
+        }),
+      );
+    },
+  );
+
+  it("saves a changed effort and drops options when switching models", async () => {
+    const selection = setupEffortTask();
+    await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
+    await fillTitleAndPrompt();
+    await page.getByRole("button", { name: "High", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: /^Low/ }).click();
+    await expect.element(page.getByRole("button", { name: "Low", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Save task" }).click();
+    await vi.waitFor(() =>
+      expect(state.upsert).toHaveBeenLastCalledWith(expect.anything(), {
+        environmentId,
+        input: expect.objectContaining({
+          modelSelection: {
+            ...selection,
+            options: expect.arrayContaining([{ id: "reasoningEffort", value: "low" }]),
+          },
+        }),
+      }),
+    );
+
+    await screen.rerender(<ScheduledTasksSettings />);
+    await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
+    await page.getByRole("button", { name: "GPT-5.4", exact: true }).click();
+    await page.getByRole("option", { name: /Plain model/ }).click();
+    expect(page.getByRole("button", { name: "High", exact: true }).query()).toBeNull();
+    await page.getByRole("button", { name: "Save task" }).click();
+    await vi.waitFor(() =>
+      expect(state.upsert).toHaveBeenLastCalledWith(expect.anything(), {
+        environmentId,
+        input: expect.objectContaining({
+          modelSelection: { instanceId: selection.instanceId, model: "plain" },
+        }),
+      }),
+    );
+  });
   it("creates on a permitted secondary and reacts to permission changes", async () => {
     setup();
     state.secondary = true;
@@ -251,15 +392,17 @@ describe("ScheduledTasksSettings", () => {
   });
 
   it("offers no model choice for a task bound to a thread, whose runs use the thread's model", async () => {
-    setup();
+    setupEffortTask();
+    state.tasks = [{ ...state.tasks[0]!, threadId: task.threadId }];
     await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
     await expect.element(page.getByRole("dialog").getByText("Fix login bug")).toBeVisible();
     const enabledPicker = document.querySelector(
       '[role="dialog"] [data-chat-provider-model-picker]:not(:disabled)',
     );
     expect(enabledPicker).toBeNull();
+    expect(page.getByRole("button", { name: "High", exact: true }).query()).toBeNull();
     await expect
-      .element(page.getByRole("dialog").getByRole("button", { name: "gpt-5.5", exact: true }))
+      .element(page.getByRole("dialog").getByRole("button", { name: "Bound model", exact: true }))
       .toBeDisabled();
   });
 
@@ -277,5 +420,84 @@ describe("ScheduledTasksSettings", () => {
 
     await expect.element(dialog.getByRole("heading", { name: "New task" })).toBeInTheDocument();
     await expect.element(name).toHaveValue("My draft");
+  });
+
+  it("keeps a new task's draft when the user clicks outside the editor", async () => {
+    setup();
+    await using _screen = await render(<ScheduledTasksSettings />);
+    await userEvent.click(page.getByRole("button", { name: "New task" }));
+    const dialog = page.getByRole("dialog");
+    const name = dialog.getByRole("textbox", { name: "Name" });
+    await userEvent.fill(name, "My draft");
+
+    await userEvent.click(document.body, { position: { x: 1, y: 1 } });
+
+    await expect.element(dialog).toHaveAttribute("data-open");
+    await expect.element(name).toHaveValue("My draft");
+  });
+
+  it("keeps a task page's unsaved edits across a disconnect and saves them once reconnected", async () => {
+    setup();
+    const view = () => <ScheduledTaskPage environmentId={environmentId} taskId={task.id} />;
+    await using screen = await render(view());
+    const name = page.getByRole("textbox", { name: "Name" });
+    const save = page.getByRole("button", { name: "Save task" });
+    await expect.element(name).toHaveValue("Review issues");
+    await userEvent.fill(name, "Review stale issues");
+
+    state.connected = false;
+    await screen.rerender(view());
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent(
+        "Laptop is disconnected. Your edits are kept and can be saved once it reconnects.",
+      );
+    await expect.element(name).toHaveValue("Review stale issues");
+    await expect.element(save).toBeDisabled();
+
+    state.connected = true;
+    await screen.rerender(view());
+    await expect.element(page.getByRole("status")).not.toBeInTheDocument();
+    await expect.element(save).toBeEnabled();
+
+    // The save response arrives before the live list shows the saved task.
+    using toast = vi.spyOn(toastManager, "add");
+    await save.click();
+    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
+    await act(() => {});
+    expect(state.upsert).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
+      environmentId,
+      input: expect.objectContaining({ id: task.id, title: "Review stale issues" }),
+    });
+    expect(name.element()).toHaveProperty("value", "Review stale issues");
+
+    state.tasks = [
+      {
+        ...task,
+        title: "Review stale issues",
+        updatedAt: "2026-09-18T00:00:00.000Z",
+      },
+    ];
+    await screen.rerender(view());
+    await expect.element(name).toHaveValue("Review stale issues");
+    await expect.element(save).toBeEnabled();
+  });
+
+  it.each([
+    {
+      name: "opened while disconnected",
+      connected: false,
+      status: "Reconnect Laptop to view this task.",
+    },
+    { name: "deleted", connected: true, status: "This task was deleted." },
+  ])("explains a task page with no task to show: $name", async ({ connected, status }) => {
+    setup();
+    state.connected = connected;
+    state.tasks = connected ? [] : [task];
+    await using _screen = await render(
+      <ScheduledTaskPage environmentId={environmentId} taskId={task.id} />,
+    );
+    await expect.element(page.getByRole("status")).toHaveTextContent(status);
+    await expect.element(page.getByRole("textbox", { name: "Name" })).not.toBeInTheDocument();
   });
 });

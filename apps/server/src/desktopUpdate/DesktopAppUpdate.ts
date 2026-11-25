@@ -134,19 +134,28 @@ export const make = Effect.fn("desktopUpdate.desktopAppUpdate.make")(function* (
         return { targetVersion: report.state.currentVersion, method: "desktop-app" as const };
       }
       return yield* failWith(
-        `The T3 Code desktop app on this machine is already up to date on ${report.state.currentVersion}.`,
+        `The iglo.code desktop app on this machine is already up to date on ${report.state.currentVersion}.`,
       );
     }
-    return yield* failWith(
-      report.reason ?? report.state.message ?? "The desktop app update failed.",
-    );
+    const reason = report.reason ?? report.state.message ?? "The desktop app update failed.";
+    const mismatch = report.state.trackMismatch;
+    if (mismatch !== undefined && reason === report.state.message) {
+      return yield* new ServerSelfUpdateError({
+        reason,
+        trackMismatch: {
+          buildChannel: mismatch.buildChannel,
+          savedChannel: report.state.channel,
+        },
+      });
+    }
+    return yield* failWith(reason);
   });
 
   const run: DesktopAppUpdate["Service"]["run"] = Effect.fn("desktopUpdate.desktopAppUpdate.run")(
     function* (reportProgress, trackSwitch) {
       if (!available) {
         return yield* failWith(
-          "This server was not started by the T3 Code desktop app, so it cannot drive a desktop update.",
+          "This server was not started by the iglo.code desktop app, so it cannot drive a desktop update.",
         );
       }
       if (yield* Ref.getAndSet(inFlight, true)) {
@@ -168,7 +177,7 @@ export const make = Effect.fn("desktopUpdate.desktopAppUpdate.make")(function* (
             .requestDesktopUpdate(requestId, trackSwitch)
             .pipe(
               Effect.mapError((error) =>
-                failWith("Could not reach the T3 Code desktop app on this machine.", error),
+                failWith("Could not reach the iglo.code desktop app on this machine.", error),
               ),
             );
           return yield* consumeReports(
@@ -205,7 +214,9 @@ export const make = Effect.fn("desktopUpdate.desktopAppUpdate.make")(function* (
         });
         yield* Effect.uninterruptible(
           receiver.commitDesktopUpdate(requestId).pipe(
-            Effect.mapError((error) => failWith("Could not reach the T3 Code desktop app.", error)),
+            Effect.mapError((error) =>
+              failWith("Could not reach the iglo.code desktop app.", error),
+            ),
             Effect.tap(() => onHandoffAccepted()),
           ),
         );

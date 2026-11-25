@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
-import { resolveHostCliCommand, resolveRootCliCommand } from "./invocation.ts";
+import { hostShellWord, resolveHostCliCommand, resolveRootCliCommand } from "./invocation.ts";
 
 it.layer(NodeServices.layer)("root CLI commands", (it) => {
   const rootCommand = (input: {
@@ -133,11 +133,11 @@ it.layer(NodeServices.layer)("host CLI commands", (it) => {
         resolveHostCliCommand("doctor", ["--base-dir", "C:\\Users\\Jane Doe\\.iglo.code"]).pipe(
           Effect.provideService(
             HostProcess.ExecutablePath,
-            "C:\\Program Files\\T3 Code\\iglo.code.exe",
+            "C:\\Program Files\\iglo.code\\iglo.code.exe",
           ),
           Effect.provideService(HostProcess.Arguments, [
-            "C:\\Program Files\\T3 Code\\iglo.code.exe",
-            "C:\\Program Files\\T3 Code\\resources\\app.asar\\apps\\server\\dist\\bin.mjs",
+            "C:\\Program Files\\iglo.code\\iglo.code.exe",
+            "C:\\Program Files\\iglo.code\\resources\\app.asar\\apps\\server\\dist\\bin.mjs",
           ]),
           Effect.provideService(HostProcess.IsExecutable, false),
           Effect.provideService(HostProcess.Platform, platform),
@@ -162,5 +162,39 @@ it.layer(NodeServices.layer)("host CLI commands", (it) => {
         / doctor --base-dir 'C:\\Users\\Jane Doe\\\.iglo.code'$/,
       );
     }),
+  );
+
+  it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
+    "names the absolute path of an iglo.code found through a relative PATH entry",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const bin = yield* fs.makeTempDirectoryScoped();
+        yield* fs.writeFileString(path.join(bin, "iglo.code"), "#!/bin/sh\n", { mode: 0o755 });
+        const hostCommand = (searchPath: string) =>
+          resolveHostCliCommand("doctor").pipe(
+            Effect.provideService(HostProcess.ExecutablePath, "/usr/bin/node"),
+            Effect.provideService(HostProcess.Arguments, [
+              "/usr/bin/node",
+              "/opt/iglo.code/dist/bin.mjs",
+            ]),
+            Effect.provideService(HostProcess.IsExecutable, false),
+            Effect.provideService(HostProcess.Platform, "linux"),
+            Effect.provideService(HostProcess.Environment, { PATH: searchPath }),
+          );
+
+        // A relative entry was searched from this process's directory, unlike the user's shell.
+        expect(yield* hostCommand(path.relative(process.cwd(), bin))).toEqual({
+          command: `${hostShellWord("linux", path.join(bin, "iglo.code"))} doctor`,
+          launcher: false,
+        });
+        // An empty entry makes the shell search its own directory first, wherever that is.
+        expect(yield* hostCommand(`:${bin}`)).toEqual({
+          command: `${hostShellWord("linux", path.join(bin, "iglo.code"))} doctor`,
+          launcher: false,
+        });
+        expect(yield* hostCommand(bin)).toEqual({ command: "iglo.code doctor", launcher: false });
+      }),
   );
 });

@@ -1,7 +1,18 @@
 # Working with threads
 
 Use a new thread for a separate task. Choose **New worktree** when its code changes
-need a separate branch and working directory.
+need a separate branch and working directory. Threads in the same checkout share its
+branch, so iglo.code refuses a branch switch there while one of them is working.
+
+## Resize or hide the sidebar
+
+Drag the sidebar's right edge to resize it. Continue left past its minimum
+width to preview hiding it, then release to keep it hidden. Dragging back right before releasing
+shows it again and continues resizing.
+
+Move the mouse to the middle of the left window edge to find a handle. Drag it right or click
+it to show the sidebar again. Dragging back to the edge before releasing hides the preview
+and leaves it hidden. The sidebar toggle and shortcut still keep it open.
 
 ## Start a thread
 
@@ -138,7 +149,7 @@ open.
 Threads that are working or waiting on work they will resume from move into a
 **Working** section below the active list. It starts expanded; collapse it from its header.
 That includes subagents, watched pull requests with checks still running, Claude monitors,
-and background commands or other monitors the agent says it is waiting on. A dev server or other process an agent leaves running does not keep a thread
+`sleep` timers, and background commands or other monitors the agent says it is waiting on. A dev server or other process an agent leaves running does not keep a thread
 there. A thread returns to the top of the active list when it finishes, fails, or needs an approval or
 answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
 the pinned section.
@@ -196,6 +207,11 @@ free memory. Commands the agent is waiting on, pinned threads, threads with auto
 settlement turned off, and a subagent's thread while its parent is still open are left alone. The chat notes what stopped, and **Turn it back on** runs the
 command again in a new terminal. Change the delay or turn this off with **Stop idle background
 processes** in Settings > Threads.
+You can settle or snooze a thread while its environment is offline. The thread shows
+**Pending**, and the change is sent when the environment
+reconnects. Undo, Un-settle, or Wake before then cancels it. If the thread changed there in
+the meantime, the environment's state wins and your change is dropped. A thread with a
+pending settle cannot be snoozed until it syncs.
 
 To reclaim disk space from settled work, turn on **Run in the thread's worktree when the
 thread settles** for one of the project's actions, or set `"runOnSettle": true` on a
@@ -216,8 +232,9 @@ Work in progress, pending questions or approvals, and background work the agent
 is waiting on prevent automatic settlement. An open pull request does not prevent inactivity
 settlement unless you turn on **Keep threads with a PR** in **Settings → Threads**,
 but an old closed or merged pull request does not settle work you
-resumed after it closed. Only your own messages count as resuming. A turn that
-finished background work or a pull request watch starts on its own does not.
+resumed after it closed. Your own messages count as resuming, and so does a
+message an agent sends with `t3_thread_send` or `t3 thread send`. A turn that finished
+background work or a pull request watch starts on its own does not.
 
 To keep one thread out of the settled shelf no matter how long it sits idle, open its menu,
 choose **Auto-settle behavior**, and pick **Never**. The current option is checked. Pick
@@ -231,6 +248,19 @@ top to change only its rules, or **All environments** to update connected enviro
 Mixed values show where the selected environments disagree. Offline environments
 and older servers keep their previous values. Changing a rule does not reopen
 already settled threads.
+
+### Settle or archive
+
+Settle is for work that is done for now. A settled thread stays in the sidebar's Settled
+section and in search, and a message to it, from you, an agent, or a scheduled task, makes it
+active again. Archive is for work you want out of the way. An archived thread leaves the
+sidebar and search and shows only in **Settings → Archive**, where you can unarchive or
+delete it. It refuses new messages, including ones from agents and scheduled tasks, until you
+unarchive it. Removing a project deletes its threads either way.
+
+A scheduled task that posts into one thread keeps running after you archive that thread, and
+each run fails. Settle the thread instead, or move or pause the task in **Settings → Scheduled
+tasks**.
 
 ## Link a pull request
 
@@ -252,6 +282,8 @@ you last picked for a query ranks higher when you type that query again.
 Threads whose messages contain all your words appear below, under **In
 messages**, and open at the matching message. Message search needs at least
 one word of three or more letters, or two for Chinese, Japanese, and Korean.
+Put a search in double quotes, such as `"missing position files"`, to find only
+titles and messages that hold those words together, exactly as typed.
 
 Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request
@@ -274,8 +306,9 @@ Queued messages stay saved while the limit blocks the thread. They run after
 the continuation finishes. If the queue was held by a restart, resume it then.
 
 When the provider reports a reset time, choose **Resume at reset** to schedule a
-continuation. You can cancel it from the thread. Enable **Resume after
-usage limits** in **Settings → Threads** to schedule limit stops by default.
+continuation. You can cancel it from the thread. **Resume after usage limits**
+in **Settings → Threads** schedules this for every limit stop and is on by
+default; turn it off to choose per thread.
 The environment must be running when the reset arrives; it resumes overdue
 continuations after a restart. Stopping the thread, sending a new message,
 archiving, or settling it prevents a pending continuation from starting.
@@ -287,7 +320,10 @@ the snooze. Enable **Snooze until limits reset** in thread behavior settings to
 snooze limit stops by default. Providers without a reset time offer manual
 retry and the normal snooze choices.
 
-Use **Agents** to follow work delegated to subagents.
+Use **Agents** to follow work delegated to subagents. Click a subagent there or
+on its conversation card to open it in the right panel, beside the thread you
+are in. See
+[Open a thread beside the one you are in](#open-a-thread-beside-the-one-you-are-in).
 Stop on a thread also stops the subagents it delegated to.
 Before archiving the parent, wait for its delegated tasks to finish or cancel them.
 
@@ -312,6 +348,28 @@ To choose what the thread details card shows, right-click the card or open
 shortcuts, such as Open in editor and project scripts. **Reset to default** brings
 back the standard rows.
 
+## Open a thread beside the one you are in
+
+A subagent, a side chat, and a
+[thread on a linked machine](remote-access.md#read-a-linked-machines-threads)
+all open the same way. Click one to open it as a tab in the right panel, so the
+thread you are in stays in view. Hold ⌘ (Ctrl on Windows and Linux) while you
+click, or middle-click, to open it in the main view instead. With the keyboard,
+Enter and ⌘/Ctrl + Enter do the same. Right-click for **Open in side panel** and
+**Open in main view**.
+
+To make the main view the place a plain click opens them, set **Settings → Chat →
+Open subagents and side chats in** to **Main view**. The modifier then opens
+the side panel.
+
+From a tab, **Open in main view** at the top of the tab, or in the tab's
+right-click menu, moves it to the main view. The bottom of the view depends on
+the thread: a side chat or a subagent you delegated has a composer, a subagent
+the agent started is read-only, and a thread on a linked machine is read-only
+with **Connect to interact**.
+
+Other thread links open in the main view as before.
+
 ## Side chats
 
 A side chat lets you ask a question about a thread without adding to it. It starts
@@ -320,15 +378,20 @@ with what the thread knows, and the thread keeps working while you ask.
 Start a message with `/side` or `/btw`, then your question.
 You can also choose **Side chat** from the **+** menu in the right panel. The side
 chat opens as a tab there, with its own composer. Side chats do not show in the
-sidebar. Find one again under **Side chats** in thread details.
+sidebar. Find one again under **Side chats** in thread details, where it opens
+[like a subagent does](#open-a-thread-beside-the-one-you-are-in).
 
 A side chat works in the same folder as the thread and starts with the permissions,
 model, and reasoning level shown in the thread's composer, including for its first
 reply. Change them for an individual side chat in its composer. Later changes to the
 parent do not change existing side chats.
 
-To use what you learned, choose **Bring back**. The thread gets the side chat with
-your next message there. Bring back is available while the thread is idle.
+To use what you learned, choose **Add to chat** at the top of the side chat, or type
+`@` and a word from its title in the thread's composer. The thread's message gets a
+link to the side chat, and the agent reads as much of it as it needs. This works
+while the thread is busy, once you have sent a message in the side chat. An agent on
+an external OpenCode server cannot read the link, so put the details in your message
+instead.
 
 Closing a side chat you never sent a message in deletes it. To delete one you used,
 choose **Delete** at the top of the side chat. Deleting a thread also deletes its

@@ -1,13 +1,17 @@
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
+import * as DatabaseMigrationProgress from "./persistence/DatabaseMigrationProgress.ts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Random from "effect/Random";
 import * as EnvironmentKeys from "./cloud/environmentKeys.ts";
 import * as AssetSigner from "./assets/AssetSigner.ts";
+import * as WorkspacePreviewRevisions from "./assets/WorkspacePreviewRevisions.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
+import * as MilestoneHub from "./milestones/MilestoneHub.ts";
+import * as OrchestrationMilestones from "./milestones/OrchestrationMilestones.ts";
 // Effect wraps this raw Node HTTP server after its startup and write-error guards attach.
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
@@ -15,6 +19,7 @@ import * as NodeHttp from "node:http";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentHttpApi, type RepositoryIdentity } from "@t3tools/contracts";
+import * as FeatureFlags from "@t3tools/shared/FeatureFlags";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
@@ -26,6 +31,7 @@ import type * as Digest from "effect/crypto/Digest";
 import type * as SecureRandom from "effect/crypto/SecureRandom";
 import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
@@ -79,6 +85,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as OpenCodeRuntime from "@t3tools/provider-opencode/server/OpenCodeRuntime";
 import * as OpenCodeServerLedger from "@t3tools/provider-opencode/server/OpenCodeServerLedger";
 import * as ProviderHostLive from "./provider/ProviderHostLive.ts";
+import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRegistrySupport";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
@@ -91,16 +98,24 @@ import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as SecretCheck from "./secrets/SecretCheck.ts";
 import * as SecretResolver from "./secrets/SecretResolver.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
+import * as ProviderHostPathWatcher from "./provider/ProviderHostPathWatcher.ts";
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as PeerForwarding from "./peer/PeerForwarding.ts";
 import * as RemoteDelegation from "./peer/RemoteDelegation.ts";
+import * as PeerClientPairing from "./peer/PeerClientPairing.ts";
+import * as PeerClientPairingHttp from "./peer/http.ts";
 import * as PeerLinkRequests from "./peer/PeerLinkRequests.ts";
 import * as PeerLinks from "./peer/PeerLinks.ts";
+import * as PeerLinksHttp from "./peer/peerLinksHttp.ts";
+import * as OwnLinkOrigins from "./peer/OwnLinkOrigins.ts";
 import * as PeerMcpClient from "./peer/PeerMcpClient.ts";
+import * as PeerThreadRelay from "./peer/PeerThreadRelay.ts";
+import * as PeerHostHealthRelay from "./peer/PeerHostHealthRelay.ts";
+import * as LinkHostHealthHttp from "./peer/linkHostHealthHttp.ts";
+import * as HostHealthService from "./hostHealth/HostHealthService.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
-import * as McpToolPolicy from "./mcp/McpToolPolicy.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
@@ -117,11 +132,10 @@ import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
-import * as CompiledPlugins from "./plugins/compiled.ts";
-import * as PluginCommandReceipts from "./orchestration-v2/CommandReceiptStore.ts";
 import * as ServerOwnership from "./serverOwnership.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
+import { withForkSettingsDefaults } from "./forkSettingsDefaults.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ManagedLimits from "./policy/managedLimits.ts";
 import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
@@ -140,6 +154,11 @@ import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "./project/T3ProjectFileLoader.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
+import * as WorkspaceFolders from "./workspace/WorkspaceFolders.ts";
+import * as LayoutCommandApprovals from "./workspace/LayoutCommandApprovals.ts";
+import * as LayoutCommandApprovalWrites from "./workspace/LayoutCommandApprovalWrites.ts";
+import * as TaskFolders from "./workspace/TaskFolders.ts";
+import * as TaskFolderStore from "./workspace/TaskFolderStore.ts";
 import * as KnownWorkspaces from "./workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
@@ -186,6 +205,7 @@ import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as EnvironmentAuthPolicy from "./auth/EnvironmentAuthPolicy.ts";
 import * as CloudHttp from "./cloud/http.ts";
 import * as GuestHttp from "./guest/http.ts";
+import * as LinkThreadHttp from "./peer/linkThreadHttp.ts";
 import * as CloudLink from "./cloud/CloudLink.ts";
 import * as ConnectReachability from "./cloud/ConnectReachability.ts";
 import { pendingServiceUpdateExists } from "./cloud/updateHandoff.ts";
@@ -223,6 +243,8 @@ import * as CursorUsageAccounts from "@t3tools/provider-cursor/server/CursorUsag
 import * as UsageService from "./usage/UsageService.ts";
 import * as CodexUsageHistory from "./usage/CodexUsageHistory.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
+import * as ThreadViewers from "./orchestration-v2/ThreadViewers.ts";
+import * as WorkflowForge from "./workflows/WorkflowForge.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as BackgroundWaitInference from "./orchestration-v2/BackgroundWaitInference.ts";
@@ -285,7 +307,7 @@ const layerProviderEventLoggers = Layer.effect(
 
 const layerPtyAdapter = BunPtyAdapter.layer;
 
-const layerServerSettings = ServerSettings.layer.pipe(
+const layerServerSettings = withForkSettingsDefaults(ServerSettings.layer).pipe(
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(ManagedPolicy.layer),
   Layer.provideMerge(SqlitePersistence.layerConfig),
@@ -331,6 +353,7 @@ const layerUsage = UsageService.layer.pipe(
 
 const layerResourceDiagnostics = Layer.mergeAll(
   HostResources.layer,
+  HostHealthService.layerLive,
   layerResourceTelemetry,
   ProcessDiagnostics.layer.pipe(Layer.provide(layerResourceTelemetry)),
   ProcessResourceMonitor.layer.pipe(Layer.provide(layerResourceTelemetry)),
@@ -370,6 +393,7 @@ const layerSpawner = SpawnWorker.layerServer.pipe(Layer.provide(NodeServices.lay
 const layerHttpServer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
+    const migrationProgress = yield* DatabaseMigrationProgress.DatabaseMigrationProgress;
     // Before binding: a host the policy does not allow must never listen, not even briefly.
     const policy = yield* ManagedPolicy.ManagedPolicy;
     const bindHost = yield* ManagedLimits.checkServerReachability(policy, {
@@ -384,6 +408,7 @@ const layerHttpServer = Layer.unwrap(
       () => {
         const server = rejectRequestsUntilServing(
           keepIdleConnections(guardHttpResponseWriteErrors(NodeHttp.createServer())),
+          () => Ref.getUnsafe(migrationProgress.current),
         );
         if (config.privateNetworkOnly) {
           runSync(closeNonPrivateNetworkConnections(server));
@@ -560,6 +585,9 @@ const layerWorkspace = Layer.mergeAll(
   WorkspacePaths.layer,
   layerWorkspaceEntries,
   layerWorkspaceFileSystem,
+  WorkspaceFolders.layer.pipe(
+    Layer.provide(Layer.merge(ProjectStore.layer, TaskFolderStore.layer)),
+  ),
 );
 
 const layerProjectFaviconResolver = ProjectFaviconResolver.layer.pipe(
@@ -614,8 +642,30 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
   }),
 );
 
+const layerTaskFolders = TaskFolders.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      TaskFolderStore.layer,
+      LayoutCommandApprovals.layer,
+      ManagedPolicy.layer,
+      ProjectStore.layer,
+      ProjectionStoreV2.layer,
+      VcsProcess.layer,
+    ),
+  ),
+  Layer.provide(layerGitWorkflow),
+);
+
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+  Layer.provide(
+    WorkflowForge.layer.pipe(
+      Layer.provide(layerIssueService),
+      Layer.provide(layerPullRequestService),
+      Layer.provide(RuntimeLayer.layerProjectService),
+    ),
+  ),
   Layer.provide(UsageLimitSources.layerResetFallback),
+  Layer.provide(layerTaskFolders),
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderUsageAnalytics.layer),
   Layer.provide(layerCheckpointStore),
@@ -697,11 +747,8 @@ const layerServerRestart = Layer.effect(
 );
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
-  CompiledPlugins.layer.pipe(
-    Layer.provide(layerPullRequestService),
-    Layer.provide(PluginCommandReceipts.layerFromApplicationReceipts),
-  ),
   AgentAwarenessRelay.layer,
+  ProviderHostPathWatcher.layer.pipe(Layer.provide(layerDesktopTelemetryReceiver)),
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
   layerIdleCompactionWorker,
@@ -740,6 +787,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* service.start();
     }),
   ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* OrchestrationMilestones.OrchestrationMilestones).start();
+    }),
+  ).pipe(Layer.provide(OrchestrationMilestones.layer), Layer.provide(ProjectionStoreV2.layer)),
   ProviderUsageLimitsIngestion.layer,
   layerProviderInstallationRefresh,
   ProviderInstallation.layer,
@@ -747,6 +799,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
+  // One hub, which the feeders above and the workflow store inside the runtime publish to.
+  Layer.provideMerge(MilestoneHub.layer),
+  Layer.provideMerge(Layer.merge(layerTaskFolders, LayoutCommandApprovalWrites.layer)),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
   Layer.provideMerge(SecretCheck.layer),
@@ -811,7 +866,9 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   Layer.provideMerge(CodexManagedTokenBroker.layer),
   Layer.provideMerge(layerServerEnvironment),
   Layer.provideMerge(layerAuth),
-  Layer.provideMerge(Layer.mergeAll(AssetSigner.layer, EnvironmentKeys.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(AssetSigner.layer, EnvironmentKeys.layer, WorkspacePreviewRevisions.layer),
+  ),
   Layer.provideMerge(ServerSecretStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(
@@ -827,6 +884,8 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
 const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(
   Layer.provideMerge(layerUsage),
   Layer.provideMerge(layerBackground),
+  // The same layer the event sink uses; memoized, subscriptions and batch ranking share it.
+  Layer.provideMerge(ThreadViewers.layer),
   Layer.provideMerge(layerResourceDiagnostics),
   Layer.provideMerge(TraceDiagnostics.layer),
   Layer.provideMerge(TriageService.layer.pipe(Layer.provide(GitVcsDriver.layer))),
@@ -834,6 +893,8 @@ const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(
   Layer.provideMerge(AnalyticsService.layer.pipe(Layer.provide(ManagedPolicy.layer))),
   Layer.provideMerge(ExternalLauncher.layer),
   Layer.provideMerge(RemoteOpenTargets.layer),
+  // The addresses this environment offers a peer that links back to it.
+  Layer.provideMerge(OwnLinkOrigins.layer),
   Layer.provideMerge(DirectEndpoints.layer.pipe(Layer.provide(layerServerEnvironment))),
   Layer.provideMerge(ServerLifecycleEvents.layer),
   // GitVcsDriver.layer is memoized and some of its build sites live outside this file, so the
@@ -855,6 +916,9 @@ const layerMakeRoutes = Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
       Layer.provide(AuthHttp.layer),
       Layer.provide(McpOAuthHttp.layer.pipe(Layer.provide(McpOAuth.layer))),
+      Layer.provide(PeerLinksHttp.layer),
+      Layer.provide(PeerLinksHttp.layerPeerLinkAuthenticated),
+      Layer.provide(PeerClientPairingHttp.layer.pipe(Layer.provide(PeerClientPairing.layerIssuer))),
       Layer.provide(CloudHttp.layer),
       Layer.provide(OrchestrationHttp.layer),
       Layer.provide(PullRequestHttp.layer),
@@ -863,11 +927,15 @@ const layerMakeRoutes = Layer.mergeAll(
       Layer.provide(ServerHttp.layerServerEnvironmentHttpApi),
       Layer.provide(WebhookRoute.layer.pipe(Layer.provide(RelayDeliveryProof.layer))),
       Layer.provide(AuthHttp.layerAuthenticatedAuth),
+      Layer.provide(ServerHttp.layerApiBodyLimit),
     ),
     ServerHttp.layerOtlpTracesProxyRoute,
+    ServerHttp.layerDesktopReadinessProofRoute,
     ServerHttp.layerAssetRoute,
     ServerHttp.layerAttachmentUploadRoute,
     GuestHttp.layer,
+    LinkThreadHttp.layer,
+    LinkHostHealthHttp.layer,
     DeviceHubProxy.layer,
     ServerBrowserStream.routeLayer,
     PreviewTunnel.routeLayer,
@@ -903,12 +971,14 @@ const layerMakeRoutes = Layer.mergeAll(
     ),
   ),
   Layer.provide(PreviewBrowser.layer),
-  // Links to other environments, shared by Settings (WebSocket) and agents (/mcp).
+  // Links to other environments, shared by clients (WebSocket) and agents (/mcp).
   Layer.provide(
-    PeerForwarding.layer.pipe(
-      Layer.provideMerge(PeerMcpClient.layer),
-      Layer.provideMerge(PeerLinks.layer),
-    ),
+    Layer.mergeAll(
+      PeerForwarding.layer,
+      PeerThreadRelay.layer,
+      PeerHostHealthRelay.layer,
+      PeerClientPairing.layer,
+    ).pipe(Layer.provideMerge(PeerMcpClient.layer), Layer.provideMerge(PeerLinks.layer)),
   ),
   Layer.provide(
     SpeechService.layer.pipe(
@@ -920,6 +990,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(layerServerSettings),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(layerDesktopAppUpdate))),
+  Layer.provide(ProviderMaintenanceRunner.layer),
   Layer.provide(layerCommandReadiness),
   Layer.provide(ServerHttp.layerBrowserApiCors),
   Layer.provide(ServerHttp.layerHttpCompression),
@@ -1387,12 +1458,13 @@ const layerServer = Layer.unwrap(
         RelayTracing.layerServerRelayBroker.pipe(Layer.provide(ManagedPolicy.layer)),
       ),
       Layer.provideMerge(layerHttpServer),
+      Layer.provide(DatabaseMigrationProgress.layer),
       Layer.provide(layerApplicationObservability),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provide(VcsProcess.layer),
       Layer.provideMerge(AgentScopeLive.layer),
       Layer.provideMerge(layerPlatformServices),
-      Layer.provide(McpToolPolicy.layer),
+      Layer.provideMerge(FeatureFlags.layer),
       Layer.provide(Layer.succeed(HostProcess.InvokedAs, invokedAs)),
     );
   }),

@@ -5,6 +5,8 @@ import {
   EnvironmentAuthenticatedPrincipal,
   EnvironmentHttpApi,
   EnvironmentVoiceBodyLimit,
+  PeerLinkAuthenticated,
+  PeerLinkPrincipal,
   type AuthBrowserSessionRequest,
   type AuthBrowserSessionResult,
   type AuthCreatePairingCredentialInput,
@@ -61,6 +63,17 @@ const authenticatedAuth: Context.Service.Shape<typeof EnvironmentAuthenticatedAu
     }),
   );
 
+// The environment API declares this middleware for its peer links group, which
+// these tests never serve; it stands in so the API type still resolves.
+const peerLinkAuthenticated: Context.Service.Shape<typeof PeerLinkAuthenticated> = (httpEffect) =>
+  httpEffect.pipe(
+    Effect.provideService(PeerLinkPrincipal, {
+      sessionId: AuthSessionId.make("test-session"),
+      label: "test",
+      peerEnvironmentId: undefined,
+    }),
+  );
+
 export async function installEnvironmentHttpTest(scenario: EnvironmentHttpTestScenario) {
   const calls: EnvironmentHttpTestCalls = {
     descriptor: 0,
@@ -74,6 +87,7 @@ export async function installEnvironmentHttpTest(scenario: EnvironmentHttpTestSc
       Effect.provide([
         NodeHttpServer.layerHttpServices,
         Layer.succeed(EnvironmentVoiceBodyLimit, () => unexpectedEndpoint("voice")),
+        Layer.succeed(PeerLinkAuthenticated, peerLinkAuthenticated),
         HttpApiBuilder.group(EnvironmentHttpApi, "metadata", (handlers) =>
           handlers.handle(
             "descriptor",
@@ -110,7 +124,7 @@ export async function installEnvironmentHttpTest(scenario: EnvironmentHttpTestSc
                 calls.pairingCredential.push(payload);
                 return yield* (
                   scenario.pairingCredential?.(payload) ??
-                    unexpectedEndpoint("auth.pairingCredential")
+                  unexpectedEndpoint("auth.pairingCredential")
                 );
               }),
             )

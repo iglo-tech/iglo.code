@@ -13,6 +13,7 @@ import {
   type AuthEnvironmentScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
+  EnvironmentId,
   MCP_PEER_LINK_SOFTWARE_ID,
   mcpClientScopes,
   parseMcpApprovalCode,
@@ -58,6 +59,8 @@ const MAX_REDIRECT_URI_LENGTH = 512;
 // under Node's 16 KB header cap for an encoded redirect_uri and state.
 const MAX_UNBOUNDED_CLIENT_ID_REDIRECT_URIS = 5;
 const MAX_CLIENT_ID_LENGTH = 10_240;
+/** A peer link's declared environment id rides `software_version` into signed claims, so it is bounded. */
+const MAX_CLAIMED_PEER_ENVIRONMENT_ID_LENGTH = 200;
 const DEFAULT_CLIENT_NAME = "MCP client";
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const CODE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -85,7 +88,7 @@ export const protectedResourceMetadata = (
   authorization_servers: [urls.issuer],
   scopes_supported: MCP_OAUTH_SCOPES,
   bearer_methods_supported: ["header"],
-  resource_name: "T3 Code",
+  resource_name: "iglo.code",
 });
 
 export const authorizationServerMetadata = (
@@ -95,6 +98,7 @@ export const authorizationServerMetadata = (
   authorization_endpoint: `${urls.issuer}/oauth/mcp/authorize`,
   token_endpoint: `${urls.issuer}/oauth/mcp/token`,
   registration_endpoint: `${urls.issuer}/oauth/mcp/register`,
+  revocation_endpoint: `${urls.issuer}/oauth/mcp/revoke`,
   response_types_supported: ["code"],
   grant_types_supported: ["authorization_code"],
   code_challenge_methods_supported: ["S256"],
@@ -142,12 +146,29 @@ const sameResource = (urls: McpOAuthUrls, presented: string | undefined): boolea
   }
 };
 
+/**
+ * The environment id a peer link declares in `software_version`, bounded and
+ * decoded so it cannot bloat the signed client id and token claims. Anything
+ * else — a bare version string, an over-long value — is no declaration at all.
+ */
+const decodeClaimedPeerEnvironmentId = Schema.decodeOption(EnvironmentId);
+
+const claimedPeerEnvironmentId = (raw: string | undefined): string | undefined => {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed.length > MAX_CLAIMED_PEER_ENVIRONMENT_ID_LENGTH) {
+    return undefined;
+  }
+  return Option.getOrUndefined(decodeClaimedPeerEnvironmentId(trimmed));
+};
+
 const ClientIdPayload = Schema.Struct({
   v: Schema.Literal(1),
   n: Schema.String,
   r: Schema.Array(Schema.String),
-  /** Registered as another T3 Code environment's peer link. */
+  /** Registered as another iglo.code environment's peer link. */
   p: Schema.optionalKey(Schema.Literal(1)),
+  /** For a peer link, the linking environment's id, as its `software_version`. */
+  e: Schema.optionalKey(Schema.String),
 });
 const decodeClientIdPayload = Schema.decodeUnknownOption(Schema.fromJsonString(ClientIdPayload));
 
@@ -156,6 +177,8 @@ export interface McpOAuthClient {
   readonly name: string;
   readonly redirectUris: ReadonlyArray<string>;
   readonly peerLink: boolean;
+  /** The linking environment, when this client registered as a peer link. */
+  readonly peerEnvironmentId?: string;
 }
 
 export class McpOAuthPageError extends Schema.TaggedError<McpOAuthPageError>()(
@@ -190,10 +213,14 @@ interface PendingCode {
   readonly clientId: string;
   readonly clientName: string;
   readonly peerLink: boolean;
+  readonly peerEnvironmentId: string | undefined;
+  /** The pairing grant the decision spent, when it spent one. */
+  readonly pairingGrantId: string | undefined;
   readonly redirectUri: string;
   readonly codeChallenge: string;
   readonly resource: string;
   readonly access: AuthMcpClientAccess;
+  readonly approvedAtRevocationCount: number;
   readonly expiresAtMs: number;
 }
 
@@ -274,9 +301,20 @@ const make = Effect.gen(function* () {
 
   const sign = (domain: string, payload: string) => signer.sign(`${domain}.${payload}`);
 
-  const signClientId = (name: string, redirectUris: ReadonlyArray<string>, peerLink: boolean) => {
+  const signClientId = (
+    name: string,
+    redirectUris: ReadonlyArray<string>,
+    peerLink: boolean,
+    peerEnvironmentId?: string,
+  ) => {
     const body = base64UrlEncode(
-      JSON.stringify({ v: 1, n: name, r: redirectUris, ...(peerLink ? { p: 1 } : {}) }),
+      JSON.stringify({
+        v: 1,
+        n: name,
+        r: redirectUris,
+        ...(peerLink ? { p: 1 } : {}),
+        ...(peerLink && peerEnvironmentId !== undefined ? { e: peerEnvironmentId } : {}),
+      }),
     );
     return sign("mcp-client-id", body).pipe(Effect.map((signature) => `${body}.${signature}`));
   };
@@ -298,6 +336,7 @@ const make = Effect.gen(function* () {
           name: payload.n,
           redirectUris: payload.r,
           peerLink: payload.p === 1,
+          ...(payload.p === 1 && payload.e !== undefined ? { peerEnvironmentId: payload.e } : {}),
         })),
       ),
     );
@@ -349,10 +388,15 @@ const make = Effect.gen(function* () {
         return yield* new AuthMcpRegistrationError({
           error: "invalid_client_metadata",
           error_description:
-            "Linked environments is off on that machine. Turn it on in its Settings → Labs.",
+            'Linked environments is off on that machine. Turn it on in its Settings → Labs, or without a desktop, set "linkedEnvironmentsEnabled": true in userdata/settings.json in its iglo.code home (~/.iglo.code by default).',
         });
       }
-      const clientId = yield* signClientId(name, redirectUris, peerLink);
+      const clientId = yield* signClientId(
+        name,
+        redirectUris,
+        peerLink,
+        peerLink ? claimedPeerEnvironmentId(metadata.software_version) : undefined,
+      );
       if (
         redirectUris.length > MAX_UNBOUNDED_CLIENT_ID_REDIRECT_URIS &&
         clientId.length > MAX_CLIENT_ID_LENGTH
@@ -442,6 +486,8 @@ const make = Effect.gen(function* () {
   const mintCode = Effect.fn("McpOAuth.mintCode")(function* (
     authorization: AuthorizationRequest,
     access: AuthMcpClientAccess,
+    pairingGrantId: string | undefined,
+    approvedAtRevocationCount: number,
   ) {
     const now = yield* Clock.currentTimeMillis;
     const code = Buffer.from(yield* random.randomBytes(32)).toString("base64url");
@@ -451,10 +497,13 @@ const make = Effect.gen(function* () {
         clientId: authorization.client.clientId,
         clientName: authorization.client.name,
         peerLink: authorization.client.peerLink,
+        peerEnvironmentId: authorization.client.peerEnvironmentId,
+        pairingGrantId,
         redirectUri: authorization.redirectUri,
         codeChallenge: authorization.codeChallenge,
         resource: authorization.resource,
         access,
+        approvedAtRevocationCount,
         expiresAtMs: now + AUTHORIZATION_CODE_TTL_MS,
       });
       return next;
@@ -464,7 +513,11 @@ const make = Effect.gen(function* () {
 
   const approve: McpOAuth["Service"]["approve"] = Effect.fn("McpOAuth.approve")(function* (input) {
     const { decision } = input;
+    // Read before the approver is checked: "revoke all others" then ends this sign-in whether
+    // it lands before the check or after the code is handed out.
+    const approvedAtRevocationCount = yield* environmentAuth.otherSessionRevocationCount;
     let access = decision.access;
+    let pairingGrantId: string | undefined = undefined;
     if (decision._tag === "pairing-code") {
       // An approval code is for one app's sign-in, never for linking another environment.
       if (input.authorization.client.peerLink && parseMcpApprovalCode(decision.code)) {
@@ -472,7 +525,7 @@ const make = Effect.gen(function* () {
           description: "Linking needs a plain pairing code, not an app approval code.",
         });
       }
-      access = yield* environmentAuth
+      const consumed = yield* environmentAuth
         .consumeMcpApprovalCode(decision.code, decision.access, input.authorization.client.peerLink)
         .pipe(
           Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (cause) =>
@@ -487,6 +540,8 @@ const make = Effect.gen(function* () {
             ),
           ),
         );
+      access = consumed.access;
+      pairingGrantId = consumed.pairingGrantId;
     } else {
       const session = yield* approvingSession(input.request, input.authorization);
       if (
@@ -499,7 +554,12 @@ const make = Effect.gen(function* () {
         });
       }
     }
-    const code = yield* mintCode(input.authorization, access);
+    const code = yield* mintCode(
+      input.authorization,
+      access,
+      pairingGrantId,
+      approvedAtRevocationCount,
+    );
     yield* Effect.logInfo("Approved an MCP client sign-in.", {
       client: input.authorization.client.name,
       access,
@@ -563,15 +623,24 @@ const make = Effect.gen(function* () {
           label: pending.clientName,
           access: pending.access,
           peerLink: pending.peerLink,
+          ...(pending.peerLink && pending.peerEnvironmentId !== undefined
+            ? { peerEnvironmentId: pending.peerEnvironmentId }
+            : {}),
+          ...(pending.peerLink && pending.pairingGrantId !== undefined
+            ? { pairingGrantId: pending.pairingGrantId }
+            : {}),
           client: deriveAuthClientMetadata({ request }),
+          approvedAtRevocationCount: pending.approvedAtRevocationCount,
         })
         .pipe(
           Effect.catch((cause) =>
-            Effect.logError("Could not issue an MCP client session.", { cause }).pipe(
-              Effect.andThen(
-                Effect.fail(fail("invalid_grant", "The session could not be issued.")),
-              ),
-            ),
+            cause._tag === "ServerAuthInvalidCredentialError"
+              ? Effect.fail(fail("invalid_grant", "The authorization code is invalid or expired."))
+              : Effect.logError("Could not issue an MCP client session.", { cause }).pipe(
+                  Effect.andThen(
+                    Effect.fail(fail("invalid_grant", "The session could not be issued.")),
+                  ),
+                ),
           ),
         );
       return {
@@ -626,6 +695,7 @@ export const layerMcpClientAuthenticator = Layer.effect(
                     label: client.label,
                     access: client.access,
                     linked: client.peerLink,
+                    linkExpiresAt: client.linkExpiresAt,
                     ...(client.peerLink || hostedAppUrl === undefined ? {} : { hostedAppUrl }),
                   },
                   capabilities: new Set<McpInvocationContext.McpCapability>([

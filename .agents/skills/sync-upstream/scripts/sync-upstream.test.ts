@@ -232,7 +232,6 @@ describe("native app removal", () => {
     using fork = checkout();
     fork.write(".github/workflows/ci.yml", "jobs: {}\n");
     fork.write(".github/workflows/release.yml", "jobs: {}\n");
-    fork.write(".github/workflows/iglo-release.yml", "jobs: {}\n");
     fork.write(".github/scripts/ci-changes.cjs", "module.exports = {};\n");
     fork.write(
       "vite.config.ts",
@@ -283,9 +282,8 @@ describe("native app removal", () => {
     );
     fork.write(".gitignore", "apps/*/dist\n.astro\npackages/*/dist\n");
     prune(fork.root);
-    expect(NodeFS.readdirSync(fork.at(".github/workflows")).toSorted()).toEqual([
-      "iglo-release.yml",
-    ]);
+    expect(fork.exists(".github/workflows/ci.yml")).toBe(false);
+    expect(fork.exists(".github/workflows/release.yml")).toBe(false);
     expect(fork.exists(".github/scripts/ci-changes.cjs")).toBe(true);
     const vite = fork.read("vite.config.ts");
     expect(vite).not.toContain("apps/mobile");
@@ -628,7 +626,6 @@ describe("filtered upstream import", () => {
         "patches/expo@1.patch": null,
         "scripts/tool.py": null,
         "scripts/moved.ts": null,
-        ".github/workflows/iglo-release.yml": "release\n",
       },
       "fork scope",
     );
@@ -656,7 +653,7 @@ describe("filtered upstream import", () => {
       expect(ok("diff", "--name-only", "--diff-filter=U")).toBe("scripts/moved.ts");
       ok("rm", "-q", "scripts/moved.ts");
       ok("commit", "-q", "--no-edit");
-      expect(ok("ls-files")).toBe(".github/workflows/iglo-release.yml\napps/web/a.ts");
+      expect(ok("ls-files")).toBe("apps/web/a.ts");
       expect(NodeFS.readFileSync(NodePath.join(root, "apps/web/a.ts"), "utf8")).toBe(
         `web ${round}\n`,
       );
@@ -681,7 +678,8 @@ describe("fork identity", () => {
       "apps/server/src/fine.ts":
         'import { x } from "@t3tools/shared";\nconst T3_PROJECT_FILE_NAME = "iglo.code.json";\nconst url = "https://app.t3.codes";\nprocess.env.T3_ACP_FAIL_PROMPT;\n',
       "docs/user/install.md": "Run `t3 serve` or the desktop app.\n",
-      "docs/internals/notes.md": "Upstream T3 Code has a desktop app.\n",
+      "docs/internals/notes.md": "Upstream has a desktop app.\n",
+      "apps/web/src/copy.ts": 'export const title = "Enjoying T3 Code?";\n',
       "scripts/tool.py": "print('hi')\n",
       ".repos/effect/build.py": "print('vendored')\n",
     };
@@ -696,6 +694,7 @@ describe("fork identity", () => {
       "apps/server/src/config.ts env var T3CODE_*",
       "apps/server/src/config.ts ~/.t3 or worktree .t3 path",
       "apps/server/src/refs.ts git ref refs/t3",
+      "apps/web/src/copy.ts product name",
       "docs/user/install.md desktop or mobile app",
       "docs/user/install.md t3 CLI command",
       "scripts/tool.py Python file",

@@ -118,7 +118,8 @@ export async function createEnvironmentFixture(
   let cwd: string;
   let env: NodeJS.ProcessEnv;
   if (input.kind === "archive") {
-    await run("/usr/bin/tar", ["-xf", input.archive, "-C", scratch], scratch);
+    // tar runs inside scratch, so a relative --archive path must resolve against the caller.
+    await run("/usr/bin/tar", ["-xf", NodePath.resolve(input.archive), "-C", scratch], scratch);
     const root = (await NodeFSP.readdir(scratch)).find(
       (name) => name !== "home" && name !== "workspace",
     );

@@ -2,9 +2,6 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-// Upstream names its own workflows release.yml/ci.yml, so fork names never collide.
-export const FORK_WORKFLOWS = new Set(["iglo-release.yml"]);
-
 // Each pattern matches a path or a directory; `*` never crosses `/`.
 export const REMOVED_PATHS = [
   // Native mobile app.
@@ -14,6 +11,7 @@ export const REMOVED_PATHS = [
   "scripts/export-android-icons.*",
   "scripts/legend-list-initial-reveal.*",
   "docs/internals/mobile-*",
+  "docs/internals/*_mobile-*",
   ".github/scripts/mobile-*",
   "docs/internals/images/mobile-*",
   "docs/operations/mobile-*",
@@ -27,7 +25,9 @@ export const REMOVED_PATHS = [
   "apps/desktop",
   ".devcontainer",
   "docs/internals/devcontainer.md",
+  "docs/operations/*_devcontainer.md",
   "native/browser-secret",
+  "native/apple-speech",
   "native/hyprland-snap-shot",
   "native/kde-snap-shot",
   ".github/scripts/stage-preview-bundle.*",
@@ -58,6 +58,9 @@ export const REMOVED_PATHS = [
   ".github/scripts/thread-transfer-report.*",
   ".github/scripts/pr-limits.*",
   ".github/scripts/test-delta.*",
+  ".github/scripts/set-mobile-version.*",
+  ".github/scripts/set-release-version.*",
+  ".github/scripts/workflow-credentials.test.*",
   "scripts/build-npm-launcher.*",
   "scripts/npm-launcher",
   "scripts/install.ps1",
@@ -65,6 +68,12 @@ export const REMOVED_PATHS = [
   "scripts/lib/server-compile-cache.*",
   "scripts/test-cached.*",
   "scripts/lib/cached-tests.*",
+  // Node/V8-inspector server benchmark; the fork's server runs on Bun.
+  "scripts/server-metrics*",
+  // Node-only spawn helper (fd passing over IPC) for libuv fork stalls; Bun spawns without forking.
+  "apps/server/src/process-launcher.ts",
+  "apps/server/src/process/ProcessLauncher.ts",
+  "apps/server/src/process/processLauncherWorker.ts",
   // Upstream's e2e scenarios drive the mobile simulator as well as the web client.
   "scripts/scenarios",
   "scripts/e2e.config.*",
@@ -72,17 +81,22 @@ export const REMOVED_PATHS = [
   "docs/operations/scenarios.md",
   // Website, hosted services, and upstream's agent setup.
   "apps/marketing",
+  ".agents/skills/launch-video",
   "infra/relay",
   "infra/task-cache",
   "docs/user/t3-connect-troubleshooting.md",
   "docs/user/guest-links.md",
   "docs/operations/relay-observability.md",
+  "docs/operations/*_relay-observability.md",
+  "docs/operations/*_connect-setup.md",
   // Mobile app pairing row and npm release lookup for removed clients and npm installs.
   "apps/web/src/components/settings/MobileAppSettingsRow.tsx",
   "apps/web/src/state/npmRelease.ts",
   ".cursor/rules/cursor-cloud.mdc",
   // Old project filter combobox row replaced by Discord project switcher rail.
   "apps/web/src/components/ProjectComboboxRow.tsx",
+  // Upstream GitHub star nag popup removed in iglo.code.
+  "apps/web/src/components/GitHubStarPrompt.*",
 ];
 
 export const mobileDependency = (name: string) =>
@@ -112,9 +126,8 @@ const isPython = (path: string) => path.endsWith(".py") && !path.startsWith(".re
 
 export const isRemoved = (path: string) => {
   const parts = path.split("/");
-  if (parts[0] === ".github" && parts[1] === "workflows" && parts.length > 2) {
-    return !FORK_WORKFLOWS.has(parts[2]!);
-  }
+  // The fork has no CI: checks and release builds run locally.
+  if (parts[0] === ".github" && parts[1] === "workflows" && parts.length > 2) return true;
   if (parts.length === 2 && parts[0] === "patches" && parts[1]!.endsWith(".patch")) {
     return removedPatch(parts[1]!);
   }

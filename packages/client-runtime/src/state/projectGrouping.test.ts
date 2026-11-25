@@ -8,6 +8,7 @@ import {
   deriveLogicalProjectKeyFromSettings,
   pickableProjectGroups,
   derivePhysicalProjectKey,
+  resolveGroupDefaultProject,
   resolveScratchProjectScopeKey,
   sortProjectsByGroupOrder,
   type ProjectGroupingSettings,
@@ -88,7 +89,7 @@ const repositoryIdentity = {
   provider: SourceControlProviderKind.make("github"),
   owner: "t3tools",
   name: "t3code",
-  displayName: "T3 Code",
+  displayName: "iglo.code",
 };
 
 function makeProject(
@@ -265,6 +266,54 @@ describe("buildProjectGroups", () => {
     }
   });
 
+  it("represents a repository group by its root checkout, even when it was added last", () => {
+    const remoteEnvironmentId = EnvironmentId.make("remote");
+    const local = { ...repositoryIdentity, rootPath: "/work/workspace" };
+    const remote = { ...repositoryIdentity, rootPath: "/srv/workspace" };
+    const archivedTool = makeProject("old-tool", "/work/workspace/_archive/old-tool", {
+      repositoryIdentity: local,
+    });
+    const app = makeProject("app-a", "/work/workspace/app-a", { repositoryIdentity: local });
+    const remoteApp = makeProject("remote-app", "/srv/workspace/app-a", {
+      environmentId: remoteEnvironmentId,
+      repositoryIdentity: remote,
+    });
+    const remoteRoot = makeProject("remote-root", "/srv/workspace", {
+      environmentId: remoteEnvironmentId,
+      repositoryIdentity: remote,
+    });
+    const root = makeProject("workspace", "/work/workspace", { repositoryIdentity: local });
+    const representativeOf = (
+      projects: ReadonlyArray<EnvironmentProject>,
+      preferredEnvironmentId: EnvironmentId | null = null,
+    ) =>
+      buildProjectGroups({ projects, settings: settings("repository"), preferredEnvironmentId })[0]
+        ?.representative.id;
+
+    expect(representativeOf([archivedTool, app, root])).toBe("workspace");
+    expect(representativeOf([archivedTool, app, remoteApp, remoteRoot, root], environmentId)).toBe(
+      "workspace",
+    );
+    expect(
+      representativeOf([archivedTool, app, remoteApp, remoteRoot, root], remoteEnvironmentId),
+    ).toBe("remote-root");
+    // A local root is not worth leaving the current environment for.
+    expect(representativeOf([archivedTool, root, remoteApp], remoteEnvironmentId)).toBe(
+      "remote-app",
+    );
+    expect(representativeOf([archivedTool, app])).toBe("old-tool");
+
+    // A new thread with no current or last-used project starts from the first project's group.
+    const all = [archivedTool, app, remoteApp, remoteRoot, root];
+    expect(resolveGroupDefaultProject(archivedTool, all, settings("repository")).id).toBe(
+      "workspace",
+    );
+    expect(resolveGroupDefaultProject(remoteApp, all, settings("repository")).id).toBe(
+      "remote-root",
+    );
+    expect(resolveGroupDefaultProject(archivedTool, all, settings("separate")).id).toBe("old-tool");
+  });
+
   it("keeps a fork apart from its upstream checkout and labels it by its own remote", () => {
     const fork = makeProject("fork", "/work/t3code-fork", {
       repositoryIdentity: {
@@ -299,7 +348,7 @@ describe("buildProjectGroups", () => {
 
     const label = (projects: ReadonlyArray<EnvironmentProject>) =>
       buildProjectGroups({ projects, settings: settings("repository") })[0]?.label;
-    expect(label(folderTitles)).toBe("T3 Code");
+    expect(label(folderTitles)).toBe("iglo.code");
     expect(label(renamed)).toBe("t3code");
   });
 
@@ -319,7 +368,7 @@ describe("buildProjectGroups", () => {
       preferredEnvironmentId: environmentId,
     });
     expect(groups).toHaveLength(1);
-    expect(groups[0]?.label).toBe("T3 Code");
+    expect(groups[0]?.label).toBe("iglo.code");
 
     // A subfolder group in repository_path mode keeps its own title.
     const localIdentity = { ...repositoryIdentity, rootPath: "/work/t3code" };

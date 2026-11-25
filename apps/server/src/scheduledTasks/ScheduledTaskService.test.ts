@@ -27,8 +27,6 @@ import * as Deferred from "effect/Deferred";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
-import * as Context from "effect/Context";
-import * as ScheduleTargets from "../scheduling/ScheduleTargets.ts";
 
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -40,94 +38,6 @@ import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
-
-it.effect.each(["delete", "legacy orphan"] as const)(
-  "never recovers a plugin occurrence as a disabled replacement prompt: %s",
-  (removal) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        let tick: Effect.Effect<void> | undefined;
-        const launches: unknown[] = [];
-        const started = yield* Deferred.make<void>();
-        const context = yield* Layer.build(
-          ScheduledTaskService.layer.pipe(
-            Layer.provideMerge(
-              Layer.mergeAll(
-                ManagedPolicy.layerTest(),
-                ScheduleTargets.layer,
-                Layer.succeed(Scheduler.Scheduler, {
-                  register: <E, R>(name: string, run: Effect.Effect<void, E, R>) =>
-                    Effect.gen(function* () {
-                      const context = yield* Effect.context<R>();
-                      // Webhook coalescing registers its own job; recovery runs on this one.
-                      if (name === "scheduled-tasks") {
-                        tick = run.pipe(Effect.provideContext(context), Effect.orDie);
-                      }
-                    }),
-                }),
-                Layer.mock(ThreadLaunchService.ThreadLaunchService)({
-                  launch: (input) =>
-                    Effect.sync(() => {
-                      launches.push(input);
-                    }).pipe(Effect.andThen(Effect.die("Recovery must not launch prompt work"))),
-                }),
-                Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
-                  namedProjectsRoot: "/projects",
-                  isScratchProject: () => Effect.succeed(false),
-                }),
-                Layer.mock(ThreadManagementService.ThreadManagementService)({}),
-                Layer.mock(SecretRequests.SecretRequests)({}),
-                NodeCrypto.layer,
-              ),
-            ),
-          ),
-        );
-        const tasks = Context.get(context, ScheduledTaskService.ScheduledTaskService);
-        const targets = Context.get(context, ScheduleTargets.ScheduleTargets);
-        yield* targets.register("fixture.operation", () =>
-          Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
-        );
-        const id = ScheduledTaskId.make("plugin:fixture:reused");
-        const input = {
-          id,
-          title: "Retained dispatch",
-          prompt: "Replacement prompt",
-          enabled: false,
-          schedule: { type: "interval" as const, everyMs: 60_000 },
-          projectId: ProjectId.make("project"),
-          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-          runtimeMode: "approval-required" as const,
-          interactionMode: "default" as const,
-          workspaceStrategy: { type: "root" as const },
-        };
-        yield* tasks.upsert({
-          ...input,
-          dispatchTarget: { id: "fixture.operation", payload: { version: "original" } },
-        });
-        const dispatch = yield* tasks
-          .runNow({ id, occurrenceId: "original-occurrence" })
-          .pipe(Effect.forkScoped);
-        yield* Deferred.await(started);
-        yield* Fiber.interrupt(dispatch);
-        const sql = yield* SqlClient.SqlClient;
-        if (removal === "delete") yield* tasks.delete({ id });
-        else yield* sql`DELETE FROM scheduled_tasks WHERE task_id = ${id}`;
-        const replacement = yield* tasks.upsert(input);
-        assert.isUndefined(replacement.task.dispatchTarget);
-        assert.isFalse(replacement.task.enabled);
-        assert.isDefined(tick);
-        yield* tick!;
-        yield* TestClock.adjust("1 second");
-        yield* tick!;
-        assert.deepEqual(launches, []);
-        assert.equal((yield* tasks.list()).tasks[0]?.lastRunStatus, "never");
-        const [occurrence] = yield* sql<{
-          status: string;
-        }>`SELECT status FROM scheduled_task_occurrences WHERE id = 'original-occurrence'`;
-        assert.equal(occurrence?.status, "failed");
-      }),
-    ).pipe(Effect.provide(SqlitePersistence.layerMemory)),
-);
 
 const threadShell = (
   projectId: ProjectId,
@@ -832,7 +742,12 @@ it.effect("a fresh-session task launches one thread, then starts each later run 
               ),
           }),
           Layer.mock(ThreadManagementService.ThreadManagementService)({
-            getThreadShell: () => Effect.succeed({ deletedAt: null } as never),
+            getThreadShell: () =>
+              Effect.succeed({
+                deletedAt: null,
+                archivedAt: null,
+                projectId: ProjectId.make("project:test"),
+              } as never),
             sendToThread: (input) =>
               Ref.update(sends, (all) => [
                 ...all,
@@ -895,6 +810,16 @@ it.effect("a fresh-session task launches one thread, then starts each later run 
       assert.equal(moved.task.threadMode, "fresh_session");
       const unbound = yield* service.upsert({ ...input, threadMode: "new_thread" });
       assert.equal(unbound.task.threadId, null);
+      // Clearing the thread keeps the mode, so the next run starts a thread for later runs.
+      yield* service.upsert({ ...input, threadId: launched, threadMode: "continue" });
+      const cleared = yield* service.upsert({
+        ...input,
+        threadId: null,
+        unbindThread: true,
+        threadMode: "continue",
+      });
+      assert.equal(cleared.task.threadId, null);
+      assert.equal(cleared.task.threadMode, "continue");
     }).pipe(Effect.provide(layer));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

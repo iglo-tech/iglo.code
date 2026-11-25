@@ -1,13 +1,7 @@
-import {
-  COMPILED_PLUGIN_RPC_SCOPES,
-  ORCHESTRATION_V2_WS_METHODS,
-  WS_METHODS,
-  type WsRpcGroup,
-} from "@t3tools/contracts";
+import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS, type WsRpcGroup } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Record from "effect/Record";
 import * as References from "effect/References";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
@@ -18,7 +12,6 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
 // Trace queries and dashboards depend on these labels, including deviations from method prefixes.
 const RPC_AGGREGATES = {
-  ...Record.map(COMPILED_PLUGIN_RPC_SCOPES, () => "plugins"),
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: "orchestrationV2",
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: "orchestration",
   [ORCHESTRATION_V2_WS_METHODS.getNativeChildWork]: "orchestration",
@@ -51,6 +44,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.providerAuthStart]: "provider",
   [WS_METHODS.providerConsumeResetCredit]: "provider",
   [WS_METHODS.providerAuthComplete]: "provider",
+  [WS_METHODS.providerMcpSignInStart]: "provider",
+  [WS_METHODS.providerMcpSignInComplete]: "provider",
   [WS_METHODS.chatGptReconnectProfile]: "provider",
   [WS_METHODS.chatGptImportProfile]: "provider",
   [WS_METHODS.chatGptHandoffSubscribe]: "provider",
@@ -73,9 +68,17 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverGetDatabaseStorage]: "server",
   [WS_METHODS.serverReclaimDatabaseSpace]: "server",
   [WS_METHODS.peerLinksList]: "peerLinks",
+  [WS_METHODS.peerLinksNames]: "peerLinks",
   [WS_METHODS.peerLinksLink]: "peerLinks",
   [WS_METHODS.peerLinksUnlink]: "peerLinks",
   [WS_METHODS.peerLinksAnswerRequest]: "peerLinks",
+  [WS_METHODS.peerLinksSubscribeThread]: "peerLinks",
+  [WS_METHODS.peerLinksThreadHistoryPage]: "peerLinks",
+  [WS_METHODS.peerLinksThreadItem]: "peerLinks",
+  [WS_METHODS.peerLinksGetHostHealth]: "peerLinks",
+  [WS_METHODS.peerLinksGetHostHealthHistory]: "peerLinks",
+  [WS_METHODS.peerLinksPairClient]: "peerLinks",
+  [WS_METHODS.peerLinksPairLink]: "peerLinks",
   [WS_METHODS.serverGetSettings]: "server",
   [WS_METHODS.serverUpdateSettings]: "server",
   [WS_METHODS.serverSearchAcpRegistry]: "server",
@@ -94,6 +97,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverGetTraceDiagnostics]: "server",
   [WS_METHODS.serverGetProcessDiagnostics]: "server",
   [WS_METHODS.serverGetHostResources]: "server",
+  [WS_METHODS.serverGetHostHealth]: "server",
+  [WS_METHODS.serverGetHostHealthHistory]: "server",
   [WS_METHODS.serverGetProcessResourceHistory]: "server",
   [WS_METHODS.serverGetResourceTelemetryHistory]: "server",
   [WS_METHODS.serverRetryResourceTelemetry]: "server",
@@ -104,6 +109,15 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverRefreshUsageRates]: "server",
   [WS_METHODS.serverSignalProcess]: "server",
   [WS_METHODS.serverReportClientActivity]: "server",
+  [WS_METHODS.workflowsSubscribe]: "workflows",
+  [WS_METHODS.workflowsCounts]: "workflows",
+  [WS_METHODS.workflowsGet]: "workflows",
+  [WS_METHODS.workflowsAnswer]: "workflows",
+  [WS_METHODS.workflowsResume]: "workflows",
+  [WS_METHODS.workflowsCancel]: "workflows",
+  [WS_METHODS.workflowsGetDefinition]: "workflows",
+  [WS_METHODS.workflowsSaveDefinition]: "workflows",
+  [WS_METHODS.workflowsDeleteDefinition]: "workflows",
   [WS_METHODS.scheduledTasksSubscribe]: "scheduledTasks",
   [WS_METHODS.scheduledTasksUpsert]: "scheduledTasks",
   [WS_METHODS.scheduledTasksSetEnabled]: "scheduledTasks",
@@ -113,6 +127,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.scheduledTasksListWebhookDeliveries]: "scheduledTasks",
   [WS_METHODS.scheduledTasksGetWebhookDelivery]: "scheduledTasks",
   [WS_METHODS.secretsAnswerRequest]: "secrets",
+  [WS_METHODS.agentFeedbackAnswerRequest]: "agentFeedback",
   [WS_METHODS.guestShareCreate]: "guest-share",
   [WS_METHODS.cloudGetRelayClientStatus]: "cloud",
   [WS_METHODS.cloudInstallRelayClient]: "cloud",
@@ -190,6 +205,12 @@ const RPC_AGGREGATES = {
   [WS_METHODS.threadsMoveToProject]: "orchestration",
   [WS_METHODS.shellOpenInEditor]: "workspace",
   [WS_METHODS.filesystemBrowse]: "workspace",
+  [WS_METHODS.workspaceListFolders]: "workspace",
+  [WS_METHODS.workspaceScanFolders]: "workspace",
+  [WS_METHODS.workspaceTaskFolder]: "workspace",
+  [WS_METHODS.workspaceAddTaskFolderRepository]: "workspace",
+  [WS_METHODS.workspaceLayoutCommands]: "workspace",
+  [WS_METHODS.workspaceApproveLayoutCommands]: "workspace",
   [WS_METHODS.filesystemGetMetadata]: "workspace",
   [WS_METHODS.agentSessionsScan]: "workspace",
   [WS_METHODS.agentSessionsImport]: "workspace",
@@ -208,6 +229,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.subscribeWorktreeSetup]: "vcs",
   [WS_METHODS.worktreeSetupCancel]: "vcs",
   [WS_METHODS.subscribeResourceTelemetry]: "server",
+  [WS_METHODS.subscribeHostHealth]: "server",
   [WS_METHODS.vcsRefreshStatus]: "vcs",
   [WS_METHODS.vcsPull]: "git",
   [WS_METHODS.gitRunStackedAction]: "vcs",

@@ -17,6 +17,7 @@ import {
   RunId,
   RuntimeRequestId,
   ServerConfig,
+  type ServerConfigStreamEvent,
   ThreadId,
   TurnItemId,
   WS_METHODS,
@@ -67,7 +68,12 @@ const descriptor = {
   // A matching version, since a mismatch adds an update banner a typical user never sees.
   serverVersion: APP_VERSION,
   orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: true, sideChats: true },
+  capabilities: {
+    repositoryIdentity: true,
+    sideChats: true,
+    freshContext: true,
+    fileAttachments: { maxUploadBytes: 10_000_000 },
+  },
 };
 const auth = {
   policy: "loopback-browser",
@@ -227,6 +233,8 @@ function run(
 export interface FakeThread {
   /** Makes this a side chat of that thread. */
   readonly sideChatOf?: ThreadId;
+  /** Makes this a subagent the provider started under that thread, which takes no messages. */
+  readonly providerSubagentOf?: ThreadId;
   /** Makes this an older settled thread the shell leaves out; only its family read returns it. */
   readonly olderSettled?: true;
   readonly id: ThreadId;
@@ -236,6 +244,7 @@ export interface FakeThread {
   /** The first is the thread's active provider thread. */
   readonly providerThreads?: ReadonlyArray<OrchestrationV2ProviderThread>;
   readonly issues?: OrchestrationV2ThreadShell["issues"];
+  readonly pullRequests?: OrchestrationV2ThreadShell["pullRequests"];
   readonly runs: ReadonlyArray<OrchestrationV2Run>;
   readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
   readonly runtimeRequests?: OrchestrationV2ThreadProjection["runtimeRequests"];
@@ -309,6 +318,8 @@ export function threadWithQuestion(name: string, question: string): FakeThread {
   };
 }
 
+const parentOf = (thread: FakeThread) => thread.sideChatOf ?? thread.providerSubagentOf;
+
 function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
   const latest = thread.runs.at(-1);
   const modelSelection = thread.modelSelection ?? MODEL;
@@ -324,15 +335,16 @@ function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
     worktreePath: null,
     activeProviderThreadId: thread.providerThreads?.[0]?.id ?? null,
     ...(thread.issues === undefined ? {} : { issues: thread.issues }),
+    ...(thread.pullRequests === undefined ? {} : { pullRequests: thread.pullRequests }),
     lineage: {
-      rootThreadId: thread.sideChatOf ?? thread.id,
-      parentThreadId: thread.sideChatOf ?? null,
-      relationshipToParent: null,
+      rootThreadId: parentOf(thread) ?? thread.id,
+      parentThreadId: parentOf(thread) ?? null,
+      relationshipToParent: thread.providerSubagentOf ? "subagent" : null,
       ...(thread.sideChatOf ? { sideChat: true } : {}),
     },
     forkedFrom: null,
-    createdBy: "user",
-    creationSource: "web",
+    createdBy: thread.providerSubagentOf ? "agent" : "user",
+    creationSource: thread.providerSubagentOf ? "provider" : "web",
     latestRunId: latest?.id ?? null,
     activeRunId: null,
     // Idle reads as waiting on the user, which shows a per-second duration in the sidebar.
@@ -378,8 +390,8 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
       activeProviderThreadId: shell.activeProviderThreadId,
       lineage: shell.lineage,
       forkedFrom: null,
-      createdBy: "user",
-      creationSource: "web",
+      createdBy: shell.createdBy,
+      creationSource: shell.creationSource,
       createdAt: AT,
       updatedAt: AT,
       archivedAt: null,
@@ -440,6 +452,28 @@ const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>
       return Stream.fromQueue(queue);
     }),
   );
+
+const serverConfigSubscribers = new Set<Queue.Queue<ServerConfigStreamEvent>>();
+const subscribeServerConfig = () =>
+  subscribe<ServerConfigStreamEvent>(
+    [{ version: 1, type: "snapshot", config: serverConfig() }],
+    (queue) => {
+      serverConfigSubscribers.add(queue);
+      return () => serverConfigSubscribers.delete(queue);
+    },
+  );
+// The connection outlives each test, so a test's keybindings reach the app as a server update.
+let publishedKeybindings = baseServerConfig.keybindings;
+const publishKeybindings = () => {
+  if (baseServerConfig.keybindings === publishedKeybindings) return;
+  publishedKeybindings = baseServerConfig.keybindings;
+  const event = {
+    version: 1,
+    type: "keybindingsUpdated",
+    payload: { keybindings: baseServerConfig.keybindings, issues: [] },
+  } as const;
+  for (const queue of serverConfigSubscribers) Queue.offerUnsafe(queue, event);
+};
 
 const handlers: Record<string, (input: never) => unknown> = {
   // Recorded, and accepted only when the scenario asks, since a pending command holds every
@@ -525,7 +559,7 @@ const handlers: Record<string, (input: never) => unknown> = {
     );
   },
   [ORCHESTRATION_V2_WS_METHODS.getThreadFamily]: (input: { readonly threadId: ThreadId }) => {
-    const rootOf = (thread: FakeThread) => thread.sideChatOf ?? thread.id;
+    const rootOf = (thread: FakeThread) => parentOf(thread) ?? thread.id;
     const requested = threads.find((candidate) => candidate.id === input.threadId);
     return Effect.succeed({
       snapshotSequence: sequence,
@@ -541,8 +575,7 @@ const handlers: Record<string, (input: never) => unknown> = {
         if (vcsStatusSubscriber === queue) vcsStatusSubscriber = null;
       };
     }),
-  [WS_METHODS.subscribeServerConfig]: () =>
-    subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig() }]),
+  [WS_METHODS.subscribeServerConfig]: subscribeServerConfig,
 };
 
 // Unanswered calls stay pending, like a server that has not replied yet.
@@ -558,8 +591,7 @@ const client = new Proxy(handlers, {
 const session: EnvironmentConnectionLease["session"] = {
   client: client as unknown as WsRpcProtocolClient,
   initialConfig: Effect.sync(serverConfig),
-  subscribeServerConfig: () =>
-    subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig() }]),
+  subscribeServerConfig,
   ready: Effect.void,
   probe: Effect.void,
   inboundFrames: Effect.succeed(0),
@@ -624,6 +656,7 @@ export function installFakeEnvironment(
     })),
   ];
   holdCommand = options?.holdCommand ?? (() => false);
+  publishKeybindings();
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
     if (url.origin !== window.location.origin) return realFetch(input, init);
@@ -652,6 +685,7 @@ export function installFakeEnvironment(
       holdCommand = () => false;
       pendingDispatches = [];
       pendingAssetUrls = [];
+      publishKeybindings();
     },
   };
 }

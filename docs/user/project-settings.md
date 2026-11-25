@@ -37,6 +37,11 @@ follow-ups from delegated tasks. A turn already running when the switch flips fi
 task's result still lands in its parent thread, which sees it on its next turn. Reset returns the project to the
 machine's setting. Every other provider setting stays per machine.
 
+## Projects with several repositories
+
+A project covers every repository inside its folder, and any folder you add under **Settings →
+Projects → Repositories**; see [Projects with several repositories](multi-repo-projects.md).
+
 ## Pin and archive projects
 
 Pinned projects come first in the project pickers: the project picker on a new thread, the
@@ -100,6 +105,9 @@ project starts a new thread there on its next run.
 
 Deleting a thread also deletes tasks that post into that thread. Tasks that start
 a new thread on each run survive deletion of their previous threads.
+An archived thread refuses messages, so a task that posts into one stays on and fails
+each run until you unarchive the thread or pick another destination. To set a task's thread
+aside without breaking it, settle the thread; see [Settle or archive](thread-sidebar.md#settle-or-archive).
 
 A task can run a prompt or, on environments with Workflows, a saved workflow; see
 [Schedule a workflow](workflows.md#schedule-a-workflow).
@@ -283,7 +291,8 @@ Choose **Monogram** in the icon picker to set one or two letters or numbers and 
 
 When no image is found, iglo.code shows a two-character monogram with a color
 from the icon palette, derived from the saved project name. For example, `Nebula` becomes `NA`,
-`Silver Orchard` becomes `SO`, and `M7 Forge` becomes `M7`.
+`Silver Orchard` becomes `SO`, and `M7 Forge` becomes `M7`. A name that starts with a Chinese,
+Japanese, or Korean character uses only that character, so `健康顾问` becomes `健`.
 
 ## Keep the default branch current
 

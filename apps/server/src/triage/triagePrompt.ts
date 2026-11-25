@@ -2,9 +2,9 @@ import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 
 /** Keep TRIAGE_PLAYBOOK byte-identical to .github/triage/PLAYBOOK.md after unescaping backticks and backslashes. */
 
-export const TRIAGE_PLAYBOOK = `# T3 Code triage playbook
+export const TRIAGE_PLAYBOOK = `# iglo.code triage playbook
 
-You are a support engineer for T3 Code (https://github.com/pingdotgg/t3code), working
+You are a support engineer for iglo.code (https://github.com/pingdotgg/t3code), working
 inside a coding-agent session on the machine of a user whose install is misbehaving:
 crashes, auth failures, broken setups, slow launches, or anything else. Your job is to
 find out what went wrong, unblock the user if you can, and turn what you learned into
@@ -69,7 +69,7 @@ Diagnosis grounded in source beats guessing.
 First establish the shape of the install, because the same symptom points at
 different code depending on it:
 
-- How is T3 Code running on this machine: \`iglo.code serve\` in a terminal, the
+- How is iglo.code running on this machine: \`iglo.code serve\` in a terminal, the
   background service, or the desktop app?
 - Which surface is the user connecting from: the website (app.t3.codes), the
   desktop app against a local server, the desktop app against a remote server,
@@ -113,7 +113,7 @@ Present what you found and let the user choose: fix it now, file an issue, both,
 neither. For fixes: propose the exact commands, explain what they do, and run them
 only with the user's approval. Prefer configuration and service-level fixes.
 
-Do not patch the T3 Code source as a fix. A good issue with strong repro steps
+Do not patch the iglo.code source as a fix. A good issue with strong repro steps
 helps every user; an ad-hoc local patch helps one machine until the next update.
 If the user explicitly insists on preparing a fix PR, use a separate clean clone
 of \`main\` for that work, never the tag-pinned diagnosis clone.
@@ -129,9 +129,20 @@ of \`main\` for that work, never the tag-pinned diagnosis clone.
 - Show the user the complete final issue text and get an explicit yes before
   posting. Never post without it.
 - Note at the end of the issue which model and agent produced it.
-- Post with \`gh issue create --repo pingdotgg/t3code --label via-triage\` only
-  if \`gh api repos/pingdotgg/t3code --jq .permissions.triage\` prints \`true\`.
-- Otherwise, or if \`gh\` is not authenticated, build a prefilled
+- If \`gh\` is authenticated to github.com, post through the "Triage report"
+  issue template. It applies \`via-triage\` for every reporter, while
+  \`gh issue create --label\` drops the label without triage permission. Write
+  the approved title and body to files, the title without a trailing newline,
+  so the shell never parses their text. Then run:
+
+      gh api --hostname github.com graphql -f repo="$(gh api --hostname github.com repos/pingdotgg/t3code --jq .node_id)" -f template="Triage report" -F title=@<title-file> -F body=@<body-file> -f query='mutation($repo:ID!,$template:String!,$title:String!,$body:String!){createIssue(input:{repositoryId:$repo,issueTemplate:$template,title:$title,body:$body}){issue{url labels(first:20){nodes{name}}}}}'
+
+  Report the issue URL and whether its labels include \`via-triage\`. Never file a
+  second issue to repair a label. If you cannot tell whether the issue was
+  created, check the user's recent issues before you retry.
+
+- If \`gh\` is not authenticated, or the request was rejected and created
+  nothing, build a prefilled
   https://github.com/pingdotgg/t3code/issues/new?template=via-triage.yml URL.
   The form applies the label whoever submits it. Add \`title\` plus one
   URL-encoded query parameter per form field id: \`what-happened\`, \`diagnosis\`,
@@ -162,7 +173,7 @@ export type TriageEntry =
 
 /** Windows .cmd shims cannot carry a multiline playbook in argv; point to the file instead. */
 export const buildTriageLaunchPrompt = (promptFilePath: string) =>
-  `Read the file "${promptFilePath}" and follow its instructions exactly: it is your T3 Code triage playbook, and it starts with asking the user what went wrong.`;
+  `Read the file "${promptFilePath}" and follow its instructions exactly: it is your iglo.code triage playbook, and it starts with asking the user what went wrong.`;
 
 /**
  * The composer text an in-app session opens with. The file link renders as a
@@ -175,8 +186,8 @@ export const buildTriageAppPrompt = (promptFilePath: string) =>
 export const buildTriageSeedPrompt = (input: {
   readonly contextFilePath: string;
   readonly entry: TriageEntry;
-}) => `A T3 Code user is having a problem with their install and started this \
-session ${input.entry.kind === "cli" ? "with `iglo.code triage`" : "from the T3 Code app"}.
+}) => `An iglo.code user is having a problem with their install and started this \
+session ${input.entry.kind === "cli" ? "with `iglo.code triage`" : "from the iglo.code app"}.
 
 Machine facts (versions, OS, paths, server liveness) are in the triage context file:
 
@@ -235,7 +246,7 @@ const entryLines = (entry: TriageEntry) =>
         after: `- CLI launched as: ${entry.launchedAs}`,
       }
     : {
-        generatedBy: "the T3 Code app",
+        generatedBy: "the iglo.code app",
         before: `- Started from: ${entry.client} (the client the user pressed "Triage an issue" in; the bug may have happened on another device)`,
         after: undefined,
       };
@@ -275,9 +286,9 @@ build, clone that version as step 4 describes.
 };
 
 const IN_APP_SECTION = `
-## This session runs inside T3 Code
+## This session runs inside iglo.code
 
-You are a thread inside the T3 Code server described above. Stopping,
+You are a thread inside the iglo.code server described above. Stopping,
 restarting, or killing that server, its service, or the desktop app ends this
 session. When a fix needs one of those, give the user the exact steps and let
 them do it. The database is in use by that server: read it, never lock it.
@@ -285,7 +296,7 @@ them do it. The database is in use by that server: read it, never lock it.
 
 export const buildTriageContext = (input: TriageContextInput) => {
   const entry = entryLines(input.entry);
-  return `# T3 Code triage context
+  return `# iglo.code triage context
 
 Generated by ${entry.generatedBy} at ${input.generatedAt}.
 

@@ -1,6 +1,7 @@
 import { managedRuntimeModeDenial } from "@t3tools/client-runtime/contract-labels";
 import {
   DEFAULT_SERVER_SETTINGS,
+  DEFAULT_UNIFIED_SETTINGS,
   type ModelSelection,
   type WorktreeSubmodules,
 } from "@t3tools/contracts";
@@ -234,10 +235,15 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
           : gt("Where new threads start. Projects and their iglo.code.json can override it.")
       }
       resetAction={
-        !isProjectScope && settings.defaultThreadEnvMode !== null ? (
+        !isProjectScope &&
+        settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode ? (
           <SettingResetButton
             ariaLabel={gt("Reset default workspace to default")}
-            onClick={() => updateSettings({ defaultThreadEnvMode: null })}
+            onClick={() =>
+              updateSettings({
+                defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+              })
+            }
           />
         ) : null
       }
@@ -457,11 +463,12 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                   )
             }
             resetAction={
-              settings.defaultAutoPull ? (
+              settings.defaultAutoPull !== DEFAULT_UNIFIED_SETTINGS.defaultAutoPull ? (
                 <SettingResetButton
                   ariaLabel={gt("Reset default automatic pull to default")}
-                  tooltip={gt("Reset automatic pull to off")}
-                  onClick={() => updateSettings({ defaultAutoPull: false })}
+                  onClick={() =>
+                    updateSettings({ defaultAutoPull: DEFAULT_UNIFIED_SETTINGS.defaultAutoPull })
+                  }
                 />
               ) : null
             }

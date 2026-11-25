@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, ServerIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { T, useGT } from "gt-react";
 import { memo } from "react";
@@ -16,12 +16,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { readIssueListPreferences } from "../issue/issueListPreferences";
 import { IssueGlyph } from "../issue/issuePresentation";
+import { useFleetAvailable } from "../fleet/useHostHealth";
 import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
-import { PluginSidebarItems } from "../../plugins/PluginSlots";
 
 function SidebarUtilityItem({
   icon,
@@ -58,6 +58,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   });
   const pullRequestsSupported = usePullRequestsSupported();
   const issuesSupported = useIssuesSupported();
+  const fleetAvailable = useFleetAvailable();
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -73,6 +74,10 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const handleIssuesClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/issues", search: readIssueListPreferences() });
+  };
+  const handleFleetClick = () => {
+    closeMobileSidebar();
+    void navigate({ to: "/fleet" });
   };
   const handleSettingsClick = () => {
     closeMobileSidebar();
@@ -92,8 +97,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   };
 
   return (
-    // Plugin entries add icons; narrow sidebars wrap them instead of pushing past the edge.
-    <SidebarMenu className="flex-row flex-wrap items-center">
+    <SidebarMenu className="flex-row items-center">
       {isOnUtilityPage ? (
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
@@ -124,12 +128,18 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handleIssuesClick}
             />
           ) : null}
+          {fleetAvailable ? (
+            <SidebarUtilityItem
+              icon={<ServerIcon />}
+              label={gt("Fleet")}
+              onClick={handleFleetClick}
+            />
+          ) : null}
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label={gt("Usage")}
             onClick={handleUsageClick}
           />
-          <PluginSidebarItems />
         </>
       )}
       <SidebarThreadUndoNotice />

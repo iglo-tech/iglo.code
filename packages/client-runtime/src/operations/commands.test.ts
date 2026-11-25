@@ -28,6 +28,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
 import { RpcClientError } from "effect/rpc";
@@ -45,15 +46,19 @@ import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFix
 import {
   archiveThread,
   interruptThreadTurn,
+  promoteQueuedRun,
   revertThreadCheckpoint,
   resumeThreadQueue,
   startThreadTurn,
+  updateThreadMetadata,
 } from "./commands.ts";
 
 const layerTestRandom = Layer.succeed(
   SecureRandom.SecureRandom,
   SecureRandom.make((size) => new Uint8Array(size)),
 );
+
+class Refused extends Schema.TaggedError<Refused>()("Refused", {}) {}
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -182,9 +187,44 @@ describe("V2 environment commands", () => {
     }).pipe(Effect.provide(layerTestRandom)),
   );
 
+  it.effect("sends pull request links in the thread.metadata.update command", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+      const pullRequests = [
+        {
+          host: "github.com",
+          repository: "iglo-tech/iglo.code",
+          number: 1,
+          url: "https://github.com/iglo-tech/iglo.code/pull/1",
+          source: "manual",
+          linkedAt: "2026-06-06T00:00:00.000Z",
+          snapshot: null,
+          stack: null,
+        },
+      ] as const;
+
+      yield* updateThreadMetadata({
+        commandId: CommandId.make("restore-pr-links"),
+        threadId: ThreadId.make("thread-1"),
+        pullRequests,
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(commands).toEqual([
+        {
+          type: "thread.metadata.update",
+          commandId: "restore-pr-links",
+          threadId: "thread-1",
+          pullRequests,
+        },
+      ]);
+    }).pipe(Effect.provide(layerTestRandom)),
+  );
+
   it.effect("resolves run ordinal zero to the persisted thread-start checkpoint", () =>
     Effect.gen(function* () {
       const scopeId = CheckpointScopeId.make("checkpoint-scope-root");
+      const repositoryScopeId = CheckpointScopeId.make("checkpoint-scope-repository");
       const checkpointId = CheckpointId.make("checkpoint-thread-start");
       const projection: OrchestrationV2ThreadProjection = {
         ...v2Projection,
@@ -202,6 +242,38 @@ describe("V2 environment commands", () => {
             status: "ready",
             files: [],
             capturedAt: v2Now,
+          },
+          // A tracked repository's first baseline, recorded after the thread's own.
+          {
+            id: CheckpointId.make("checkpoint-repository-start"),
+            threadId: v2ThreadId,
+            scopeId: repositoryScopeId,
+            runId: null,
+            nodeId: NodeId.make("node-run-1"),
+            parentCheckpointId: null,
+            ordinalWithinScope: 0,
+            appRunOrdinal: null,
+            ref: CheckpointRef.make("refs/iglo.code/repository-start"),
+            status: "ready",
+            files: [],
+            capturedAt: v2Now,
+          },
+        ],
+        checkpointScopes: [
+          {
+            id: repositoryScopeId,
+            threadId: v2ThreadId,
+            runId: null,
+            nodeId: NodeId.make("node-run-1"),
+            parentScopeId: scopeId,
+            providerThreadId: null,
+            kind: "manual",
+            ordinalWithinParent: 1,
+            advancesAppRunCount: false,
+            cwd: "/workspace/api",
+            label: "api",
+            repositoryPath: "/workspace/api",
+            createdAt: v2Now,
           },
         ],
       };
@@ -598,6 +670,121 @@ describe("V2 environment commands", () => {
         "command-host-gone-false",
         "command-host-gone-true",
       ]);
+    }).pipe(Effect.provide(layerTestRandom)),
+  );
+
+  const turnSends = [
+    {
+      name: "new thread's first message",
+      method: ORCHESTRATION_V2_WS_METHODS.launchThread,
+      send: (commandId: CommandId) =>
+        startThreadTurn({
+          commandId,
+          threadId: v2ThreadId,
+          message: {
+            messageId: MessageId.make(commandId),
+            role: "user",
+            text: "hi",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          bootstrap: {
+            createThread: {
+              projectId: ProjectId.make("project-1"),
+              title: "Thread",
+              modelSelection: v2Projection.thread.modelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdAt: "2026-06-20T00:00:00.000Z",
+            },
+          },
+        }),
+    },
+    {
+      name: "queued message sent now",
+      method: ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+      send: (commandId: CommandId) =>
+        resumeThreadQueue({ commandId, threadId: v2ThreadId, runId: RunId.make("queued") }),
+    },
+    {
+      name: "queued message steered",
+      method: ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+      send: (commandId: CommandId) =>
+        promoteQueuedRun({
+          commandId,
+          threadId: v2ThreadId,
+          queuedRunId: RunId.make("queued"),
+          targetRunId: RunId.make("running"),
+        }),
+    },
+  ] as const;
+
+  const sendFailingFirstAttempt = Effect.fn("TestEnvironmentCommands.sendFailingFirstAttempt")(
+    function* (turnSend: (typeof turnSends)[number], failure: Effect.Effect<never, Refused>) {
+      const supervisor = yield* makeSupervisor({ commands: [], projects: [], launches: [] });
+      const healthySession = Option.getOrThrow(yield* SubscriptionRef.get(supervisor.session));
+      const attempts: string[] = [];
+      const firstAttemptFailed = yield* Deferred.make<void>();
+      const healthyMethod = (
+        healthySession.client as unknown as Record<
+          string,
+          (input: unknown) => Effect.Effect<unknown>
+        >
+      )[turnSend.method]!;
+      const failingClient = {
+        ...healthySession.client,
+        [turnSend.method]: (input: { readonly commandId: CommandId }) =>
+          Effect.gen(function* () {
+            attempts.push(input.commandId);
+            if (attempts.length > 1) return yield* healthyMethod(input);
+            yield* SubscriptionRef.set(supervisor.session, Option.none());
+            yield* Deferred.succeed(firstAttemptFailed, undefined);
+            return yield* failure;
+          }),
+      } as unknown as WsRpcProtocolClient;
+      yield* SubscriptionRef.set(
+        supervisor.session,
+        Option.some({ ...healthySession, client: failingClient }),
+      );
+      const sendFiber = yield* turnSend
+        .send(CommandId.make("command-turn-send"))
+        .pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          Effect.forkChild,
+        );
+      yield* Deferred.await(firstAttemptFailed);
+      yield* SubscriptionRef.set(
+        supervisor.session,
+        Option.some({ ...healthySession, client: failingClient }),
+      );
+      return { exit: yield* Fiber.await(sendFiber), attempts };
+    },
+  );
+
+  it.effect.each(turnSends)("resends a $name lost to a session close", (turnSend) =>
+    Effect.gen(function* () {
+      const { exit, attempts } = yield* sendFailingFirstAttempt(
+        turnSend,
+        Effect.failCause(Cause.interrupt()),
+      );
+
+      expect(attempts).toEqual(["command-turn-send", "command-turn-send"]);
+      expect(Exit.isSuccess(exit)).toBe(true);
+    }).pipe(Effect.provide(layerTestRandom)),
+  );
+
+  it.effect("doesn't resend a new thread's first message the server refused", () =>
+    Effect.gen(function* () {
+      const { exit, attempts } = yield* sendFailingFirstAttempt(
+        turnSends[0],
+        Effect.fail(new Refused()),
+      );
+
+      expect(attempts).toEqual(["command-turn-send"]);
+      expect(Exit.isFailure(exit)).toBe(true);
     }).pipe(Effect.provide(layerTestRandom)),
   );
 

@@ -2,14 +2,26 @@ import {
   AuthMcpClientAccess,
   AuthMcpRegistrationError,
   AuthMcpTokenError,
+  EnvironmentAuthInvalidError,
+  EnvironmentHttpForbiddenError,
   EnvironmentHttpApi,
   EnvironmentId,
   type ExecutionEnvironmentCapabilities,
+  type ExecutionEnvironmentDescriptor,
   MCP_PEER_LINK_SOFTWARE_ID,
   type PeerLink,
   type PeerLinkCreateInput,
+  type PeerLinkCreateResult,
   PeerLinkError,
+  type PeerLinkReciprocalOffer,
+  type PeerLinkReciprocalOutcome,
+  type PeerLinkReciprocalTeardownResult,
+  type PeerLinkRemoveResult,
+  type PeerLinkName,
   type PeerLinkSummary,
+  type PeerLinkTeardownOutcome,
+  PeerLinkReciprocalError,
+  AuthSessionId,
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Cause from "effect/Cause";
@@ -19,6 +31,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Base64Url from "effect/encoding/Base64Url";
 import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
@@ -37,12 +50,16 @@ import * as HttpApiClient from "effect/http-api/HttpApiClient";
 import { isLocalLoopbackHost, isTailnetHost } from "@t3tools/shared/hostClassification";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as OwnLinkOrigins from "./OwnLinkOrigins.ts";
 
 const PeerHttpApi = HttpApi.make(EnvironmentHttpApi.identifier)
   .add(EnvironmentHttpApi.groups.metadata)
   .add(EnvironmentHttpApi.groups.mcpOAuth)
+  .add(EnvironmentHttpApi.groups.peerLinks)
   .annotateMerge(EnvironmentHttpApi.annotations);
 
 /** The redirect registered for a link. Nothing ever listens there: the code comes back in the response. */
@@ -79,30 +96,69 @@ export interface ResolvedPeerLink {
   /** The first address that answered as this peer. */
   readonly url: string;
   readonly token: string;
+  /** What the peer said it can do when it answered. */
+  readonly capabilities: ExecutionEnvironmentCapabilities;
 }
+
+/** What a link's session is called in the peer's Connections, before this environment's label. */
+export const LINK_CLIENT_NAME_PREFIX = "iglo.code · ";
 
 export const LINKED_ENVIRONMENTS_OFF =
   "Linked environments is off on this machine. Turn it on in Settings → Labs.";
 
 /**
- * Links from this environment to others. Linking signs this environment in to
- * the peer's `/mcp` as an outside agent with a pairing code from the peer, the
- * same MCP OAuth flow an outside agent uses, without a browser. The peer's
- * session token is kept in the server secret store; the table keeps the rest.
+ * Links from this environment to others: an outside-agent OAuth sign-in to the
+ * peer's `/mcp` with a pairing code from it, the token kept in the secret
+ * store. By default the link also offers the peer a code to link back, so one
+ * link serves both directions.
  */
 export class PeerLinks extends Context.Service<
   PeerLinks,
   {
     /** Whether the Linked environments beta (Settings → Labs) is on here. */
     readonly enabled: Effect.Effect<boolean>;
-    readonly link: (input: PeerLinkCreateInput) => Effect.Effect<PeerLink, PeerLinkError>;
+    readonly link: (
+      input: PeerLinkCreateInput,
+    ) => Effect.Effect<PeerLinkCreateResult, PeerLinkError>;
+    /**
+     * Links like `link`, except that a machine whose link has not expired is
+     * left as it is, with its pairing code unused.
+     */
+    readonly linkUnlessLinked: (
+      input: PeerLinkCreateInput,
+    ) => Effect.Effect<{ readonly link: PeerLink; readonly alreadyLinked: boolean }, PeerLinkError>;
     readonly list: Effect.Effect<ReadonlyArray<PeerLinkSummary>, PeerLinkError>;
+    /** The unexpired links' names, from what is stored, without asking any peer. */
+    readonly names: Effect.Effect<ReadonlyArray<PeerLinkName>, PeerLinkError>;
     /** The stored link, without asking the peer whether it answers. */
     readonly get: (
       environmentId: EnvironmentId,
     ) => Effect.Effect<Option.Option<PeerLink>, PeerLinkError>;
-    /** Forgets the link here. The peer still lists the session until it is revoked there. */
-    readonly unlink: (environmentId: EnvironmentId) => Effect.Effect<boolean, PeerLinkError>;
+    /**
+     * Forgets the link here, and asks the peer to forget its link back and
+     * end this side's session there. The peer keeps what it holds when it
+     * cannot be reached; the result says so.
+     */
+    readonly unlink: (
+      environmentId: EnvironmentId,
+    ) => Effect.Effect<PeerLinkRemoveResult & { readonly endedThere: boolean }, PeerLinkError>;
+    /**
+     * A linked peer's offer to link back to it. The caller is the session the
+     * peer's forward link holds here, and may only offer its own environment.
+     */
+    readonly acceptReciprocal: (
+      caller: { readonly sessionId: AuthSessionId; readonly peerEnvironmentId: string | undefined },
+      offer: PeerLinkReciprocalOffer,
+    ) => Effect.Effect<PeerLink, PeerLinkError>;
+    /**
+     * A linked peer asking this environment to forget it: its link back goes,
+     * and so does the session the call came over. The caller may only ask for
+     * its own environment.
+     */
+    readonly forgetPeer: (
+      caller: { readonly sessionId: AuthSessionId; readonly peerEnvironmentId: string | undefined },
+      environmentId: EnvironmentId,
+    ) => Effect.Effect<PeerLinkReciprocalTeardownResult, PeerLinkError>;
     /** An address that answers as the linked peer, with its token, ready to call. */
     readonly resolve: (
       environmentId: EnvironmentId,
@@ -112,8 +168,27 @@ export class PeerLinks extends Context.Service<
       environmentId: EnvironmentId,
       outcome: { readonly error: string | null },
     ) => Effect.Effect<void>;
+    /** Records a later end the peer gives the link's session: using a link renews it there. */
+    readonly recordExpiry: (
+      environmentId: EnvironmentId,
+      expiresAt: DateTime.Utc,
+    ) => Effect.Effect<void>;
   }
 >()("t3/peer/PeerLinks") {}
+
+/** How long a reciprocal offer waits on the peer linking back here. */
+const RECIPROCAL_OFFER_TIMEOUT = Duration.seconds(30);
+/**
+ * How long forgetting waits on the peer before it keeps its side. The peer's
+ * own answer may probe back (up to its probe budget) and then hop on, so the
+ * caller needs headroom over the peer's internal timeouts.
+ */
+const TEARDOWN_TIMEOUT = Duration.seconds(30);
+/**
+ * How long the hop a teardown makes back waits. It runs after this side's own
+ * probe, so it stays well under the caller's teardown timeout.
+ */
+const TEARDOWN_HOP_TIMEOUT = Duration.seconds(10);
 
 interface PeerLinkRow {
   readonly environment_id: string;
@@ -126,6 +201,8 @@ interface PeerLinkRow {
   readonly last_reached_at: string | null;
   readonly last_error: string | null;
   readonly fenced: number;
+  /** The peer-link session this row is bound to, when it is: only that session may forget it. */
+  readonly peer_session_id: string | null;
 }
 
 const decodeUrls = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(Schema.String)));
@@ -158,7 +235,8 @@ const peerOrigin = (url: string) => {
     return Effect.fail(
       new PeerLinkError({
         reason: "unreachable",
-        message: `${url} is not an http or https address.`,
+        // Never the address as given: it may hold a username, password or query.
+        message: "That address is not an http or https address.",
       }),
     );
   }
@@ -170,7 +248,7 @@ const peerOrigin = (url: string) => {
     return Effect.fail(
       new PeerLinkError({
         reason: "unreachable",
-        message: `${url} is plain http, which would send the link's credentials unencrypted. Use its https address, or its Tailscale address.`,
+        message: `${parsed.origin} is plain http, which would send the link's credentials unencrypted. Use its https address, or its Tailscale address.`,
       }),
     );
   }
@@ -183,7 +261,7 @@ const connectionCode = (cause: unknown) =>
     .map((error) => (Predicate.hasProperty(error, "code") ? error.code : undefined))
     .find(Predicate.isString);
 
-/** Why `origin` did not answer as T3 Code, short enough for a toast. Never echoes a body. */
+/** Why `origin` did not answer as iglo.code, short enough for a toast. Never echoes a body. */
 const probeFailure = (
   origin: string,
   error: HttpClientError.HttpClientError | Schema.SchemaError | Cause.TimeoutError,
@@ -205,8 +283,69 @@ const probeFailure = (
   }
   return new PeerLinkError({
     reason: "not_a_t3_environment",
-    message: `${origin} answered, but not as a T3 Code environment this version understands.`,
+    message: `${origin} answered, but not as an iglo.code environment this version understands.`,
   });
+};
+
+/**
+ * A route the server does not have, which on an iglo.code peer means an older
+ * version. An undeclared status arrives as a DecodeError, which carries the
+ * response too, so match the status whatever the reason is.
+ */
+const missingEndpoint = (error: HttpClientError.HttpClientError) =>
+  (error.reason._tag === "StatusCodeError" || error.reason._tag === "DecodeError") &&
+  error.reason.response.status === 404;
+
+const isPeerLinkReciprocalError = Schema.is(PeerLinkReciprocalError);
+const isManagedPolicyRefused = Schema.is(ManagedLimits.ManagedPolicyRefusedError);
+const isAuthInvalid = Schema.is(EnvironmentAuthInvalidError);
+const isHttpForbidden = Schema.is(EnvironmentHttpForbiddenError);
+
+/** Why the peer did not link back, in words a user can act on. */
+const reciprocalOfferFailure = (peer: string, error: unknown) => {
+  if (isPeerLinkReciprocalError(error)) {
+    return error.reason === "disabled"
+      ? `Linked environments is off on ${peer}. Turn it on there, then link again.`
+      : `${peer} could not link back: ${error.message}`;
+  }
+  if (EnvironmentAuth.isServerAuthInternalError(error)) {
+    return "This environment could not mint the code the peer needs to link back. The server log has details.";
+  }
+  if (isManagedPolicyRefused(error)) {
+    return "A managed policy on this machine refuses new pairing codes, so the peer could not link back.";
+  }
+  if (Cause.isTimeoutError(error)) {
+    return `${peer} did not finish linking back within ${Duration.toSeconds(RECIPROCAL_OFFER_TIMEOUT)} seconds. Check its Connections; link again to retry.`;
+  }
+  if (isAuthInvalid(error) || isHttpForbidden(error)) {
+    return `${peer} refused the session this environment signed in with. Link again with a fresh pairing code.`;
+  }
+  if (HttpClientError.isHttpClientError(error)) {
+    return missingEndpoint(error)
+      ? `${peer} runs an iglo.code version that does not link back. Update it, then link again.`
+      : `${peer} stopped answering while linking back.`;
+  }
+  return `${peer} answered in a shape this version does not understand. Update both environments.`;
+};
+
+/** Why the peer kept its side when it was asked to forget, in words a user can act on. */
+const teardownFailure = (peer: string, selfLabel: string, error: unknown) => {
+  const revokeThere = `Revoke "iglo.code · ${selfLabel}" in ${peer}'s Sharing & access to end this side's session there.`;
+  if (isPeerLinkReciprocalError(error)) {
+    return `${peer} could not forget its link back: ${error.message}`;
+  }
+  if (Cause.isTimeoutError(error)) {
+    return `${peer} did not answer in time. Forget its link there, in its Connections. ${revokeThere}`;
+  }
+  if (isAuthInvalid(error) || isHttpForbidden(error)) {
+    return `This link's session no longer works on ${peer}. ${revokeThere}`;
+  }
+  if (HttpClientError.isHttpClientError(error)) {
+    return missingEndpoint(error)
+      ? `${peer} runs an iglo.code version that cannot forget a link from here. ${revokeThere}`
+      : `${peer} stopped answering. Forget its link there, in its Connections. ${revokeThere}`;
+  }
+  return `${peer} answered in a shape this version does not understand. Forget its link there, in its Connections. ${revokeThere}`;
 };
 
 /** Whether a host is this machine's own loopback. Tests serve their peers there, so they narrow it. */
@@ -227,6 +366,8 @@ const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
+  const ownOrigins = yield* OwnLinkOrigins.OwnLinkOrigins;
   const isOwnLoopback = yield* LoopbackHost;
   const enabled = serverSettings.getSettings.pipe(
     Effect.map((settings) => settings.linkedEnvironmentsEnabled),
@@ -250,7 +391,7 @@ const make = Effect.gen(function* () {
       Effect.provideService(HttpClient.HttpClient, peerHttpClient),
     );
 
-  /** The environment answering at `origin`, or why nothing there answers as T3 Code. */
+  /** The environment answering at `origin`, or why nothing there answers as iglo.code. */
   const probe = (origin: string) => {
     const timeout = probeTimeout(origin);
     return clientFor(origin).pipe(
@@ -306,7 +447,13 @@ const make = Effect.gen(function* () {
 
   /** Signs in to the peer's `/mcp` with a pairing code: register, decide, exchange. */
   const signIn = Effect.fn("PeerLinks.signIn")(
-    function* (origin: string, input: PeerLinkCreateInput, clientName: string) {
+    function* (
+      origin: string,
+      input: PeerLinkCreateInput,
+      clientName: string,
+      /** This environment's id, so the session it gets there names its owner. */
+      environmentId: string,
+    ) {
       const client = yield* clientFor(origin);
       // Only the peer's own refusals are rejections. A dropped connection or
       // an answer this version cannot read is classified below.
@@ -316,6 +463,7 @@ const make = Effect.gen(function* () {
             client_name: clientName,
             redirect_uris: [LINK_REDIRECT_URI],
             software_id: MCP_PEER_LINK_SOFTWARE_ID,
+            software_version: environmentId,
           },
         })
         .pipe(
@@ -450,6 +598,7 @@ const make = Effect.gen(function* () {
             return yield* new PeerLinkError({
               reason: "unreachable",
               message: `${origin} answered as another environment, ${descriptor.label}.`,
+              answeredAs: descriptor.label,
             });
           }
           return { origin, descriptor };
@@ -461,12 +610,14 @@ const make = Effect.gen(function* () {
     );
     const first = matching[0];
     if (first === undefined) {
-      const reasons = checked.flatMap((result) =>
-        Result.isFailure(result) ? [result.failure.message] : [],
+      const failures = checked.flatMap((result) =>
+        Result.isFailure(result) ? [result.failure] : [],
       );
+      const answeredAs = failures.find((failure) => failure.answeredAs !== undefined)?.answeredAs;
       return yield* new PeerLinkError({
         reason: "unreachable",
-        message: `This environment could not reach ${name}: ${reasons.join(" ")}`,
+        message: `This environment could not reach ${name}: ${failures.map((failure) => failure.message).join(" ")}`,
+        ...(answeredAs === undefined ? {} : { answeredAs }),
       });
     }
     // Each address is kept once, even when two spellings share an origin.
@@ -481,14 +632,115 @@ const make = Effect.gen(function* () {
     return { primary, peer: yield* probe(primary), origins };
   });
 
-  const link: PeerLinks["Service"]["link"] = Effect.fn("PeerLinks.link")(function* (input) {
+  /**
+   * Offers the peer a one-time code minted here, so it links back to this
+   * environment at the same access, over the session just signed in for. A
+   * failed offer's code is revoked at once; a linked offer's grant id comes
+   * back so this side can bind its row to the session the link back created.
+   */
+  const offerReciprocal = Effect.fn("PeerLinks.offerReciprocal")(function* (args: {
+    readonly input: PeerLinkCreateInput;
+    readonly peer: ExecutionEnvironmentDescriptor;
+    readonly primary: string;
+    /** The token this environment just signed in with, which the peer knows. */
+    readonly token: string;
+  }): Effect.fn.Return<{
+    readonly outcome: PeerLinkReciprocalOutcome;
+    readonly grantId: string | undefined;
+  }> {
+    if (args.input.reciprocal !== true) return { outcome: { kind: "off" }, grantId: undefined };
+    if (args.peer.capabilities.peerLinkReciprocal !== true) {
+      return { outcome: { kind: "unsupported" }, grantId: undefined };
+    }
+    const self = yield* environment.getDescriptor;
+    const origins = yield* ownOrigins.origins;
+    if (origins.length === 0) {
+      return {
+        outcome: {
+          kind: "failed",
+          message:
+            "This machine has no Tailscale address the peer could link back over. Turn on Tailscale (its HTTPS address counts), or link back from there by hand.",
+        },
+        grantId: undefined,
+      };
+    }
+    const minted = yield* environmentAuth
+      .issuePairingCredential({
+        access: args.input.access,
+        purpose: "peer-link",
+        label: `Link back to ${self.label}`,
+      })
+      .pipe(Effect.result);
+    if (Result.isFailure(minted)) {
+      return {
+        outcome: {
+          kind: "failed",
+          message: reciprocalOfferFailure(args.peer.label, minted.failure),
+        },
+        grantId: undefined,
+      };
+    }
+    const grant = minted.success;
+    return yield* Effect.gen(function* () {
+      const client = yield* clientFor(args.primary);
+      const outcome = yield* client.peerLinks
+        .reciprocal({
+          headers: { authorization: `Bearer ${args.token}` },
+          payload: {
+            environmentId: self.environmentId,
+            label: self.label,
+            urls: origins as [string, ...string[]],
+            pairingCode: grant.credential,
+            access: args.input.access,
+          },
+        })
+        .pipe(
+          Effect.timeout(RECIPROCAL_OFFER_TIMEOUT),
+          Effect.as({ kind: "linked" } as const),
+          Effect.catch((error) =>
+            Effect.succeed<PeerLinkReciprocalOutcome>({
+              kind: "failed",
+              message: reciprocalOfferFailure(args.peer.label, error),
+            }),
+          ),
+        );
+      return { outcome, grantId: outcome.kind === "linked" ? grant.id : undefined };
+    }).pipe(
+      // A code that never linked back — failed or interrupted — must not stay
+      // live for its whole lifetime.
+      Effect.onExit((exit) =>
+        Exit.isSuccess(exit) && exit.value.outcome.kind === "linked"
+          ? Effect.void
+          : environmentAuth.revokePairingLink(grant.id).pipe(Effect.ignoreCause({ log: true })),
+      ),
+      Effect.annotateLogs({ "peer_link.peer": args.peer.environmentId }),
+    );
+  });
+
+  interface LinkOptions {
+    /**
+     * Set when a linked peer's offer is being accepted. The accept path never
+     * moves or replaces a link this environment already holds, expired or not:
+     * only the offer's own addresses may renew it.
+     */
+    readonly fromReciprocalOffer?: boolean;
+    /** The session the offer arrived over, bound to the row this link creates. */
+    readonly bindSessionId?: AuthSessionId;
+    /** Set by linkUnlessLinked: a machine whose link has not expired is left as it is. */
+    readonly keepLinked?: boolean;
+  }
+
+  const linkImpl = Effect.fn("PeerLinks.linkImpl")(function* (
+    input: PeerLinkCreateInput,
+    options: LinkOptions = {},
+  ) {
     if (!(yield* enabled)) {
       return yield* new PeerLinkError({ reason: "disabled", message: LINKED_ENVIRONMENTS_OFF });
     }
     const urls = [input.url, ...(input.alternateUrls ?? [])];
     // The user picked a machine: link through the addresses that answer as
     // it, so one that now answers as another never receives the pairing code.
-    const { primary, peer, origins } =
+    let { primary, peer, origins } =
       input.expectedEnvironmentId === undefined
         ? yield* answeringAt(urls)
         : yield* answeringAs(
@@ -497,15 +749,36 @@ const make = Effect.gen(function* () {
             input.expectedLabel ?? input.expectedEnvironmentId,
           );
     // Anything can answer as a linked machine, so an address alone renews its
-    // link only where the link already reaches it, and never moves it.
-    if (input.expectedEnvironmentId === undefined) {
-      const row = yield* readRow(peer.environmentId);
-      const existing = Option.isSome(row) ? yield* toLink(row.value) : undefined;
-      if (
-        existing !== undefined &&
-        DateTime.isGreaterThan(existing.expiresAt, yield* DateTime.now) &&
-        !existing.urls.includes(primary)
-      ) {
+    // link only where the link already reaches it, and never moves it. An
+    // accepted offer is stricter still: it may not touch a link at another
+    // address even when that link has expired.
+    const existingRow = yield* readRow(peer.environmentId);
+    const existing = Option.isSome(existingRow) ? yield* toLink(existingRow.value) : undefined;
+    const current =
+      existing !== undefined && DateTime.isGreaterThan(existing.expiresAt, yield* DateTime.now)
+        ? existing
+        : undefined;
+    if (options.keepLinked === true && current !== undefined) {
+      return { link: current, reciprocal: { kind: "off" } as const, alreadyLinked: true };
+    }
+    if (existing !== undefined && options.fromReciprocalOffer === true) {
+      // A renewal from the accepting side signs in where the row already
+      // reaches: the peer's own addresses can come in another order, so the
+      // first offered one the row holds wins, and the row keeps its addresses.
+      const known = origins.filter((origin) => existing.urls.includes(origin));
+      if (known.length === 0) {
+        return yield* new PeerLinkError({
+          reason: "pairing_rejected",
+          message: `${primary} answers as ${existing.label}, which is already linked at another address. If ${existing.label} moved, forget that link first.`,
+        });
+      }
+      primary = known[0]!;
+      origins = [...existing.urls];
+    } else if (existing !== undefined && !existing.urls.includes(primary)) {
+      const guarded =
+        input.expectedEnvironmentId === undefined &&
+        DateTime.isGreaterThan(existing.expiresAt, yield* DateTime.now);
+      if (guarded) {
         return yield* new PeerLinkError({
           reason: "pairing_rejected",
           message: `${primary} answers as ${existing.label}, which is already linked at another address. If ${existing.label} moved, forget that link first.`,
@@ -522,10 +795,15 @@ const make = Effect.gen(function* () {
     if (!linkLimitsHold(peer)) {
       return yield* new PeerLinkError({
         reason: "incompatible",
-        message: `${peer.label} runs a T3 Code version that cannot keep a linked agent's limits. Update it, then link again.`,
+        message: `${peer.label} runs an iglo.code version that cannot keep a linked agent's limits. Update it, then link again.`,
       });
     }
-    const issued = yield* signIn(primary, input, `T3 Code · ${self.label}`);
+    const issued = yield* signIn(
+      primary,
+      input,
+      `${LINK_CLIENT_NAME_PREFIX}${self.label}`,
+      self.environmentId,
+    );
     const now = yield* DateTime.now;
     const linked: PeerLink = {
       environmentId: peer.environmentId,
@@ -547,14 +825,58 @@ const make = Effect.gen(function* () {
     const previous = yield* Effect.gen(function* () {
       const urlsJson = yield* encodeUrls(origins).pipe(Effect.catch(failStorage));
       const previous = yield* readRow(peer.environmentId);
+      if (options.fromReciprocalOffer === true) {
+        // The guard read `existingRow` before signing in, which can take as
+        // long as the peer wants; the write is conditional on that row, not a
+        // fresh read, so a row appearing in the gap is never overwritten.
+        const written = Option.isSome(existingRow)
+          ? yield* sql<{ readonly one: number }>`
+              UPDATE peer_environment_links SET
+                secret_name = ${secretName},
+                fenced = 1,
+                label = ${linked.label},
+                urls_json = ${urlsJson},
+                access = ${linked.access},
+                linked_at = ${DateTime.formatIso(linked.linkedAt)},
+                expires_at = ${DateTime.formatIso(linked.expiresAt)},
+                last_reached_at = ${DateTime.formatIso(now)},
+                last_error = NULL,
+                peer_session_id = ${options.bindSessionId ?? null}
+              WHERE environment_id = ${linked.environmentId}
+                AND secret_name = ${existingRow.value.secret_name}
+              RETURNING 1 AS one
+            `.pipe(Effect.catch(failStorage))
+          : yield* sql<{ readonly one: number }>`
+              INSERT INTO peer_environment_links (
+                environment_id, secret_name, label, urls_json, access, linked_at, expires_at,
+                last_reached_at, last_error, fenced, peer_session_id
+              ) VALUES (
+                ${linked.environmentId}, ${secretName}, ${linked.label}, ${urlsJson}, ${linked.access},
+                ${DateTime.formatIso(linked.linkedAt)}, ${DateTime.formatIso(linked.expiresAt)},
+                ${DateTime.formatIso(now)}, NULL, 1, ${options.bindSessionId ?? null}
+              )
+              ON CONFLICT (environment_id) DO NOTHING
+              RETURNING 1 AS one
+            `.pipe(Effect.catch(failStorage));
+        if (written.length === 0) {
+          return yield* new PeerLinkError({
+            reason: "pairing_rejected",
+            message: `${primary} answers as ${peer.label}, which linked meanwhile at another address. Forget that link first.`,
+          });
+        }
+        // The conditional write replaced exactly the row the guard saw, so the
+        // old token is the guard's, not whatever a fresh read shows now.
+        return existingRow;
+      }
+      // A plain renewal carries no session to bind, so the old binding stays.
       yield* sql`
         INSERT INTO peer_environment_links (
           environment_id, secret_name, label, urls_json, access, linked_at, expires_at,
-          last_reached_at, last_error, fenced
+          last_reached_at, last_error, fenced, peer_session_id
         ) VALUES (
           ${linked.environmentId}, ${secretName}, ${linked.label}, ${urlsJson}, ${linked.access},
           ${DateTime.formatIso(linked.linkedAt)}, ${DateTime.formatIso(linked.expiresAt)},
-          ${DateTime.formatIso(now)}, NULL, 1
+          ${DateTime.formatIso(now)}, NULL, 1, ${options.bindSessionId ?? null}
         )
         ON CONFLICT (environment_id) DO UPDATE SET
           secret_name = excluded.secret_name,
@@ -565,7 +887,8 @@ const make = Effect.gen(function* () {
           linked_at = excluded.linked_at,
           expires_at = excluded.expires_at,
           last_reached_at = excluded.last_reached_at,
-          last_error = NULL
+          last_error = NULL,
+          peer_session_id = COALESCE(excluded.peer_session_id, peer_environment_links.peer_session_id)
       `.pipe(Effect.catch(failStorage));
       return previous;
     }).pipe(Effect.onError(() => secrets.remove(secretName).pipe(Effect.ignore)));
@@ -574,8 +897,43 @@ const make = Effect.gen(function* () {
     if (Option.isSome(previous) && previous.value.secret_name !== secretName) {
       yield* secrets.remove(previous.value.secret_name).pipe(Effect.ignore);
     }
-    return linked;
+    const offer = yield* offerReciprocal({
+      input,
+      peer,
+      primary,
+      token: issued.access_token,
+    });
+    // When the peer linked back, bind this row to the session that link back
+    // created here, so a later teardown can tell it is the link's own. Best
+    // effort: an unbound row still works, its teardown just degrades to kept.
+    if (offer.outcome.kind === "linked" && offer.grantId !== undefined) {
+      yield* Effect.gen(function* () {
+        const rows = yield* sql<{ session_id: string }>`
+          SELECT session_id FROM auth_sessions WHERE pairing_grant_id = ${offer.grantId}
+          ORDER BY issued_at DESC LIMIT 1
+        `.pipe(NodeSqliteClient.readOnly);
+        const sessionId = rows[0]?.session_id;
+        if (sessionId !== undefined) {
+          yield* sql`
+            UPDATE peer_environment_links SET peer_session_id = ${sessionId}
+            WHERE environment_id = ${linked.environmentId}
+              AND secret_name = ${secretName}
+          `;
+        }
+      }).pipe(Effect.ignoreCause({ log: true }));
+    }
+    return { link: linked, reciprocal: offer.outcome, alreadyLinked: false };
   });
+
+  /** The public link: a flat link with what came of linking back. */
+  const link: PeerLinks["Service"]["link"] = (input) =>
+    Effect.map(linkImpl(input), ({ link: linked, reciprocal }) => ({ ...linked, reciprocal }));
+  /** Links like `link`, except a machine whose link has not expired is left as it is. */
+  const linkUnlessLinked: PeerLinks["Service"]["linkUnlessLinked"] = (input) =>
+    Effect.map(linkImpl(input, { keepLinked: true }), ({ link: linked, alreadyLinked }) => ({
+      link: linked,
+      alreadyLinked,
+    }));
 
   /** A peer's label follows its machine name, so the link takes the one its own address answers with. */
   const withLabel = (link: PeerLink, label: string) =>
@@ -610,6 +968,16 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const names: PeerLinks["Service"]["names"] = Effect.gen(function* () {
+    const links = yield* Effect.forEach(yield* readRows, toLink);
+    const now = yield* DateTime.now;
+    return links.flatMap((link) =>
+      DateTime.isGreaterThan(link.expiresAt, now)
+        ? [{ environmentId: link.environmentId, label: link.label }]
+        : [],
+    );
+  });
+
   const get: PeerLinks["Service"]["get"] = (environmentId) =>
     readRow(environmentId).pipe(
       Effect.flatMap(
@@ -620,16 +988,303 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  /** Deletes the link's row and its token here. Returns whether a link went. */
+  const removeLinkRow = (environmentId: EnvironmentId) =>
+    sql<{ secret_name: string }>`
+      DELETE FROM peer_environment_links WHERE environment_id = ${environmentId}
+      RETURNING secret_name
+    `.pipe(
+      Effect.catch(failStorage),
+      Effect.flatMap((deleted) =>
+        Effect.forEach(
+          deleted,
+          (row) => secrets.remove(row.secret_name).pipe(Effect.catch(failStorage)),
+          {
+            discard: true,
+          },
+        ).pipe(Effect.as(deleted.length > 0)),
+      ),
+    );
+
+  /** Asks the peer to forget its link back here, over an address that still answers as it. */
+  const teardownAt = Effect.fn("PeerLinks.teardownAt")(function* (args: {
+    /** This environment's id, which the peer's link back names. */
+    readonly environmentId: EnvironmentId;
+    readonly url: string;
+    readonly token: string;
+    readonly label: string;
+    /** This environment's own label, as the peer names the session this side holds there. */
+    readonly selfLabel: string;
+    /**
+     * Set on the hop a teardown makes back: there, an auth-invalid answer means
+     * the session is already ended, which is all the hop exists to do.
+     */
+    readonly hopBack?: boolean;
+  }): Effect.fn.Return<PeerLinkTeardownOutcome> {
+    return yield* clientFor(args.url).pipe(
+      Effect.flatMap((client) =>
+        client.peerLinks.teardown({
+          headers: { authorization: `Bearer ${args.token}` },
+          payload: { environmentId: args.environmentId },
+        }),
+      ),
+      Effect.timeout(args.hopBack === true ? TEARDOWN_HOP_TIMEOUT : TEARDOWN_TIMEOUT),
+      Effect.map((result): PeerLinkTeardownOutcome =>
+        // A peer that never linked back has no link to keep, so from here the
+        // link back is as good as gone.
+        result.removed || !result.kept
+          ? { kind: "removed" }
+          : {
+              kind: "kept",
+              message: `${args.label} kept its link back here. Revoke "iglo.code · ${args.label}" in this machine's Sharing & access to end its session here.`,
+            },
+      ),
+      Effect.catch((error) =>
+        Effect.succeed<PeerLinkTeardownOutcome>(
+          args.hopBack === true && (isAuthInvalid(error) || isHttpForbidden(error))
+            ? { kind: "removed" }
+            : {
+                kind: "off",
+                message: teardownFailure(args.label, args.selfLabel, error),
+              },
+        ),
+      ),
+      Effect.annotateLogs({ "peer_link.peer": args.environmentId }),
+    );
+  });
+
+  /** Where the link's peer still answers as itself, racing the addresses it was linked at. */
+  const answeringLinkAt = (link: PeerLink) =>
+    link.urls.length === 0
+      ? Effect.succeedNone
+      : Effect.raceAll(
+          link.urls.map((url) =>
+            answersAs(url, link.environmentId).pipe(
+              Effect.flatMap(Effect.fromOption),
+              Effect.map((peer) => ({ url, peer })),
+            ),
+          ),
+        ).pipe(Effect.option);
+
+  /** Ends this side's session at a peer too old to forget a link; RFC 7009 answers 200 either way. */
+  const revokeAt = (url: string, token: string) =>
+    clientFor(url).pipe(
+      Effect.flatMap((client) =>
+        client.mcpOAuth
+          .revoke({ payload: { token: Redacted.make(token) } })
+          .pipe(Effect.timeout(probeTimeout(url))),
+      ),
+      Effect.as(true),
+      Effect.catchCause((cause) =>
+        Effect.logDebug("The unlinked peer did not revoke the link's session", { cause }).pipe(
+          Effect.as(false),
+        ),
+      ),
+    );
+
   const unlink: PeerLinks["Service"]["unlink"] = Effect.fn("PeerLinks.unlink")(
     function* (environmentId) {
-      const deleted = yield* sql<{ secret_name: string }>`
-        DELETE FROM peer_environment_links WHERE environment_id = ${environmentId}
-        RETURNING secret_name
-      `.pipe(Effect.catch(failStorage));
-      for (const row of deleted) {
-        yield* secrets.remove(row.secret_name).pipe(Effect.catch(failStorage));
+      const row = yield* readRow(environmentId);
+      if (Option.isNone(row)) return { removed: false, endedThere: false };
+      const link = yield* toLink(row.value);
+      const self = yield* environment.getDescriptor;
+      const stored = yield* secrets.get(row.value.secret_name).pipe(Effect.catch(failStorage));
+      // The teardown token goes only to an address that still answers as the
+      // peer, as the token for a call does. The link is forgotten here
+      // whatever the peer then says.
+      const answered = Option.isSome(stored) ? yield* answeringLinkAt(link) : Option.none();
+      const removed = yield* removeLinkRow(environmentId);
+      // The peer's session here was bound to this row, so it ends with it,
+      // whether or not the peer can be asked.
+      if (removed && row.value.peer_session_id !== null) {
+        yield* environmentAuth
+          .revokeSession(AuthSessionId.make(row.value.peer_session_id))
+          .pipe(Effect.ignoreCause({ log: true }));
       }
-      return deleted.length > 0;
+      if (!removed) return { removed: false, endedThere: false };
+      if (Option.isNone(stored)) {
+        // This side held no token, so it never asked the peer anything.
+        return {
+          removed: true,
+          endedThere: false,
+          remote: {
+            kind: "off",
+            message: `${link.label} was not asked: forget its link back there, in its Connections.`,
+          } satisfies PeerLinkTeardownOutcome,
+        };
+      }
+      if (Option.isNone(answered)) {
+        return {
+          removed: true,
+          endedThere: false,
+          remote: {
+            kind: "off",
+            message: `${link.label} did not answer. Forget its link there, in its Connections, and revoke "iglo.code · ${self.label}" in ${link.label}'s Sharing & access to end this side's session there.`,
+          } satisfies PeerLinkTeardownOutcome,
+        };
+      }
+      const token = new TextDecoder().decode(stored.value);
+      // An older peer has no teardown endpoint, but may still revoke the token it issued.
+      if (answered.value.peer.capabilities.peerLinkReciprocal !== true) {
+        const endedThere = yield* revokeAt(answered.value.url, token);
+        return {
+          removed: true,
+          endedThere,
+          remote: {
+            kind: "off",
+            message: endedThere
+              ? `${link.label} ended this side's session there, but runs an iglo.code version that cannot forget a link from here. Forget its link back in its Connections.`
+              : `${link.label} runs an iglo.code version that cannot forget a link from here. Revoke "iglo.code · ${self.label}" in ${link.label}'s Sharing & access to end this side's session there.`,
+          } satisfies PeerLinkTeardownOutcome,
+        };
+      }
+      const remote = yield* teardownAt({
+        environmentId: self.environmentId,
+        url: answered.value.url,
+        token,
+        label: link.label,
+        selfLabel: self.label,
+      });
+      // A teardown that reached the peer ends the session it came over, kept link or not.
+      return { removed: true, endedThere: remote.kind !== "off", remote };
+    },
+  );
+
+  const acceptReciprocal: PeerLinks["Service"]["acceptReciprocal"] = Effect.fn(
+    "PeerLinks.acceptReciprocal",
+  )(function* (caller, offer) {
+    // The session is the offer's credential, and it names one environment.
+    if (
+      caller.peerEnvironmentId === undefined ||
+      caller.peerEnvironmentId !== offer.environmentId
+    ) {
+      return yield* new PeerLinkError({
+        reason: "pairing_rejected",
+        message:
+          "That session belongs to another environment, so it may not offer this one's link.",
+      });
+    }
+    const [url, ...alternateUrls] = offer.urls;
+    return yield* linkImpl(
+      {
+        url,
+        ...(alternateUrls.length === 0 ? {} : { alternateUrls }),
+        pairingCode: offer.pairingCode,
+        access: offer.access,
+        expectedEnvironmentId: offer.environmentId,
+        expectedLabel: offer.label,
+        // The link being made is the offer's answer; offering back would loop.
+        reciprocal: false,
+      },
+      // The row this accept creates is bound to the offering session, and the
+      // accept path never moves a link this environment already holds.
+      { fromReciprocalOffer: true, bindSessionId: caller.sessionId },
+    ).pipe(
+      Effect.map((created) => created.link),
+      // Per-address probe results must not echo back to the caller: they would
+      // turn the offer into a port scanner. The detail stays in this log.
+      Effect.tapError((error) =>
+        Effect.logWarning("A reciprocal offer failed.", {
+          environmentId: offer.environmentId,
+          reason: error.reason,
+          message: error.message,
+        }),
+      ),
+      Effect.mapError((error) =>
+        error.reason === "unreachable" || error.reason === "not_a_t3_environment"
+          ? new PeerLinkError({
+              reason: error.reason,
+              message: "The offered addresses did not answer as that environment.",
+              cause: error.cause,
+            })
+          : error,
+      ),
+    );
+  });
+
+  const forgetPeer: PeerLinks["Service"]["forgetPeer"] = Effect.fn("PeerLinks.forgetPeer")(
+    function* (caller, environmentId) {
+      // The relationship ends with the session the request came over, whether
+      // or not a link back is left to remove.
+      const revokeCaller = environmentAuth
+        .revokeSession(caller.sessionId)
+        .pipe(Effect.ignoreCause({ log: true }));
+      const row = yield* readRow(environmentId);
+      // A session from before this change declared no id. No reciprocal offer
+      // could have come over it, so no row back is its to remove; its session
+      // still ends, which is all that link has left.
+      if (caller.peerEnvironmentId === undefined) {
+        yield* revokeCaller;
+        return { removed: false, kept: Option.isSome(row) };
+      }
+      if (caller.peerEnvironmentId !== environmentId) {
+        return yield* new PeerLinkError({
+          reason: "pairing_rejected",
+          message:
+            "That session belongs to another environment, so it may not forget this one's link.",
+        });
+      }
+      if (Option.isNone(row)) {
+        yield* revokeCaller;
+        return { removed: false, kept: false };
+      }
+      // Only the session this row is bound to may forget it. A linked peer
+      // claiming another environment's id pays with its own session, which is
+      // revoked either way, and nothing more.
+      if (row.value.peer_session_id !== caller.sessionId) {
+        yield* revokeCaller;
+        yield* Effect.logWarning("A peer-link session tried to forget a link it is not bound to.", {
+          environmentId,
+          sessionId: caller.sessionId,
+        });
+        return { removed: false, kept: true };
+      }
+      const link = yield* toLink(row.value);
+      const self = yield* environment.getDescriptor;
+      const stored = yield* secrets.get(row.value.secret_name).pipe(Effect.catch(failStorage));
+      const answered = Option.isSome(stored) ? yield* answeringLinkAt(link) : Option.none();
+      // The row was read before the probe, which can take seconds; delete only
+      // the row this session is still bound to, so one re-linked in the gap
+      // survives with its token.
+      const removed = yield* sql<{ secret_name: string }>`
+        DELETE FROM peer_environment_links
+        WHERE environment_id = ${environmentId} AND peer_session_id = ${caller.sessionId}
+        RETURNING secret_name
+      `.pipe(
+        Effect.catch(failStorage),
+        Effect.flatMap((deleted) =>
+          Effect.forEach(
+            deleted,
+            (deletedRow) => secrets.remove(deletedRow.secret_name).pipe(Effect.catch(failStorage)),
+            { discard: true },
+          ).pipe(Effect.as(deleted.length > 0)),
+        ),
+      );
+      yield* revokeCaller;
+      if (!removed) {
+        return { removed: false, kept: Option.isSome(yield* readRow(environmentId)) };
+      }
+      // One hop each way ends both halves: the peer forgets its link here and
+      // ends the session this side's link holds there. Its own teardown finds
+      // no row left, so the hops stop. The hop is best-effort: when it cannot
+      // reach, the session it would have ended stays an inert row there.
+      if (Option.isSome(stored) && Option.isSome(answered)) {
+        const remote = yield* teardownAt({
+          environmentId: self.environmentId,
+          url: answered.value.url,
+          token: new TextDecoder().decode(stored.value),
+          label: link.label,
+          selfLabel: self.label,
+          hopBack: true,
+        });
+        if (remote.kind === "off") {
+          yield* Effect.logWarning("A peer's teardown hop back could not end its session here.", {
+            environmentId,
+            reason: remote.message,
+          });
+        }
+      }
+      return { removed, kept: false };
     },
   );
 
@@ -683,13 +1338,14 @@ const make = Effect.gen(function* () {
       if (!linkLimitsHold(peer)) {
         return yield* new PeerLinkError({
           reason: "incompatible",
-          message: `${link.label} runs a T3 Code version that cannot keep a linked agent's limits. Update it, then link again.`,
+          message: `${link.label} runs an iglo.code version that cannot keep a linked agent's limits. Update it, then link again.`,
         });
       }
       return {
         link: yield* withLabel(link, peer.label),
         url,
         token: new TextDecoder().decode(stored.value),
+        capabilities: peer.capabilities,
       };
     },
   );
@@ -712,14 +1368,25 @@ const make = Effect.gen(function* () {
       Effect.ignoreCause({ log: true }),
     );
 
+  const recordExpiry: PeerLinks["Service"]["recordExpiry"] = (environmentId, expiresAt) =>
+    sql`
+      UPDATE peer_environment_links SET expires_at = ${DateTime.formatIso(expiresAt)}
+      WHERE environment_id = ${environmentId} AND expires_at < ${DateTime.formatIso(expiresAt)}
+    `.pipe(Effect.asVoid, Effect.ignoreCause({ log: true }));
+
   return PeerLinks.of({
     enabled,
     link,
+    linkUnlessLinked,
     list,
+    names,
     get,
     unlink,
+    acceptReciprocal,
+    forgetPeer,
     resolve,
     recordOutcome,
+    recordExpiry,
   });
 });
 

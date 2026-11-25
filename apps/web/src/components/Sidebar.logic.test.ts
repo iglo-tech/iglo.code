@@ -37,11 +37,14 @@ import {
   type SidebarSection,
   resolveSidebarDropVerb,
   groupSidebarThreadsByProject,
+  groupSidebarRailThreadsByProject,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
+  withoutRemovedCheckout,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
+  activeThreadSortKey,
   sortActiveThreadsByOrderKey,
   sortPinnedThreadsByOrderKey,
 } from "@t3tools/client-runtime/state/thread-sort";
@@ -155,6 +158,48 @@ function makeLatestRun(overrides?: {
       overrides?.completedAt !== undefined ? overrides.completedAt : "2026-03-09T10:05:00.000Z",
   };
 }
+
+describe("withoutRemovedCheckout", () => {
+  const worktree = { branch: "t3/task", worktreePath: "/worktrees/task" };
+  const local = { branch: "main", worktreePath: null };
+  const removed = { branch: null, worktreePath: null };
+  const tracking = { trackedFolders: [{ path: "/work/wrapper/api" }] };
+
+  it.each([
+    {
+      why: "status still loading",
+      thread: worktree,
+      isRepo: undefined,
+      project: null,
+      to: worktree,
+    },
+    { why: "a live checkout", thread: worktree, isRepo: true, project: null, to: worktree },
+    { why: "a removed worktree", thread: worktree, isRepo: false, project: null, to: removed },
+    {
+      why: "a removed worktree of a project tracking nothing",
+      thread: worktree,
+      isRepo: false,
+      project: { trackedFolders: [] },
+      to: removed,
+    },
+    {
+      why: "a plain task folder of a project with tracked folders",
+      thread: worktree,
+      isRepo: false,
+      project: tracking,
+      to: worktree,
+    },
+    {
+      why: "a local thread whose project folder is not a repository",
+      thread: local,
+      isRepo: false,
+      project: tracking,
+      to: removed,
+    },
+  ])("$why", ({ thread, isRepo, project, to }) => {
+    expect(withoutRemovedCheckout(thread, { isRepo }, project)).toEqual(to);
+  });
+});
 
 describe("orderItemsByPreferredIds", () => {
   it("resolves legacy preference aliases without materializing project state", () => {
@@ -743,6 +788,57 @@ describe("getFallbackThreadIdAfterDelete", () => {
   });
 });
 
+describe("groupSidebarRailThreadsByProject", () => {
+  it("leaves out threads without a row in the list's open sections, so they don't badge the project", () => {
+    const parent = makeThread({ id: ThreadId.make("thread-parent") });
+    const underParent = {
+      rootThreadId: parent.id,
+      parentThreadId: parent.id,
+      relationshipToParent: "subagent" as const,
+    };
+    const subagent = makeThread({ id: ThreadId.make("thread-subagent"), lineage: underParent });
+    const delegated = makeThread({ id: ThreadId.make("thread-delegated") });
+    const archived = makeThread({
+      id: ThreadId.make("thread-archived"),
+      archivedAt: "2026-03-09T10:06:00.000Z",
+    });
+    const otherProject = makeThread({
+      id: ThreadId.make("thread-other"),
+      projectId: ProjectId.make("project-2"),
+    });
+    const settled = makeThread({
+      id: ThreadId.make("thread-settled"),
+      settledOverride: "settled",
+      settledAt: "2026-03-09T10:06:00.000Z",
+    });
+    const snoozed = makeThread({
+      id: ThreadId.make("thread-snoozed"),
+      snoozedAt: "2026-03-09T10:06:00.000Z",
+      snoozedUntil: "2099-01-01T00:00:00.000Z",
+    });
+    const snoozeOver = makeThread({
+      id: ThreadId.make("thread-snooze-over"),
+      snoozedAt: "2026-03-09T10:06:00.000Z",
+      snoozedUntil: "2026-03-09T10:08:00.000Z",
+    });
+
+    const grouped = groupSidebarRailThreadsByProject(
+      [parent, subagent, delegated, archived, otherProject, settled, snoozed, snoozeOver],
+      [
+        {
+          projectKey: "key-1",
+          memberProjects: [{ environmentId: localEnvironmentId, id: ProjectId.make("project-1") }],
+        },
+      ],
+      new Set([threadKey({ environmentId: localEnvironmentId, threadId: delegated.id })]),
+      "2026-03-09T10:10:00.000Z",
+    );
+
+    expect([...grouped.keys()]).toEqual(["key-1"]);
+    expect(grouped.get("key-1")?.map((thread) => thread.id)).toEqual([parent.id, snoozeOver.id]);
+  });
+});
+
 describe("sortScopedProjectsForSidebar", () => {
   it("keeps identical project ids in different environments separate", () => {
     const remoteEnvironmentId = EnvironmentId.make("environment-remote");
@@ -1292,7 +1388,12 @@ describe("Working shelf (beta)", () => {
             : sortPinnedThreadsByOrderKey(rows);
         const originalOrder = sort(input.rows).map(keyOf);
         const targetOrder = input.order.map(keyOf);
-        const keysById = new Map(input.rows.map((entry) => [keyOf(entry), entry.activeOrderKey]));
+        const keysById = new Map(
+          input.rows.map((entry) => [
+            keyOf(entry),
+            input.section === "active" ? activeThreadSortKey(entry) : entry.pinOrderKey,
+          ]),
+        );
         const plan = planSidebarThreadDrop({
           activeKey: keyOf(input.moved),
           activeSection: input.from ?? input.section,
@@ -1377,38 +1478,52 @@ describe("Working shelf (beta)", () => {
         expect(result.actualOrder).toEqual(result.targetOrder);
       });
 
-      it.each(["active", "pinned"] as const)(
-        "rejects rebalancing a keyed offline bound in %s",
-        (section) => {
-          const bound = thread("offline", offlineEnvironmentId, "m");
-          const neighbor = thread("neighbor");
-          const result = planDrop({
-            section,
-            rows: [bound, online, neighbor],
-            moved: online,
-            order: [bound, neighbor, online],
-          });
+      it("rejects rebalancing a keyed offline bound in pinned", () => {
+        const bound = thread("offline", offlineEnvironmentId, "m");
+        const neighbor = thread("neighbor");
+        const result = planDrop({
+          section: "pinned",
+          rows: [bound, online, neighbor],
+          moved: online,
+          order: [bound, neighbor, online],
+        });
 
-          expect(result.plan).toEqual({ kind: "none" });
-          expect(result.assignments).toEqual([]);
-        },
-      );
+        expect(result.plan).toEqual({ kind: "none" });
+        expect(result.assignments).toEqual([]);
+      });
 
-      it.each(["active", "pinned"] as const)(
-        "rejects crossing the frozen keyless boundary in %s",
-        (section) => {
-          const bound = {
-            ...offline,
-            createdAt:
-              section === "active" ? "2026-03-09T12:00:00.000Z" : "2026-03-09T10:00:00.000Z",
-          };
-          const order = section === "active" ? [online, bound] : [bound, online];
-          const result = planDrop({ section, rows: [bound, online], moved: online, order });
+      it("rejects crossing the frozen keyless boundary in pinned", () => {
+        const bound = { ...offline, createdAt: "2026-03-09T10:00:00.000Z" };
+        const result = planDrop({
+          section: "pinned",
+          rows: [bound, online],
+          moved: online,
+          order: [bound, online],
+        });
 
-          expect(result.plan).toEqual({ kind: "none" });
-          expect(result.assignments).toEqual([]);
-        },
-      );
+        expect(result.plan).toEqual({ kind: "none" });
+        expect(result.assignments).toEqual([]);
+      });
+
+      it.each([
+        ["an unarranged", null],
+        ["an arranged", "m"],
+      ] as const)("moves %s thread anywhere around an offline one in active", (_, key) => {
+        const neighbor = thread("neighbor");
+        const moved = {
+          ...thread("moved", onlineEnvironmentId, key),
+          createdAt: "2026-03-09T09:00:00.000Z",
+        };
+        const rows = [offline, neighbor, moved];
+        for (const order of [
+          [moved, offline, neighbor],
+          [offline, moved, neighbor],
+        ]) {
+          const result = planDrop({ section: "active", rows, moved, order });
+          expect(result.assignments.map(({ id }) => id)).toEqual([keyOf(moved)]);
+          expect(result.actualOrder).toEqual(result.targetOrder);
+        }
+      });
 
       it.each(["active", "pinned"] as const)(
         "allows realizable moves beside a frozen keyless row in %s",
@@ -1430,38 +1545,42 @@ describe("Working shelf (beta)", () => {
         },
       );
 
-      it.each(["active", "pinned"] as const)(
-        "checks fallback assignments to other rows at the %s boundary",
-        (section) => {
-          const neighbor = thread("neighbor");
-          const order =
-            section === "active" ? [neighbor, offline, online] : [online, offline, neighbor];
-          const result = planDrop({
-            section,
-            rows: [offline, online, neighbor],
-            moved: online,
-            order,
-          });
+      it("checks fallback assignments to other rows at the pinned boundary", () => {
+        const neighbor = thread("neighbor");
+        const result = planDrop({
+          section: "pinned",
+          rows: [offline, online, neighbor],
+          moved: online,
+          order: [online, offline, neighbor],
+        });
 
-          expect(result.plan).toEqual({ kind: "none" });
-        },
-      );
+        expect(result.plan).toEqual({ kind: "none" });
+      });
 
-      it.each(["active", "pinned"] as const)(
-        "rejects impossible pin/unpin placement across the %s boundary",
-        (section) => {
-          const order = section === "active" ? [online, offline] : [offline, online];
-          const result = planDrop({
-            section,
-            rows: [offline, online],
-            moved: online,
-            order,
-            from: section === "active" ? "pinned" : "active",
-          });
+      it("rejects impossible pin placement across the pinned boundary", () => {
+        const result = planDrop({
+          section: "pinned",
+          rows: [offline, online],
+          moved: online,
+          order: [offline, online],
+          from: "active",
+        });
 
-          expect(result.plan).toEqual({ kind: "none" });
-        },
-      );
+        expect(result.plan).toEqual({ kind: "none" });
+      });
+
+      it("unpins a thread above an offline one in active", () => {
+        const result = planDrop({
+          section: "active",
+          rows: [offline, online],
+          moved: online,
+          order: [online, offline],
+          from: "pinned",
+        });
+
+        expect(result.assignments.map(({ id }) => id)).toEqual([keyOf(online)]);
+        expect(result.actualOrder).toEqual(result.targetOrder);
+      });
     });
 
     it("only changes lifecycle when the inbox is time-ordered", () => {

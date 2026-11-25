@@ -225,7 +225,7 @@ export function CaptureShortcutConfig({
         <>
           <p className="text-muted-foreground">
             <T>
-              Allow T3 Code to read your desktop settings. You'll review any changes here before
+              Allow iglo.code to read your desktop settings. You'll review any changes here before
               saving.
             </T>
           </p>
@@ -247,7 +247,7 @@ export function CaptureShortcutConfig({
         <p role="status" className="text-muted-foreground">
           {state.shortcutPending
             ? gt("Connecting to your desktop…")
-            : gt("Restart T3 Code to finish connecting your shortcut.")}
+            : gt("Restart iglo.code to finish connecting your shortcut.")}
         </p>
       ) : null}
       <details className="text-xs text-muted-foreground">
@@ -274,7 +274,7 @@ export function CaptureShortcutConfig({
             </p>
             {niri ? (
               <p>
-                <T>T3 Code also reads any files included by this file.</T>
+                <T>iglo.code also reads any files included by this file.</T>
               </p>
             ) : null}
             {preview && preview.resolvedPath !== preview.path ? (
@@ -353,8 +353,8 @@ export function CaptureShortcutConfig({
           </Button>
           <p>
             <T>
-              Turn capture off in T3 Code to stop it. Remove the shortcut from <Var>{desktop}</Var>{" "}
-              to free up the keys.
+              Turn capture off in iglo.code to stop it. Remove the shortcut from{" "}
+              <Var>{desktop}</Var> to free up the keys.
             </T>
           </p>
           {state.shortcutActionRegistered === false ? (

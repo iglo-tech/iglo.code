@@ -48,7 +48,7 @@ export class ServerAlreadyRunningError extends Schema.TaggedError<ServerAlreadyR
   override readonly [Runtime.errorExitCode] = SERVER_EXIT_CODE_STATE_DIR_OWNED;
 
   override get message(): string {
-    return `A T3 Code server already owns ${this.stateDir}. Stop that server, or use a separate T3 home and pair with it, then retry. No server was stopped. server-owner.sqlite is the ownership lock; do not delete it while a server is running.`;
+    return `An iglo.code server already owns ${this.stateDir}. Stop that server, or use a separate T3 home and pair with it, then retry. No server was stopped. server-owner.sqlite is the ownership lock; do not delete it while a server is running.`;
   }
 }
 
@@ -59,7 +59,7 @@ export class OlderBootServiceError extends Schema.TaggedError<OlderBootServiceEr
   override readonly [Runtime.errorExitCode] = SERVER_EXIT_CODE_STATE_DIR_OWNED;
 
   override get message(): string {
-    return `A T3 Code background service set up for ${this.baseDir} may still run a release without the ownership lock. On that machine, try \`iglo.code update\` and let it restart (or run \`iglo.code service restart\` if the update is already installed). If the older launcher cannot update, run \`iglo.code service uninstall\`, then reinstall with \`iglo.code service install\` from a current CLI. You can also leave the service uninstalled. Pass \`--base-dir ${this.baseDir}\` to each command, and install a current \`iglo.code\` with \`curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | sh\` if it is missing or outdated. Then retry. No server was stopped.`;
+    return `An iglo.code background service set up for ${this.baseDir} may still run a release without the ownership lock. On that machine, try \`iglo.code update\` and let it restart (or run \`iglo.code service restart\` if the update is already installed). If the older launcher cannot update, run \`iglo.code service uninstall\`, then reinstall with \`iglo.code service install\` from a current CLI. You can also leave the service uninstalled. Pass \`--base-dir ${this.baseDir}\` to each command, and install a current \`iglo.code\` with \`curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | sh\` if it is missing or outdated. Then retry. No server was stopped.`;
   }
 }
 
@@ -88,7 +88,7 @@ const legacyOwnerIsLive = Effect.fn("legacyOwnerIsLive")(function* (
   const runner = yield* ProcessRunner.ProcessRunner;
   const result = yield* runner
     .run({
-      ...legacyOwnerStartTimeCommand(state.pid, platform),
+      ...legacyOwnerStartTimeCommand(state.pid, platform, yield* HostProcess.Environment),
       timeout: Duration.seconds(2),
       maxOutputBytes: 16_384,
     })
@@ -206,6 +206,23 @@ const openOwnershipLock = (stateDir: string) =>
         ? new ServerAlreadyRunningError({ stateDir })
         : new ServerOwnershipError({ stateDir, cause }),
   });
+
+/** Whether a running server holds the ownership lock. Read-only, so it never creates the lock file. */
+export const isServerOwnershipHeld = (statePath: string): boolean => {
+  let db: NodeSqlite.DatabaseSync | undefined;
+  try {
+    db = new NodeSqlite.DatabaseSync(ownershipLockPath(NodePath.dirname(statePath)), {
+      readOnly: true,
+      timeout: 0,
+    });
+    db.prepare("SELECT 1 FROM sqlite_schema").get();
+    return false;
+  } catch (cause) {
+    return isSqliteBusy(cause);
+  } finally {
+    db?.close();
+  }
+};
 
 /** Hold only the ownership lock until the scope closes, without claiming the runtime state. */
 export const holdServerOwnershipLock = Effect.fn("holdServerOwnershipLock")(function* (

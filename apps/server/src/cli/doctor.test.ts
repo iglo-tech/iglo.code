@@ -8,6 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as TestClock from "effect/testing/TestClock";
+import * as TestConsole from "effect/testing/TestConsole";
 
 import * as BootService from "../cloud/bootService.ts";
 import { runDoctor } from "./doctor.ts";
@@ -112,10 +113,37 @@ it.effect(
       ).pipe(Effect.flip);
       assert.equal(
         refused.message,
-        `Stop T3 Code server process ${state.pid}, which the background service did not start, before repairing the database.`,
+        `Stop iglo.code server process ${state.pid}, which the background service did not start, before repairing the database.`,
       );
       assert.deepEqual(calls, ["pause", "resume"]);
     }).pipe(Effect.provide(layerHost)),
+);
+
+it.effect("reports sizes just under the next unit in that unit", () =>
+  Effect.gen(function* () {
+    yield* runDoctor(
+      { dbPath: "/test/statev2.sqlite", serverRuntimeStatePath: "/test/server-runtime.json" },
+      { fix: false, dryRun: true },
+    ).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.mock(BootService.BootService)({}),
+          Layer.mock(DatabaseMaintenance)({
+            inspect: () =>
+              Effect.succeed({
+                databaseBytes: 1024 ** 3 - 4096,
+                reclaimableBytes: 1024 ** 2 - 512,
+                incrementalVacuumEnabled: true,
+                legacyDatabaseBytes: null,
+                legacyOnlyRecords: null,
+              }),
+          }),
+        ),
+      ),
+    );
+    const [summary] = yield* TestConsole.logLines;
+    assert.strictEqual(summary, "Database: 1.00 GiB, 1.0 MiB reclaimable.");
+  }).pipe(Effect.provide(Layer.merge(layerHost, TestConsole.layer))),
 );
 
 it.effect("warns how long reclaiming can take and reports each step with its elapsed time", () =>

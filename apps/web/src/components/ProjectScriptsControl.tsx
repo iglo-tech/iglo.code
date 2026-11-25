@@ -47,6 +47,7 @@ import {
   MenuSubTrigger,
   MenuSubPopup,
 } from "./ui/menu";
+import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { cn } from "~/lib/utils";
 import {
@@ -68,6 +69,7 @@ interface ProjectScriptsControlProps {
   environmentId: EnvironmentId;
   scripts: ReadonlyArray<ProjectScript>;
   fileScripts?: ReadonlyArray<T3ProjectFileScript>;
+  onActionsMenuOpen?: () => void;
   preferredScriptId?: string | null;
   onRunScript?: ((script: ProjectScript) => void) | undefined;
   onAddScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
@@ -85,6 +87,7 @@ export default function ProjectScriptsControl({
   environmentId,
   scripts,
   fileScripts = NO_FILE_SCRIPTS,
+  onActionsMenuOpen,
   preferredScriptId = null,
   onRunScript,
   onAddScript,
@@ -107,7 +110,12 @@ export default function ProjectScriptsControl({
   if (actionsMenuOpen.presentation !== presentation) {
     setActionsMenuOpen({ presentation, scripts: false, imports: false });
   }
+  const openActionsMenu = (menus: { scripts: boolean; imports: boolean }) => {
+    if (menus.scripts || menus.imports) onActionsMenuOpen?.();
+    setActionsMenuOpen({ presentation, ...menus });
+  };
   const [editorRequest, setEditorRequest] = useState<ProjectScriptEditorRequest | null>(null);
+  const editorRequestIdRef = React.useRef(0);
 
   const primaryScript =
     (preferredScriptId ? scripts.find((script) => script.id === preferredScriptId) : undefined) ??
@@ -122,10 +130,12 @@ export default function ProjectScriptsControl({
   );
 
   const openAddDialog = () => {
+    editorRequestIdRef.current += 1;
     setEditorRequest({ scriptId: null, initial: EMPTY_PROJECT_SCRIPT_INPUT });
   };
 
   const openEditDialog = (script: ProjectScript) => {
+    editorRequestIdRef.current += 1;
     onRequestMenuClose?.();
     setActionsMenuOpen({ presentation, scripts: false, imports: false });
     setEditorRequest(editorRequestForScript(script, keybindings));
@@ -135,6 +145,7 @@ export default function ProjectScriptsControl({
     scriptId === null ? onAddScript(input) : onUpdateScript(scriptId, input);
 
   const importFileScript = async (fileScript: T3ProjectFileScript) => {
+    const requestId = ++editorRequestIdRef.current;
     const payload: NewProjectScriptInput = {
       name: fileScript.name,
       command: fileScript.command,
@@ -148,14 +159,24 @@ export default function ProjectScriptsControl({
       autoOpenPreview: fileScript.previewUrl ? (fileScript.autoOpenPreview ?? false) : false,
     };
     const result = await onAddScript(payload);
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      const error = squashAtomCommandFailure(result);
-      setEditorRequest({
-        scriptId: null,
-        initial: payload,
-        error: thrownErrorMessage(error, m) ?? gt("Failed to import action."),
-      });
+    if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+
+    const message = thrownErrorMessage(squashAtomCommandFailure(result), m);
+    if (requestId !== editorRequestIdRef.current) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: gt("Failed to import {name}.", { name: fileScript.name }),
+          ...(message ? { description: message } : {}),
+        }),
+      );
+      return;
     }
+    setEditorRequest({
+      scriptId: null,
+      initial: payload,
+      error: message ?? gt("Failed to import action."),
+    });
   };
 
   const importMenuItems = importableScripts.length > 0 && (
@@ -273,9 +294,7 @@ export default function ProjectScriptsControl({
           {scripts.length > 0 || importableScripts.length > 0 ? (
             <MenuSub
               open={actionsMenuOpen.scripts}
-              onOpenChange={(open) =>
-                setActionsMenuOpen({ presentation, scripts: open, imports: false })
-              }
+              onOpenChange={(open) => openActionsMenu({ scripts: open, imports: false })}
             >
               <MenuSubTrigger density="touch">
                 <ScriptIcon icon="play" className="size-4" />
@@ -348,9 +367,7 @@ export default function ProjectScriptsControl({
           )}
           <Menu
             open={actionsMenuOpen.scripts}
-            onOpenChange={(open) =>
-              setActionsMenuOpen({ presentation, scripts: open, imports: false })
-            }
+            onOpenChange={(open) => openActionsMenu({ scripts: open, imports: false })}
           >
             <Tooltip>
               <TooltipTrigger
@@ -399,7 +416,7 @@ export default function ProjectScriptsControl({
               variant="ghost"
               part="primary"
               aria-label={gt("Project actions")}
-              onClick={() => setActionsMenuOpen({ presentation, scripts: false, imports: true })}
+              onClick={() => openActionsMenu({ scripts: false, imports: true })}
             >
               <WrenchIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} />
               <span className={cn("min-w-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS)}>
@@ -410,9 +427,7 @@ export default function ProjectScriptsControl({
             <Menu
               highlightItemOnHover={false}
               open={actionsMenuOpen.imports}
-              onOpenChange={(open) =>
-                setActionsMenuOpen({ presentation, scripts: false, imports: open })
-              }
+              onOpenChange={(open) => openActionsMenu({ scripts: false, imports: open })}
             >
               <MenuTrigger
                 render={
@@ -435,9 +450,7 @@ export default function ProjectScriptsControl({
           <Menu
             highlightItemOnHover={false}
             open={actionsMenuOpen.imports}
-            onOpenChange={(open) =>
-              setActionsMenuOpen({ presentation, scripts: false, imports: open })
-            }
+            onOpenChange={(open) => openActionsMenu({ scripts: false, imports: open })}
           >
             <MenuTrigger
               render={<Button size="xs" variant="outline" aria-label={gt("Project actions")} />}

@@ -70,7 +70,8 @@ describe("linkRequestAnswerInput", () => {
     ).toEqual({
       threadId: item.threadId,
       turnItemId: item.id,
-      answer: { type: "link", ...vps, access: "auto", pairingCode: "abc" },
+      // Always sent explicitly: unset on the wire means one way.
+      answer: { type: "link", ...vps, access: "auto", pairingCode: "abc", reciprocal: true },
     });
     expect(
       linkRequestAnswerInput(item, {
@@ -78,8 +79,9 @@ describe("linkRequestAnswerInput", () => {
         target: { url: " https://box.ts.net " },
         access: "auto",
         pairingCode: "abc",
+        reciprocal: false,
       }),
-    ).toMatchObject({ answer: { urls: ["https://box.ts.net"] } });
+    ).toMatchObject({ answer: { urls: ["https://box.ts.net"], reciprocal: false } });
   });
 
   it("refuses a blank code, a blank address, or a machine with no address", () => {
@@ -339,16 +341,15 @@ describe("linkableMachines", () => {
 });
 
 describe("linkedEnvironmentNames", () => {
-  it("names the unexpired links as this client does, else as the link does", () => {
+  it("names the links as this client does, else as the link does", () => {
     const vps = EnvironmentId.make("environment-vps");
     const mini = EnvironmentId.make("environment-mini");
     const unsaved = EnvironmentId.make("environment-unsaved");
     expect(
       linkedEnvironmentNames({
         links: [
-          { environmentId: vps, label: "vps-01", status: "unreachable" },
-          { environmentId: mini, label: "mini", status: "expired" },
-          { environmentId: unsaved, label: "Office box", status: "reachable" },
+          { environmentId: vps, label: "vps-01" },
+          { environmentId: unsaved, label: "Office box" },
         ],
         environments: [
           { environmentId: vps, label: "Hetzner VPS" },

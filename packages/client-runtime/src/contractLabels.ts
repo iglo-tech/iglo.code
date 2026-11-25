@@ -70,7 +70,7 @@ export function managedUpdatesMessage(
   organization: string,
   resolve: MFunctionType = mFallback,
 ): string {
-  return resolve(msg("{organization} manages T3 Code updates.", { organization }));
+  return resolve(msg("{organization} manages iglo.code updates.", { organization }));
 }
 
 /** @public */
@@ -79,7 +79,7 @@ export function managedNightlyDeniedMessage(
   resolve: MFunctionType = mFallback,
 ): string {
   return resolve(
-    msg("{organization} manages T3 Code updates. Only stable releases can be installed.", {
+    msg("{organization} manages iglo.code updates. Only stable releases can be installed.", {
       organization,
     }),
   );
@@ -129,7 +129,9 @@ export type ManagedCapability =
   | "remoteClients"
   | "connect"
   | "webhookTasks"
-  | "browserCookieImport";
+  | "browserCookieImport"
+  | "previewTunnel"
+  | "worktreeLayoutCommands";
 
 function managedCapabilityDeniedMessage(
   organization: string,
@@ -152,6 +154,19 @@ function managedCapabilityDeniedMessage(
     case "browserCookieImport":
       return resolve(
         msg("{organization}'s policy does not allow importing browser cookies.", {
+          organization,
+        }),
+      );
+    case "previewTunnel":
+      return resolve(
+        msg(
+          "{organization}'s policy does not allow opening this machine's local servers on other devices.",
+          { organization },
+        ),
+      );
+    case "worktreeLayoutCommands":
+      return resolve(
+        msg("{organization}'s policy does not allow project worktree layout commands.", {
           organization,
         }),
       );
@@ -192,7 +207,7 @@ const BROWSER_IMPORT_FAILURE_MESSAGES: Record<BrowserImportFailureReason, string
     "No encryption key in your Keychain. Sign in to that browser once, then retry.",
   ),
   needsFullDiskAccess: msg(
-    "Give T3 Code Full Disk Access in System Settings → Privacy & Security, then retry.",
+    "Give iglo.code Full Disk Access in System Settings → Privacy & Security, then retry.",
   ),
   browserRunning: msg("Quit the browser first so its cookie database can be read."),
   unsupportedPlatform: msg("Importing from this browser isn't possible on this platform."),
@@ -273,6 +288,14 @@ const INSTALL_HINTS = [
       install: "`bun install -g @gitcafe/cli`",
       login: "`cafe auth login --host https://git.cafe/api`",
       variable: "CAFE_TOKEN",
+    },
+  ),
+  msg(
+    "Install the TanStack Source CLI with {install}, then run {login}, save a token in Settings, or set {variable} on the server.",
+    {
+      install: "`curl -fsSL https://source.tanstack.com/install | sh`",
+      login: "`src auth login --web --hostname source.tanstack.com`",
+      variable: "SRC_TOKEN",
     },
   ),
 ];

@@ -68,6 +68,12 @@ async function runCliCommand(command: string | undefined) {
     if (mode !== "discover" && mode !== "model") throw new Error("Unknown speech worker mode.");
     const { runNativeSpeechWorker } = await import("./speech/native.ts");
     await runNativeSpeechWorker(mode, process.argv[4]);
+  } else if (command === "__cursor-sdk-worker") {
+    const [NodeServices, { runCursorSdkWorker }] = await Promise.all([
+      import("@effect/platform-node/NodeServices"),
+      import("@t3tools/provider-cursor/server/worker"),
+    ]);
+    await runCursorSdkWorker(NodeServices.layer);
   } else {
     // Windows desktop launches without stdin; attach before reading, except on fast paths using pipes.
     const { attachConsoleStdin } = await import("./cli/consoleStdin.ts");

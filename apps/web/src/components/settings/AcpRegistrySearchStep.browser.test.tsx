@@ -2,7 +2,8 @@ import { EnvironmentId, ProviderDriverKind, type AcpRegistrySearchAgent } from "
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { render } from "../../../test/render";
+import { act, render } from "../../../test/render";
+import { Dialog, DialogPopup } from "../ui/dialog";
 
 const state = vi.hoisted(() => ({
   result: null as { readonly agents: ReadonlyArray<AcpRegistrySearchAgent> } | null,
@@ -134,11 +135,59 @@ it("bounds pasted registry searches before debounce and submission", async () =>
   await expect.element(searchbox).toHaveValue("agent".repeat(24));
 });
 
-it("leaves out Registry agents that T3 Code supports as their own providers", async () => {
+it("leaves out Registry agents that iglo.code supports as their own providers", async () => {
   setup();
   state.result = { agents: [gemini, { ...gemini, id: "codex-acp", name: "Codex" }] };
   await using _screen = await render(<Step />);
 
   expect(page.getByRole("button", { name: "Add Gemini CLI" }).query()).not.toBeNull();
   expect(page.getByRole("button", { name: "Add Codex" }).query()).toBeNull();
+});
+
+it("Escape in the search clears it without closing Add provider", async () => {
+  setup();
+  const onOpenChange = vi.fn();
+  await using _screen = await render(
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogPopup>
+        <Step />
+      </DialogPopup>
+    </Dialog>,
+  );
+  const search = page.getByRole("searchbox", { name: "Search ACP Registry" });
+  await userEvent.fill(search, "gemini");
+  for (const composition of [
+    { key: "Escape", isComposing: true, keyCode: 27 },
+    { key: "Escape", isComposing: false, keyCode: 229 },
+  ]) {
+    // Safari ends the composition just before the Escape keydown.
+    await act(() => {
+      search.element().dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+      search
+        .element()
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { ...composition, bubbles: true, cancelable: true }),
+        );
+    });
+    await expect.element(search).toHaveValue("gemini");
+  }
+
+  await userEvent.keyboard("{Escape}");
+  await expect.element(search).toHaveValue("");
+  await expect.element(search).toHaveFocus();
+  // Holding Escape repeats the keydown, which must not also close the dialog.
+  await act(() => {
+    search.element().dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        repeat: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  expect(onOpenChange).not.toHaveBeenCalled();
+
+  await userEvent.keyboard("{Escape}");
+  expect(onOpenChange.mock.calls.map(([open]) => open)).toEqual([false]);
 });

@@ -21,6 +21,10 @@ class ReplayFixtureGitCommandError extends Schema.TaggedError<ReplayFixtureGitCo
   }
 }
 
+// `git commit` otherwise leaves a detached `git maintenance run --auto` behind, which can still
+// be writing into `.git` when a test removes the workspace (ENOTEMPTY).
+const NO_BACKGROUND_MAINTENANCE = ["-c", "maintenance.auto=false", "-c", "gc.auto=0"];
+
 function runGit(
   cwd: string,
   args: ReadonlyArray<string>,
@@ -33,7 +37,11 @@ function runGit(
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const env = unsetInheritedGitRepositoryEnv(process.env, yield* HostProcess.Platform);
     const exitCode = yield* spawner.exitCode(
-      ChildProcess.make("git", args, { cwd, env, extendEnv: true }),
+      ChildProcess.make("git", [...NO_BACKGROUND_MAINTENANCE, ...args], {
+        cwd,
+        env,
+        extendEnv: true,
+      }),
     );
     if (Number(exitCode) !== 0) {
       return yield* new ReplayFixtureGitCommandError({
@@ -56,7 +64,7 @@ const makeCheckpointWorkspaceEffect = Effect.fn("makeCheckpointWorkspace")(funct
     prefix: `t3-orchestrator-v2-${fixtureName}-`,
   });
   yield* runGit(cwd, ["init"]);
-  yield* runGit(cwd, ["config", "user.name", "T3 Code Test"]);
+  yield* runGit(cwd, ["config", "user.name", "iglo.code Test"]);
   yield* runGit(cwd, ["config", "user.email", "t3code-test@example.com"]);
   yield* fs.writeFileString(path.join(cwd, "README.md"), `# ${fixtureName}\n`);
   for (const [relativePath, contents] of Object.entries(files)) {

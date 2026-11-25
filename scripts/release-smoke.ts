@@ -45,13 +45,10 @@ const workspaceFiles = [
   "packages/source-control-gitcafe/package.json",
   "packages/source-control-github/package.json",
   "packages/source-control-gitlab/package.json",
+  "packages/source-control-tanstack-source/package.json",
   "packages/source-control-testing/package.json",
   "packages/effect-acp/package.json",
   "packages/effect-codex-app-server/package.json",
-  "packages/plugin-fixture/package.json",
-  "packages/plugin-host-adapter/package.json",
-  "packages/plugin-host-contract/package.json",
-  "packages/plugin-workflows/package.json",
   "scripts/package.json",
 ] as const;
 
@@ -61,6 +58,14 @@ function copyWorkspaceManifestFixture(targetRoot: string): void {
     const destinationPath = NodePath.resolve(targetRoot, relativePath);
     NodeFS.mkdirSync(NodePath.dirname(destinationPath), { recursive: true });
     NodeFS.cpSync(sourcePath, destinationPath);
+  }
+
+  // Fork tarballs that file: dependencies install from.
+  for (const forks of ["apps/web/deps"]) {
+    const source = NodePath.resolve(repoRoot, forks);
+    if (NodeFS.existsSync(source)) {
+      NodeFS.cpSync(source, NodePath.resolve(targetRoot, forks), { recursive: true });
+    }
   }
 
   const patchesDirectory = NodePath.resolve(repoRoot, "patches");
@@ -150,7 +155,7 @@ try {
   );
   assertContains(
     nightlyReleaseMetadata,
-    "name=T3 Code Nightly 9.9.10-nightly.20260413.321 (abcdef123456)",
+    "name=iglo.code Nightly 9.9.10-nightly.20260413.321 (abcdef123456)",
     "Expected nightly metadata to include the short commit SHA in the release name.",
   );
 

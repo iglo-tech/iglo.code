@@ -2,6 +2,7 @@ import { msg } from "gt-i18n";
 import { translatableDetail } from "../errors/translatable.ts";
 import {
   CLIENT_CAPABILITIES_QUERY_PARAM,
+  HTTP_USAGE_LIMIT_SOURCES_CAPABILITY,
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_VERSION,
   SETTINGS_SECRET_REFERENCES_CAPABILITY,
@@ -31,7 +32,7 @@ export function orchestrationProtocolCompatibilityError(
     : new ConnectionBlockedError({
         reason: "unsupported",
         ...translatableDetail(
-          msg("This client requires a newer server. Update T3 Code on {host} to connect.", {
+          msg("This client requires a newer server. Update iglo.code on {host} to connect.", {
             host: descriptor.label,
           }),
         ),
@@ -50,6 +51,9 @@ function canSelfUpdate(descriptor: ExecutionEnvironmentDescriptor): boolean {
 export function appendOrchestrationProtocol(socketUrl: string): string {
   const url = new URL(socketUrl);
   url.searchParams.set(ORCHESTRATION_PROTOCOL_QUERY_PARAM, String(ORCHESTRATION_PROTOCOL_VERSION));
-  url.searchParams.set(CLIENT_CAPABILITIES_QUERY_PARAM, SETTINGS_SECRET_REFERENCES_CAPABILITY);
+  url.searchParams.set(
+    CLIENT_CAPABILITIES_QUERY_PARAM,
+    [SETTINGS_SECRET_REFERENCES_CAPABILITY, HTTP_USAGE_LIMIT_SOURCES_CAPABILITY].join(","),
+  );
   return url.toString();
 }

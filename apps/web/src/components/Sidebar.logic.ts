@@ -169,11 +169,18 @@ export function useSnoozeWakeClock(
   return clockMs;
 }
 
-// Live status that says the cwd is not a repository means the checkout was removed.
+// Live status that says the cwd is not a repository means the checkout was removed. A worktree
+// thread of a project with tracked folders may sit in a plain task folder, which never is one.
 export function withoutRemovedCheckout<
   T extends { readonly branch: string | null; readonly worktreePath: string | null },
->(thread: T, gitStatus: { readonly isRepo?: boolean | undefined } | null): T {
-  return gitStatus?.isRepo === false ? { ...thread, branch: null, worktreePath: null } : thread;
+>(
+  thread: T,
+  gitStatus: { readonly isRepo?: boolean | undefined } | null,
+  project: { readonly trackedFolders?: ReadonlyArray<unknown> | undefined } | null,
+): T {
+  if (gitStatus?.isRepo !== false) return thread;
+  if (thread.worktreePath !== null && (project?.trackedFolders?.length ?? 0) > 0) return thread;
+  return { ...thread, branch: null, worktreePath: null };
 }
 
 export function useRetainedValue<T>(key: string | null, value: T | null): T | null {
@@ -1053,6 +1060,46 @@ export function resolveSidebarFolderDot(
   if (hasUnread) return "unread";
   if (statuses.has("working") || statuses.has("preparing")) return "working";
   return null;
+}
+
+/**
+ * The project rail's threads per project key: only threads with a row in the
+ * list's open sections, so a subagent its parent handles, or a thread the user
+ * settled or snoozed, never raises a project's badge.
+ */
+export function groupSidebarRailThreadsByProject<
+  T extends Pick<
+    SidebarThreadSummary,
+    "archivedAt" | "environmentId" | "id" | "lineage" | "settledOverride"
+  > &
+    ThreadSnoozeShell & {
+      projectId: string;
+    },
+>(
+  threads: readonly T[],
+  projectGroups: ReadonlyArray<{
+    projectKey: string;
+    memberProjects: ReadonlyArray<{ environmentId: string; id: string }>;
+  }>,
+  delegatedUnderParent: ReadonlySet<string>,
+  now: string,
+): Map<string, T[]> {
+  const groupKeyByProjectRef = new Map<string, string>();
+  for (const group of projectGroups) {
+    for (const member of group.memberProjects) {
+      groupKeyByProjectRef.set(`${member.environmentId}\0${member.id}`, group.projectKey);
+    }
+  }
+  const threadsByProjectKey = new Map<string, T[]>();
+  for (const thread of filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent)) {
+    if (thread.settledOverride === "settled" || effectiveSnoozed(thread, { now })) continue;
+    const projectKey = groupKeyByProjectRef.get(`${thread.environmentId}\0${thread.projectId}`);
+    if (!projectKey) continue;
+    const list = threadsByProjectKey.get(projectKey);
+    if (list) list.push(thread);
+    else threadsByProjectKey.set(projectKey, [thread]);
+  }
+  return threadsByProjectKey;
 }
 
 const NEEDS_YOU_ROW_STATUSES = new Set(["input", "approval", "request", "limited", "failed"]);

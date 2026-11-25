@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the T3 Code CLI from a GitHub Release archive. Needs only sh, tar,
+# Installs the iglo.code CLI from a GitHub Release archive. Needs only sh, tar,
 # sha256sum or shasum, and curl or wget; no Node, npm, or compiler.
 #
 #   curl -fsSL https://raw.githubusercontent.com/iglo-tech/iglo.code/main/scripts/install.sh | sh
@@ -53,13 +53,7 @@ step() {
   else printf '  %s\n' "$1" >&2; fi
 }
 if "$interactive"; then
-  printf '\n%s' "$bold" >&2
-  printf '  %s\n' '██████████ ████████ ' >&2
-  printf '  %s\n' '    ███       ▄██▀       T3 Code' >&2
-  printf '  %s%s     %sCLI installer%s\n' '    ███       ████▄ ' "$reset" "$muted" "$reset$bold" >&2
-  printf '  %s\n' '    ███    ▄     ███' >&2
-  printf '  %s\n' '    ███    ███████▀ ' >&2
-  printf '%s\n' "$reset" >&2
+  printf '\n  %siglo.code%s %sCLI installer%s\n\n' "$bold" "$reset" "$muted" "$reset" >&2
 fi
 step "Finding your release..."
 
@@ -198,7 +192,7 @@ if [ -z "$version" ]; then
   esac
   tmp_index="$(mktemp)"
   if [ "$channel" = stable ]; then
-    # release.yml marks only plain stable releases latest. This is a github.com
+    # Releases mark only plain stable releases latest. This is a github.com
     # page, so it is not cut off by a page of newer nightlies or the API quota.
     fetch "https://github.com/${repo}/releases/latest" "$tmp_index" application/json
     version="$(sed -n "s/.*\"tag_name\": *\"${tag_pattern}\".*/\1/p" "$tmp_index" | head -n 1)"
@@ -243,7 +237,7 @@ else
   trap 'printf "\n" >&2; exit 143' TERM
 
   if "$interactive"; then printf '\r\033[2K' >&2; fi
-  printf '  %sInstalling%s T3 Code %s%s%s\n\n' "$muted" "$reset" "$bold" "$version" "$reset" >&2
+  printf '  %sInstalling%s iglo.code %s%s%s\n\n' "$muted" "$reset" "$bold" "$version" "$reset" >&2
   step "Downloading..."
   fetch_status=0
   fetch "${base_url}/v${version}/SHA256SUMS" "${staging}/SHA256SUMS" || fetch_status=$?
@@ -260,7 +254,7 @@ else
   actual="$(checksum "${staging}/${archive}")"
   [ "$actual" = "$expected" ] || fail "checksum mismatch for ${archive}"
 
-  step "Extracting T3 Code..."
+  step "Extracting iglo.code..."
   tar -xzf "${staging}/${archive}" -C "$staging" --strip-components=1
   rm -f "${staging}/${archive}" "${staging}/SHA256SUMS"
   "${staging}/iglo.code" --version >/dev/null || fail "the downloaded executable does not run"
@@ -354,7 +348,7 @@ launcher="$(CDPATH='' cd -P -- "$bin_dir" && pwd)/iglo.code"
 launchers="${t3_home}/runtime/launchers"
 grep -qxF "$launcher" "$launchers" 2>/dev/null || printf '%s\n' "$launcher" >> "$launchers"
 if "$interactive"; then printf '\r\033[2K' >&2; fi
-printf '  %sInstalled T3 Code %s%s\n\n' "$green" "$version" "$reset" >&2
+printf '  %sInstalled iglo.code %s%s\n\n' "$green" "$version" "$reset" >&2
 # The folder a shell reads its startup file from: $1 when set and safe to paste, else $2 when
 # unset. A set but unsafe folder prints nothing, since the default would never be read.
 read_from() {
@@ -395,7 +389,7 @@ if [ -n "$first_t3" ]; then
   printf '  Another iglo.code at %s runs first, so run %s%s/iglo.code%s to use this one.\n\n' "$first_t3" "$bold" "$bin_dir" "$reset"
 else
   case ":${PATH}:" in
-    *":${bin_dir}:"* | *":${bin_dir}/:"*) printf '  Run %siglo.code%s to use T3 Code here, or %siglo.code up%s to use it from your other devices.\n\n' "$bold" "$reset" "$bold" "$reset" ;;
+    *":${bin_dir}:"* | *":${bin_dir}/:"*) printf '  Run %siglo.code%s to use iglo.code here, or %siglo.code up%s to use it from your other devices.\n\n' "$bold" "$reset" "$bold" "$reset" ;;
     *)
       if [ -n "$path_command" ]; then
         printf '  %s is not on your PATH yet. Add it with:\n\n    %s\n\n  Then open a new terminal and run %siglo.code%s.\n\n' "$bin_dir" "$path_command" "$bold" "$reset"

@@ -38,6 +38,8 @@ export interface BootstrapGrant {
   readonly method: ServerAuthBootstrapMethod;
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly subject: string;
+  /** The pairing link this grant was spent from; rotating dev tokens have none. */
+  readonly id?: string;
   readonly label?: string;
   readonly proofKeyThumbprint?: string;
   readonly expiresAt: DateTime.DateTime;
@@ -666,6 +668,7 @@ const make = Effect.gen(function* () {
           method: consumed.value.method,
           scopes: consumed.value.scopes,
           subject: consumed.value.subject,
+          id: consumed.value.id,
           ...(consumed.value.label ? { label: consumed.value.label } : {}),
           ...(consumed.value.proofKeyThumbprint
             ? { proofKeyThumbprint: consumed.value.proofKeyThumbprint }
@@ -828,7 +831,11 @@ const make = Effect.gen(function* () {
   const revokeConnectDevice: PairingGrantStore["Service"]["revokeConnectDevice"] = Effect.fn(
     "PairingGrantStore.revokeConnectDevice",
   )(function* (proofKeyThumbprint) {
-    yield* revokeUnspentLinks({ proofKeyThumbprint, keepProofKeyThumbprint: null });
+    yield* revokeUnspentLinks({
+      proofKeyThumbprint,
+      keepProofKeyThumbprint: null,
+      includeUnbound: false,
+    });
     const removed = yield* connectDevices
       .remove(proofKeyThumbprint)
       .pipe(Effect.mapError((cause) => new ConnectDevicesError({ operation: "revoke", cause })));
@@ -838,7 +845,12 @@ const make = Effect.gen(function* () {
 
   const revokeConnectDevicesExcept: PairingGrantStore["Service"]["revokeConnectDevicesExcept"] =
     Effect.fn("PairingGrantStore.revokeConnectDevicesExcept")(function* (keepProofKeyThumbprint) {
-      yield* revokeUnspentLinks({ proofKeyThumbprint: null, keepProofKeyThumbprint });
+      // "Revoke all others" promises every other way in is gone, so unspent codes go too.
+      yield* revokeUnspentLinks({
+        proofKeyThumbprint: null,
+        keepProofKeyThumbprint,
+        includeUnbound: true,
+      });
       const removed = yield* connectDevices
         .removeAllExcept(keepProofKeyThumbprint)
         .pipe(Effect.mapError((cause) => new ConnectDevicesError({ operation: "revoke", cause })));

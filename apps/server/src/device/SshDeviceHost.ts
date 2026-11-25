@@ -41,7 +41,7 @@ export class SshWindowsHostError extends Schema.TaggedError<SshWindowsHostError>
   { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return "Connected over SSH, but this host runs Windows, and SSH device hosts currently need macOS or Linux. To use this machine's devices, run T3 Code on it and connect to that environment.";
+    return "Connected over SSH, but this host runs Windows, and SSH device hosts currently need macOS or Linux. To use this machine's devices, run iglo.code on it and connect to that environment.";
   }
 }
 export const isSshWindowsHostError = Schema.is(SshWindowsHostError);
@@ -55,7 +55,7 @@ export class SshConnectError extends Schema.TaggedError<SshConnectError>()("SshC
   cause: Schema.Defect(),
 }) {
   override get message(): string {
-    const here = "the machine running this T3 Code server";
+    const here = "the machine running this iglo.code server";
     const detail = this.detail.replace(/\.$/u, "");
     switch (this.reason) {
       case "host_key_unknown":
@@ -81,6 +81,7 @@ const Probe = Schema.Struct({
 const Started = Schema.Struct({
   ...Probe.fields,
   hubPort: Schema.Int,
+  hubToken: Schema.String,
   daemonPort: Schema.optionalKey(Schema.Int),
   token: Schema.optionalKey(Schema.String),
   entryPath: Schema.optionalKey(Schema.String),
@@ -441,10 +442,12 @@ export const make = Effect.fn("SshDeviceHost.make")(function* (
     const hubOrigin = `http://127.0.0.1:${hubPort}`;
     const next = {
       bunPath: remote.bunPath,
-      hub: { origin: hubOrigin },
+      // The forward and the remote hub both require the hub's token.
+      hub: { origin: hubOrigin, token: remote.hubToken },
       devices: makeDeviceHubOperations({
         hostId: config.id,
         origin: hubOrigin,
+        token: remote.hubToken,
         http,
         run,
         // Keep probing negative reports so tooling installed after connecting is still found.

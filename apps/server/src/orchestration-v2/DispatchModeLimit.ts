@@ -30,19 +30,6 @@ export const DispatchModeLimit = Context.Reference<DispatchModeLimitValue | unde
 
 const interactionModeRank: Record<ProviderInteractionMode, number> = { plan: 0, default: 1 };
 
-/** A replay keeps its committed ceiling and can be narrowed by its current caller. */
-export const intersectDispatchModes = (
-  left: DispatchModes,
-  right: DispatchModes,
-): DispatchModes => ({
-  runtimeMode: isRuntimeModeAbove(right.runtimeMode, left.runtimeMode)
-    ? left.runtimeMode
-    : right.runtimeMode,
-  interactionMode:
-    interactionModeRank[left.interactionMode] < interactionModeRank[right.interactionMode]
-      ? left.interactionMode
-      : right.interactionMode,
-});
 export const exceededDispatchModeLimit = (
   limit: DispatchModes,
   modes: DispatchModes,

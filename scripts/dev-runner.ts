@@ -324,7 +324,11 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
     VITE_DEV_SERVER_URL: devUrl?.toString() ?? `http://localhost:${webPort}`,
   };
 
-  if (configuredBaseDir !== undefined) {
+  const path = yield* Path.Path;
+  // The server stores an explicit home's state in userdata, which for ~/.iglo.code is the live
+  // install. Left implicit, dev state goes to ~/.iglo.code/dev.
+  const isLiveHome = resolvedBaseDir === path.join(yield* HostProcess.HomeDirectory, ".iglo.code");
+  if (configuredBaseDir !== undefined && !isLiveHome) {
     output.IGLO_CODE_HOME = resolvedBaseDir;
   } else {
     delete output.IGLO_CODE_HOME;
@@ -902,8 +906,10 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     extendEnv: false,
     shell: spawnCommand.shell,
     // Its own process group: teardown signals the whole group, because vp
-    // does not pass SIGTERM on to Vite and the server.
-    detached: true,
+    // does not pass SIGTERM on to Vite and the server. Windows tears down with
+    // taskkill /T instead, and a detached shell there leaves vp to open a
+    // visible console of its own.
+    detached: (yield* HostProcess.Platform) !== "win32",
     forceKillAfter: "1500 millis",
   }).pipe(
     Effect.mapError(
@@ -947,7 +953,7 @@ const devRunnerCli = Command.make("dev-runner", {
   ),
   t3Home: Flag.String("home-dir").pipe(
     Flag.withDescription(
-      "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to IGLO_CODE_HOME). Inside a git worktree this defaults to that worktree's own .iglo.code so dev state stays off the shared home.",
+      "Explicit iglo.code data directory; runtime state is stored under userdata (equivalent to IGLO_CODE_HOME). Inside a git worktree this defaults to that worktree's own .iglo.code so dev state stays off the shared home.",
     ),
     Flag.optional,
     Flag.map(Option.getOrUndefined),

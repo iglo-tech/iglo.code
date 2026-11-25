@@ -37,7 +37,7 @@ picker. See [Use multiple accounts](#use-multiple-accounts).
 
 If an authenticated Codex installation reports “Timed out while checking Codex
 app-server provider status,” set `IGLO_CODE_CODEX_PROBE_TIMEOUT_MS=60000` in the
-T3 server's environment and restart it. See [Provider check timeouts](./install.md#provider-check-timeouts)
+iglo.code server's environment and restart it. See [Provider check timeouts](./install.md#provider-check-timeouts)
 for configuration and other providers.
 
 ## Generate images
@@ -127,6 +127,32 @@ Codex tools can request access to another app. Respond to the named app's reques
 in the thread in the web app. Some tools offer access for one request,
 the current session, or permanently. See [Permission modes](./permission-modes.md)
 for command and file approvals.
+
+## Sign in to an MCP server
+
+When an MCP server you added to Codex needs you to sign in, the thread shows a notice with
+**Sign in**. Approve access on the page it opens. Your browser then goes
+to a page that may not load, especially when Codex runs on another machine: copy that page's
+address, paste it into iglo.code, and choose **Finish sign-in**. Codex reconnects the server in that
+thread and keeps the sign-in for other threads on the same Codex instance; an instance with its own
+home, such as a second account, may need to sign in separately. Signing in needs permission to
+manage providers.
+
+## Use the OpenAI Chrome extension
+
+Connecting ChatGPT in **Settings → Providers** signs in the Codex provider.
+Using your signed-in Chrome profile through the extension requires a browser
+connection for the current Codex thread.
+
+If an iglo.code thread reports `The browser access host is unavailable`, its browser
+host is unavailable; this does not identify an extension connection failure.
+For a task that requested Chrome, follow [OpenAI's setup guide](https://learn.chatgpt.com/docs/chrome-extension),
+then select Chrome in a Codex chat in ChatGPT on your computer.
+If the task runs on a remote environment, `localhost` in that browser
+refers to your computer. Forward the remote page's port or use a URL reachable
+from your computer before repeating the task. Connecting to iglo.code through a
+tunnel does not by itself expose that page. iglo.code's built-in browser
+preview uses its own browser session.
 
 ## Use Daybreak
 

@@ -185,7 +185,7 @@ describe("ConnectionResolver", () => {
       const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
 
       expect(error).toMatchObject({ reason: "unsupported" });
-      expect(error.message).toContain("Update T3 Code on Compatible environment");
+      expect(error.message).toContain("Update iglo.code on Compatible environment");
     }),
   );
 
@@ -205,7 +205,7 @@ describe("ConnectionResolver", () => {
         label: "Primary",
         httpBaseUrl: "http://127.0.0.1:3777",
         socketUrl:
-          "ws://127.0.0.1:3777/ws?clientSurface=web&clientDeviceType=desktop&connectionMethod=direct&orchestrationProtocol=2&clientCapabilities=settingsSecretReferences",
+          "ws://127.0.0.1:3777/ws?clientSurface=web&clientDeviceType=desktop&connectionMethod=direct&orchestrationProtocol=2&clientCapabilities=settingsSecretReferences%2ChttpUsageLimitSources",
         httpAuthorization: null,
         target,
         // The shell reads the server's build and shell flags here before the socket opens.

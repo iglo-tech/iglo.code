@@ -8,6 +8,7 @@ import type { ProjectScopedServerSettingKey, ServerSettings } from "./settings.t
 export const T3_PROJECT_FILE_NAME = "iglo.code.json";
 
 const T3_PROJECT_FILE_PATH_MAX_LENGTH = 512;
+const T3_PROJECT_FILE_COMMAND_MAX_LENGTH = 4096;
 const T3_PROJECT_FILE_MAX_SCRIPTS = 50;
 
 // Encoded-side annotations survive into JSON Schema; decoding still trims and rejects empty strings.
@@ -22,10 +23,10 @@ const trimmedNonEmpty = (annotations: { readonly description: string }, maxLengt
 
 export const T3ProjectFileScript = Schema.Struct({
   name: trimmedNonEmpty({
-    description: "Display name for the script, shown in the T3 Code scripts menu.",
+    description: "Display name for the script, shown in the iglo.code scripts menu.",
   }),
   command: trimmedNonEmpty({
-    description: "Shell command executed in a T3 Code terminal at the project root.",
+    description: "Shell command executed in an iglo.code terminal at the project root.",
   }),
   icon: Schema.optionalKey(
     ProjectScriptIcon.annotate({
@@ -69,7 +70,7 @@ export const T3ProjectFileScript = Schema.Struct({
     }),
   ),
 }).annotate({
-  description: "A project script that team members can import into T3 Code.",
+  description: "A project script that team members can import into iglo.code.",
 });
 export type T3ProjectFileScript = typeof T3ProjectFileScript.Type;
 
@@ -83,7 +84,7 @@ export const T3ProjectFile = Schema.Struct({
     trimmedNonEmpty(
       {
         description:
-          'Workspace-relative path to the project icon (e.g. "assets/logo.svg"). Checked before T3 Code\'s built-in icon locations.',
+          'Workspace-relative path to the project icon (e.g. "assets/logo.svg"). Checked before iglo.code\'s built-in icon locations.',
       },
       T3_PROJECT_FILE_PATH_MAX_LENGTH,
     ),
@@ -91,13 +92,42 @@ export const T3ProjectFile = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(
     ThreadEnvMode.annotate({
       description:
-        'Where new threads start for this repository: "worktree" for a fresh git worktree, "local" for the current checkout. A per-project setting in T3 Code overrides this; when neither is set, the global default applies.',
+        'Where new threads start for this repository: "worktree" for a fresh git worktree, "local" for the current checkout. A per-project setting in iglo.code overrides this; when neither is set, the global default applies.',
     }),
   ),
   worktreeSubmodules: Schema.optionalKey(
     WorktreeSubmodules.annotate({
       description:
         'How new worktrees populate git submodules: "recursive" (the default) initializes nested submodules too, "top-level" initializes only those declared by this repository, and "none" leaves every submodule empty for a setup script to handle. A project or environment setting in iglo.code overrides this.',
+    }),
+  ),
+  ignoreRepositories: Schema.optionalKey(
+    Schema.Array(Schema.String).annotate({
+      description:
+        "Repositories inside the project folder that iglo.code should leave out of the project, as paths relative to it, such as vendor/big. They are then neither reviewed on their own nor given worktrees.",
+    }),
+  ),
+  worktreeLayout: Schema.optionalKey(
+    Schema.Struct({
+      create: trimmedNonEmpty(
+        {
+          description:
+            "Shell command that lays out a thread's folder for a project tracking several repositories, in place of iglo.code's own worktrees and links. It runs in the project folder with IGLO_CODE_WORKTREE_ROOT (the folder to fill), IGLO_CODE_WORKTREE_PROJECT_PATH (where the project folder goes inside it), IGLO_CODE_WORKTREE_BRANCH, IGLO_CODE_WORKTREE_BASE, IGLO_CODE_WORKTREE_REPOSITORIES (the chosen repositories, one path per line) and IGLO_CODE_PROJECT_ROOT set. Each of the project's repositories it checks out at the same relative place is adopted as the thread's checkout of it, and must be a git worktree of that repository on IGLO_CODE_WORKTREE_BRANCH. It runs again when the folder goes missing, so it must cope with the branch already existing. It has ten minutes.",
+        },
+        T3_PROJECT_FILE_COMMAND_MAX_LENGTH,
+      ),
+      remove: Schema.optionalKey(
+        trimmedNonEmpty(
+          {
+            description:
+              "Shell command that takes the thread's folder down again, with the same variables. It can run on a folder that is partly gone, and should delete what create generated. iglo.code removes the checkouts it leaves behind.",
+          },
+          T3_PROJECT_FILE_COMMAND_MAX_LENGTH,
+        ),
+      ),
+    }).annotate({
+      description:
+        "Lets the project create and remove a worktree thread's folder itself, for layouts with shared build output or workspace metadata.",
     }),
   ),
   worktreeSparsePatternsPath: Schema.optionalKey(
@@ -112,7 +142,7 @@ export const T3ProjectFile = Schema.Struct({
   scripts: Schema.optionalKey(
     Schema.Array(T3ProjectFileScript)
       .annotate({
-        description: "Project scripts shared with everyone who opens this repository in T3 Code.",
+        description: "Project scripts shared with everyone who opens this repository in iglo.code.",
       })
       .check(Schema.isMaxLength(T3_PROJECT_FILE_MAX_SCRIPTS)),
   ),

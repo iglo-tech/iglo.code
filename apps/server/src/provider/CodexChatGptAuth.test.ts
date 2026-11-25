@@ -234,6 +234,7 @@ const makeHarnessFor = Effect.fnUntraced(function* (
         ? Effect.die("analytics unavailable")
         : Effect.sync(() => {
             analyticsEvents.push({ event, properties });
+            return true;
           }),
     flush: Effect.void,
     recordOwners: () => Effect.void,
@@ -601,7 +602,7 @@ it.effect(
           "state",
         ]);
         assert.strictEqual(first.searchParams.get("client_id"), "dynamic_agent_client");
-        assert.strictEqual(first.searchParams.get("agent_name_hint"), "T3 Code");
+        assert.strictEqual(first.searchParams.get("agent_name_hint"), "iglo.code");
         assert.strictEqual(first.searchParams.get("response_type"), "code");
         assert.strictEqual(
           first.searchParams.get("scope"),

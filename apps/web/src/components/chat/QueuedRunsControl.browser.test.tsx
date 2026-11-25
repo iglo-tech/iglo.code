@@ -174,7 +174,7 @@ it.each([false, true])(
     await expect.element(page.getByText("second.png (2/2)", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Previous media", exact: true }).click();
     await expect.element(page.getByText("first.png (1/2)", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Back, close image preview", exact: true }).click();
+    await page.getByRole("button", { name: "Close image preview", exact: true }).click();
     await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
     await expect.element(page.getByText("Later", { exact: true })).toBeVisible();
   },
@@ -317,7 +317,7 @@ it("shows who sent a queued message and folds automation and agent prompts", asy
   await page.getByRole("button", { name: "Open thread" }).nth(1).click({ force: true });
   expect(onOpenThread).toHaveBeenLastCalledWith("thread:linked-lead", "environment:linked");
 
-  await expect.element(page.getByText("Sent by T3 Code")).toBeVisible();
+  await expect.element(page.getByText("Sent by iglo.code")).toBeVisible();
   await expect.element(page.getByText("Continue where you left off.")).toBeVisible();
 });
 

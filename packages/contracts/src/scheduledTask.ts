@@ -217,15 +217,6 @@ export type ScheduledTaskUpsertSchedule = typeof ScheduledTaskUpsertSchedule.Typ
 export const ScheduledTaskRunStatus = Schema.Literals(["never", "running", "succeeded", "failed"]);
 export type ScheduledTaskRunStatus = typeof ScheduledTaskRunStatus.Type;
 
-export const ScheduledTaskDispatchTarget = Schema.Struct({
-  id: TrimmedNonEmptyString,
-  payload: Schema.Json,
-  /** The authenticated ceiling retained by this target and its occurrence. */
-  dispatchLimits: Schema.optional(
-    Schema.Struct({ runtimeMode: RuntimeMode, interactionMode: ProviderInteractionMode }),
-  ),
-});
-export type ScheduledTaskDispatchTarget = typeof ScheduledTaskDispatchTarget.Type;
 export const ScheduledTaskWebhookEndpoint = Schema.Struct({
   path: TrimmedNonEmptyString,
   url: Schema.NullOr(TrimmedNonEmptyString),
@@ -251,7 +242,6 @@ export const ScheduledTask = Schema.Struct({
   id: ScheduledTaskId,
   title: TrimmedNonEmptyString,
   prompt: TrimmedNonEmptyString,
-  dispatchTarget: Schema.optional(ScheduledTaskDispatchTarget),
   enabled: Schema.Boolean,
   schedule: ScheduledTaskSchedule,
   projectId: ProjectId,
@@ -292,16 +282,19 @@ export type ScheduledTaskListResult = typeof ScheduledTaskListResult.Type;
 export const ScheduledTaskUpsertInput = Schema.Struct({
   id: Schema.optional(ScheduledTaskId),
   requireExisting: Schema.optional(Schema.Boolean).annotate({
-    description: "Reject the save if the task no longer exists, for edits from a client form.",
+    description:
+      "Reject the save if the task no longer exists, for edits based on an earlier read.",
   }),
   commandId: Schema.optional(CommandId),
   title: TrimmedNonEmptyString,
   prompt: TrimmedNonEmptyString,
-  dispatchTarget: Schema.optional(ScheduledTaskDispatchTarget),
   enabled: Schema.Boolean,
   schedule: ScheduledTaskUpsertSchedule,
   projectId: ProjectId,
+  /** Omitted or null: keep the stored thread, which a first run may have bound since the form opened. */
   threadId: Schema.optional(Schema.NullOr(ThreadId)),
+  /** True with no `threadId`: the user cleared the thread, so the next run starts one. */
+  unbindThread: Schema.optional(Schema.Boolean),
   /** Omitted: keep the stored mode, or derive it from `threadId` for a new or rebound task. */
   threadMode: Schema.optional(ScheduledTaskThreadMode),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
@@ -326,8 +319,6 @@ export type ScheduledTaskDeleteInput = typeof ScheduledTaskDeleteInput.Type;
 
 export const ScheduledTaskRunNowInput = Schema.Struct({
   id: ScheduledTaskId,
-  /** Retry identity for plugin dispatch targets; prompt schedules reject it. */
-  occurrenceId: Schema.optional(TrimmedNonEmptyString),
 });
 export type ScheduledTaskRunNowInput = typeof ScheduledTaskRunNowInput.Type;
 

@@ -35,6 +35,11 @@ then copy. Cmd+A on macOS and Ctrl+Shift+A elsewhere select the same output.
 Ctrl+A still moves to the beginning of shell input on Windows and Linux.
 Jump to latest in the context menu returns to the current output.
 
+While a terminal is focused, use `Cmd+Shift+]` for the next terminal and `Cmd+Shift+[` for
+the previous one on macOS. On Windows and Linux, use `Ctrl+Alt+]` and `Ctrl+Alt+[`. Cycling
+wraps through tabs and split panes in the focused drawer or right panel. Rebind these
+shortcuts in Settings > Keybindings.
+
 ## fish
 
 iglo.code starts fish with `no-query-term`, avoiding startup waits for terminal

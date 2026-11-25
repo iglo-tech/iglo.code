@@ -4,7 +4,7 @@ import { managedCapabilityDenial } from "@t3tools/client-runtime/contract-labels
 import { SessionPermissions } from "./SessionPermissions";
 import { useSearch } from "@tanstack/react-router";
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomValue } from "@effect/atom-react";
 import { type ReactNode, useState } from "react";
 import { T, useGT, useMessages, Var } from "gt-react";
 import {
@@ -13,6 +13,8 @@ import {
   AuthEnvironmentMaintainScope,
   AuthRelayReadScope,
   AuthRelayWriteScope,
+  allowsPreviewTunnel,
+  isManagedSettingPath,
   type AuthClientSession,
   type AuthPairingLink,
   type AuthPairingCredentialResult,
@@ -47,7 +49,11 @@ import { useSearchableSetting } from "./settingsSearch";
 import { ConnectDeviceApprovalSettings } from "./ConnectDeviceApprovalSettings";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
+import { EnvironmentsMap } from "./EnvironmentsMap";
 import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
+import { addEnvironmentPrefillAtom } from "~/state/linkedThreadView";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { usePeerLinkHosts } from "~/state/peerLinks";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
@@ -352,15 +358,37 @@ function ConnectionsSettingsContent({
   const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] = useState(false);
   const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
   const [routeTarget, setRouteTarget] = useState<EnvironmentPresentation | null>(null);
+  // An address the map already knows for the machine being added; remounts the dialog with it.
+  const [addBackendHost, setAddBackendHost] = useState("");
   const [savedBackendError, setSavedBackendError] = useState<string | null>(null);
+  // Set by a read-only linked thread whose machine this client is about to pair with.
+  const [addPrefill, setAddPrefill] = useAtom(addEnvironmentPrefillAtom);
   const handleAddBackendDialogOpenChange = (open: boolean) => {
     setAddBackendDialogOpen(open);
     if (open) {
       setRouteTarget(null);
+      setAddBackendHost("");
     } else {
       setSavedBackendError(null);
+      setAddPrefill(null);
     }
   };
+  const openAddRoute = (target: EnvironmentPresentation) => {
+    setRouteTarget(target);
+    setAddBackendHost("");
+    setSavedBackendError(null);
+    setAddBackendDialogOpen(true);
+  };
+  const openAddEnvironment = (host = "") => {
+    setRouteTarget(null);
+    setAddBackendHost(host);
+    setSavedBackendError(null);
+    setAddBackendDialogOpen(true);
+  };
+  // The map is the page's main view where there is room; the list is its equivalent everywhere.
+  const roomForMap = useMediaQuery("md");
+  const [pickedEnvironmentsView, setPickedEnvironmentsView] = useState<"map" | "list" | null>(null);
+  const environmentsView = roomForMap ? (pickedEnvironmentsView ?? "map") : "list";
   const [removingSavedEnvironmentId, setRemovingSavedEnvironmentId] =
     useState<EnvironmentId | null>(null);
   const [isUpdatingDesktopServerExposure, setIsUpdatingDesktopServerExposure] = useState(false);
@@ -1096,7 +1124,7 @@ function ConnectionsSettingsContent({
         {desktopWslState.enabled ? (
           <SettingsRow
             title={gt("WSL only")}
-            description={gt("Run only the WSL backend. T3 Code restarts when this changes.")}
+            description={gt("Run only the WSL backend. iglo.code restarts when this changes.")}
             className="bg-muted/20 pl-7 sm:pl-8"
             control={
               <Switch
@@ -1254,6 +1282,12 @@ function ConnectionsSettingsContent({
   );
 
   const accessServerConfig = accessEnvironment?.serverConfig ?? null;
+  const accessPolicy = accessServerConfig?.managedPolicy;
+  const previewTunnelDenial =
+    managedCapabilityDenial(accessPolicy, "previewTunnel", m) ??
+    (accessPolicy !== undefined && isManagedSettingPath(accessPolicy, "enablePreviewTunnel")
+      ? gt("Managed by {organization}.", { organization: accessPolicy.organization })
+      : undefined);
   const primarySettings = (
     <>
       {accessEnvironmentPicker}
@@ -1373,6 +1407,25 @@ function ConnectionsSettingsContent({
                 }
               />
             ) : null}
+            {accessServerConfig?.environment.capabilities.previewTunnelSetting ? (
+              <SettingsRow
+                title={searchableSetting("preview-tunnel").title}
+                description={gt(
+                  "Lets other devices open this machine's local servers: browser tabs loaded on the device, Open on this device, and port forwarding. Off: browser tabs stream from this machine.",
+                )}
+                managed={previewTunnelDenial}
+                control={
+                  <Switch
+                    checked={allowsPreviewTunnel(accessServerConfig)}
+                    disabled={!canWriteAccess}
+                    aria-label={gt("Allow the preview tunnel")}
+                    onCheckedChange={(enabled) =>
+                      void updateAccessSettings({ enablePreviewTunnel: enabled })
+                    }
+                  />
+                }
+              />
+            ) : null}
             {accessEnvironment ? (
               <details className="group px-3 sm:px-4">
                 <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
@@ -1474,10 +1527,10 @@ function ConnectionsSettingsContent({
                 <AlertDialogDescription>
                   {pendingDesktopServerExposureMode === "network-accessible"
                     ? gt(
-                        "Let your other devices connect to T3 Code over the network. Pair devices to give them access. T3 Code will restart.",
+                        "Let your other devices connect to iglo.code over the network. Pair devices to give them access. iglo.code will restart.",
                       )
                     : gt(
-                        "Devices connected over your local network will disconnect. Existing tunnels, such as Tailscale HTTPS, keep working. T3 Code will restart.",
+                        "Devices connected over your local network will disconnect. Existing tunnels, such as Tailscale HTTPS, keep working. iglo.code will restart.",
                       )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -1537,14 +1590,14 @@ function ConnectionsSettingsContent({
                   {pendingWslChange?.kind === "disable"
                     ? pendingWslChange.wasWslOnly
                       ? gt(
-                          "T3 Code will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL.",
+                          "iglo.code will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL.",
                         )
                       : gt(
-                          "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in T3 Code until you re-enable WSL.",
+                          "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in iglo.code until you re-enable WSL.",
                         )
                     : pendingWslChange?.kind === "distro"
                       ? gt(
-                          "T3 Code will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted.",
+                          "iglo.code will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted.",
                         )
                       : pendingWslChange?.kind === "enable"
                         ? gt(
@@ -1552,10 +1605,10 @@ function ConnectionsSettingsContent({
                           )
                         : pendingWslChange?.nextValue
                           ? gt(
-                              "T3 Code will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again.",
+                              "iglo.code will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again.",
                             )
                           : gt(
-                              "T3 Code will restart and bring the Windows backend back up alongside WSL.",
+                              "iglo.code will restart and bring the Windows backend back up alongside WSL.",
                             )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -1644,7 +1697,7 @@ function ConnectionsSettingsContent({
                   <T>Disable Tailscale HTTPS?</T>
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  <T>T3 Code will restart the local backend without Tailscale Serve.</T>
+                  <T>iglo.code will restart the local backend without Tailscale Serve.</T>
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -1685,7 +1738,7 @@ function ConnectionsSettingsContent({
                 </DialogTitle>
                 <DialogDescription>
                   <T>
-                    T3 Code will restart the local backend with Tailscale Serve enabled and ask
+                    iglo.code will restart the local backend with Tailscale Serve enabled and ask
                     Tailscale to proxy HTTPS traffic to this backend.
                   </T>
                 </DialogDescription>
@@ -1777,14 +1830,37 @@ function ConnectionsSettingsContent({
       <SettingsSection
         {...searchableSetting("remote-environments")}
         title={gt("Environments")}
+        titleAction={
+          roomForMap ? (
+            <ToggleGroup
+              aria-label={gt("Show environments as")}
+              value={[environmentsView]}
+              onValueChange={(next) => {
+                const value = next[0];
+                if (value === "map" || value === "list") setPickedEnvironmentsView(value);
+              }}
+            >
+              <Toggle value="map">
+                {gt("Map", { $context: "view switch: show machines as a diagram" })}
+              </Toggle>
+              <Toggle value="list">
+                {gt("List", { $context: "view switch: show items as a list" })}
+              </Toggle>
+            </ToggleGroup>
+          ) : null
+        }
         headerAction={
           <div className="flex items-center gap-1">
             {savedServerUpdateTargets.length > 0 ? (
               <ServerUpdatesAction targets={savedServerUpdateTargets} variant="ghost-muted" />
             ) : null}
+            {/* Actions on several machines at once, such as linking several, go here. */}
             <AddEnvironmentDialog
-              open={addBackendDialogOpen}
+              key={`${addPrefill?.environmentId ?? "any"}:${addBackendHost}`}
+              open={addBackendDialogOpen || addPrefill !== null}
+              prefill={addPrefill}
               routeTarget={routeTarget}
+              initialHost={addBackendHost}
               error={savedBackendError}
               savedEnvironments={savedEnvironments}
               onOpenChange={handleAddBackendDialogOpenChange}
@@ -1793,24 +1869,51 @@ function ConnectionsSettingsContent({
           </div>
         }
       >
-        {listedEnvironments.map((environment) => (
-          <SavedBackendListRow
-            key={environment.environmentId}
-            environment={environment}
-            removingEnvironmentId={removingSavedEnvironmentId}
-            onSetEnabled={handleSetSavedBackendEnabled}
-            onRemove={handleRemoveSavedBackend}
-            onAddRoute={(target) => {
-              setRouteTarget(target);
-              setSavedBackendError(null);
-              setAddBackendDialogOpen(true);
-            }}
+        {environmentsView === "map" ? (
+          <EnvironmentsMap
+            footerId={searchableSetting("linked-environments").id}
+            onAddEnvironment={openAddEnvironment}
+            renderSavedEnvironment={(environment) =>
+              listedEnvironments.some(
+                (listed) => listed.environmentId === environment.environmentId,
+              ) ? (
+                <SavedBackendListRow
+                  key={environment.environmentId}
+                  environment={environment}
+                  initialRoutesOpen
+                  removingEnvironmentId={removingSavedEnvironmentId}
+                  onSetEnabled={handleSetSavedBackendEnabled}
+                  onRemove={handleRemoveSavedBackend}
+                  onAddRoute={openAddRoute}
+                />
+              ) : null
+            }
+            renderConnectMachine={(environmentId) => (
+              <CloudRemoteEnvironmentRows
+                only={environmentId}
+                primaryEnvironmentId={primaryEnvironmentId}
+                savedEnvironments={savedEnvironments}
+              />
+            )}
           />
-        ))}
-        <CloudRemoteEnvironmentRows
-          primaryEnvironmentId={primaryEnvironmentId}
-          savedEnvironments={savedEnvironments}
-        />
+        ) : (
+          <>
+            {listedEnvironments.map((environment) => (
+              <SavedBackendListRow
+                key={environment.environmentId}
+                environment={environment}
+                removingEnvironmentId={removingSavedEnvironmentId}
+                onSetEnabled={handleSetSavedBackendEnabled}
+                onRemove={handleRemoveSavedBackend}
+                onAddRoute={openAddRoute}
+              />
+            ))}
+            <CloudRemoteEnvironmentRows
+              primaryEnvironmentId={primaryEnvironmentId}
+              savedEnvironments={savedEnvironments}
+            />
+          </>
+        )}
       </SettingsSection>
       {hasCloudPublicConfig() ? (
         <RemoveT3ConnectEnvironmentDialog
@@ -1824,14 +1927,16 @@ function ConnectionsSettingsContent({
           }}
         />
       ) : null}
-      {peerLinkHosts.map((environment, index) => (
-        <LinkedEnvironmentsSettings
-          key={environment.environmentId}
-          environmentId={environment.environmentId}
-          environmentLabel={peerLinkHosts.length > 1 ? environment.label : null}
-          isSearchTarget={index === 0}
-        />
-      ))}
+      {environmentsView === "list"
+        ? peerLinkHosts.map((environment, index) => (
+            <LinkedEnvironmentsSettings
+              key={environment.environmentId}
+              environmentId={environment.environmentId}
+              environmentLabel={peerLinkHosts.length > 1 ? environment.label : null}
+              isSearchTarget={index === 0}
+            />
+          ))
+        : null}
       <LoadBalancingSettings environments={loadBalancingEnvironments} />
       <PullRequestRoutingSettings environments={loadBalancingEnvironments} />
     </SettingsPageContainer>

@@ -7,13 +7,20 @@ Change a fork decision only when the maintainer requests it. Keep this list
 current when an authorized change replaces a decision.
 
 - **Identity and repository tooling.** Keep the iglo.code name, branding, README,
-  repo-local skills, and fork-specific AGENTS.md guidance. The igloo icon set
+  repo-local skills, and fork-specific AGENTS.md guidance. User-facing, CLI,
+  server, i18n, and agent-facing product copy uses `iglo.code` rather than
+  `T3 Code` (enforced repo-wide by `check-fork-identity.ts`, with explicit
+  attribution exceptions only). The igloo icon set
   (`assets/iglo`, `apps/web/public` favicons, 192/512 px app icons, and
   `manifest.webmanifest`) replaces upstream's T3 icons; keep the installable web
   app's manifest entries. Upstream attribution
   and internal code names that never leave the process (`@t3tools/*` packages,
   the `t3` workspace package, TypeScript identifiers, source file names) remain
   valid; renaming them only causes merge conflicts.
+- **No GitHub star prompt.** Upstream's "Enjoying T3 Code? Give us a star"
+  popup (`apps/web/src/components/GitHubStarPrompt.*`), its composer send hook
+  in `useComposerSend.ts`, and the web `canvas-confetti` dependencies are
+  removed and pruned in `fork-scope.ts`.
 - **TypeScript on Bun only.** Repository tooling, including these sync helpers, is
   TypeScript run with Bun. The fork keeps no Python: imports drop upstream `.py`
   files and the identity check fails on any tracked one. Port a needed upstream
@@ -66,8 +73,10 @@ current when an authorized change replaces a decision.
   relay/Clerk defines out of the Vite configs, and keep `infra/relay`, its catalog
   entries, and its patches removed.
 - **Local development.** The maintainer uses the local toolchain. Keep
-  `.devcontainer/` and `docs/internals/devcontainer.md` removed, along with their
-  configuration and documentation references.
+  `.devcontainer/` and its numbered internals/operations docs removed, along with their
+  configuration and documentation references. Upstream's pruned numbered docs
+  (`docs/internals/00_*`, `docs/operations/00_*`) carry the fork's decisions; mobile,
+  devcontainer, Connect-setup, and relay-observability docs stay removed.
 - **Bun application runtime.** The server and first-party JavaScript helpers run
   on Bun. Preserve the minimum-version checks and align `.bun-version`,
   [bunRuntime.ts](../../../packages/shared/src/bunRuntime.ts), the server engine,
@@ -80,17 +89,34 @@ current when an authorized change replaces a decision.
   Node, npm, or Bun. Preserve shared source/compiled self-invocation and service
   launch, update, checksum rejection, and rollback. The supported archive targets
   are macOS arm64, macOS x64 (Intel), Linux x64, and Linux arm64. Upstream excludes
-  `darwin-x64`; keep the fork's installer, archive builder, and release matrix
-  accepting it.
+  `darwin-x64`; keep the fork's installer and archive builder accepting it.
+  [release-local.ts](../../../scripts/release-local.ts) publishes only
+  `darwin-arm64` and `linux-x64`.
   Keep native assets, disk-backed SDK/browser dependencies, web assets, resource
   monitoring, and signing. Packaging remains available for manual use through
   [CLI staging](../../../scripts/lib/cli-stage.ts) and
-  [manual release procedures](../../../docs/operations/release.md).
+  [manual release procedures](../../../docs/operations/03_release.md).
 - **Bun compatibility boundaries.** Retain working Node-compatible APIs and
   Effect services. Keep Bun PTY selection, SQLite boolean normalization, and
   supported stall diagnostics rather than restoring Node-only assumptions.
   Keep upstream's Node-only `cliCompileCache` removed: Bun has no `node:sea`, so
   importing it stops the CLI at startup, and Bun's `enableCompileCache` is a stub.
+  Keep upstream's `--max-old-space-size` and its child-heap test out of
+  [DocumentText](../../../apps/server/src/provider/DocumentText.ts): Bun ignores
+  the flag and JSC options cannot cap the heap, so the worker's own limits bound it.
+  Bun carries no `AsyncLocalStorage` store into module evaluation, so
+  [WorkflowRuntime](../../../apps/server/src/workflows/WorkflowRuntime.ts) keeps its
+  `evaluatingUnderBun` fallback for the load in progress; without it every
+  `T3.workflow(…)` call in a definition file fails. Upstream's Node/V8-inspector
+  `scripts/server-metrics*` benchmark stays removed.
+  Upstream's Linux `ProcessLauncher` (`process-launcher.ts`, `processLauncherWorker.ts`)
+  stays removed and the server keeps `NonBlockingSpawner`: it works around libuv forking the
+  whole Node server per spawn and hands pipes back over Node IPC; Bun spawns without that fork.
+  Upstream code that asks the launcher for its PID (such as PortScanner's launcher-child checks)
+  stays out with it: agent CLIs are direct children of the server here.
+  Server tests run under `bun --bun`; the `vitest@5.1.1` patch makes Vitest's watchdog skip
+  the IPC channel `unref()` Bun lacks, without which every forks worker fails to start. Move it
+  to each Vitest bump or drop it once Vitest guards the call.
   Executable bundling preserves one shared Effect context, leaves `ws` to Bun's
   compatibility module, and stages file-backed dependencies using the same
   [external-package boundary](../../../scripts/lib/cli-external-packages.ts).
@@ -101,14 +127,20 @@ current when an authorized change replaces a decision.
   import changes platform adapters; it records retained and inconclusive boundary decisions
   and the constraints behind the compatibility APIs.
 - **Fork installation and updates.** Releases are GitHub Release assets on
-  `iglo-tech/iglo.code`, built and published by `.github/workflows/iglo-release.yml`
-  on a `v*` tag. The fork publishes nothing to npm: drop imported npm launcher,
+  `iglo-tech/iglo.code`, built and published locally per
+  [releases](../../../docs/operations/03_release.md). The fork publishes nothing to npm: drop imported npm launcher,
   `npx`/`bunx` install, and npm-based server update paths. Keep explicit mirror
   overrides and channel matching. Server updates, service updates, install
   scripts, onboarding, and manual update commands must agree; none silently
   falls back to upstream. Sources are
   [release naming](../../../packages/shared/src/cliRelease.ts) and
   [the shared update action](../../../apps/web/src/components/ServerUpdateAction.tsx).
+  With no desktop updater, the web client stands in for it: the sidebar update
+  pill and Settings → About check the primary server's `server.release` on its
+  own track (on mount, every few minutes, and on click), feed a newer release to
+  Update everything as the servers' target, and offer Reload once the server
+  runs ahead of the page. See [appRelease.ts](../../../apps/web/src/state/appRelease.ts);
+  keep the web branches when upstream changes the desktop update UI.
 - **Device and remote features.** Retain the Device panel, local/SSH device hosts,
   `expo-device-hub`, `agent-device`, provider helpers, Browser streams, and
   local, LAN, Tailscale, and SSH connections. Device tool installation and execution
@@ -125,7 +157,9 @@ current when an authorized change replaces a decision.
   UA-spoofing `presentAsChrome` path this fork deleted. The pane always launches
   headed (`headless: false` in
   [ServerBrowserContexts.ts](../../../apps/server/src/preview/ServerBrowserContexts.ts));
-  there is no headless fallback. A Linux host without a display gets one from
+  there is no headless fallback, and persistent contexts keep one blank anchor
+  page open instead of closing all initial pages so headed Chrome does not exit
+  on Linux and Windows before `newPage()` runs. A Linux host without a display gets one from
   [XvfbServer.ts](../../../apps/server/src/preview/XvfbServer.ts), started on
   demand and closed with the server; a missing Xvfb is a hard
   `PreviewBrowserDisplayError`. `iglo.code browser setup` owns the host story: it
@@ -138,14 +172,51 @@ current when an authorized change replaces a decision.
   [serverBrowserStream.ts](../../../packages/client-runtime/src/preview/serverBrowserStream.ts)
   together when importing upstream contracts, which has only `"sandbox"` and
   `"libraries"`.
-- **Plugin and workflow extensions.** Preserve the fork's compiled plugin host,
-  Reports fixture, and [workflow plugin](../../../packages/plugin-workflows/src/server.ts),
-  including provider/model/skill choices, parallel reviews, bounded rework,
-  human decisions, and durable recovery. Reconcile their contracts, migrations,
-  permission scopes, MCP tools, scheduler integration, and client contributions
-  together. Preserve private plugin state and independently built client/server
-  compatibility. The boundary and recovery constraints live in
-  [plugins.md](../../../docs/internals/plugins.md).
+- **Peer links are two-way.** Upstream links one direction per sign-in; the fork
+  makes one link serve both. After the forward sign-in, the linking environment
+  mints its own one-time peer-link code and offers it over
+  `/api/peer-links/reciprocal`, and the peer links back at the same access with
+  the code the offer carried; **Forget** removes the link on both sides and ends
+  both sessions when the peer answers. Default on, with a **Link back**
+  checkbox opt-out (`--one-way` on the CLI). Upstream's one-way pieces stay
+  intact underneath, so reconcile at their boundaries rather than freezing:
+  [PeerLinks.ts](../../../apps/server/src/peer/PeerLinks.ts) (offer, accept,
+  teardown hop),
+  [peerLinksHttp.ts](../../../apps/server/src/peer/peerLinksHttp.ts) and the
+  `peerLinks` group with its `PeerLinkAuthenticated` middleware
+  ([environmentHttp.ts](../../../packages/contracts/src/environmentHttp.ts)),
+  [OwnLinkOrigins.ts](../../../apps/server/src/peer/OwnLinkOrigins.ts) (addresses
+  a peer can reach back: tailnet entries only — plain-http LAN and loopback are
+  refused by the peer's own address rules), the `peerLinkReciprocal` capability,
+  the `reciprocal` fields in
+  [peerLink.ts](../../../packages/contracts/src/peerLink.ts) and the link
+  request answer, and the results (`PeerLinkCreateResult`, `PeerLinkRemoveResult.remote`)
+  in [rpc.ts](../../../packages/contracts/src/rpc.ts). Preserve the bindings that
+  keep offers and teardowns honest — the declared id rides the OAuth
+  registration as a bounded `software_version`, signed into the session
+  (`peid` in [SessionStore.ts](../../../apps/server/src/auth/SessionStore.ts)
+  through [McpOAuth.ts](../../../apps/server/src/auth/McpOAuth.ts) and
+  [EnvironmentAuth.ts](../../../apps/server/src/auth/EnvironmentAuth.ts)), but
+  it is only a claim: the accept path refuses to move an existing link row
+  whatever address the offer carries, and each row's `peer_session_id` (migration 105) names the one session that may forget it — bound to the offering
+  session on accept, and to the back-link session found via the spent grant's
+  `pairing_grant_id` on the offering side. An impostor session therefore pays
+  with its own revocation and cannot touch an existing row — but it can still
+  register a new row under an id this side has not linked yet, since the id is
+  its own claim; that is the trust boundary (you gave that machine a pairing
+  code). The create result is flat with an
+  optional `reciprocal` so mixed versions decode it, and unset `reciprocal` on
+  the wire means one way. The accepting link passes `reciprocal: false` so
+  offers never loop, a failed offer revokes its one-time code, and each teardown
+  hop fires only when a row was removed, so the hops stop. Web: the checkbox and outcome notices in
+  [LinkedEnvironmentsSettings.tsx](../../../apps/web/src/components/settings/LinkedEnvironmentsSettings.tsx)
+  and [LinkRequestCard.tsx](../../../apps/web/src/components/chat/LinkRequestCard.tsx),
+  the answer field in
+  [linkRequest.ts](../../../packages/client-runtime/src/linkRequest.ts), and the
+  testkit's served peers with links
+  ([PeerLinks.testkit.ts](../../../apps/server/src/peer/PeerLinks.testkit.ts)).
+  Drop this entry wholesale once upstream ships its own two-way linking and the
+  fork moves onto it.
 - **Provider skills and automation delivery.** Preserve fresh workspace-scoped
   skill discovery and explicit invocation availability in the composer; see
   [providerSkills.ts](../../../packages/client-runtime/src/providerSkills.ts).
@@ -153,15 +224,15 @@ current when an authorized change replaces a decision.
   usage limits or paused queues, while explicit Run now requests remain distinct.
   Retain original queued prompts and truthful queued/dispatched delivery status;
   see [recurring automations](../../../docs/user/project-settings.md#recurring-automations).
-- **Release-only CI.** The fork's one workflow, `iglo-release.yml`, builds and
-  publishes release archives; it runs no checks. The pruning helper deletes every
-  other file in `.github/workflows` on each import, including upstream's
-  `release.yml` and `ci.yml`. Checks run locally before pushing:
+- **No CI.** The fork has no GitHub workflows: release archives are built and
+  published locally per [releases](../../../docs/operations/03_release.md). The
+  pruning helper deletes every file in `.github/workflows` on each import,
+  including upstream's `release.yml` and `ci.yml`. Checks run locally before pushing:
   `vp fmt --check`, `vp run lint`, `vp run i18n:check`,
   `vp run --parallel --filter 't3...' --concurrency-limit 2 typecheck`, the smoke tests in
-  [development checks](../../../docs/operations/development.md#checks), and
-  `vp run --filter t3 build`. Importing upstream is not a request to restore check CI.
-  When upstream changes archive building, reconcile it into `iglo-release.yml`.
+  [development checks](../../../docs/operations/00_development.md#pre-push-checks), and
+  `vp run --filter t3 build`. Importing upstream is not a request to restore CI.
+  When upstream changes archive building, reconcile it into the local release steps.
   `.github/scripts/ci-changes.cjs` stays because `vp run check:changed` uses it. Upstream's
   shared Vite task cache (`infra/task-cache`, `.task-cache.json`, and its root
   `vite.config.ts` hooks) targets upstream's own Cloudflare worker; keep it removed.
@@ -192,9 +263,6 @@ current when an authorized change replaces a decision.
     environment member; All projects always opens the picker, even with one open
     project (upstream starts in that project). The button and the `chat.new`
     shortcut share `resolveNewThreadTarget`.
-  - **Needs attention.** Plugin attention renders as a collapsible section at the
-    top of the thread list, not in the sidebar footer
-    ([PluginSlots.tsx](../../../apps/web/src/plugins/PluginSlots.tsx)).
   - **Scheduled.** A collapsible Scheduled section below Working lists the scoped
     projects' scheduled tasks, soonest first; a row opens the task's own page
     (`/scheduled/$environmentId/$taskId`, `ScheduledTaskPage`) in the main pane with
@@ -211,6 +279,11 @@ current when an authorized change replaces a decision.
 - **History swipe setting.** The fork carries upstream PR 28370's
   `historySwipeNavigation` setting (off by default). Drop the fork copy once
   upstream merges its own.
+- **Mistral Vibe usage provider.** The fork carries upstream PR 23380's `mistral`
+  usage provider (Mistral Vibe session stats and estimated cost in the Usage
+  view), which upstream closed unmerged. Drop the fork copy once upstream
+  merges its own; reconcile the reader, the driver/provider lists, and the web
+  presentations together.
 - **Move a thread between projects.** A thread's context menu (sidebar row and
   chat header share one builder) offers **Move to project** with a destination
   submenu: project identity (a custom monogram icon, else the title monogram)
@@ -239,3 +312,27 @@ current when an authorized change replaces a decision.
   threadActionMenu.logic.test.ts, commandPermissions.test.ts). Upstream has no
   equivalent yet; if it ships its own move, reconcile the contracts, menu, and
   dispatch semantics rather than carrying both paths.
+- **Versioned fork server defaults.** `FORK_SERVER_DEFAULTS_STEPS` in
+  [contracts forkSettingsDefaults.ts](../../../packages/contracts/src/forkSettingsDefaults.ts)
+  holds iglo.code's server defaults (step 2 turns on `autoResumeLimitedThreads`,
+  so limited threads always continue at their reset). Never edit or renumber a shipped step;
+  append a higher version. The server wraps `ServerSettings.layer` with
+  `withForkSettingsDefaults` from
+  [forkSettingsDefaults.ts](../../../apps/server/src/forkSettingsDefaults.ts) in
+  [server.ts](../../../apps/server/src/server.ts), which applies each pending
+  step once through `updateSettings` and records it in
+  `<stateDir>/fork-defaults-version` (the marker alone decides; deleting it
+  re-applies every step). Locked managed-policy paths are skipped and a corrupt
+  `settings.json` stays untouched. `DEFAULT_SERVER_SETTINGS`,
+  [serverSettings.ts](../../../apps/server/src/serverSettings.ts), and the
+  schema defaults stay upstream: `settings.json` is stored sparse against
+  them and missing keys decode to them, so changing them would silently flip
+  stored choices. Settings resets to the fork values instead:
+  `DEFAULT_UNIFIED_SETTINGS` in
+  [settings.ts](../../../packages/contracts/src/settings.ts) spreads
+  `withForkServerDefaults(DEFAULT_SERVER_SETTINGS)`, and the workspace,
+  automatic pull, and branch naming resets read it instead of hard-coded
+  values. The inheritance popover still compares against upstream defaults,
+  since it describes what the server stores. Preserve
+  [forkSettingsDefaults.test.ts](../../../apps/server/src/forkSettingsDefaults.test.ts),
+  which pins the Settings values to what the server applies.

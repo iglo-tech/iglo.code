@@ -23,7 +23,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as AuthHttp from "../auth/http.ts";
 import * as McpOAuth from "../auth/McpOAuth.ts";
 import * as McpOAuthHttp from "../auth/mcpOAuthHttp.ts";
-import type * as SqlClient from "effect/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as CloudLink from "../cloud/CloudLink.ts";
 import * as ServerConfig from "../config.ts";
@@ -32,14 +32,20 @@ import * as ServerHttp from "../http.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as OwnLinkOrigins from "./OwnLinkOrigins.ts";
+import * as PeerHttp from "./http.ts";
+import * as PeerClientPairing from "./PeerClientPairing.ts";
 import * as PeerLinks from "./PeerLinks.ts";
+import * as PeerLinksHttp from "./peerLinksHttp.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as PeerMcpClient from "./PeerMcpClient.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
 class PeerTestApi extends HttpApi.make("environment")
   .add(EnvironmentHttpApi.groups.metadata)
-  .add(EnvironmentHttpApi.groups.mcpOAuth) {}
+  .add(EnvironmentHttpApi.groups.mcpOAuth)
+  .add(EnvironmentHttpApi.groups.peerLinks)
+  .add(EnvironmentHttpApi.groups.peerLink) {}
 
 export const descriptorOf = (
   environmentId: string,
@@ -54,19 +60,36 @@ export const descriptorOf = (
     repositoryIdentity: true,
     mcpModeLimitHeader: true,
     linkFence: true,
+    peerLinkReciprocal: true,
     ...capabilities,
   },
 });
 
+/** An environment's own sessions and pairing links, on a database and secret store of its own. */
+export const layerEnvironmentAuth = (prefix: string) =>
+  EnvironmentAuth.layer.pipe(
+    Layer.provide(ManagedPolicy.layerTest()),
+    Layer.provideMerge(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true })),
+    Layer.provide(Sqlite.layerMemory),
+    Layer.provideMerge(ServerSecretStore.layer),
+    Layer.provideMerge(ServerEnvironment.layerIdentity),
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix })),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    Layer.fresh,
+  );
+
 /**
  * The environment a link points at, as it runs: its descriptor, MCP OAuth,
- * and `/mcp` with `tools` behind the real client authenticator, on a real
- * socket. The descriptor can be swapped, as when its address comes to answer
- * as another environment, and every bearer it receives is recorded.
+ * `/mcp` behind the real client authenticator, and its own links with the
+ * reciprocal endpoints, on a real socket. The descriptor can be swapped, as
+ * when its address comes to answer as another environment.
  */
-export const servePeer = <E, R>(
+export const servePeer = <E, R, E2 = never, R2 = never>(
   initial: ExecutionEnvironmentDescriptor,
   tools: Layer.Layer<never, E, R>,
+  /** More of its HTTP routes, whose handlers get the same auth and settings. */
+  routes: Layer.Layer<never, E2, R2> = Layer.empty,
+  secrets: typeof ServerSecretStore.layer = ServerSecretStore.layer,
 ) =>
   Effect.gen(function* () {
     const descriptor = yield* Ref.make(initial);
@@ -75,18 +98,31 @@ export const servePeer = <E, R>(
     const asleep = yield* Ref.make(false);
     const unanswered = yield* Queue.unbounded<void>();
     const wake = yield* Deferred.make<void>();
+    // Where this peer answers for an environment that links back to it; set once the socket is up.
+    const ownOrigins = yield* Ref.make<ReadonlyArray<string>>([]);
     const layerEnvironment = Layer.succeed(ServerEnvironment.ServerEnvironment, {
       getEnvironmentId: Ref.get(descriptor).pipe(Effect.map((current) => current.environmentId)),
       getDescriptor: Ref.get(descriptor),
     });
-    const authContext = yield* EnvironmentAuth.layer.pipe(
+    const layerLinks = PeerLinks.layer.pipe(
+      // Peers here are served on 127.0.0.1, so only `localhost` stands for this machine.
+      Layer.provide(Layer.succeed(PeerLinks.LoopbackHost, (host: string) => host === "localhost")),
+      Layer.provide(Layer.succeed(OwnLinkOrigins.OwnLinkOrigins, { origins: Ref.get(ownOrigins) })),
+      // The same auth instance the peer's OAuth issues with, by layer memoization.
+      Layer.provide(EnvironmentAuth.layer),
+    );
+    const authContext = yield* Layer.mergeAll(EnvironmentAuth.layer, layerLinks).pipe(
       Layer.provide(ManagedPolicy.layerTest()),
       Layer.provideMerge(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true })),
-      Layer.provide(Sqlite.layerMemory),
-      Layer.provideMerge(ServerSecretStore.layer),
+      Layer.provideMerge(layerEnvironment),
       Layer.provideMerge(ServerEnvironment.layerIdentity),
+      // Merged, so tests can reach the same in-memory database through `sql`.
+      Layer.provideMerge(Sqlite.layerMemory),
+      Layer.provideMerge(secrets),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-peer-link-peer-" })),
-      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      Layer.provideMerge(
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, FetchHttpClient.layer),
+      ),
       Layer.fresh,
       Layer.build,
     );
@@ -129,6 +165,9 @@ export const servePeer = <E, R>(
             ),
           ),
         ),
+        Layer.provide(PeerLinksHttp.layer),
+        Layer.provide(PeerLinksHttp.layerPeerLinkAuthenticated),
+        Layer.provide(PeerHttp.layer.pipe(Layer.provide(PeerClientPairing.layerIssuer))),
         Layer.provide(ServerHttp.layerServerEnvironmentHttpApi),
         Layer.provide(AuthHttp.layerAuthenticatedAuth),
       ),
@@ -140,6 +179,7 @@ export const servePeer = <E, R>(
         ),
         Layer.provide(McpOAuth.layerMcpClientAuthenticator),
       ),
+      routes,
     ).pipe(
       Layer.provide(layerRecordBearers),
       Layer.provide(layerEnvironment),
@@ -148,6 +188,7 @@ export const servePeer = <E, R>(
     // Fresh, so the peer never shares a toolkit or MCP server with the
     // environment that links to it in the same test.
     yield* HttpRouter.serve(layerRoutes, { disableListenLog: true, disableLogger: true }).pipe(
+      Layer.provide(Layer.succeedContext(authContext)),
       Layer.fresh,
       Layer.build,
     );
@@ -156,14 +197,21 @@ export const servePeer = <E, R>(
     const address = (yield* HttpServer.HttpServer).address;
     if (address._tag === "UnixPathAddress") return yield* Effect.die("expected a TCP address");
     const url = `http://127.0.0.1:${address.port}`;
+    yield* Ref.set(ownOrigins, [url]);
     const auth = Context.get(authContext, EnvironmentAuth.EnvironmentAuth);
     return {
       url,
       auth,
+      /** Its database, for tests that seed rows a live run would not. */
+      sql: Context.get(authContext, SqlClient.SqlClient),
+      /** Its links, as its own Settings and agents see them. */
+      links: Context.get(authContext, PeerLinks.PeerLinks),
       /** Its settings, as for turning its Linked environments beta off. */
       settings: Context.get(authContext, ServerSettings.ServerSettingsService),
       descriptor,
       bearers,
+      /** Where it says it answers, as its reciprocal offers carry. */
+      ownOrigins,
       /** How often its descriptor was asked for, as a probe of whether it answers. */
       probes,
       /** While set, its descriptor never answers, as a machine that is asleep. */
@@ -175,7 +223,7 @@ export const servePeer = <E, R>(
         .listSessions()
         .pipe(
           Effect.map((sessions) =>
-            sessions.filter((session) => session.client.label?.startsWith("T3 Code · ")),
+            sessions.filter((session) => session.client.label?.startsWith("iglo.code · ")),
           ),
         ),
     };
@@ -185,7 +233,8 @@ export type ServedPeer = Effect.Success<ReturnType<typeof servePeer>>;
 
 /**
  * The environment that links: its own database and secret store, reaching
- * peers over plain HTTP. Provide it to anything built on its links.
+ * peers over plain HTTP. It serves nothing, so a peer has no address to link
+ * back to; its links are one way.
  */
 export const layerLinkingEnvironment = <E = never>(
   descriptor: ExecutionEnvironmentDescriptor,
@@ -196,7 +245,23 @@ export const layerLinkingEnvironment = <E = never>(
   > = Sqlite.layerMemory,
 ) =>
   PeerMcpClient.layer.pipe(
-    Layer.provideMerge(PeerLinks.layer),
+    Layer.provideMerge(
+      PeerLinks.layer.pipe(
+        // Peers here are served on 127.0.0.1, so only `localhost` stands for this machine.
+        Layer.provide(
+          Layer.succeed(OwnLinkOrigins.OwnLinkOrigins, {
+            origins: Effect.succeed<ReadonlyArray<string>>([]),
+          }),
+        ),
+        // The one-time code a reciprocal offer would carry, against a real pairing store.
+        Layer.provide(
+          EnvironmentAuth.layer.pipe(
+            Layer.provide(ManagedPolicy.layerTest()),
+            Layer.provideMerge(ServerEnvironment.layerIdentity),
+          ),
+        ),
+      ),
+    ),
     Layer.provideMerge(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true })),
     Layer.provideMerge(database),
     Layer.provide(Layer.mergeAll(secrets, FetchHttpClient.layer)),
@@ -214,16 +279,19 @@ export const layerLinkingEnvironment = <E = never>(
     Layer.fresh,
   );
 
-/** Links `links` to `peer` with a fresh pairing code from it. */
+/** Links `links` to `peer` with a fresh pairing code from it, one way. */
 export const linkTo = (
   links: PeerLinks.PeerLinks["Service"],
   peer: ServedPeer,
   access: AuthMcpClientAccess = "auto",
 ) =>
-  peer.auth
-    .issuePairingCredential()
-    .pipe(
-      Effect.flatMap((pairing) =>
-        links.link({ url: peer.url, pairingCode: pairing.credential, access }),
-      ),
-    );
+  peer.auth.issuePairingCredential().pipe(
+    Effect.flatMap((pairing) =>
+      links.link({
+        url: peer.url,
+        pairingCode: pairing.credential,
+        access,
+        reciprocal: false,
+      }),
+    ),
+  );

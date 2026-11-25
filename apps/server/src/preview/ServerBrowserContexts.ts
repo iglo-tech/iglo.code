@@ -192,7 +192,14 @@ export class ServerBrowserContexts {
           if (this.contexts.get(key) === pending) this.contexts.delete(key);
           this.options.onContextClose?.(context);
         });
-        for (const page of context.pages()) await page.close().catch(constVoid);
+        // Headed Chrome exits when its last tab closes on Linux and Windows, so keep one blank anchor page.
+        const [anchor, ...extraPages] = context.pages();
+        for (const page of extraPages) await page.close().catch(constVoid);
+        if (anchor && anchor.url() !== "about:blank") {
+          await anchor
+            .goto("about:blank", { waitUntil: "commit", timeout: 5_000 })
+            .catch(constVoid);
+        }
         if (this.closing) {
           await context.close().catch(constVoid);
           throw new Error("The preview browser is closed.");

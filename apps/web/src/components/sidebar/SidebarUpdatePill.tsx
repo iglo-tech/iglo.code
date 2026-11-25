@@ -6,11 +6,13 @@ import { msg, T, useGT, useMessages } from "gt-react";
 import { type ComponentProps, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { APP_VERSION } from "../../branding";
 import { isElectron } from "../../env";
 import { m } from "../../i18n/messages";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { cn } from "../../lib/utils";
 import { ensureLocalApi } from "../../localApi";
+import { useAppRelease, usePageBehindServer } from "../../state/appRelease";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { usePrimaryManagedPolicy } from "../../state/managedPolicy";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -22,6 +24,7 @@ import {
   getDesktopUpdateDownloadedVersion,
   getDesktopUpdateIdleTooltip,
   getDesktopUpdateInstallConfirmationMessage,
+  installDesktopUpdate,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
@@ -176,7 +179,7 @@ export async function installLocalUpdate(
   expectedVersion?: string,
 ): Promise<boolean> {
   try {
-    const result = await bridge.installUpdate(expectedVersion);
+    const result = await installDesktopUpdate(bridge, expectedVersion);
     if (!result.accepted) {
       showDesktopUpdateDownloadedToast(bridge, result.state);
       return false;
@@ -210,6 +213,10 @@ function SidebarUpdateControl() {
   const [providerCheck, setProviderCheck] = useState<"button" | "dialog" | null>(null);
   const isCheckingProviders = providerCheck === "button";
   const [isConfirmingEverything, setIsConfirmingEverything] = useState(false);
+  const [isCheckingRelease, setIsCheckingRelease] = useState(false);
+  // Without the desktop app, the server serving this page updates itself to the newest release.
+  const release = useAppRelease();
+  const pageBehindVersion = usePageBehindServer();
   const [checkAnimationKey, setCheckAnimationKey] = useState(0);
   const [releaseNotesPopoverHandle] = useState(() => PopoverCreateHandle());
   const suppressReleaseNotesFocusOpen = useRef(false);
@@ -234,18 +241,22 @@ function SidebarUpdateControl() {
     }
   }
 
-  const action = state ? resolveDesktopUpdateButtonAction(state) : "none";
+  const action = state
+    ? resolveDesktopUpdateButtonAction(state)
+    : pageBehindVersion !== null
+      ? "install"
+      : "none";
   const isDownloading = state?.status === "downloading";
   const localUpdateVersion =
     state && action !== "none" ? getDesktopUpdateDownloadedVersion(state) : null;
-  const everything = useUpdateEverything(localUpdateVersion);
+  const everything = useUpdateEverything(localUpdateVersion, undefined, release.version);
   const checkProviderUpdates = useCheckProviderUpdates();
   const runsEverything = everything.hasUpdates && !isDownloading;
   const run = useUpdateEverythingRun();
   const isRunningEverything = run !== null;
   const showCheckIcon = shouldShowDesktopUpdateCheckIcon({
     isAnimationLatched: isCheckAnimationLatched,
-    isChecking: state?.status === "checking" || isCheckingProviders,
+    isChecking: state?.status === "checking" || isCheckingProviders || isCheckingRelease,
     prefersReducedMotion,
   });
   const { iconStatus, showUpdateDetails, showUpdateIconState } = resolveSidebarUpdatePresentation({
@@ -257,14 +268,31 @@ function SidebarUpdateControl() {
   });
   const idleTooltip =
     !showUpdateDetails && !showCheckIcon
-      ? getDesktopUpdateIdleTooltip(state, updatesDenial, messages)
+      ? state || release.status === "unavailable"
+        ? getDesktopUpdateIdleTooltip(state, updatesDenial, messages)
+        : release.status === "error"
+          ? {
+              title: gt("Could not check for updates"),
+              detail: release.errorMessage,
+            }
+          : {
+              title: gt("Check for updates"),
+              detail:
+                release.version !== null
+                  ? gt("iglo.code {version} is available.", { version: release.version })
+                  : release.status === "up-to-date"
+                    ? gt("iglo.code {version} is up to date.", { version: APP_VERSION })
+                    : null,
+            }
       : null;
   const tooltip = runsEverything
     ? everything.summary
     : showUpdateDetails
       ? state
         ? getDesktopUpdateButtonTooltip(state, messages)
-        : gt("Update available")
+        : pageBehindVersion !== null
+          ? gt("Reload to use iglo.code {version}", { version: pageBehindVersion })
+          : gt("Update available")
       : showCheckIcon
         ? gt("Checking for updates…")
         : (idleTooltip?.title ?? gt("Check for updates"));
@@ -273,8 +301,10 @@ function SidebarUpdateControl() {
     : runsEverything
       ? false
       : showUpdateDetails
-        ? isDesktopUpdateButtonDisabled(state)
-        : !canCheckForUpdate(state);
+        ? state !== null && isDesktopUpdateButtonDisabled(state)
+        : state
+          ? !canCheckForUpdate(state)
+          : release.status === "unavailable";
   const isInteractionDisabled = disabled || isActionPending || isRunningEverything;
   const showReleaseNotesPopover =
     !isRunningEverything && shouldUseSidebarUpdateReleaseNotesPopover(showUpdateDetails, state);
@@ -301,7 +331,36 @@ function SidebarUpdateControl() {
       return;
     }
 
-    if (!bridge || !state) return;
+    if (!bridge) {
+      if (action === "install") {
+        window.location.reload();
+        return;
+      }
+      setIsActionPending(true);
+      if (!prefersReducedMotion) {
+        setIsCheckAnimationLatched(true);
+        setCheckAnimationKey((key) => key + 1);
+      }
+      setIsCheckingRelease(true);
+      const releaseCheck = release.check().then((failure) => {
+        setIsCheckingRelease(false);
+        if (failure === null) return;
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: gt("Could not check for updates"),
+            description: failure,
+          }),
+        );
+      });
+      setProviderCheck("button");
+      const providersChecked = checkProviderUpdates().finally(() => setProviderCheck(null));
+      void Promise.allSettled([releaseCheck, providersChecked]).then(() =>
+        setIsActionPending(false),
+      );
+      return;
+    }
+    if (!state) return;
     setIsActionPending(true);
 
     if (action === "download") {
@@ -403,13 +462,21 @@ function SidebarUpdateControl() {
   const handleCheckAnimationIteration = () => {
     setIsCheckAnimationLatched(
       shouldContinueDesktopUpdateCheckAnimation({
-        isChecking: state?.status === "checking" || isCheckingProviders,
+        isChecking: state?.status === "checking" || isCheckingProviders || isCheckingRelease,
         prefersReducedMotion,
       }),
     );
   };
 
-  if (!isElectron && !runsEverything && !isRunningEverything) return null;
+  if (
+    !isElectron &&
+    release.status === "unavailable" &&
+    pageBehindVersion === null &&
+    !runsEverything &&
+    !isRunningEverything
+  ) {
+    return null;
+  }
 
   const statusIcon = (
     <DesktopUpdateStatusIcon
@@ -441,9 +508,10 @@ function SidebarUpdateControl() {
           ? { status: "downloading", percent: state.downloadPercent }
           : { status: "waiting" };
     return (
-      <SidebarMenuItem className="ml-auto flex flex-1">
+      <SidebarMenuItem className="@container/sidebar-update ml-auto flex min-w-8 flex-1">
         <SidebarUpdateCapsule
           run={run}
+          current={everything.machines}
           local={local}
           icon={statusIcon}
           {...(run.localVersion === null && action === "install" && window.desktopBridge

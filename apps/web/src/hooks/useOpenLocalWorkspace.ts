@@ -74,7 +74,7 @@ export function useOpenLocalWorkspace() {
           const error = squashAtomCommandFailure(result);
           throw error instanceof Error
             ? error
-            : new Error(m(msg("T3 Code could not add the project.")));
+            : new Error(m(msg("iglo.code could not add the project.")));
         }
         return projectId;
       },

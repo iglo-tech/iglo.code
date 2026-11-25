@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from "@t3tools/contracts";
+import type { ContextMenuItem, ContextMenuSource } from "@t3tools/contracts";
 import { msg } from "gt-react";
 
 import { m } from "./i18n/messages";
@@ -6,6 +6,8 @@ import { m } from "./i18n/messages";
 import { projectIconColorClassName } from "./projectIconColors";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<string, string> }>> = {
   archive: [
@@ -202,13 +204,16 @@ function createMonogramElement(
   const text = document.createElementNS(SVG_NS, "text");
   text.setAttribute("x", "8");
   text.setAttribute("y", "10.8");
-  text.setAttribute("textAnchor", "middle");
+  text.setAttribute("text-anchor", "middle");
   text.setAttribute("fill", "currentColor");
-  text.setAttribute("fontSize", "8.25");
-  text.setAttribute("fontWeight", "700");
-  text.setAttribute("textLength", monogram.text.length === 1 ? "6" : "12");
+  text.setAttribute("font-size", "8.25");
+  text.setAttribute("font-weight", "700");
+  text.setAttribute(
+    "textLength",
+    Array.from(monogramSegmenter.segment(monogram.text)).length === 1 ? "6" : "12",
+  );
   text.setAttribute("lengthAdjust", "spacingAndGlyphs");
-  text.setAttribute("textRendering", "geometricPrecision");
+  text.setAttribute("text-rendering", "geometricPrecision");
   text.textContent = monogram.text;
   svg.appendChild(text);
   wrapper.appendChild(svg);
@@ -291,6 +296,7 @@ export function dismissContextMenu(restoreFocus = true): void {
 export function showContextMenuFallback<T extends string>(
   items: readonly ContextMenuItem<T>[],
   position?: { x: number; y: number },
+  source?: ContextMenuSource,
 ): Promise<T | null> {
   dismissContextMenu();
   return new Promise<T | null>((resolve) => {
@@ -519,6 +525,12 @@ export function showContextMenuFallback<T extends string>(
           if (monogram) {
             button.appendChild(monogram);
           }
+        } else if (typeof item.iconImage === "string") {
+          const image = document.createElement("img");
+          image.src = item.iconImage;
+          image.alt = "";
+          image.className = "size-4.5 shrink-0 sm:size-4";
+          button.appendChild(image);
         } else if (typeof item.icon === "string") {
           const icon = createIconElement(item.icon, isLeafDestructive ? "destructive" : "neutral");
           if (icon) {
@@ -670,12 +682,15 @@ export function showContextMenuFallback<T extends string>(
     openMenu(items, position?.x ?? 0, position?.y ?? 0, 0);
     activeContextMenuDismiss = dismiss;
     // A keyboard-opened menu starts on its first action, a pointer-opened one on the menu itself.
+    // Without a source, guess from :focus-visible, which screen reader browse mode does not set.
     // Text fields always match :focus-visible, so they say nothing about how the menu opened.
-    const firstAction =
-      previouslyFocusedElement?.matches(":focus-visible") &&
-      !previouslyFocusedElement.matches('input, textarea, select, [contenteditable="true"]')
-        ? menuStack[0]?.querySelector<HTMLButtonElement>("button:not(:disabled)")
-        : null;
+    const openedFromKeyboard =
+      source === "keyboard" ||
+      (previouslyFocusedElement?.matches(":focus-visible") &&
+        !previouslyFocusedElement.matches('input, textarea, select, [contenteditable="true"]'));
+    const firstAction = openedFromKeyboard
+      ? menuStack[0]?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+      : null;
     (firstAction ?? menuStack[0])?.focus({ preventScroll: true });
     document.addEventListener("focusin", onFocusIn);
     window.addEventListener("blur", onWindowBlur);

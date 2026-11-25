@@ -24,6 +24,7 @@ import {
   type WebhookFilterDraft,
 } from "@t3tools/client-runtime/scheduled-task-webhook";
 import { scheduleTimeZoneLabel } from "@t3tools/client-runtime/scheduled-task-time-zone";
+import type { TimestampFormat } from "@t3tools/contracts/settings";
 import { msg } from "gt-react";
 
 import {
@@ -32,6 +33,7 @@ import {
 } from "@t3tools/shared/projectSettings";
 import { getActiveLocale, m, type MessageResolver } from "../../i18n/messages";
 import type { ProviderInstanceEntry } from "../../providerInstances";
+import { formatDateTimeTimestamp, formatTimeOfDay } from "../../timestampFormat";
 
 import type { ResolvedSettingsScope } from "./settingsScope";
 import { formatRelativeTime } from "../../timestampFormat";
@@ -44,13 +46,9 @@ export function weekdayShortLabel(day: number, locale: string = getActiveLocale(
   );
 }
 
-const ONCE_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
 export function scheduleLabel(
   schedule: ScheduledTaskSchedule,
+  timestampFormat: TimestampFormat,
   timeZone?: string,
   runAt?: string | null,
   resolve: MessageResolver = m,
@@ -58,7 +56,9 @@ export function scheduleLabel(
 ): string {
   if (schedule.type === "webhook") return resolve(msg("On webhook"));
   if (schedule.type === "once") {
-    return resolve(msg("Once, {time}", { time: ONCE_FORMATTER.format(new Date(schedule.runAt)) }));
+    return resolve(
+      msg("Once, {time}", { time: formatDateTimeTimestamp(schedule.runAt, timestampFormat) }),
+    );
   }
   if (schedule.type === "interval") {
     const minutes = schedule.everyMs / 60_000;
@@ -67,7 +67,7 @@ export function scheduleLabel(
       : resolve(msg("Every {seconds} sec", { seconds: Math.round(schedule.everyMs / 1000) }));
   }
   const weekdays = schedule.weekdays ?? [];
-  const time = schedule.timeOfDay;
+  const time = formatTimeOfDay(schedule.timeOfDay, timestampFormat);
   const zone = scheduleTimeZoneLabel(timeZone, runAt);
   if (weekdays.length === 0) {
     return zone === undefined
@@ -130,16 +130,16 @@ export interface DraftState {
   readonly weekdays: ReadonlySet<number>;
   readonly projectId: string;
   readonly threadId: string;
+  /** The thread the form opened with, so a save can tell a cleared destination from an unbound one. */
+  readonly savedThreadId: string;
   readonly threadMode: ScheduledTaskThreadMode;
   readonly workspaceMode: WorkspaceMode;
   readonly baseRef: string;
   readonly startFromOrigin: boolean;
   readonly existingWorktreePath: string;
-  readonly modelKey: string;
+  readonly modelSelection: ModelSelection | null;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
-  /** Retain the source selection's provider options when the picker leaves instanceId:model unchanged. */
-  readonly baseModelSelection: ModelSelection | null;
   readonly signatureEnabled: boolean;
   readonly signatureHeader: string;
   readonly signatureEncoding: "hex" | "base64";
@@ -331,9 +331,10 @@ export function taskToDraft(task: ScheduledTask): DraftState {
     weekdays,
     projectId: task.projectId,
     threadId: task.threadId ?? "",
+    savedThreadId: task.threadId ?? "",
     threadMode: scheduledTaskThreadMode(task),
     workspaceMode: task.workspaceStrategy.type,
-    baseRef: task.workspaceStrategy.type === "worktree" ? task.workspaceStrategy.baseRef : "main",
+    baseRef: task.workspaceStrategy.type === "worktree" ? task.workspaceStrategy.baseRef : "",
     startFromOrigin:
       task.workspaceStrategy.type === "worktree"
         ? (task.workspaceStrategy.startFromOrigin ?? false)
@@ -342,10 +343,9 @@ export function taskToDraft(task: ScheduledTask): DraftState {
       task.workspaceStrategy.type === "existing_worktree"
         ? task.workspaceStrategy.worktreePath
         : "",
-    modelKey: `${task.modelSelection.instanceId}:${task.modelSelection.model}`,
+    modelSelection: task.modelSelection,
     runtimeMode: task.runtimeMode,
     interactionMode: task.interactionMode,
-    baseModelSelection: task.modelSelection,
     ...(schedule.type === "webhook" && schedule.signature !== null
       ? {
           signatureEnabled: true,

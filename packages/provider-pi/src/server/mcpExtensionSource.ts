@@ -1,5 +1,6 @@
 // No T3 imports inside the string; resolve Pi and typebox from the user's Pi install.
 import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
+import { PULL_REQUEST_LINKING_INSTRUCTIONS } from "@t3tools/provider-core/server/runtimeInstructions";
 
 export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
 
@@ -24,6 +25,7 @@ const TOKEN_ENV = ${JSON.stringify(T3_MCP_BEARER_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
+const PULL_REQUEST_LINKING_INSTRUCTIONS = ${JSON.stringify(PULL_REQUEST_LINKING_INSTRUCTIONS)};
 const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const PROTOCOL = "2025-06-18";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
@@ -260,7 +262,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     projectTrustChecked = true;
     if (ctx.isProjectTrusted() || process.argv.some((arg) => arg === "--no-approve" || arg === "-na")) return;
     ctx.ui.notify(
-      \`Pi did not load project settings, extensions, skills, prompts, MCP servers or system prompt files for \${ctx.cwd} because the folder is not trusted. To load them, run the configured Pi binary there with the same PI_CODING_AGENT_DIR (if set), trust the folder or its parent with /trust, then start a new thread in that same worktree. To trust every project, add --approve to Pi's launch arguments in T3 Code settings; to keep them off without this notice, add --no-approve.\`,
+      \`Pi did not load project settings, extensions, skills, prompts, MCP servers or system prompt files for \${ctx.cwd} because the folder is not trusted. To load them, run the configured Pi binary there with the same PI_CODING_AGENT_DIR (if set), trust the folder or its parent with /trust, then start a new thread in that same worktree. To trust every project, add --approve to Pi's launch arguments in iglo.code settings; to keep them off without this notice, add --no-approve.\`,
       "warning",
     );
   });
@@ -301,7 +303,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // Only a tier the active model advertises is sent; Standard sends none.
   let serviceTier: string | undefined;
   pi.registerCommand(SERVICE_TIER_COMMAND, {
-    description: "Set the service tier T3 Code sends with provider requests",
+    description: "Set the service tier iglo.code sends with provider requests",
     handler: async (args) => {
       serviceTier = args.trim() || undefined;
     },
@@ -375,7 +377,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       { signal: ctx.signal },
     );
     if (!approved) {
-      return { block: true, reason: \`\${event.toolName} was declined in T3 Code.\` };
+      return { block: true, reason: \`\${event.toolName} was declined in iglo.code.\` };
     }
   });
 
@@ -395,31 +397,55 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // bridge as the credential owner: mcp.json overrides native registrations.
   const supportsExposure = "registerMcpServer" in pi && typeof pi.registerMcpServer === "function";
   const directTools = new Set(["orchestrator_capabilities", "delegate_task", "task_status"]);
+  const ALIAS_PREFIX = "mcp__iglo_code__";
   let deferOptionalTools = supportsExposure;
+  const isDeferred = (name: string) => deferOptionalTools && !directTools.has(name);
+  // An alias follows its public tool: gone when --exclude-tools removed it,
+  // off while a direct one is off.
+  const followsPublicTool = (
+    name: string,
+    registered: ReadonlySet<string>,
+    active: ReadonlyArray<string>,
+  ) =>
+    registered.has("mcp__iglo-code__" + name) &&
+    (isDeferred(name) || active.includes("mcp__iglo-code__" + name));
   let catalog: ReadonlyArray<McpTool> = [];
 
   const client = createMcpClient(endpoint, token);
   let started: Promise<void> | undefined;
 
   const registerTools = () => {
-    // Preserve public names for saved loadouts and tool selectors. Hidden
-    // canonical names reserve ownership against Pi's configured MCP servers.
-    const prefixes = supportsExposure ? ["mcp__iglo-code__", "mcp__iglo_code__"] : ["mcp__iglo-code__"];
+    // Preserve public names for saved loadouts and tool selectors. The alias,
+    // Pi's own MCP name for T3, reserves it against Pi's configured MCP servers.
+    // model-only keeps it out of codemode; it hides its own declaration.
+    const prefixes = supportsExposure ? ["mcp__iglo-code__", ALIAS_PREFIX] : ["mcp__iglo-code__"];
     readOnlyMcpTools.clear();
     for (const tool of catalog) {
       const name = tool.name;
       for (const prefix of prefixes) {
-        if (tool.annotations?.readOnlyHint === true) readOnlyMcpTools.add(\`\${prefix}\${name}\`);
-        const exposure = prefix === "mcp__iglo_code__" ? "hidden" :
-          deferOptionalTools && !directTools.has(name) ? "deferred" : "direct";
+        const toolName = \`\${prefix}\${name}\`;
+        if (tool.annotations?.readOnlyHint === true) readOnlyMcpTools.add(toolName);
+        const isAlias = prefix === ALIAS_PREFIX;
+        const exposure = isAlias ? "model-only" : isDeferred(name) ? "deferred" : "direct";
         pi.registerTool({
-          name: \`\${prefix}\${name}\`,
+          name: toolName,
           label: name,
-          description: tool.description ?? name,
-          parameters: jsonSchemaToTypebox(tool.inputSchema),
+          // Pi records active declarations in the transcript even when hidden, and
+          // estimates context from them. The model sees only the public schema;
+          // T3's server still validates the arguments.
+          description: isAlias ? "Same as mcp__iglo-code__" + name + "." : (tool.description ?? name),
+          parameters: jsonSchemaToTypebox(isAlias ? { type: "object" } : tool.inputSchema),
           ...(supportsExposure ? { outputSchema: mcpOutputSchema(tool) } : {}),
           ...(supportsExposure ? { exposure } : {}),
+          ...(isAlias ? { prepareLoadout: () => ({ hiddenDeclarations: [toolName] }) } : {}),
           async execute(_toolCallId, params, signal) {
+            // Another extension may switch the public tool off after reconciliation.
+            if (
+              isAlias &&
+              !followsPublicTool(name, new Set(pi.getAllTools().map((tool) => tool.name)), pi.getActiveTools())
+            ) {
+              return { content: [{ type: "text", text: \`Tool \${toolName} not found\` }], details: {}, isError: true };
+            }
             const result = await client.callTool(
               name,
               (params ?? {}) as Record<string, unknown>,
@@ -468,7 +494,6 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     const exposureChanged = deferOptionalTools !== hasToolSearch;
     deferOptionalTools = hasToolSearch;
     if (exposureChanged) registerTools();
-    const active = pi.getActiveTools();
     // Completion gateways can silently drop calls to undeclared tools named
     // in history or guidance. Eagerly load T3 schemas, including after tree
     // restores, while retaining deferred exposure for Pi's allowlist rules.
@@ -477,9 +502,39 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       ...(hasToolSearch ? ["tool_search"] : []),
       ...(ctx.model?.api === "openai-completions" ? catalog.map((tool) => "mcp__iglo-code__" + tool.name) : []),
     ];
-    const missing = required.filter((name) => !active.includes(name));
-    if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
+    const current = pi.getActiveTools();
+    const missing = required.filter((name) => !current.includes(name));
+    if (missing.length > 0) pi.setActiveTools([...current, ...missing]);
+    // An alias is callable only while active, and Pi records every active
+    // declaration in the transcript, hidden or not. Calls to the alias of an
+    // active public tool are renamed at message_end instead.
+    const registered = new Set(pi.getAllTools().map((tool) => tool.name));
+    const loaded = pi.getActiveTools();
+    const aliases = catalog
+      .filter((tool) => registered.has(ALIAS_PREFIX + tool.name) &&
+        followsPublicTool(tool.name, registered, loaded) &&
+        !loaded.includes("mcp__iglo-code__" + tool.name))
+      .map((tool) => ALIAS_PREFIX + tool.name);
+    const kept = loaded.filter((name) => !name.startsWith(ALIAS_PREFIX) || aliases.includes(name));
+    const added = aliases.filter((name) => !loaded.includes(name));
+    if (added.length > 0 || kept.length !== loaded.length) pi.setActiveTools([...kept, ...added]);
   };
+
+  // Pi runs a message's tool calls after message_end handlers replace it.
+  pi.on("message_end", (event) => {
+    const message = event.message;
+    if (!supportsExposure || message.role !== "assistant" || !Array.isArray(message.content)) return undefined;
+    const active = pi.getActiveTools();
+    let renamed = false;
+    const content = message.content.map((part) => {
+      if (part.type !== "toolCall" || !part.name.startsWith(ALIAS_PREFIX)) return part;
+      const publicName = "mcp__iglo-code__" + part.name.slice(ALIAS_PREFIX.length);
+      if (!active.includes(publicName)) return part;
+      renamed = true;
+      return { ...part, name: publicName };
+    });
+    return renamed ? { message: { ...message, content } } : undefined;
+  });
 
   // Tree navigation restores its saved loadout after session_start.
   pi.on("session_tree", (_event, ctx) => reconcileDiscovery(ctx));
@@ -497,13 +552,14 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // Keep guidance in the system prompt so leading slash commands still expand.
   pi.on("before_agent_start", (event, ctx) => {
     reconcileDiscovery(ctx);
+    const instructions = ORCHESTRATION_INSTRUCTIONS + "\\n\\n" + PULL_REQUEST_LINKING_INSTRUCTIONS;
     const sections = event.systemPromptOptions?.sections;
     if (sections && typeof sections === "object" && event.systemPromptOptions?.forceSystemPrompt === undefined) {
       // A full prompt override bypasses Pi's later section rendering.
-      sections.t3_code_orchestration = ORCHESTRATION_INSTRUCTIONS;
+      sections.t3_code_orchestration = instructions;
       return undefined;
     }
-    return { systemPrompt: event.systemPrompt + "\\n\\n" + ORCHESTRATION_INSTRUCTIONS };
+    return { systemPrompt: event.systemPrompt + "\\n\\n" + instructions };
   });
 }
 `;

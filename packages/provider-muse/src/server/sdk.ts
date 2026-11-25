@@ -117,7 +117,8 @@ export const museLaunch = Effect.fn("museLaunch")(function* (
   if ((yield* HostProcess.Platform) !== "win32") return { command: binaryPath, args: [] };
   const env = environment ?? (yield* HostProcess.Environment);
   const resolveExecutable = yield* SpawnExecutableResolution;
-  const resolved = resolveExecutable(binaryPath, "win32", env) ?? binaryPath;
+  const resolved =
+    (yield* Effect.promise(async () => resolveExecutable(binaryPath, "win32", env))) ?? binaryPath;
   if (!/\.(?:cmd|bat)$/i.test(resolved)) return { command: resolved, args: [] };
   const systemRoot = windowsEnvironmentValue(env, "SystemRoot");
   return {
@@ -158,7 +159,7 @@ export function museServeArgs(
 
 export function museInitializeParams(readOnly = false) {
   return {
-    clientInfo: { name: "iglo_code", title: "T3 Code", version: "1" },
+    clientInfo: { name: "iglo_code", title: "iglo.code", version: "1" },
     capabilities: { requestedCapabilities: readOnly ? [] : ["sessionMcp"] },
   };
 }

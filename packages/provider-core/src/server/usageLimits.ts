@@ -83,6 +83,9 @@ export function applyUsageLimitsUpdate(input: {
     previous === undefined ? { reason: "probeFailed" as const } : previous.unavailable;
   return {
     ...makeUsageLimits({ checkedAt: input.checkedAt, windows: merged.values() }),
+    // A sparse streamed update is not a fresh probe; only a complete update or a successful
+    // probe (resolveUsageLimitsAfterProbe) may clear the stale marker.
+    ...(previous?.stale !== undefined ? { stale: previous.stale } : {}),
     ...(previous?.resetCredits !== undefined ? { resetCredits: previous.resetCredits } : {}),
     ...(previous?.zeroSpendCap ? { zeroSpendCap: true } : {}),
     ...(unavailable !== undefined ? { unavailable } : {}),
@@ -116,7 +119,25 @@ export function resolveUsageLimitsAfterProbe(input: {
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
-    return published;
+    // Keep the last good bars, but never republish them as a fresh reading: the failed check
+    // is recorded in `stale` so clients can tell the numbers are outdated.
+    if (published.windows.length === 0) return probed;
+    const since =
+      published.stale !== undefined &&
+      Date.parse(published.stale.since) <= Date.parse(probed.checkedAt)
+        ? published.stale.since
+        : probed.checkedAt;
+    return {
+      ...published,
+      stale: {
+        since,
+        ...(probed.unavailable.message !== undefined
+          ? { message: probed.unavailable.message }
+          : published.stale?.message !== undefined
+            ? { message: published.stale.message }
+            : {}),
+      },
+    };
   }
   if (
     published &&
@@ -125,7 +146,12 @@ export function resolveUsageLimitsAfterProbe(input: {
     !probed.unavailable &&
     Date.parse(published.checkedAt) > Date.parse(probed.checkedAt)
   ) {
-    return { ...probed, checkedAt: published.checkedAt, windows: published.windows };
+    return {
+      ...probed,
+      checkedAt: published.checkedAt,
+      windows: published.windows,
+      ...(published.stale !== undefined ? { stale: published.stale } : {}),
+    };
   }
   return probed;
 }

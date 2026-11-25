@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientError from "effect/http/HttpClientError";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
@@ -270,11 +271,11 @@ export const replayServer = (
                 }),
             ),
       forget: Effect.void,
+      connections: Stream.never,
     });
   });
 
-/** The 2.x adapter over a replayed server. */
-export const makeReplayAdapter = (
+const makeReplayAdapter = (
   transcript: ProviderReplayTranscript,
   options?: {
     readonly external?: boolean;

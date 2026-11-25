@@ -352,6 +352,7 @@ export const RelayEnvironmentLinkProofInvalidReason = Schema.Literals([
   "challenge_invalid",
   "origin_not_allowed",
   "endpoint_not_secure",
+  "environment_key_mismatch",
 ]);
 export type RelayEnvironmentLinkProofInvalidReason =
   typeof RelayEnvironmentLinkProofInvalidReason.Type;
@@ -381,7 +382,7 @@ export type RelayEnvironmentEndpointUnavailableReason =
 /**
  * Which part of the path from the relay to the environment failed. `tunnel_down`
  * means Cloudflare has no live connector for the tunnel; `origin_unreachable`
- * means the tunnel answered but T3 Code behind it did not. Optional on the wire
+ * means the tunnel answered but iglo.code behind it did not. Optional on the wire
  * so old relays and old clients keep working.
  */
 export const RelayEnvironmentEndpointFailure = Schema.Literals([
@@ -1320,6 +1321,11 @@ const RelayMobileTelemetryGroup = HttpApiGroup.make("mobileTelemetry")
   )
   .annotate(OpenApi.Description, "Receive mobile app telemetry from expo-observe.");
 
+// Clerk signs with Svix headers; the handler reads raw bytes to verify the signature.
+const RelayAccountWebhooksGroup = HttpApiGroup.make("accountWebhooks")
+  .add(HttpApiEndpoint.post("clerk", "/v1/webhooks/clerk"))
+  .annotate(OpenApi.Description, "Receive Clerk account lifecycle events.");
+
 export const RelayApi = HttpApi.make("RelayApi")
   .add(
     RelayHealthGroup,
@@ -1331,8 +1337,9 @@ export const RelayApi = HttpApi.make("RelayApi")
     RelayServerGroup,
     RelayHooksGroup,
     RelayMobileTelemetryGroup,
+    RelayAccountWebhooksGroup,
   )
-  .annotate(OpenApi.Title, "T3 Code Relay API")
+  .annotate(OpenApi.Title, "iglo.code Relay API")
   .annotate(OpenApi.Version, "1.0.0")
   .annotate(
     OpenApi.Description,

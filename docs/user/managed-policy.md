@@ -95,8 +95,8 @@ cannot enforce, so upgrade iglo.code before you deploy a policy that uses them.
 ## Settings
 
 Each key under `settings` is a setting's path in the server's `settings.json`, such as
-`storageCleanup.logsAfterDays`. To find a path, change the setting in iglo.code and look in
-`settings.json` under `~/.iglo.code/userdata`.
+`storageCleanup.logsAfterDays`. Run `iglo.code policy settings` to list every path a policy can
+manage, with its default.
 
 - `"locked": false` sets a default. It applies wherever the user has not chosen a value of their
   own, and users can change it.
@@ -136,6 +136,8 @@ A few settings need care:
     "clients": ["local-browser"],
     "webhookTasks": false,
     "browserCookieImport": false,
+    "previewTunnel": false,
+    "worktreeLayoutCommands": false,
     "telemetry": false,
     "providers": {
       "allowedDrivers": ["claudeAgent", "codex"],
@@ -211,8 +213,17 @@ so restart iglo.code after that.
 
 - `webhookTasks: false`: scheduled tasks cannot use webhook triggers. Existing webhook tasks stay
   but do not run, and cannot be turned back on. Users can still edit or delete them.
+  Workflow webhooks are refused too.
 - `browserCookieImport: false`: users cannot import cookies from another browser into iglo.code's
   browser.
+- `previewTunnel: false`: other devices cannot load this machine's `localhost` pages themselves;
+  browser tabs stream from it instead. This wins over the user's
+  [Preview tunnel setting](./remote-access.md#browser-on-a-remote-environment).
+- `worktreeLayoutCommands: false`: iglo.code does not run the
+  [worktree layout commands](./multi-repo-projects.md#lay-the-folder-out-yourself) a project's
+  `iglo.code.json` declares, whether or not a user approved them. Such a project gets no new worktree
+  threads; existing thread folders are restored as plain checkouts and removed without the
+  project's `remove` command.
 - `telemetry: false`: the server sends no [product usage data](./telemetry.md). A policy cannot
   turn it on.
 

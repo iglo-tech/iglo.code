@@ -34,6 +34,9 @@ export function resolveCloudPublicConfig(): CloudPublicConfig {
   };
 }
 
+/** Upstream relays the primary server's tracing permission here; with no relay it is unused. */
+export function setServerRelayTelemetry(_allowed: boolean | null): void {}
+
 export function resolveRelayTracingConfig(): RelayClientTracingConfig | null {
   return null;
 }

@@ -27,7 +27,8 @@ const RULES: Rule[] = [
   { label: "helper/telemetry name", pattern: /t3-resource-monitor|t3code-server|"t3-server"/g },
   {
     label: "MCP server/client name",
-    pattern: /mcp__?t3[-_]code|["']t3[-_]code["']\s*:|name: ["']t3[-_]code["']/g,
+    pattern:
+      /mcp__?t3[-_]code|["']t3[-_]code["']\s*:|(?:name|server|serverId): ["']t3[-_]code["']/g,
   },
   {
     label: "t3 CLI command",
@@ -35,6 +36,7 @@ const RULES: Rule[] = [
       /(?:^|[\s`(])t3 (?:serve|up|update|service|doctor|uninstall|pair|start|status|help|install|triage|connect|auth)\b/gm,
     scope: [...DOCS, "AGENTS.md", "apps/server/src/cli/", "scripts/install"],
   },
+  { label: "host t3 CLI lookup", pattern: /\b(?:command -v|which) t3\b/g },
   { label: "npm install path", pattern: /(?:npx|bunx|npm i(?:nstall)?(?: -g)?) @iglo-tech\//g },
   {
     label: "desktop or mobile app",
@@ -42,7 +44,7 @@ const RULES: Rule[] = [
     scope: DOCS,
   },
   { label: "T3 Connect", pattern: /T3 Connect|app\.t3\.codes/g, scope: DOCS },
-  { label: "product name", pattern: /\bT3 Code\b/g, scope: DOCS },
+  { label: "product name", pattern: /\bT3 Code\b/g },
 ];
 
 // Tests and recording tools use arbitrary ports and their own T3_* knobs; nothing ships them.
@@ -59,6 +61,26 @@ const SKIP_PREFIXES = [
 
 // Reviewed exceptions: [path prefix, rule label, why]. Keep each one justified.
 const ALLOW: [string, string, string][] = [
+  [
+    "TRADEMARK.md",
+    "service label",
+    "upstream's trademark policy, kept verbatim; it names T3 Code's own apps",
+  ],
+  ["TRADEMARK.md", "product name", "upstream's trademark policy, kept verbatim"],
+  ["CONTRIBUTING.md", "product name", "upstream contribution guide and trademark notice"],
+  ["AGENTS.md", "product name", "documents fork scope and upstream T3 Code attribution"],
+  [".github/SECURITY.md", "product name", "upstream security reporting notice"],
+  [
+    "docs/internals/06_t3-connect.md",
+    "product name",
+    "names upstream T3 Code where T3 Connect lives",
+  ],
+  [
+    "apps/server/src/cloud/publicConfig.ts",
+    "product name",
+    "comment explaining why upstream T3 Code Connect env vars stay ignored",
+  ],
+  ["patches/", "product name", "upstream patch comments; editing changes the lockfile patch hash"],
   [
     "packages/provider-grok/src/server/driver.test.ts",
     "npx t3 command",

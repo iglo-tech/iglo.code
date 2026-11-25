@@ -24,7 +24,11 @@ import * as Socket from "effect/socket/Socket";
 
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
 import { makeWsRpcProtocolClient, PING_TIMEOUT } from "../rpc/protocol.ts";
-import { isLegacyUpdateHandoffLoss, resolveServerUpdateProgressResult } from "../state/server.ts";
+import {
+  isLegacyUpdateHandoffLoss,
+  localizeServerSelfUpdateError,
+  resolveServerUpdateProgressResult,
+} from "../state/server.ts";
 import * as RelayEnvironmentDiscovery from "../relay/discovery.ts";
 import * as ConnectionResolver from "./resolver.ts";
 import * as EnvironmentRegistry from "./registry.ts";
@@ -112,7 +116,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
       return yield* new OutdatedHostUpdateError({
         environmentId,
         ...translatableMessage(
-          msg("Update T3 Code on {host} manually; it cannot update itself.", {
+          msg("Update iglo.code on {host} manually; it cannot update itself.", {
             host: descriptor.label,
           }),
         ),
@@ -206,7 +210,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
         }
         return updateResult;
       }),
-    );
+    ).pipe(Effect.mapError(localizeServerSelfUpdateError));
 
     yield* onStage("resuming");
     const pollUrls = [
@@ -237,7 +241,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
       return yield* new OutdatedHostUpdateError({
         environmentId,
         ...translatableMessage(
-          msg("{host} did not come back on a compatible T3 Code version.", {
+          msg("{host} did not come back on a compatible iglo.code version.", {
             host: descriptor.label,
           }),
         ),

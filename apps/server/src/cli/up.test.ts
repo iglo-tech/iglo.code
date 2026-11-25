@@ -208,7 +208,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
       },
       {
         label: "a route turns off with no service to run",
-        prints: ["Run `iglo.code --base-dir <baseDir>` to use T3 Code here."],
+        prints: ["Run `iglo.code --base-dir <baseDir>` to use iglo.code here."],
         installed: false,
         env: "IGLO_CODE_LAN=true\n",
         args: ["--no-lan"],

@@ -1,64 +1,160 @@
 # Workflows
 
-A workflow is a reusable process of agent steps, checks, decisions, parallel reviews and
-human gates. Each agent step runs in an ordinary thread, so its messages, tools, diffs and
-approvals stay where you already work. Workflows belong to one environment and project; the
-page always shows which.
+A workflow is a TypeScript script that chains agents, plain code, schedules, webhooks, issue and pull request events, and questions to you into one durable run that survives server restarts. Each step's result is saved when it succeeds, so restarts pick up where the run left off and failures do not lose earlier work. Workflows are an early feature: start runs from the `iglo.code` CLI or a trigger, and follow them in the app.
 
-## Build a workflow
+For one prompt on a timer or webhook, use a scheduled task. Use a workflow when work has stages, such as triage, a fix, your approval, and a release.
 
-Open **Workflows** from the project navigation and choose **New workflow**. Add steps from
-**Add a step**; a new step joins after the selected one. Every agent step submits a structured
-report, and decisions route on its declared fields, a check's recorded result, or a review's
-join. Select a step or route in the graph to edit it in the inspector; keyboard controls also
-select, reorder and remove steps without dragging. Saving keeps your
-draft if the connection drops or someone else saved first.
+## Turn on workflows
 
-## Review in parallel
+Workflows are a Labs feature, off by default. Turn on **Settings → Labs → Workflows** for the server that runs them. To do it without the app, set `"workflowsEnabled": true` in `userdata/settings.json` in the iglo.code home (`~/.iglo.code` by default). While off, nothing in the workflows folder runs and `iglo.code workflow` says how to turn it on; runs are kept and continue once it is on again.
 
-A **Parallel group** freezes one pull request's committed head when it starts and gives each
-reviewer its own isolated worktree at that commit. Add reviewers with their own label, skill,
-focus and deadline; two reviewers can use the same skill. Reviewers always work in plan mode
-and ask before external actions.
+## Create a workflow
 
-The group's **Wait for all** join decides only after every reviewer settles. An accepted
-report is not a settled reviewer: three reports with one reviewer still running is still
-waiting, and an early "changes" verdict does not stop the others. Join rules can read the
-result (`all_completed`, `failed`, `unresolved`, `canceled` or `stale`) and each reviewer's
-report.
+Workflow files live in `~/.iglo.code/workflows/` (or wherever `IGLO_CODE_WORKFLOWS` points: a folder or a single file). The server watches the folder and reloads changes without a restart.
 
-If the pull request head changes or cannot be verified, the review becomes stale instead of
-being used. Choose **Rerun review** in the run to start a new generation
-on the newly verified commit. Earlier generations keep their threads and evidence. Nothing is
-merged automatically.
+- **Ask an agent (recommended):** copy the repository's [`t3-workflows` skill](../../skills/t3-workflows/SKILL.md) into your agent's skills folder (such as `~/.claude/skills/` or `~/.agents/skills/`) and describe what you want.
+- **Edit directly:** edit files in `~/.iglo.code/workflows/`, or use **Definitions** on the Workflows page (saving and deleting in the app require terminal access). Before anything has run, open the page with **Open workflows** in the command palette.
 
-## Run and recover
+A small workflow, saved as `~/.iglo.code/workflows/release.ts`:
 
-Choose **Run workflow** from the project or library. The run view shows each visit, its thread,
-whether a report was accepted, and why routing stopped. Only the actions the server allows
-are offered: approve or request changes at a human gate, resume a retained session, retry, or
-cancel.
+```ts
+const { workflow, step, ask, stop, title } = T3;
 
-## Schedule a workflow
+export default workflow(
+  "release",
+  { version: 1, payload: Schema.Struct({ name: Schema.String }) },
+  Effect.fn(function* (payload) {
+    yield* title(`Release ${payload.name}`);
+    const notes = yield* step("notes", { returns: Schema.String }, Effect.succeed("3 fixes"));
+    const answer = yield* ask("ship", {
+      title: `Ship ${payload.name}? ${notes}`,
+      choices: ["Ship", "Hold"],
+    });
+    if (Option.isNone(answer) || answer.value.choice !== "Ship") return yield* stop("held back");
+    return { shipped: payload.name };
+  }),
+);
+```
 
-In **Settings → Scheduled tasks**, choose **New task** and the environment, set **Runs** to
-**Run a workflow**, and choose the project. Pick a saved workflow, an optional task and the
-workspace, then set the time or interval. Each occurrence starts the workflow as it is saved when that occurrence
-runs, so later edits apply to later runs; a run that already started keeps its snapshot.
-Pause, resume, edit, **Run now** and delete work as for any scheduled task.
+Start it with `iglo.code workflow start release --input '{"name":"v1.4"}' --key v1.4`, then answer its question in the app. `T3`, `Effect`, `Schema` and `Option` are provided (the global keeps upstream's name); a workflow file imports nothing from iglo.code or Effect. Name files with letters, digits, `-`, `_` and `.`; other names are skipped with a warning.
 
-Open the task's menu and choose **Run history** to see recent occurrences. Each shows whether
-the dispatch went out, separately from how its run is going, and **Open run** goes to that
-exact run. If the Workflows plugin is unavailable, the schedule stays saved with its workflow
-and task but cannot run; you can still change its timing, pause it or delete it.
+Saving checks that the file loads, does not duplicate a workflow name and version, and does not remove a version with unfinished runs. A file that fails these checks keeps its last working version while the Workflows page (and the server log) shows why; other files are not affected. A change held back by unfinished runs goes in by itself once those runs end or are cancelled. Mistakes inside a workflow body surface when a run hits them and pauses. To change steps while runs are unfinished, add the new body under a higher `version` and keep the old one until those runs end.
 
-## Answer what needs you
+Dot-files and subfolders are ignored. Keep shared helpers in a subfolder and restart the server after editing an imported file.
 
-**Needs attention**, the topmost section of the thread list, shows the newest runs that need a
-person with a count of all of them. Choose **more** to open the full list, where you can pick a
-project in the breadcrumb to narrow it. Items are
-human gates, each pending approval or question in a workflow thread, and stopped
-runs with their reason. Open a request to answer it in its thread; a thread answers its
-requests in order, so later ones wait for earlier ones. Each item clears only when its own
-gate, request or recovery is resolved. Opening, reading or snoozing a thread does not clear
-it, and a thread with a pending request cannot be snoozed.
+## Start and steer
+
+```sh
+iglo.code workflow start <name> --input '<json>' --key <key>
+iglo.code workflow list [--status paused] [--tag <tag>]
+iglo.code workflow show <run>
+iglo.code workflow resume <run>
+iglo.code workflow cancel <run> [--reason '<why>']
+iglo.code workflow questions [--kind <kind>]
+iglo.code workflow signal '{"choice":"yes"}' --run <run> --wait <name>
+iglo.code workflow signal '<json>' --workflow <name> --channel <channel>
+iglo.code workflow withdraw --run <run> --wait <name> [--reason '<why>']
+iglo.code workflow hooks
+iglo.code workflow store list
+iglo.code workflow store set <key> '<json>'
+```
+
+Every start needs a `--key`: starting twice with the same key returns the same run even after a version bump, so retries do not duplicate work. Use `signal` with `--run` and `--wait` to answer a question or wake a run, or with `--workflow` and `--channel` to wake whichever run waits on that channel. A signal for a question that is no longer open is kept for a later wait rather than refused, so check `iglo.code workflow questions` first. Use `withdraw` when a question no longer needs an answer: its `ask` returns `None`, as on a timeout, and the run goes on; the step records who withdrew it and why. A workflow does the same from a step with `withdraw({ run, name, reason })`. Use `store` to read or change state kept between runs.
+
+## Kinds of question and tags
+
+A workflow that asks more than one kind of question can name the kinds, so you can answer one kind at a time. List them in the workflow's options with the label to show, and give each `ask` its `kind`:
+
+```ts
+const { workflow, ask, tags, Issue } = T3;
+
+workflow(
+  "triage",
+  {
+    version: 1,
+    payload: Issue,
+    asks: { feature: "Feature wanted?", intended: "Bug or intended?" },
+  },
+  Effect.fn(function* (issue) {
+    yield* tags(["backlog"]);
+    yield* ask("wanted", {
+      kind: "feature",
+      title: `Build ${issue.title}?`,
+      choices: ["Yes", "No"],
+    });
+  }),
+);
+```
+
+Under **Needs you**, a picker then shows each kind with how many questions of it are open, and **Other** for the rest; your pick is remembered on that device. A question whose kind is not in the workflow's own `asks` is asked like any other and shows under **Other**, as do questions asked without a kind. `iglo.code workflow questions --kind feature` lists the questions asked with exactly that kind from the CLI.
+
+## Choices, reasons and links
+
+A choice can be plain text, or `{ value, description, requireReason }` to say what picking it does or to take it only with a reason. `links` puts what to look at before answering on the question:
+
+```ts
+yield *
+  ask("wanted", {
+    title: "Build this?",
+    links: [{ label: "The request", url: issue.url }],
+    choices: [
+      { value: "Yes", description: "Work starts on it" },
+      { value: "No", description: "It is closed with a note", requireReason: true },
+    ],
+  });
+```
+
+The app asks for the reason before it sends a choice that requires one, and `iglo.code workflow signal` refuses that choice without a `reason`. Links open in your browser and are part of `iglo.code workflow questions --json`. The answer also records when it was given and who sent it (`answeredAt`, `answeredBy`): the device's name as **Connections** lists it, the tool that sent it, or for `iglo.code workflow signal` run by an agent, that agent's thread. What a signal's own value says for these is ignored; a signal sent before its question opens answers it as whoever sent it, at the time it was received. The run shows both on the question's step, and says **You** only in the session that gave the answer; every other session, even another one on the same device, sees that device's name.
+
+`tags([...])` labels a run for `iglo.code workflow list --tag backlog`, whether or not it waits on anyone.
+
+## Limit how much runs at once
+
+Wrap part of a run in a named pool to cap how many runs are inside it at once, across the whole server:
+
+```ts
+const { within, agent } = T3;
+
+yield* within("builders", { limit: 4 }, agent("fix", { ... }));
+```
+
+When all places are taken, later runs queue in the order they asked and show as **Queued** with their place in line; they count as running, not as needing you. A place is given back when the wrapped part ends, or when its run ends, is cancelled, or pauses. The place is handed on at once, so a step of a paused or cancelled run that is still finishing can overlap with the next run in. A resumed run goes ahead of the queue and takes back every place it held, in every pool, all at once; until they are all free it holds none of them and shows as **Queued**.
+
+`limit: 1` makes it a lock. When calls on the same pool name ask for different limits, a call goes in only while the pool holds fewer runs than its own limit and fewer than the smallest limit of those already inside, and nobody who asked after it goes in first. So a `limit: 1` call always runs alone, but it waits for whoever is inside to finish, two `limit: 2` calls included.
+
+A run can hold several places in one pool by calling `within` side by side, as in `Effect.all`. Calling `within` for a pool from inside that same pool pauses the run with an error, because it could end up waiting for itself; so does `within` on the workflow's own name when it has a `concurrency`. A run that `invoke`s another while holding a place the other needs can still wait forever, so keep `invoke` out of a lock the invoked workflow takes. Step names starting with `@pool:` are kept for the steps that queue; a step or wait of your own named that way pauses its run with an error.
+
+To cap whole runs, give the workflow `concurrency: 4` in its options: its runs share a pool named after the workflow, and each keeps its place until it ends, `onEnd` included.
+
+## Triggers
+
+- **Schedules:** `every` runs on an interval, starting one interval after the workflow loads; `daily` runs at a local time of day (a time missed by more than 10 minutes while the server is down is skipped).
+- **Webhooks:** `iglo.code workflow hooks` prints each hook's path; prepend your server's address. The path contains the hook's secret, so share it only with the sender. A sender's retry that repeats its delivery header (such as GitHub's `X-GitHub-Delivery`) starts no second run, and bodies over 1 MiB are refused. A hook starts at most 60 runs a minute; requests past that get `429` and can be sent again a minute later. Organization policies blocking webhook tasks block workflow webhooks too.
+- **Issues and pull requests:** workflows can start on new issues or pull requests and read, comment on, or update them via **Settings → Source control & issues** — no webhook needed. iglo.code checks roughly once a minute, and only items opened after the workflow was first loaded start runs.
+
+## Follow runs in the app
+
+Open the Workflows page with **Open workflows** in the command palette; the entry shows once a connected server has workflows on. Filter by **Needs you**, **Running**, or **All** (skipped runs stay hidden unless toggled on), open child runs from their parent, and answer questions, resume paused runs, or cancel active runs (requires permission to operate threads). The issues and pull requests a run touched show as chips under its title and on the steps that touched them; a chip opens the item beside the run, in a tab next to any agent transcripts you opened.
+
+Top-level skipped runs, such as webhook deliveries a workflow chose to ignore, do not keep the payload they started with. Each workflow keeps its latest 500 of them and deletes older ones about an hour after they end; change the number in **Settings → Labs → Skipped runs kept** (0 keeps none), or set `"workflowSkippedRunsKept"` in `userdata/settings.json`. Runs that did anything else are never deleted. Once a skipped run is deleted, a start with its key or a webhook retry with its delivery header starts a new run.
+
+### Agent threads
+
+Each `agent` step runs in an ordinary thread, left out of thread lists (including `iglo.code thread list`). Open it from the run to watch it live, read its transcript, or send follow-up messages; the thread links back to the run.
+
+An `agent` step can launch a new thread with its own `workspace` (such as a worktree), `runtimeMode`, `interactionMode`, `title`, and typed `returns`, or continue an earlier step's thread. Runs can set their display name with `title(text)`. An `agent` step can also target a project on a [linked environment](remote-access.md#link-another-environment) (requires **Settings → Labs → Linked environments**); the run itself stays on the server that started it.
+
+### Failures, pause, and cancel
+
+A plain code step runs once unless it asks for retries. When a step fails, the run pauses there instead of losing earlier work:
+
+- **Code step failures** retry automatically after 5, 20, and 80 minutes by default, or immediately when you resume; only that step runs again.
+- **Agent failures** (when an agent ran and gave up or timed out) pause and wait for you to resume rather than retrying automatically. An agent that could not be started at all, for example because its environment was offline, retries on its own like a failed step.
+
+Cancelling a run stops its active agent turns and cancels child runs it invoked. A cancelled run cannot be resumed.
+
+## Limits
+
+- Runs live on the server that started them and only advance while it is running; use an always-on machine for schedules or webhooks you cannot miss.
+- Keep older workflow versions defined until their unfinished runs end or are cancelled.
+- Signals sent to a `channel` before a run waits on it are kept for 7 days by default.

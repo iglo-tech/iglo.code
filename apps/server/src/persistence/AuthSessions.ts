@@ -53,6 +53,8 @@ export const CreateAuthSessionInput = Schema.Struct({
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
   proofKeyThumbprint: Schema.optionalKey(Schema.String),
+  /** The one-time pairing grant this session was spent from, when it was a peer link's link back. */
+  pairingGrantId: Schema.optionalKey(Schema.String),
 });
 export type CreateAuthSessionInput = typeof CreateAuthSessionInput.Type;
 
@@ -85,6 +87,8 @@ export const ExtendAuthSessionInput = Schema.Struct({
   sessionId: AuthSessionId,
   expiresAt: Schema.DateTimeUtcFromString,
   now: Schema.DateTimeUtcFromString,
+  /** When set, only a row whose expiry is at or before this is moved. */
+  onlyIfExpiresBy: Schema.optional(Schema.DateTimeUtcFromString),
 });
 export type ExtendAuthSessionInput = typeof ExtendAuthSessionInput.Type;
 
@@ -127,7 +131,7 @@ export class AuthSessionRepository extends Context.Service<
     readonly revoke: (
       input: RevokeAuthSessionInput,
     ) => Effect.Effect<boolean, AuthSessionRepositoryError>;
-    /** Moves a live session's expiry; false when it is revoked, expired or missing. */
+    /** Moves a live session's expiry; false when it is revoked, expired, missing or past `onlyIfExpiresBy`. */
     readonly extend: (
       input: ExtendAuthSessionInput,
     ) => Effect.Effect<boolean, AuthSessionRepositoryError>;
@@ -241,7 +245,8 @@ export const make = Effect.gen(function* () {
           issued_at,
           expires_at,
           revoked_at,
-          proof_key_thumbprint
+          proof_key_thumbprint,
+          pairing_grant_id
         )
         VALUES (
           ${input.sessionId},
@@ -257,7 +262,8 @@ export const make = Effect.gen(function* () {
           ${input.issuedAt},
           ${input.expiresAt},
           NULL,
-          ${input.proofKeyThumbprint ?? null}
+          ${input.proofKeyThumbprint ?? null},
+          ${input.pairingGrantId ?? null}
         )
         ${ignoreExisting ? sql`ON CONFLICT(session_id) DO NOTHING` : sql``}
       `,
@@ -363,13 +369,14 @@ export const make = Effect.gen(function* () {
   const extendSessionRows = SqlSchema.findAll({
     Request: ExtendAuthSessionInput,
     Result: Schema.Struct({ sessionId: AuthSessionId }),
-    execute: ({ sessionId, expiresAt, now }) =>
+    execute: ({ sessionId, expiresAt, now, onlyIfExpiresBy }) =>
       sql`
         UPDATE auth_sessions
         SET expires_at = ${expiresAt}
         WHERE session_id = ${sessionId}
           AND revoked_at IS NULL
           AND expires_at > ${now}
+          AND (${onlyIfExpiresBy ?? null} IS NULL OR expires_at <= ${onlyIfExpiresBy ?? null})
         RETURNING session_id AS "sessionId"
       `,
   });

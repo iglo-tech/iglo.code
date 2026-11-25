@@ -162,6 +162,13 @@ Browser tabs belong to the environment, so you and your agents see the same
 tabs from any device. The web client streams them from the host. Agents keep using them while no device is
 connected, and `localhost` addresses reach servers on the host.
 
+Turn off **Settings → Sharing & access → Preview tunnel** on the host to stop
+other devices from loading its `localhost` pages themselves; open tunnels
+close. Tabs keep working by streaming from the host, so anyone who can use the
+host's browser tabs can still view its `localhost` pages there. An
+administrator can also turn it off with a
+[managed policy](./managed-policy.md#other-capabilities).
+
 The first tab downloads a full Chrome, about 200 MB, into the iglo.code home. It
 is the same browser [HTML renders](html-renders.md) use, so a host downloads it
 only once. The browser runs as a real window — on the host's display, or on a
@@ -175,9 +182,9 @@ continue. Read-only connections can watch without changing the page.
 
 While you have control, the tab works with your device: text the page copies or
 cuts goes to your clipboard, a file picker on the page opens your device's
-picker, and a finished download is offered for you to save. Popups such as
-sign-in windows open as their own tabs. Downloads stay on the host until the
-tab closes. Audio does not play on your device.
+picker, a dropdown on the page shows its options on your device, and a finished
+download is offered for you to save. Popups such as sign-in windows open as
+their own tabs. Downloads stay on the host until the tab closes. Audio does not play on your device.
 
 On a phone, tap the floating preview's corner dot to show its controls, then
 **Pop into separate window** to keep watching in picture-in-picture over other
@@ -252,7 +259,10 @@ the other: launch, message, wait on and stop its threads, answer their
 questions, and manage its queues, projects and scheduled tasks.
 
 Linked environments is a beta. Turn it on for both machines in **Settings →
-Labs**. While it is
+Labs**. On a headless server, open its address in a browser and pair to reach
+its **Settings → Labs**, or add `"linkedEnvironmentsEnabled": true` to
+`settings.json` in its `userdata` directory, such as
+`~/.iglo.code/userdata/settings.json`; a running server picks it up. While it is
 off on either machine, agents start nothing over a link between them. A task
 already running on the other machine still finishes, and if that machine has it
 off, its result arrives once it is back on.
@@ -265,23 +275,101 @@ makes the pairing code itself; otherwise paste one from that machine's
 **Settings → Sharing & access**. From a terminal, use
 `iglo.code environment link <address> --pairing-code <code> --access <mode>`.
 
-You can also ask an agent to link a machine by name, such as "delegate this to
-my vps". It shows a card in the thread where you pick the machine the same way
-and the access, then approve. An address the agent gives that this app does
-not know for one of your machines also needs a pasted code. Paste one only for
-an address you trust: the code is sent there.
+By default one link serves both directions: the other machine also links back
+to this one, with the same access, using a pairing code this machine mints and
+delivers to it over the link's own sign-in. Uncheck **Link back** in the link
+dialog (or pass `--one-way` in the terminal) to link one direction only, and
+link again from the other side later if you change your mind.
 
-- The access you pick is the most agents from this machine may do there. An
-  agent also never gets more there than its own mode here.
+To link many machines at once, choose **Link several…** (it appears once this
+app has two other machines saved). Tick the machines, pick one access level for
+all of them, and confirm once. A machine can be ticked when this app is
+connected to it with a session that manages access there and has an address
+another machine can reach; the list says why when it cannot. Each machine
+reports its own result, and the ones that failed stay ticked so you can try
+only those again. Machines already linked are left as they are.
+
+For machines no app is connected to, put one `<address> <pairing-code>` per
+line in a file (make each code with `iglo.code pair` on that machine) and run
+`iglo.code environment link --from <file> --access <mode>`, or `--from -` to read
+standard input. It prints a result per line, leaves machines already linked as
+they are, and exits non-zero if any line failed, so the same file can be run
+again with fresh codes for the failures.
+
+The link back needs an address on this machine the other one can reach and
+send credentials to: its Tailscale address (Tailscale HTTPS counts). If it has
+none — say both machines sit on a plain LAN with no Tailscale — the link still
+works this direction, and you are told the other machine could not link back.
+The other machine's version must also know how; update it and link again.
+
+You can also ask an agent to link a machine by name, such as "delegate this to
+my vps". It shows a card in the thread where you pick the machine the same way,
+the access, and whether to link back, then approve. An address the agent gives
+that this app does not know for one of your machines also needs a pasted code.
+Paste one only for an address you trust: the code is sent there.
+
+- The access you pick is the most agents from this machine may do there, and —
+  on a both-ways link — the most its agents may do here. An agent also never
+  gets more there than its own mode here.
 - Threads a link starts are marked **From** and this machine's name there.
 - A full-access link works there like that machine's own agents. Below full
   access, the link's agents can change only threads it started, not that
   machine's own threads, projects or settings, and they skip its project setup
   scripts.
 - The link shows up in that machine's **Settings → Sharing & access** like any
-  outside agent. Revoke it there to end it. **Forget** on this machine only
-  removes it here.
-- Links last 30 days. Link again with a new pairing code to renew one.
+  outside agent, and can be revoked there. **Forget** here removes the link on
+  both machines and ends both sides' sessions when the other machine answers;
+  if it does not answer, or runs a version without two-way links, whatever it
+  holds stays until you remove it there.
+- A link stays valid while agents use it. One unused for 30 days expires, as
+  does one to a machine on an older iglo.code after 30 days; link again with a
+  new pairing code to renew one. On a both-ways link, renewing from either
+  machine renews both directions.
+
+On web and desktop, **Settings → Environments** opens as a map of your machines:
+this app, each environment with one line per route (the one in use is
+highlighted), and the machines an environment links to. Select a machine to
+manage it, or switch to **List** for the same controls as rows. To link from
+the map, drag the plus on an environment onto another machine, or press it and
+pick one. If this app is connected to both machines, knows an address the first
+can reach the other at, and its session on the other one manages access there,
+it needs no pairing code.
+
+A machine this app is not connected to, shown only because another environment
+links to it, can still be linked without a code when that link has full access:
+drop the plus on it and the environment holding the link gets the pairing code
+from it. Your session on that environment must manage access there and already
+have the access you pick. The result
+is a separate link with the access you pick, listed and revocable on the linked
+machine like any other. Links still do not chain.
+
+A link goes one way. To let the other machine's agents work back, tick **Also
+link … back** when you create the link, or select a one-way link and use
+**Link back…**. It is offered when this app is connected to both machines and
+may manage access on each. Two machines linked to each other at the same access
+are drawn as one line with an arrowhead at each end; they are still two links,
+and each is forgotten on its own.
+
+To link one environment to several machines at once, Shift-click the machines
+(or Shift-drag a box around them, or press Space on a focused machine), then
+drag the environment's plus onto any of them, or use **Link several…** above
+the map. Dropping the plus on a stack offers the stack's machines. The dialog
+ticks the machines it can link without a pairing code and says why for the
+rest. When this app is connected to none of them, each needs a pairing code,
+so the map says so and offers to link one at a time instead.
+
+Large setups fold: machines known only through links that share the same
+linking environments and access levels become one stack, and once this app
+knows more than 12 environments, the ones that are not connected and have no
+links fold by state. Select a stack to list and filter every machine in it.
+Opening a stack on the map draws its first 24 below its card: the rest of the
+map stays where it is and the map grows taller, so pan or press the fit button
+to see all of it. **Find a machine** above the map searches by name, and Enter
+goes to the first match. The **?** button above the map lists these gestures.
+
+The map draws the links of the machines this app is connected to; a machine it
+is not connected to may hold links the map cannot show. A link reaches one
+machine and does not carry on through that machine's own links.
 
 An agent can also hand a task to a linked machine with `delegate_task`: it runs
 there as an ordinary thread, in the project with the same repository (or the
@@ -289,6 +377,38 @@ one `target.projectId` names), and this thread wakes with its result when it
 ends, as for any delegated task. It keeps following the task across restarts.
 If the other machine revokes the link, or the link is removed here, the task
 fails with that reason.
+
+### Read a linked machine's threads
+
+You can read a thread on a linked machine without connecting this app to it. Open
+a task that was delegated there from the thread's agents, or a thread link that
+points there, and the thread opens read-only, streamed through the machine you
+are connected to over its link. It follows the thread live. On web and desktop
+it opens as a tab in the right panel, beside the thread you are in, or in the
+main view with ⌘/Ctrl-click, like
+[subagents and side chats](thread-sidebar.md#open-a-thread-beside-the-one-you-are-in).
+On mobile it opens in the inspector on layouts that have one, where Maximize
+fills the screen, and as its own screen elsewhere. It shows the same timeline as
+any other thread on web and desktop, and a shorter read-only list on mobile.
+
+- The view is marked **Read-only** with both machines' names. To reply, approve
+  or stop the thread, choose **Connect to interact**. When the link has full
+  access, this app pairs with that machine in one step and opens the thread
+  there; you need permission to manage access on the machine you are connected
+  to. Otherwise the add-environment form opens for that machine and asks for a
+  pairing code you create on it.
+- This app connects to that machine directly, so it must be able to reach one of
+  the addresses the link uses. If it cannot, the view says so and stays
+  read-only. The new connection appears in that machine's **Settings → Sharing &
+  access**, named after this device and the machine it came through, and is
+  revoked there like any other.
+- Files, images and published visuals stay on that machine and do not load
+  here. A command's output shows as of when you open its row.
+- If this app is already connected to that machine, the thread opens there as
+  usual instead.
+- You need permission to read threads on the machine you are connected to, and
+  Linked environments must be on there. Both machines need a version of iglo.code
+  that has this view.
 
 ## Manage or revoke access
 
@@ -331,7 +451,13 @@ checkout use that checkout's permissions.
 client: pushing, switching or creating branches, cloning, and removing
 worktrees. It does not restrict what a task does. Starting a task in a new
 worktree still creates that branch and worktree with `orchestration:operate`,
-and the agent it runs can use Git however the environment allows.
+and the agent it runs can use Git however the environment allows. A project
+that [lays out its worktrees with its own command](multi-repo-projects.md#lay-the-folder-out-yourself)
+runs that command on the host, so creating a worktree there from the client also
+needs `orchestration:operate` or `terminal:operate`; without one of them,
+removing a worktree skips the project's `remove` command. The command also has
+to be [approved](multi-repo-projects.md#approve-the-commands) first, from a
+client with `terminal:operate`.
 
 Settings changes, provider management, environment maintenance, and access
 management can each be granted separately. New

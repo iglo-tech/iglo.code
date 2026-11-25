@@ -536,6 +536,8 @@ export const AuthSessionState = Schema.Struct({
   scopes: Schema.optionalKey(AuthEnvironmentScopes),
   permissions: authScopeResponseFields.permissions,
   sessionMethod: Schema.optionalKey(ServerAuthSessionMethod),
+  /** This client's own session, so it can tell what it did from what another client did. */
+  sessionId: Schema.optionalKey(AuthSessionId),
   expiresAt: Schema.optionalKey(Schema.DateTimeUtc),
 });
 export type AuthSessionState = typeof AuthSessionState.Type;
@@ -554,6 +556,8 @@ export const AuthMcpAuthorizationServerMetadata = Schema.Struct({
   authorization_endpoint: Schema.String,
   token_endpoint: Schema.String,
   registration_endpoint: Schema.String,
+  // Older environments do not serve one.
+  revocation_endpoint: Schema.optionalKey(Schema.String),
   response_types_supported: Schema.Array(Schema.Literal("code")),
   grant_types_supported: Schema.Array(Schema.Literal("authorization_code")),
   code_challenge_methods_supported: Schema.Array(Schema.Literal("S256")),
@@ -564,7 +568,7 @@ export const AuthMcpAuthorizationServerMetadata = Schema.Struct({
 export type AuthMcpAuthorizationServerMetadata = typeof AuthMcpAuthorizationServerMetadata.Type;
 
 /**
- * The `software_id` another T3 Code environment registers with when it links
+ * The `software_id` another iglo.code environment registers with when it links
  * to this one. Its session is then a peer link: the work it starts here stays
  * within that link. Claiming it only ever adds limits.
  */
@@ -573,6 +577,11 @@ export const MCP_PEER_LINK_SOFTWARE_ID = "t3code-peer-link";
 export const AuthMcpClientRegistration = Schema.Struct({
   client_name: Schema.optionalKey(Schema.String),
   software_id: Schema.optionalKey(Schema.String),
+  /**
+   * For a peer link, the linking environment's id, so the session it gets here
+   * names its owner. Old servers ignore it.
+   */
+  software_version: Schema.optionalKey(Schema.String),
   redirect_uris: Schema.optionalKey(Schema.Array(Schema.String)),
   token_endpoint_auth_method: Schema.optionalKey(Schema.String),
 });
@@ -669,6 +678,13 @@ export const AuthMcpTokenRequest = Schema.Struct({
   resource: Schema.optionalKey(Schema.String),
 }).pipe(HttpApiSchema.asFormUrlEncoded());
 export type AuthMcpTokenRequest = typeof AuthMcpTokenRequest.Type;
+
+/** RFC 7009: the holder of an access token ends its session. */
+export const AuthMcpRevokeRequest = Schema.Struct({
+  token: Schema.optionalKey(Schema.RedactedFromValue(Schema.String)),
+  token_type_hint: Schema.optionalKey(Schema.String),
+}).pipe(HttpApiSchema.asFormUrlEncoded());
+export type AuthMcpRevokeRequest = typeof AuthMcpRevokeRequest.Type;
 
 export const AuthMcpTokenResult = Schema.Struct({
   access_token: Schema.String,

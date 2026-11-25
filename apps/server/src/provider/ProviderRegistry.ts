@@ -25,12 +25,14 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 import * as SynchronizedRef from "effect/SynchronizedRef";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as ModelManifest from "./ModelManifest.ts";
 import { applyProviderCompatibility } from "./providerCompatibility.ts";
 import * as ServerConfig from "../config.ts";
-import { refreshWindowsPath } from "../os-jank.ts";
+import { refreshPathFromLoginShell, refreshWindowsPath } from "../os-jank.ts";
 import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
 import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMutator.ts";
 import {
@@ -72,6 +74,12 @@ export class ProviderRegistry extends Context.Service<
     readonly reloadSecretsAndRefresh: (
       instanceId?: ProviderInstanceId,
     ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+    /**
+     * Rebuilds and re-checks enabled instances not yet found installed after the host environment
+     * changed. Drivers copy the environment when built, so only a rebuild sees a later PATH.
+     */
+    readonly rebuildMissingAndRefresh: Effect.Effect<ReadonlyArray<ServerProvider>>;
 
     /** Rebuilds and refreshes only the instances that read a secret, with the value the caller just read. */
     readonly applySecretAndRefresh: (
@@ -325,6 +333,23 @@ const carrySavedAntigravityAccount = (
   return { auth: previousProvider.auth, status };
 };
 
+/** One failed check after a ready one is often transient, so its retained catalog stays offered. */
+const retainsReadyCatalog = (
+  previousProvider: ServerProvider,
+  nextProvider: ServerProvider,
+  status: ServerProvider["status"],
+  models: ServerProvider["models"],
+): boolean =>
+  nextProvider.enabled &&
+  nextProvider.installed &&
+  (status === "error" || status === "warning") &&
+  nextProvider.auth.status !== "unauthenticated" &&
+  models.length > 0 &&
+  (previousProvider.status === "ready" ||
+    // Usage and metadata updates republish the same check.
+    (previousProvider.modelsRetained === true &&
+      previousProvider.checkedAt === nextProvider.checkedAt));
+
 export const mergeProviderSnapshot = (
   previousProvider: ServerProvider | undefined,
   nextProvider: ServerProvider,
@@ -360,6 +385,14 @@ export const mergeProviderSnapshot = (
     ...(savedAccount?.status === "ready" ? nextWithoutMessage : nextProvider),
     ...savedAccount,
     models,
+    ...(retainsReadyCatalog(
+      previousProvider,
+      nextProvider,
+      savedAccount?.status ?? nextProvider.status,
+      models,
+    )
+      ? { modelsRetained: true }
+      : {}),
     ...(workspaceSnapshots === undefined ? {} : { workspaceSnapshots }),
     ...(nextProvider.workspaceRescannedAt === undefined &&
     previousProvider.workspaceRescannedAt !== undefined
@@ -727,7 +760,20 @@ export const layer = Layer.effect(
     // A refresh is how a user asks T3 to see a CLI installed since launch; a burst shares one probe.
     // Drivers copy the environment when built, so instances still missing their CLI are rebuilt
     // on the new PATH. They cannot have live sessions, and installed ones keep theirs.
+    // Compared with the last PATH seen here, since other features re-read the login shell too.
+    const hostEnvironment = yield* HostProcess.Environment;
+    const readHostPath = () => hostEnvironment.PATH ?? hostEnvironment.Path ?? hostEnvironment.path;
+    const lastHostPathRef = yield* Ref.make(readHostPath());
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const refreshHostPath = yield* refreshWindowsPath().pipe(
+      Effect.andThen(refreshPathFromLoginShell()),
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.andThen(
+        Effect.suspend(() => {
+          const path = readHostPath();
+          return Ref.getAndSet(lastHostPathRef, path).pipe(Effect.map((last) => last !== path));
+        }),
+      ),
       Effect.flatMap((changed) =>
         changed
           ? Ref.get(providersRef).pipe(
@@ -826,6 +872,35 @@ export const layer = Layer.effect(
     ) {
       yield* instanceRegistryMutator.reloadSecrets(instanceId);
       return yield* instanceId === undefined ? refresh() : refreshInstance(instanceId);
+    });
+
+    // Only instances whose CLI was not found are rebuilt; installed ones may have live sessions.
+    const rebuildMissingAndRefresh = Effect.fn("rebuildMissingAndRefresh")(function* () {
+      const instances = yield* instanceRegistry.listInstances;
+      yield* refresh().pipe(Effect.catchCause(recoverRefreshFailure));
+      const missing = yield* Effect.filter(instances, (instance) =>
+        Effect.gen(function* () {
+          // ACP also reports installed:false for setup states unrelated to executable discovery.
+          if (
+            !instance.enabled ||
+            instance.driverKind === "acpRegistry" ||
+            !(yield* isCurrentInstance(instance))
+          )
+            return false;
+          const snapshot = yield* instance.snapshot.getSnapshot;
+          return !snapshot.installed;
+        }),
+      );
+      if (missing.length === 0) return yield* Ref.get(providersRef);
+      yield* instanceRegistryMutator.rebuild(missing.map((instance) => instance.instanceId));
+      // A shared pass already in flight may hold the retired instances, so probe each rebuilt one.
+      yield* Effect.forEach(
+        missing,
+        (instance) =>
+          refreshInstance(instance.instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
+        { concurrency: "unbounded", discard: true },
+      );
+      return yield* Ref.get(providersRef);
     });
 
     const applySecretAndRefresh = Effect.fn("applySecretAndRefresh")(function* (
@@ -1019,6 +1094,27 @@ export const layer = Layer.effect(
               yield* correlateSnapshotWithSource(source, provider).pipe(
                 Effect.flatMap(syncProvider),
               );
+            }).pipe(Effect.ignoreCause({ log: true })),
+          { concurrency: "unbounded", discard: true },
+        );
+        // A rename keeps the instance live, so its new label only arrives from a fresh read.
+        const published = new Map(
+          (yield* Ref.get(providersRef)).map((provider) => [provider.instanceId, provider]),
+        );
+        yield* Effect.forEach(
+          carriedOver.values(),
+          (instance) =>
+            Effect.gen(function* () {
+              // Its first check publishes the new label anyway; the placeholder must not replace the cache.
+              if (yield* instance.snapshot.isAwaitingFirstCheck ?? Effect.succeed(false)) return;
+              const provider = yield* instance.snapshot.getSnapshot;
+              const previous = published.get(instance.instanceId);
+              if (
+                previous?.displayName !== provider.displayName ||
+                previous?.accentColor !== provider.accentColor
+              ) {
+                yield* syncProvider(provider);
+              }
             }).pipe(Effect.ignoreCause({ log: true })),
           { concurrency: "unbounded", discard: true },
         );
@@ -1292,6 +1388,7 @@ export const layer = Layer.effect(
                           return input.rescan &&
                             !(
                               Equal.equals(rescanned?.skills, held?.skills) &&
+                              Equal.equals(rescanned?.models, held?.models) &&
                               Equal.equals(rescanned?.slashCommands, held?.slashCommands)
                             )
                             ? { ...scanned, workspaceRescannedAt: checkedAt }
@@ -1416,6 +1513,9 @@ export const layer = Layer.effect(
           Effect.andThen(reloadSecretsAndRefresh(instanceId)),
           Effect.catchCause(recoverRefreshFailure),
         ),
+      rebuildMissingAndRefresh: rebuildMissingAndRefresh().pipe(
+        Effect.catchCause(recoverRefreshFailure),
+      ),
       applySecretAndRefresh: (reference: SecretReference, value: string) =>
         applySecretAndRefresh(reference, value).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshWorkspaceSnapshot: (input) =>

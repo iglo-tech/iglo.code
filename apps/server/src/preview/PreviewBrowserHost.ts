@@ -9,6 +9,8 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 export const SETUP_SUBCOMMAND = "browser setup";
 
 export const NO_SANDBOX_SIGNATURE = "No usable sandbox";
+/** What chrome-headless-shell prints itself when started sandboxed as root. */
+const ROOT_SANDBOX_SIGNATURE = "Running as root without --no-sandbox";
 
 export const sandboxDisabled = (env: Readonly<Record<string, string | undefined>>) =>
   env.IGLO_CODE_SERVER_BROWSER_SANDBOX === "0";
@@ -20,7 +22,7 @@ export const APPARMOR_PROFILE_PATH = "/etc/apparmor.d/t3-chrome";
 export const LEGACY_APPARMOR_PROFILE_PATH = "/etc/apparmor.d/t3-chrome-headless-shell";
 
 /** Attaches to the Chrome binaries under `tools/chrome/<platform>/<version>/`; covers the crashpad helper too. */
-export const APPARMOR_PROFILE = `# Written by \`iglo.code browser setup\`: lets T3 Code's browser use Chrome's sandbox.
+export const APPARMOR_PROFILE = `# Written by \`iglo.code browser setup\`: lets iglo.code's browser use Chrome's sandbox.
 abi <abi/4.0>,
 include <tunables/global>
 
@@ -116,6 +118,7 @@ export const diagnoseLaunchFailure = Effect.fn("PreviewBrowserHost.diagnoseLaunc
     readonly setupCommand: string;
   }) {
     const { setupCommand } = input;
+    if (input.output.includes(ROOT_SANDBOX_SIGNATURE)) return new PreviewBrowserRootError();
     if (input.output.includes(NO_SANDBOX_SIGNATURE)) {
       // Playwright reports Chrome's refusal to sandbox as root as a sandbox failure too.
       return (yield* HostProcess.UserId) === 0

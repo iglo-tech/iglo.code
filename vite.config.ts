@@ -99,10 +99,7 @@ const loadWebReactCompiler = async (): Promise<Plugin> => {
     transform: {
       filter: {
         id: {
-          include: [
-            /\/apps\/web\/src\/.*\.tsx$/,
-            /\/packages\/plugin-workflows\/src\/web\/.*\.tsx$/,
-          ],
+          include: [/\/apps\/web\/src\/.*\.tsx$/],
           exclude: [/\.test\.tsx$/, /\/node_modules\//],
         },
         code: /\b[A-Z]|\buse/,
@@ -298,6 +295,7 @@ export default defineConfig({
       "t3code/no-native-title-tooltip": "error",
       // Test files only (the rule checks the filename).
       "t3code/no-polling-loop-in-tests": "error",
+      "t3code/no-layout-command-approval-writes": "error",
       "t3code/no-raw-mcp-registration": "error",
       "t3code/no-real-time-wait-in-tests": "error",
       "t3code/no-test-in-loop": "error",
@@ -312,38 +310,6 @@ export default defineConfig({
       "t3code/require-suppression-reason": "error",
     },
     overrides: [
-      {
-        files: ["packages/plugin-*/src/**"],
-        excludeFiles: ["packages/plugin-host-adapter/**", "packages/plugin-host-contract/**"],
-        rules: {
-          "eslint/no-restricted-imports": [
-            "error",
-            {
-              patterns: [
-                {
-                  group: [
-                    "**/apps/**",
-                    "**/client-runtime/**",
-                    "**/plugin-host-adapter/**",
-                    "**/contracts/**",
-                    "**/shared/**",
-                    "@t3tools/client-runtime",
-                    "@t3tools/client-runtime/**",
-                    "@t3tools/plugin-host-adapter",
-                    "@t3tools/plugin-host-adapter/**",
-                    "@t3tools/contracts",
-                    "@t3tools/contracts/**",
-                    "@t3tools/shared",
-                    "@t3tools/shared/**",
-                  ],
-                  message:
-                    "Plugins use @t3tools/plugin-host-contract and their own contracts. T3 implementation dependencies belong in the host adapter.",
-                },
-              ],
-            },
-          ],
-        },
-      },
       {
         files: [
           "**/*.{test,spec,testkit}.{ts,tsx}",
@@ -360,9 +326,6 @@ export default defineConfig({
       },
       {
         files: ["apps/web/**/*.test.{ts,tsx}"],
-        // The fork's plugin tests render through react-test-renderer and jsdom, outside the
-        // browser runner that apps/web/test/render.tsx serves.
-        excludeFiles: ["apps/web/integration/**", "apps/web/src/plugins/workflowsEditor.test.tsx"],
         rules: { "t3code/require-disposable-render": "error" },
       },
       {
@@ -417,6 +380,16 @@ export default defineConfig({
       {
         files: ["apps/server/src/mcp/McpHttpServer.ts"],
         rules: { "t3code/no-raw-mcp-registration": "off" },
+      },
+      {
+        // The client RPC, the layer that builds it, and the tests that stand in for a person.
+        files: [
+          "apps/server/src/ws.ts",
+          "apps/server/src/server.ts",
+          "apps/server/src/ws.test.ts",
+          "apps/server/src/workspace/TaskFolders.testkit.ts",
+        ],
+        rules: { "t3code/no-layout-command-approval-writes": "off" },
       },
       {
         files: ["apps/web/src/**"],

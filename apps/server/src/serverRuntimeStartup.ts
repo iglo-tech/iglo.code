@@ -10,7 +10,6 @@ import {
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
-import { formatHostForUrl, isWildcardHost } from "@t3tools/shared/hostClassification";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
@@ -22,7 +21,6 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -50,8 +48,11 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { getServerOwners } from "./telemetry/Identify.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
-import * as PluginRegistry from "@t3tools/plugin-host-adapter/registry";
-import { formatHeadlessServeOutput, issueHeadlessServeAccessInfo } from "./startupAccess.ts";
+import {
+  formatHeadlessServeOutput,
+  issueHeadlessServeAccessInfo,
+  resolveLocalOrigin,
+} from "./startupAccess.ts";
 
 export class ServerRuntimeStartupError extends Schema.TaggedError<ServerRuntimeStartupError>()(
   "ServerRuntimeStartupError",
@@ -203,7 +204,10 @@ export const autoPullProjects = Effect.fn("autoPullProjects")(function* (
     workspaceRoots,
     (cwd) =>
       Effect.gen(function* () {
-        const status = yield* git.statusDetails(cwd);
+        // Startup checks once, so it waits for the fetch rather than reading the old references.
+        const status = yield* git
+          .statusDetails(cwd)
+          .pipe(Effect.provideService(GitVcsDriver.AwaitStatusFetch, true));
         if (
           !status.isRepo ||
           !status.isDefaultBranch ||
@@ -342,12 +346,8 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
 const resolveStartupBrowserTarget = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-  const localUrl = `http://localhost:${serverConfig.port}`;
-  const bindUrl =
-    serverConfig.host && !isWildcardHost(serverConfig.host)
-      ? `http://${formatHostForUrl(serverConfig.host)}:${serverConfig.port}`
-      : localUrl;
-  const baseTarget = serverConfig.devUrl?.toString() ?? bindUrl;
+  const baseTarget =
+    serverConfig.devUrl?.toString() ?? resolveLocalOrigin(serverConfig.host, serverConfig.port);
   return serverConfig.mode === "desktop"
     ? baseTarget
     : yield* serverAuth.issueStartupPairingUrl(baseTarget);
@@ -355,7 +355,7 @@ const resolveStartupBrowserTarget = Effect.gen(function* () {
 
 /** Prints the one-time admin pairing URL to stdout only; logger records reach trace files and collectors. */
 export const announceStartupPairingUrl = (pairingUrl: string) =>
-  Effect.logInfo("Authentication required. Open T3 Code using the pairing URL.").pipe(
+  Effect.logInfo("Authentication required. Open iglo.code using the pairing URL.").pipe(
     Effect.andThen(Console.log(`  pairingUrl: ${pairingUrl}`)),
   );
 
@@ -575,11 +575,6 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
       ).pipe(Effect.map((targets): AutoBootstrapWelcomeTargets => targets)),
     });
     yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
-    const plugins = yield* Effect.serviceOption(PluginRegistry.PluginRegistry);
-    if (Option.isSome(plugins)) {
-      yield* plugins.value.start;
-      yield* plugins.value.awaitToolsReady;
-    }
     // Runs after activation: the status check fetches every enabled project's
     // remote, and awaiting it here held command readiness for that long.
     yield* runStartupPhase(

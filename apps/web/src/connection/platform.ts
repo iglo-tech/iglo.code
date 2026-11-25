@@ -62,6 +62,7 @@ import {
   type DesktopSecondaryBootstrapsRead,
 } from "./desktopLocal";
 import * as ConnectionStorage from "./storage";
+import { browserThreadTriageOutboxStore } from "./threadTriageOutboxStore";
 import { clientPresentationMetadata } from "./clientMetadata";
 import { m } from "../i18n/messages";
 
@@ -275,7 +276,7 @@ export const provisionDesktopSshEnvironment = Effect.fn(
         reason: "configuration",
         detail: m(
           msg(
-            "{label} runs T3 Code {serverVersion}, but this desktop is {appVersion}, and that server could not accept its pairing. Restart the T3 server on {label} so it runs {appVersion}, then retry.",
+            "{label} runs iglo.code {serverVersion}, but this desktop is {appVersion}, and that server could not accept its pairing. Restart the T3 server on {label} so it runs {appVersion}, then retry.",
             {
               label: descriptor.label,
               serverVersion: descriptor.serverVersion,
@@ -841,7 +842,11 @@ const layerEnvironmentOwnedDataCleanup = Layer.succeed(
     clear: Effect.fn("Persistence.EnvironmentOwnedDataCleanup.clear")(function (environmentId) {
       return Effect.sync(() => {
         clearComposerDraftsEnvironment(environmentId);
-      });
+      }).pipe(
+        Effect.andThen(
+          Effect.ignore(browserThreadTriageOutboxStore.clearEnvironment(environmentId)),
+        ),
+      );
     }),
   }),
 );

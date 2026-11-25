@@ -85,14 +85,14 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer term
           expect(code).not.toBe(0);
           expect(output).toContain("500");
           expect(output).not.toContain("100%");
-          expect(output).not.toContain("Installed T3 Code");
+          expect(output).not.toContain("Installed iglo.code");
           expect(await NodeFSP.readdir(versions)).toEqual([]);
         } else {
           expect(code).toBe(0);
           expect(sawPartialProgress).toBe(true);
           expect(output).toContain("100%");
           expect(output).toContain("0.1 / 0.1 MB");
-          expect(output).toContain("Installed T3 Code 1.2.3");
+          expect(output).toContain("Installed iglo.code 1.2.3");
           expect(
             await NodeFSP.readFile(NodePath.join(versions, version, ".install-complete"), "utf8"),
           ).toBe("1.2.3\n");
@@ -262,7 +262,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer home
       expect(first.status, first.stdout + first.stderr).toBe(0);
       const { status, stdout, stderr } = install();
       expect(status, stdout + stderr).toBe(0);
-      expect(stderr).toContain(`Installed T3 Code ${version}`);
+      expect(stderr).toContain(`Installed iglo.code ${version}`);
       expect(await NodeFSP.readFile(launcher, "utf8")).toBe(
         launcherScript(NodePath.join(target, "t3")),
       );
@@ -339,7 +339,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer chan
         },
       );
       expect(code, output).toBe(0);
-      expect(output).toContain(`Installed T3 Code ${version}`);
+      expect(output).toContain(`Installed iglo.code ${version}`);
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -510,7 +510,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")(
           env: { HOME: root, PATH: `${binDir}/:/usr/bin:/bin` },
         });
         expect(slashed.code, slashed.output).toBe(0);
-        expect(slashed.output).toContain("Run t3 to use T3 Code here");
+        expect(slashed.output).toContain("Run t3 to use iglo.code here");
 
         // A relative folder is made absolute, so the PATH command never follows the working directory.
         const relative = await installOver({
@@ -653,7 +653,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer chec
           } else {
             expect(code).not.toBe(0);
             expect(output).toContain("checksum mismatch");
-            expect(output).not.toContain("Installed T3 Code");
+            expect(output).not.toContain("Installed iglo.code");
             expect(await NodeFSP.readdir(versions)).toEqual([]);
           }
         } finally {

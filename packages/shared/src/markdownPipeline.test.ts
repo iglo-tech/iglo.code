@@ -595,6 +595,9 @@ it("keeps an image on its own line under a label but leaves inline images inline
     render("**Palette**\n![Palette](/tmp/palette.png)\n**Hero** (dark)\n![Hero](/tmp/hero.png)"),
   ).toBe("Palette<br>\n<img><br>\nHero (dark)<br>\n<img>");
   expect(render("Built [![CI](/ci.svg)](/ci)\nand wrapped")).toBe("Built <img>\nand wrapped");
+  expect(render("**Dialog** (native) ![a](/a.png) ![b](/b.png)")).toBe(
+    "Dialog (native)<br>\n<img> <img>",
+  );
   expect(render("Hard-wrapped\nprose")).toBe("Hard-wrapped\nprose");
 });
 
@@ -944,7 +947,7 @@ it("links complete absolute paths in prose and skips shortened ones", () => {
     ),
   ).toEqual([]);
   expect(
-    links("Config lives in /Users/me/Library/Application Support/T3 Code/settings.json now."),
+    links("Config lives in /Users/me/Library/Application Support/iglo.code/settings.json now."),
   ).toEqual([]);
   expect(links(`/chat/settings and https://example.com${path}`)).toEqual([
     `https://example.com${path}`,

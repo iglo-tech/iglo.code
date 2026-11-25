@@ -5,6 +5,7 @@ import {
   type EnvironmentMachineKind,
   type OrchestrationV2TurnItem,
   type PeerLinkRequestAnswerInput,
+  type PeerLinkName,
   type PeerLinkSummary,
   resolveEnvironmentMachineKind,
   type ServerConfig,
@@ -27,11 +28,11 @@ export const offersLinkedEnvironments = (
   config?.environment.capabilities.peerLinks === true && config.settings.linkedEnvironmentsEnabled;
 
 /**
- * The machines an environment's agents can work on, by name: its links that have not
- * expired, named as this client names them, else as the link does.
+ * The machines an environment's agents can work on, by name: its unexpired links (the server
+ * leaves out expired ones), named as this client names them, else as the link does.
  */
 export function linkedEnvironmentNames(input: {
-  readonly links: ReadonlyArray<Pick<PeerLinkSummary, "environmentId" | "label" | "status">>;
+  readonly links: ReadonlyArray<PeerLinkName>;
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly label: string;
@@ -41,10 +42,8 @@ export function linkedEnvironmentNames(input: {
     input.environments.map((environment) => [environment.environmentId, environment.label]),
   );
   return new Map(
-    input.links.flatMap((link) =>
-      link.status === "expired"
-        ? []
-        : [[link.environmentId, names.get(link.environmentId) ?? link.label] as const],
+    input.links.map(
+      (link) => [link.environmentId, names.get(link.environmentId) ?? link.label] as const,
     ),
   );
 }
@@ -112,7 +111,8 @@ export function linkableMachines(input: {
   readonly environments: ReadonlyArray<
     EnvironmentPresentation & { readonly environmentId: EnvironmentId }
   >;
-  readonly threadEnvironmentId: EnvironmentId;
+  /** Null lists every machine, for a view that is not about one environment. */
+  readonly threadEnvironmentId: EnvironmentId | null;
   readonly links: ReadonlyArray<Pick<PeerLinkSummary, "environmentId" | "status">>;
   readonly connect: ReadonlyMap<string, RelayDiscoveredEnvironment>;
 }): ReadonlyArray<LinkableMachine> {
@@ -352,6 +352,12 @@ export function linkRequestAnswerInput(
           | { readonly url: string };
         readonly access: AuthMcpClientAccess;
         readonly pairingCode: string;
+        /**
+         * Also link this environment back at the same access. Always sent:
+         * on the wire, unset means one way, so an unset answer would silently
+         * not link back. Defaults to yes.
+         */
+        readonly reciprocal?: boolean;
       }
     | { readonly type: "use-existing"; readonly environmentId: EnvironmentId }
     | { readonly type: "decline" },
@@ -364,7 +370,16 @@ export function linkRequestAnswerInput(
   if ("url" in target) {
     const url = target.url.trim();
     if (url.length === 0) return null;
-    return { ...base, answer: { type: "link", urls: [url], access: answer.access, pairingCode } };
+    return {
+      ...base,
+      answer: {
+        type: "link",
+        urls: [url],
+        access: answer.access,
+        pairingCode,
+        reciprocal: answer.reciprocal ?? true,
+      },
+    };
   }
   const [first, ...rest] = target.urls;
   if (first === undefined) return null;
@@ -377,6 +392,7 @@ export function linkRequestAnswerInput(
       urls: [first, ...rest],
       access: answer.access,
       pairingCode,
+      reciprocal: answer.reciprocal ?? true,
     },
   };
 }

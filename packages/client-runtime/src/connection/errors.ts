@@ -54,10 +54,10 @@ export function environmentMismatchError(input: {
   return new ConnectionBlockedError({
     reason: "configuration",
     ...translatableDetail(
-      msg("Connected environment {actual} does not match {expected}.", {
-        actual: input.actual,
-        expected: input.expected,
-      }),
+      msg(
+        "This address now runs a different iglo.code install ({actual}, not {expected}). Remove this connection and add it again.",
+        { actual: input.actual, expected: input.expected },
+      ),
     ),
   });
 }
@@ -145,7 +145,7 @@ function relayProtectedError(error: RelayProtectedError): ConnectionAttemptError
         detail,
         i18nMessage,
         traceId,
-        // The tunnel carried the request when T3 Code is what failed to answer.
+        // The tunnel carried the request when iglo.code is what failed to answer.
         hop:
           endpointFailure === "origin_unreachable" || endpointFailure === "invalid_response"
             ? "server"

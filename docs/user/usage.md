@@ -1,13 +1,13 @@
 # Usage and limits
 
 Open **Usage** from the sidebar or the command palette, or press `mod+u` when the
-terminal is not focused. Customize `usage.open` in
+terminal is not focused. Press it again to close Usage. Customize **Usage: Toggle** in
 **Settings → Keybindings**.
 
 ## Understand your usage
 
-**Usage** combines Codex, Claude Code, Grok Build, OpenCode, Antigravity, Pi, Muse Code, and Cursor history
-from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
+**Usage** combines Codex, Claude Code, Grok Build, OpenCode, Antigravity, Pi, Muse Code, Cursor, and Mistral Vibe
+history from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
 cost, split by token type and by speed. These estimates are not your subscription bill.
 **Premium** is what Fast and Ultrafast requests cost above standard rates. Cost that cannot be
 split, such as a provider-reported cost for a model without public rates, shows as **Other**.
@@ -20,7 +20,7 @@ the totals for Codex or Claude Code 2.0.63 and newer, because those runs save no
 
 The server keeps scanned usage history for 92 days by default. Claude Code deletes its own
 transcripts after 30 days, so for older Claude usage this history is the only record left. To keep
-it longer, set `usageHistoryRetentionDays` in `<T3 home>/userdata/settings.json` to a number of days
+it longer, set `usageHistoryRetentionDays` in `<iglo.code home>/userdata/settings.json` to a number of days
 such as `365`, or to `"unlimited"`. Usage views still show at most 90 days. Lowering the value
 prunes older history on the next refresh, and raising it again does not bring pruned history back.
 While `settings.json` cannot be read, nothing is pruned.
@@ -46,6 +46,14 @@ known prices still contribute tokens and appear as unpriced; set custom prices t
 Use absolute paths or `~/` paths in the account's environment settings; relative environment paths
 depend on each project's working directory and cannot be reliably discovered by Usage. Accounts
 sharing a history directory count once.
+
+Mistral Vibe history is read when a Mistral Vibe agent is configured (registry agent `mistral-vibe`,
+or a local command whose name contains `vibe`): from `~/.vibe/logs/session/unified`, or the
+`logs/session/unified` directory under `VIBE_HOME` set on the agent instance's environment or the
+server. Each session counts once with its lifetime token totals, attributed to the day of its last
+update, so a session resumed on a later day lands on that day. Vibe records tokens but no dollar
+cost, so costs are estimated from the shared price table; model IDs with a trailing build number
+(such as `mistral-large-4-0-3`) price at their base (`mistral-large-4-0`).
 
 The server saves its first hostname in `<iglo.code home>/usage-host-id`, so a recreated container keeps
 its usage identity when the iglo.code home is persisted. Set `IGLO_CODE_HOST_ID` to choose the identity
@@ -141,7 +149,10 @@ model-specific weekly allowances keep their reported values.
 
 Opening Limits checks the selected connected environments automatically. Each client waits at
 least five minutes between automatic checks of an environment, including after a failed check.
-If a window still looks stale, refresh Limits to re-check every provider and hub.
+If a window still looks stale, refresh Limits to re-check every provider and hub. When a provider's
+checks keep failing, its limit cards are dimmed and say since when the reading is stale, and note
+the failure reason when the provider reported one; a window whose reset time has already passed
+reads as reset rather than exhausted.
 
 Pick `/usage-limits` from the composer's command menu, or send it as a message, to check the
 current model's limits without leaving the conversation. The result opens above the composer and
@@ -186,8 +197,48 @@ accounts for other providers are not read. Codex accounts show banked reset cred
 account and choose **Use reset** to redeem one. No hub plugin is required.
 
 This connection supplies usage information; configure
-the provider separately to send agent requests through the hub. Remove the hub from the same
-settings section when you no longer need it.
+the provider separately to send agent requests through the hub. A thread uses the hub's limits and
+reset times only when its provider's endpoint has the same address as the hub, for example
+`http://127.0.0.1:8317` for both. Remove the hub from the same settings section when you no longer
+need it.
+
+## Connect an HTTP quota source
+
+In **Settings → Providers → Usage providers → Add HTTP source**, choose the environment that can
+reach your quota server and enter the full endpoint URL. If the endpoint requires authentication,
+supply a bearer token. The selected environment sends a read-only GET with
+`Accept: application/json` and shows the result in **Usage → Limits**.
+
+Return JSON in this format, with stable IDs for accounts and their windows.
+
+```json
+{
+  "version": 1,
+  "accounts": [
+    {
+      "id": "primary",
+      "label": "My coding plan",
+      "providerInstanceId": "work-codex",
+      "windows": [
+        {
+          "id": "monthly",
+          "kind": "monthly",
+          "label": "Monthly budget",
+          "usedPercent": 35,
+          "resetsAt": "2026-12-01T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Set `kind` to `session`, `weekly`, `monthly`, or `other`. Use a percentage from 0 to 100 and
+omit `resetsAt` when the reset time is unknown. Your quota server handles the upstream provider
+credentials and APIs. Set the optional `providerInstanceId` to the exact instance ID configured for that environment
+in **Settings → Providers**. The account’s quota windows then appear in the
+thread details usage card when that instance is selected. Accounts without
+a binding still appear in **Usage → Limits**.
 
 ## Keyboard shortcuts
 

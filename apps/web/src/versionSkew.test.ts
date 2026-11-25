@@ -21,7 +21,7 @@ import {
 } from "./versionSkew";
 
 const MISMATCH_HINT =
-  "Version mismatch. Try syncing the client and server to the same T3 Code version.";
+  "Version mismatch. Try syncing the client and server to the same iglo.code version.";
 
 describe("versionSkew", () => {
   it("passes the version literally to the POSIX installer", async () => {

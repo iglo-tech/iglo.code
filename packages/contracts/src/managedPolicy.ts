@@ -41,8 +41,8 @@ export const ManagedProviderLimits = Schema.Struct({
 export type ManagedProviderLimits = typeof ManagedProviderLimits.Type;
 
 /**
- * How T3 Code updates itself. `auto` is the default: it checks, and installs only when a user
- * asks. `off` never checks, for machines that get T3 Code through MDM.
+ * How iglo.code updates itself. `auto` is the default: it checks, and installs only when a user
+ * asks. `off` never checks, for machines that get iglo.code through MDM.
  */
 export const ManagedUpdatesMode = Schema.Literals(["auto", "off"]);
 export type ManagedUpdatesMode = typeof ManagedUpdatesMode.Type;
@@ -81,6 +81,10 @@ export const ManagedPolicyLimits = Schema.Struct({
   /** Can only turn product analytics off, never force it on. */
   telemetry: Schema.optionalKey(Schema.Boolean),
   browserCookieImport: Schema.optionalKey(Schema.Boolean),
+  /** `false` turns the preview tunnel off: no client reaches this machine's loopback ports. */
+  previewTunnel: Schema.optionalKey(Schema.Boolean),
+  /** `false` turns a project's `worktreeLayout` commands off: none runs, approved or not. */
+  worktreeLayoutCommands: Schema.optionalKey(Schema.Boolean),
   providers: Schema.optionalKey(ManagedProviderLimits),
   updates: Schema.optionalKey(ManagedUpdatesPolicy),
 });
@@ -95,6 +99,8 @@ export const ManagedPolicySummaryLimits = Schema.Struct({
   webhookTasks: Schema.optionalKey(Schema.Boolean),
   telemetry: Schema.optionalKey(Schema.Boolean),
   browserCookieImport: Schema.optionalKey(Schema.Boolean),
+  previewTunnel: Schema.optionalKey(Schema.Boolean),
+  worktreeLayoutCommands: Schema.optionalKey(Schema.Boolean),
   providers: Schema.optionalKey(
     Schema.Struct({
       /** Absent means every driver is allowed. */
@@ -143,7 +149,7 @@ export type ManagedPolicySummary = typeof ManagedPolicySummary.Type;
 
 /** The message every surface shows when the policy stops an update. */
 export function managedUpdatesMessage(organization: string): string {
-  return `${organization} manages T3 Code updates.`;
+  return `${organization} manages iglo.code updates.`;
 }
 
 /** The message when the policy allows only stable releases. */
@@ -209,6 +215,8 @@ const CAPABILITY_LABELS = {
   connect: "T3 Connect",
   webhookTasks: "webhook tasks",
   browserCookieImport: "importing browser cookies",
+  previewTunnel: "opening this machine's local servers on other devices",
+  worktreeLayoutCommands: "project worktree layout commands",
 } as const;
 
 /** Why a capability is unavailable on an environment with `summary`, or undefined when allowed. */
@@ -225,6 +233,16 @@ export function managedCapabilityDenial(
   return denied
     ? managedPolicyDeniedMessage(summary.organization, CAPABILITY_LABELS[capability])
     : undefined;
+}
+
+/** Whether the preview tunnel serves: the setting is on and no policy switches it off. */
+export function allowsPreviewTunnel(config: {
+  readonly settings: { readonly enablePreviewTunnel: boolean };
+  readonly managedPolicy?: ManagedPolicySummary | undefined;
+}): boolean {
+  return (
+    config.settings.enablePreviewTunnel && config.managedPolicy?.limits?.previewTunnel !== false
+  );
 }
 
 /** Whether the policy lets `driver` run; clients name it with their own provider label. */

@@ -183,14 +183,14 @@ function formatServiceStatus(
   protection?: ServiceProtection.ServiceProtectionState,
 ): string {
   if (!status.supported) {
-    return "T3 Code service\n  Status: unavailable on this machine\n  Supported on: Linux with systemd, macOS with launchd, Windows with Task Scheduler";
+    return "iglo.code service\n  Status: unavailable on this machine\n  Supported on: Linux with systemd, macOS with launchd, Windows with Task Scheduler";
   }
   if (!status.installed) {
-    return `T3 Code service\n  Status: not installed\n  Next: Run \`${commands.install}\`.`;
+    return `iglo.code service\n  Status: not installed\n  Next: Run \`${commands.install}\`.`;
   }
   if (status.otherBaseDir !== undefined) {
     return [
-      "T3 Code service",
+      "iglo.code service",
       "  Status: installed for another T3 home",
       `  Base dir: ${status.otherBaseDir}`,
       `  Next: Pass \`${BootService.formatBootServiceBaseDirOption(status.otherBaseDir)}\` to manage it.`,
@@ -206,7 +206,7 @@ function formatServiceStatus(
     compareExactServiceVersions(status.installedVersion, cliVersion) > 0
   ) {
     return [
-      "T3 Code service",
+      "iglo.code service",
       `  Status: installed · iglo.code@${installedVersion} (newer than this iglo.code@${cliVersion} CLI)`,
       `  Unit: ${status.unitPath}`,
       `  Logs: ${status.logPath}`,
@@ -216,7 +216,7 @@ function formatServiceStatus(
     ].join("\n");
   }
   return [
-    "T3 Code service",
+    "iglo.code service",
     `  Status: ${status.current ? `installed · iglo.code@${installedVersion}` : "needs an update or repair"}`,
     `  Unit: ${status.unitPath}`,
     `  Logs: ${status.logPath}`,
@@ -245,7 +245,7 @@ const serviceReconcileFlags = {
 
 const serviceInstallCommand = Command.make("install", serviceReconcileFlags).pipe(
   Command.withDescription(
-    "Install T3 Code as a background service for this user. `iglo.code up` also chooses how your other devices reach it.",
+    "Install iglo.code as a background service for this user. `iglo.code up` also chooses how your other devices reach it.",
   ),
   Command.withHandler((flags) =>
     runServiceCommand(
@@ -254,7 +254,7 @@ const serviceInstallCommand = Command.make("install", serviceReconcileFlags).pip
         const result = yield* reconcileService({ allowDowngrade: flags.allowDowngrade });
         if (!result.changed) {
           yield* Console.log(
-            `T3 Code service is already installed with iglo.code@${packageJson.version} (${yield* resolveEntryPath}).`,
+            `iglo.code service is already installed with iglo.code@${packageJson.version} (${yield* resolveEntryPath}).`,
           );
           return;
         }
@@ -281,7 +281,7 @@ const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
         const result = yield* reconcileService({ allowDowngrade: flags.allowDowngrade });
         if (!result.changed) {
           yield* Console.log(
-            `T3 Code service is already using iglo.code@${packageJson.version} (${yield* resolveEntryPath}).`,
+            `iglo.code service is already using iglo.code@${packageJson.version} (${yield* resolveEntryPath}).`,
           );
           return;
         }
@@ -306,12 +306,12 @@ const serviceRestartCommand = Command.make("restart", projectLocationFlags).pipe
           status.installedVersion === undefined ? "" : ` on iglo.code@${status.installedVersion}`;
         yield* Console.log(
           outcome === "restarted"
-            ? `Restarted the T3 Code service${onVersion}.`
+            ? `Restarted the iglo.code service${onVersion}.`
             : outcome === "queued"
-              ? `Queued a restart of the T3 Code service${onVersion}. This session runs inside the service and disconnects when it goes down.\nLogs: ${status.logPath}`
+              ? `Queued a restart of the iglo.code service${onVersion}. This session runs inside the service and disconnects when it goes down.\nLogs: ${status.logPath}`
               : status.otherBaseDir !== undefined
-                ? `The T3 Code service serves ${status.otherBaseDir}, so it was not restarted. Pass \`${BootService.formatBootServiceBaseDirOption(status.otherBaseDir)}\` to restart it.`
-                : "T3 Code service is not installed.",
+                ? `The iglo.code service serves ${status.otherBaseDir}, so it was not restarted. Pass \`${BootService.formatBootServiceBaseDirOption(status.otherBaseDir)}\` to restart it.`
+                : "iglo.code service is not installed.",
         );
       }),
     ),
@@ -319,31 +319,26 @@ const serviceRestartCommand = Command.make("restart", projectLocationFlags).pipe
 );
 
 const serviceUninstallCommand = Command.make("uninstall", projectLocationFlags).pipe(
-  Command.withDescription("Stop and remove the T3 Code background service."),
+  Command.withDescription("Stop and remove the iglo.code background service."),
   Command.withHandler((flags) =>
     runServiceCommand(
       flags,
       Effect.gen(function* () {
         const service = yield* BootService.BootService;
-        const path = yield* Path.Path;
-        const { baseDir } = yield* ServerConfig.ServerConfig;
         // An unreadable unit stays removable; only a unit known to serve another home is kept.
-        const installedBaseDir = yield* service.status.pipe(
-          Effect.map((status) => status.installedBaseDir),
+        const otherBaseDir = yield* service.status.pipe(
+          Effect.map((status) => status.otherBaseDir),
           Effect.orElseSucceed(() => undefined),
         );
-        if (
-          installedBaseDir !== undefined &&
-          path.resolve(installedBaseDir) !== path.resolve(baseDir)
-        ) {
+        if (otherBaseDir !== undefined) {
           yield* Console.log(
-            `The T3 Code service serves ${installedBaseDir}, so it was not removed. Pass \`${BootService.formatBootServiceBaseDirOption(installedBaseDir)}\` to remove it.`,
+            `The iglo.code service serves ${otherBaseDir}, so it was not removed. Pass \`${BootService.formatBootServiceBaseDirOption(otherBaseDir)}\` to remove it.`,
           );
           return;
         }
         const removed = yield* service.uninstall;
         yield* Console.log(
-          removed ? "Removed the T3 Code service." : "T3 Code service is not installed.",
+          removed ? "Removed the iglo.code service." : "iglo.code service is not installed.",
         );
       }),
     ),
@@ -351,7 +346,7 @@ const serviceUninstallCommand = Command.make("uninstall", projectLocationFlags).
 );
 
 const serviceStatusCommand = Command.make("status", projectLocationFlags).pipe(
-  Command.withDescription("Show whether the T3 Code background service is installed."),
+  Command.withDescription("Show whether the iglo.code background service is installed."),
   Command.withHandler((flags) =>
     runServiceCommand(
       flags,
@@ -398,7 +393,7 @@ const serviceProtectCommand = Command.make("protect", {
   ),
 }).pipe(
   Command.withDescription(
-    "Protect the T3 Code server from agents under memory pressure (Linux with systemd). Asks for sudo.",
+    "Protect the iglo.code server from agents under memory pressure (Linux with systemd). Asks for sudo.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
@@ -407,7 +402,7 @@ const serviceProtectCommand = Command.make("protect", {
       // Before resolving config, which creates T3 directories that root would then own.
       if ((yield* HostProcess.UserId) === 0) {
         return yield* Console.log(
-          "Run `iglo.code service protect` as the user that runs T3 Code, without sudo. It asks for sudo when it needs root.",
+          "Run `iglo.code service protect` as the user that runs iglo.code, without sudo. It asks for sudo when it needs root.",
         );
       }
       return yield* runServiceCommand(
@@ -430,7 +425,7 @@ const serviceProtectCommand = Command.make("protect", {
               }),
             );
             if (installed === undefined) {
-              return yield* Console.log("T3 Code service protection is not set up.");
+              return yield* Console.log("iglo.code service protection is not set up.");
             }
             yield* Console.log(
               [
@@ -441,17 +436,17 @@ const serviceProtectCommand = Command.make("protect", {
                 ),
               ].join("\n"),
             );
-            if (!(yield* confirm(flags.yes, "Remove T3 Code service protection?"))) return;
+            if (!(yield* confirm(flags.yes, "Remove iglo.code service protection?"))) return;
             yield* ServiceProtection.removeProtection(installed);
             return yield* Console.log(
-              "Removed T3 Code service protection. The server's OOM score returns to normal after `iglo.code service restart`.",
+              "Removed iglo.code service protection. The server's OOM score returns to normal after `iglo.code service restart`.",
             );
           }
 
           yield* Console.log(
             [
-              "Keeps T3 Code running when agents fill this machine's memory:",
-              "  - reserves memory for the T3 Code server, so the kernel takes memory from agents first",
+              "Keeps iglo.code running when agents fill this machine's memory:",
+              "  - reserves memory for the iglo.code server, so the kernel takes memory from agents first",
               "  - makes the out-of-memory killer pick agents before the server",
               "It adds systemd drop-in files and changes nothing else. Undo with `iglo.code service protect --undo`.",
             ].join("\n"),
@@ -484,8 +479,8 @@ const serviceProtectCommand = Command.make("protect", {
           yield* ServiceProtection.applyProtection(plan);
           yield* Console.log(
             memoryController
-              ? "Protected T3 Code. Memory protection applies now; the server takes its OOM score after `iglo.code service restart`. Undo with `iglo.code service protect --undo`."
-              : "Protected T3 Code's OOM score; the server takes it after `iglo.code service restart`. Memory protection applies once the kernel's memory controller is enabled. Undo with `iglo.code service protect --undo`.",
+              ? "Protected iglo.code. Memory protection applies now; the server takes its OOM score after `iglo.code service restart`. Undo with `iglo.code service protect --undo`."
+              : "Protected iglo.code's OOM score; the server takes it after `iglo.code service restart`. Memory protection applies once the kernel's memory controller is enabled. Undo with `iglo.code service protect --undo`.",
           );
         }).pipe(Effect.provide(ProcessRunner.layer)),
       );
@@ -494,7 +489,7 @@ const serviceProtectCommand = Command.make("protect", {
 );
 
 export const serviceCommand = Command.make("service").pipe(
-  Command.withDescription("Manage the T3 Code background service."),
+  Command.withDescription("Manage the iglo.code background service."),
   Command.withSubcommands([
     serviceInstallCommand,
     serviceRestartCommand,

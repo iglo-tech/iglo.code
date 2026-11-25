@@ -4,6 +4,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
+  type UsageLimitSourceAccount,
   UsageLimitSourceId,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -18,11 +19,14 @@ import {
   collectLimitAccounts,
   collectExternalUsageLinks,
   collectLimitPools,
+  effectiveUsageWindow,
   elapsedShare,
   exhaustedUsageWindow,
+  isStaleUsageLimits,
   paceOf,
   paceRemainingPercent,
   usesChatGptSharing,
+  windowHasReset,
   resolveNewThreadModelSelection,
 } from "./usageLimits.ts";
 import { collectLimitNotices } from "./usageLimitsCopy.ts";
@@ -1148,6 +1152,32 @@ describe("pools", () => {
       "env-a:hub:a",
       "env-a:hub:b",
     ]);
+
+    // Changing reset order must preserve the rounded percentages for the same readings.
+    for (const { readings, used, left } of [
+      { readings: [94, 94.3, 97.9, 99.8], used: 97, left: 4 },
+      { readings: [70, 87, 85.50000000000001, 1e-30, 1e-30], used: 49, left: 51 },
+    ]) {
+      const resetTimes = readings.map((_, index) => `2026-09-03T1${3 + index}:00:00.000Z`);
+      for (const order of [resetTimes, [...resetTimes].reverse()]) {
+        const [pooled] = collectLimitPools(
+          readings.map((usedPercent, index) => ({
+            key: `pooled-${index}`,
+            driver: claude,
+            displayName: `Pooled ${index}`,
+            email: undefined,
+            plan: undefined,
+            accentColor: undefined,
+            environments: [],
+            sourceLabel: null,
+            redeem: null,
+            limits: { checkedAt, windows: [{ ...window, usedPercent, resetsAt: order[index] }] },
+          })),
+          now,
+        );
+        expect(pooled?.windows[0]).toMatchObject({ usedPercent: used, remainingPercent: left });
+      }
+    }
   });
 });
 
@@ -1297,8 +1327,8 @@ describe("pooled account columns", () => {
     expect(keys(collectLimitPools(accounts.toReversed(), now)[0]!)).toEqual(keys(pool!));
   });
 
-  it.each([undefined, "invalid", "2026-09-03T11:30:00.000Z"])(
-    "keeps blocked sessions empty without predicting a refill from a missing or stale clock (%s)",
+  it.each([undefined, "invalid"])(
+    "keeps blocked sessions empty without predicting a refill from a missing or invalid clock (%s)",
     (resetsAt) => {
       const [pool] = collectLimitPools(
         [
@@ -1317,6 +1347,25 @@ describe("pooled account columns", () => {
       ]);
     },
   );
+
+  it("reads a session whose reset time already passed as refilled, not as blocked", () => {
+    // A past reset time is a reset that happened, not a stale clock.
+    const [pool] = collectLimitPools(
+      [
+        account("session-clock", [
+          { ...window, usedPercent: 100, resetsAt: "2026-09-03T11:30:00.000Z" },
+          { ...weekly, usedPercent: 100, resetsAt: "2026-09-03T11:30:00.000Z" },
+        ]),
+        account("weekly-clock", [
+          window,
+          { ...weekly, usedPercent: 100, resetsAt: "2026-09-03T11:30:00.000Z" },
+        ]),
+      ],
+      now,
+    );
+    expect(pool!.windows[0]).toMatchObject({ remainingPercent: 80 });
+    expect(pool!.windows[0]!.columns.map((column) => column.window?.usedPercent)).toEqual([0, 40]);
+  });
 
   it("orders by usable session refill and clears suppression after a fresh weekly reading", () => {
     const blocked = account("blocked", [
@@ -1387,6 +1436,7 @@ describe("/usage-limits", () => {
       id: UsageLimitSourceId.make("hub"),
       kind: "cliproxy" as const,
       label: "Accounts",
+      origin: "http://hub:8317",
       checkedAt: limits.checkedAt,
       accounts: [
         {
@@ -1553,6 +1603,72 @@ describe("/usage-limits", () => {
       plan: "Codex OSS",
     });
     expect(report?.notices).toEqual([]);
+  });
+
+  it("shows a proxied instance the hub accounts its model routes to, of any driver", () => {
+    const routed = [
+      {
+        ...sources[0]!,
+        accounts: sources[0]!.accounts.map((account) =>
+          account.id === "oss" ? { ...account, models: ["gpt-5.6-sol"] } : account,
+        ),
+      },
+    ];
+    const proxy = provider({
+      instanceId: ProviderInstanceId.make("claudex"),
+      driver: ProviderDriverKind.make("claudeAgent"),
+      auth: { status: "authenticated", type: "customEndpoint", endpoint: "http://hub:8317" },
+    });
+    // regression: #30778 a local login the hub does not route to is not this thread's account
+    const unrelated = provider({
+      instanceId: ProviderInstanceId.make("codex-personal"),
+      usageLimits: limits,
+      auth: { status: "authenticated", email: "personal@example.com" },
+    });
+    const ids = (instance: ServerProvider, model: string | null) =>
+      collectProviderUsageLimits(
+        instance.instanceId,
+        [selected, proxy, unrelated],
+        routed,
+        now,
+        model,
+      )?.accounts.map((account) => account.id);
+    expect(ids(proxy, "gpt-5.6-sol[1m]")).toEqual(["codex", "hub:oss"]);
+    // regression: #30778 another hub's model list does not decide this hub's routing
+    const other = {
+      ...routed[0]!,
+      id: UsageLimitSourceId.make("other"),
+      origin: "http://other:8317",
+      accounts: [
+        {
+          id: "x",
+          driver: ProviderDriverKind.make("grok"),
+          models: ["gpt-5.6-sol"],
+          usageLimits: limits,
+        },
+      ],
+    };
+    expect(
+      collectProviderUsageLimits(
+        proxy.instanceId,
+        [selected, proxy],
+        [other, ...routed],
+        now,
+        "gpt-5.6-sol",
+      )?.accounts.map((account) => account.id),
+    ).toEqual(["codex", "hub:oss"]);
+    // regression: #30778 a custom endpoint other than the hub does not follow the hub's routing
+    const elsewhere = { ...proxy, auth: { ...proxy.auth, endpoint: "http://other:8317" } };
+    expect(
+      collectProviderUsageLimits(
+        proxy.instanceId,
+        [selected, elsewhere],
+        routed,
+        now,
+        "gpt-5.6-sol",
+      ),
+    ).toBeNull();
+    expect(ids(selected, "gpt-5.6-sol")).toEqual(["codex", "codex-personal", "hub:oss"]);
   });
 
   it("keeps the freshest usable native duplicate and the freshest native credits in either order", () => {
@@ -1820,6 +1936,112 @@ describe("external usage settings", () => {
     ]);
     expect(collectLimitNotices(presentations)).toEqual(["Host · codex: Could not read limits."]);
   });
+
+  it("shows the reason an account's limits are unsupported, but not a bare unsupported", () => {
+    const unsupported = (message?: string) =>
+      provider({
+        usageLimits: {
+          checkedAt: "2026-09-03T11:00:00.000Z",
+          windows: [],
+          unavailable: { reason: "unsupported", ...(message ? { message } : {}) },
+        },
+      });
+    const notices = (limited: ServerProvider) =>
+      collectLimitNotices(
+        new Map([
+          [
+            EnvironmentId.make("a"),
+            { entry: { target: { label: "Host" } }, serverConfig: { providers: [limited] } },
+          ],
+        ]),
+      );
+    expect(notices(unsupported("Sign in with Google to see Antigravity limits."))).toEqual([
+      "codex: Sign in with Google to see Antigravity limits.",
+    ]);
+    expect(notices(unsupported())).toEqual([]);
+  });
+
+  it("names a hub account whose read failed unless another environment read it", () => {
+    const checkedAt = "2026-09-03T11:00:00.000Z";
+    const account = {
+      id: "claude-tg@example.com.json",
+      driver: ProviderDriverKind.make("claudeAgent"),
+      email: "tg@example.com",
+    };
+    const failed = {
+      ...account,
+      usageLimits: {
+        checkedAt,
+        windows: [],
+        unavailable: {
+          reason: "probeFailed" as const,
+          message: "The provider refused the hub request (HTTP 429).",
+        },
+      },
+    };
+    const read = {
+      ...account,
+      usageLimits: { checkedAt, windows: [{ ...window, usedPercent: 10 }] },
+    };
+    const hub = (accounts: readonly UsageLimitSourceAccount[]) => ({
+      providers: [],
+      usageLimitSources: [
+        {
+          id: UsageLimitSourceId.make("hub"),
+          kind: "cliproxy" as const,
+          label: "hub",
+          checkedAt,
+          accounts,
+        },
+      ],
+    });
+    const desktop = { entry: { target: { label: "Desktop" } }, serverConfig: hub([failed]) };
+    expect(collectLimitNotices(new Map([[EnvironmentId.make("a"), desktop]]))).toEqual([
+      "hub · tg@example.com: The provider refused the hub request (HTTP 429).",
+    ]);
+    expect(
+      collectLimitNotices(
+        new Map([
+          [EnvironmentId.make("a"), desktop],
+          [
+            EnvironmentId.make("b"),
+            { entry: { target: { label: "WSL" } }, serverConfig: hub([read]) },
+          ],
+        ]),
+      ),
+    ).toEqual([]);
+    // The row resolves an omitted workspace to the only one known, so the notice must too.
+    expect(
+      collectLimitNotices(
+        new Map([
+          [EnvironmentId.make("a"), desktop],
+          [
+            EnvironmentId.make("b"),
+            {
+              entry: { target: { label: "WSL" } },
+              serverConfig: hub([{ ...read, workspaceId: "ws-1" }]),
+            },
+          ],
+        ]),
+      ),
+    ).toEqual([]);
+    // Without an email, same-named auth files on two environment-local hubs are different accounts.
+    const { email: _failedEmail, ...anonymousFailed } = failed;
+    const { email: _readEmail, ...anonymousRead } = read;
+    expect(
+      collectLimitNotices(
+        new Map([
+          [EnvironmentId.make("a"), { ...desktop, serverConfig: hub([anonymousFailed]) }],
+          [
+            EnvironmentId.make("b"),
+            { entry: { target: { label: "WSL" } }, serverConfig: hub([anonymousRead]) },
+          ],
+        ]),
+      ),
+    ).toEqual([
+      "Desktop · hub · claude-tg@example.com: The provider refused the hub request (HTTP 429).",
+    ]);
+  });
 });
 
 describe("ChatGPT sharing presentation", () => {
@@ -1835,5 +2057,298 @@ describe("ChatGPT sharing presentation", () => {
         auth: { status: "unauthenticated", subscriptionSharing: true },
       }),
     ).toBe(false);
+  });
+});
+
+describe("stale readings and reset windows", () => {
+  it("treats a window whose reset time passed as refilled, whatever the reading said", () => {
+    const resetWindow = { ...window, usedPercent: 100, resetsAt: "2026-09-03T11:30:00.000Z" };
+    expect(windowHasReset(resetWindow, now)).toBe(true);
+    expect(windowHasReset(window, now)).toBe(false);
+    expect(windowHasReset({ ...window, resetsAt: undefined }, now)).toBe(false);
+    expect(effectiveUsageWindow(resetWindow, now)).toEqual({ ...resetWindow, usedPercent: 0 });
+    expect(effectiveUsageWindow(window, now)).toBe(window);
+    // exhaustedUsageWindow already ignored past resets; the display now matches.
+    expect(
+      exhaustedUsageWindow(
+        provider({
+          usageLimits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [resetWindow] },
+        }),
+        now,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("marks a snapshot stale only while checks fail", () => {
+    const fresh = { checkedAt: "2026-09-03T11:00:00.000Z", windows: [window] };
+    const stale = { ...fresh, stale: { since: "2026-09-03T12:00:00.000Z" } };
+    expect(isStaleUsageLimits(fresh)).toBe(false);
+    expect(isStaleUsageLimits(stale)).toBe(true);
+    expect(isStaleUsageLimits({ ...fresh, stale: { since: "2026-09-03T10:00:00.000Z" } })).toBe(
+      true,
+    );
+  });
+
+  it("pools a window whose reset passed as fully available", () => {
+    const resetWindow = {
+      id: "five_hour",
+      kind: "session" as const,
+      label: "Session",
+      usedPercent: 100,
+      windowDurationMins: 300,
+      resetsAt: "2026-09-03T11:30:00.000Z",
+    };
+    const input = new Map([
+      [
+        EnvironmentId.make("env-a"),
+        {
+          entry: { target: { label: "Laptop" } },
+          serverConfig: {
+            providers: [
+              provider({
+                usageLimits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [resetWindow] },
+              }),
+            ],
+          },
+        },
+      ],
+    ]);
+    const pools = collectLimitPools(collectLimitAccounts(input), now);
+    expect(pools[0]?.windows[0]).toMatchObject({ usedPercent: 0, remainingPercent: 100 });
+  });
+
+  it("notices a provider whose retained windows went stale after failed checks", () => {
+    const staleProvider = provider({
+      usageLimits: {
+        checkedAt: "2026-09-03T11:00:00.000Z",
+        windows: [window],
+        stale: { since: "2026-09-03T12:00:00.000Z" },
+      },
+    });
+    const freshProvider = provider({
+      instanceId: ProviderInstanceId.make("codex-2"),
+      usageLimits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [window] },
+    });
+    const notices = collectLimitNotices(
+      new Map([
+        [
+          EnvironmentId.make("env-a"),
+          {
+            entry: { target: { label: "Laptop" } },
+            serverConfig: { providers: [staleProvider, freshProvider] },
+          },
+        ],
+      ]),
+    );
+    expect(notices).toEqual(["codex: Limits are stale; refresh to re-check."]);
+  });
+
+  it("notices a stale provider with the probe's own failure reason when it reported one", () => {
+    const staleProvider = provider({
+      usageLimits: {
+        checkedAt: "2026-09-03T11:00:00.000Z",
+        windows: [window],
+        stale: { since: "2026-09-03T12:00:00.000Z", message: "Saved sign-in expired." },
+      },
+    });
+    const notices = collectLimitNotices(
+      new Map([
+        [
+          EnvironmentId.make("env-a"),
+          {
+            entry: { target: { label: "Laptop" } },
+            serverConfig: { providers: [staleProvider] },
+          },
+        ],
+      ]),
+    );
+    expect(notices).toEqual(["codex: Saved sign-in expired."]);
+  });
+
+  it("notices a stale hub account like a native provider", () => {
+    const notices = collectLimitNotices(
+      new Map([
+        [
+          EnvironmentId.make("env-a"),
+          {
+            entry: { target: { label: "Laptop" } },
+            serverConfig: {
+              providers: [],
+              usageLimitSources: [
+                {
+                  id: UsageLimitSourceId.make("hub"),
+                  kind: "cliproxy" as const,
+                  label: "hub",
+                  checkedAt: "2026-09-03T11:00:00.000Z",
+                  accounts: [
+                    {
+                      id: "work.json",
+                      driver: ProviderDriverKind.make("codex"),
+                      email: "work@example.com",
+                      usageLimits: {
+                        checkedAt: "2026-09-03T11:00:00.000Z",
+                        windows: [window],
+                        stale: { since: "2026-09-03T12:00:00.000Z" },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      ]),
+    );
+    expect(notices).toEqual(["hub · work@example.com: Limits are stale; refresh to re-check."]);
+  });
+
+  it("ranks merged accounts by checkedAt alone, so a stale reading with a newer tick wins and is labeled stale", () => {
+    // Documents the accepted caveat: no stale-aware tiebreak, the card labels the winner.
+    const staleNewer = provider({
+      auth: { status: "authenticated", email: "shared@example.com" },
+      usageLimits: {
+        checkedAt: "2026-09-03T12:30:00.000Z",
+        windows: [window],
+        stale: { since: "2026-09-03T12:30:00.000Z" },
+      },
+    });
+    const freshOlder = provider({
+      instanceId: ProviderInstanceId.make("codex-2"),
+      auth: { status: "authenticated", email: "shared@example.com" },
+      usageLimits: {
+        checkedAt: "2026-09-03T12:00:00.000Z",
+        windows: [{ ...window, usedPercent: 10 }],
+      },
+    });
+    const accounts = collectLimitAccounts(
+      new Map([
+        [
+          EnvironmentId.make("env-a"),
+          { entry: { target: { label: "A" } }, serverConfig: { providers: [staleNewer] } },
+        ],
+        [
+          EnvironmentId.make("env-b"),
+          { entry: { target: { label: "B" } }, serverConfig: { providers: [freshOlder] } },
+        ],
+      ]),
+    );
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]!.limits.checkedAt).toBe("2026-09-03T12:30:00.000Z");
+    expect(isStaleUsageLimits(accounts[0]!.limits)).toBe(true);
+  });
+
+  it("skips the stale hub notice when a fresher fresh native row shows the same login", () => {
+    const native = provider({
+      auth: { status: "authenticated", email: "work@example.com" },
+      usageLimits: { checkedAt: "2026-09-03T12:30:00.000Z", windows: [window] },
+    });
+    const staleHub = {
+      id: UsageLimitSourceId.make("hub"),
+      kind: "cliproxy" as const,
+      label: "hub",
+      checkedAt: "2026-09-03T11:00:00.000Z",
+      accounts: [
+        {
+          id: "work.json",
+          driver: ProviderDriverKind.make("codex"),
+          email: "work@example.com",
+          usageLimits: {
+            checkedAt: "2026-09-03T11:00:00.000Z",
+            windows: [window],
+            stale: { since: "2026-09-03T12:00:00.000Z" },
+          },
+        },
+      ],
+    };
+    const notices = collectLimitNotices(
+      new Map([
+        [
+          EnvironmentId.make("env-a"),
+          {
+            entry: { target: { label: "Laptop" } },
+            serverConfig: { providers: [native], usageLimitSources: [staleHub] },
+          },
+        ],
+      ]),
+    );
+    expect(notices).toEqual([]);
+  });
+
+  it("pools a weekly-blocked session as refilled when both resets have passed", () => {
+    // Stale snapshot: session and weekly both read 100% but both reset times are past.
+    const accounts = [
+      {
+        key: "stale",
+        driver: ProviderDriverKind.make("claudeAgent"),
+        displayName: "stale",
+        email: undefined,
+        plan: undefined,
+        accentColor: undefined,
+        environments: [],
+        sourceLabel: "Hub",
+        redeem: null,
+        limits: {
+          checkedAt: "2026-09-03T11:00:00.000Z",
+          windows: [
+            { ...window, usedPercent: 100, resetsAt: "2026-09-03T11:30:00.000Z" },
+            {
+              id: "seven_day",
+              kind: "weekly" as const,
+              label: "Weekly",
+              usedPercent: 100,
+              windowDurationMins: 7 * 24 * 60,
+              resetsAt: "2026-09-03T11:00:00.000Z",
+            },
+          ],
+        },
+      },
+    ];
+    const [pool] = collectLimitPools(accounts, now);
+    // The passed weekly reset no longer suppresses the session: it reads as refilled.
+    expect(pool!.windows[0]).toMatchObject({ usedPercent: 0, remainingPercent: 100 });
+    expect(pool!.windows[0]!.columns[0]!.window).toMatchObject({
+      usedPercent: 0,
+      resetsAt: "2026-09-03T11:30:00.000Z",
+    });
+  });
+
+  it("keeps the weekly unblock time when the session reset passed but the weekly one has not", () => {
+    const accounts = [
+      {
+        key: "blocked",
+        driver: ProviderDriverKind.make("claudeAgent"),
+        displayName: "blocked",
+        email: undefined,
+        plan: undefined,
+        accentColor: undefined,
+        environments: [],
+        sourceLabel: "Hub",
+        redeem: null,
+        limits: {
+          checkedAt: "2026-09-03T11:00:00.000Z",
+          windows: [
+            { ...window, usedPercent: 100, resetsAt: "2026-09-03T11:30:00.000Z" },
+            {
+              id: "seven_day",
+              kind: "weekly" as const,
+              label: "Weekly",
+              usedPercent: 100,
+              windowDurationMins: 7 * 24 * 60,
+              resetsAt: "2026-09-06T12:00:00.000Z",
+            },
+          ],
+        },
+      },
+    ];
+    const [pool] = collectLimitPools(accounts, now);
+    // The session window itself reset, but the weekly cap still blocks until its reset.
+    const session = pool!.windows.find((row) => row.id === window.id)!;
+    const column = session.columns[0]!;
+    if (column.window === null) throw new Error("expected a session column");
+    expect(column.window).toMatchObject({
+      usedPercent: 100,
+      resetsAt: "2026-09-06T12:00:00.000Z",
+    });
+    expect(column.refillPercent).toBe(100);
   });
 });

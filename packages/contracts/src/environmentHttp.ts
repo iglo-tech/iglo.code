@@ -25,6 +25,7 @@ import {
   AuthMcpRegisteredClient,
   AuthMcpRegistrationError,
   AuthMcpTokenError,
+  AuthMcpRevokeRequest,
   AuthMcpTokenRequest,
   AuthMcpTokenResult,
   AuthPairingCredentialResult,
@@ -62,6 +63,7 @@ import {
   EnvironmentSpeechAccelerationRequest,
   EnvironmentSpeechModelLinkRequest,
   EnvironmentSpeechModelRequest,
+  EnvironmentSpeechModelDownload,
   EnvironmentSpeechModels,
   EnvironmentSpeechModelUnloadTimeoutRequest,
   EnvironmentSpeechPostProcessingRequest,
@@ -69,6 +71,7 @@ import {
   EnvironmentSpeechStatus,
   EnvironmentSpeechTranscriptionResult,
 } from "./speech.ts";
+import { PeerLinkClientPairingCredential, PeerLinkClientPairingRequest } from "./peerLink.ts";
 import { SecretReference } from "./secretReference.ts";
 import {
   OrchestrationV2ShellHttpSnapshot,
@@ -79,6 +82,12 @@ import {
   OrchestrationV2ThreadTranscript,
 } from "./orchestrationV2.ts";
 import { Project, ProjectMutation, ProjectSnapshot } from "./project.ts";
+import {
+  PeerLink,
+  PeerLinkReciprocalOffer,
+  PeerLinkReciprocalTeardownInput,
+  PeerLinkReciprocalTeardownResult,
+} from "./peerLink.ts";
 import {
   PullRequestDiffInput,
   PullRequestDiffResult,
@@ -255,6 +264,8 @@ export class EnvironmentInternalError extends Schema.TaggedError<EnvironmentInte
   {
     code: Schema.Literal("internal_error"),
     reason: EnvironmentInternalErrorReason,
+    /** A reason safe to show the user, when the failure has one. */
+    detail: Schema.optionalKey(Schema.String),
     traceId: TrimmedNonEmptyString,
   },
   { httpApiStatus: 500 },
@@ -683,6 +694,76 @@ class EnvironmentMcpOAuthHttpApi extends HttpApiGroup.make("mcpOAuth")
       success: AuthMcpTokenResult,
       error: AuthMcpTokenError,
     }),
+  )
+  .add(
+    HttpApiEndpoint.post("revoke", "/oauth/mcp/revoke", {
+      payload: AuthMcpRevokeRequest,
+      success: HttpApiSchema.Empty(200),
+    }),
+  ) {}
+
+/**
+ * Reciprocal peer links, called by a linked peer's server over the session
+ * its link holds here. A regular MCP client session is refused: only a peer
+ * link may link this environment back to its own machine, or ask it to forget.
+ */
+export interface PeerLinkPrincipalShape {
+  readonly sessionId: AuthSessionId;
+  /** The linking environment's own name for itself, as it registered. */
+  readonly label: string;
+  /** The linking environment, as it named itself when it signed in. */
+  readonly peerEnvironmentId: string | undefined;
+}
+
+export class PeerLinkPrincipal extends Context.Service<PeerLinkPrincipal, PeerLinkPrincipalShape>()(
+  "@t3tools/contracts/environmentHttp/PeerLinkPrincipal",
+) {}
+
+export class PeerLinkAuthenticated extends HttpApiMiddleware.Service<
+  PeerLinkAuthenticated,
+  { provides: PeerLinkPrincipal }
+>()("PeerLinkAuthenticated", {
+  error: [EnvironmentAuthInvalidError, EnvironmentHttpForbiddenError],
+}) {}
+
+/** Why a reciprocal link or teardown failed on the environment that refused it. */
+export class PeerLinkReciprocalError extends Schema.TaggedError<PeerLinkReciprocalError>()(
+  "PeerLinkReciprocalError",
+  {
+    reason: Schema.Literals([
+      "disabled",
+      "unreachable",
+      "not_a_t3_environment",
+      "incompatible",
+      "self",
+      "pairing_rejected",
+      "storage",
+    ]),
+    message: Schema.String,
+  },
+  { httpApiStatus: 400 },
+) {
+  [HttpServerRespondable.symbol]() {
+    return HttpServerResponse.schemaJson(PeerLinkReciprocalError)(this, { status: 400 });
+  }
+}
+
+class EnvironmentPeerLinksHttpApi extends HttpApiGroup.make("peerLinks")
+  .add(
+    HttpApiEndpoint.post("reciprocal", "/api/peer-links/reciprocal", {
+      headers: OptionalBearerHeaders,
+      payload: PeerLinkReciprocalOffer,
+      success: PeerLink,
+      error: [PeerLinkReciprocalError],
+    }).middleware(PeerLinkAuthenticated),
+  )
+  .add(
+    HttpApiEndpoint.post("teardown", "/api/peer-links/teardown", {
+      headers: OptionalBearerHeaders,
+      payload: PeerLinkReciprocalTeardownInput,
+      success: PeerLinkReciprocalTeardownResult,
+      error: [PeerLinkReciprocalError],
+    }).middleware(PeerLinkAuthenticated),
   ) {}
 
 const EnvironmentOrchestrationThreadSnapshotParams = Schema.Struct({
@@ -873,7 +954,7 @@ export class EnvironmentVoiceHttpApi extends HttpApiGroup.make("voice")
     HttpApiEndpoint.post("downloadModel", "/api/voice/models/download", {
       headers: OptionalBearerHeaders,
       payload: EnvironmentSpeechModelRequest,
-      success: EnvironmentSpeechModels,
+      success: EnvironmentSpeechModelDownload,
       error: [...EnvironmentScopedOperationErrors, EnvironmentRequestInvalidError],
     }).middleware(EnvironmentAuthenticatedAuth),
   )
@@ -1013,6 +1094,23 @@ class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
     }),
   ) {}
 
+/**
+ * What a linking environment asks of this one over its link, outside `/mcp`. The handler accepts
+ * only a peer link's own session, so no agent's tool list ever carries it.
+ */
+class EnvironmentPeerLinkHttpApi extends HttpApiGroup.make("peerLink").add(
+  HttpApiEndpoint.post("clientPairing", "/api/peer-link/client-pairing", {
+    headers: OptionalBearerHeaders,
+    payload: PeerLinkClientPairingRequest,
+    success: PeerLinkClientPairingCredential,
+    error: [
+      EnvironmentHttpUnauthorizedError,
+      EnvironmentHttpForbiddenError,
+      EnvironmentHttpInternalServerError,
+    ],
+  }),
+) {}
+
 // Path tokens and optional body signatures authenticate webhooks; read raw bytes to verify signatures.
 const WebhookParams = Schema.Struct({
   hookId: TrimmedNonEmptyString,
@@ -1031,15 +1129,18 @@ class EnvironmentWebhooksHttpApi extends HttpApiGroup.make("webhooks")
   .add(HttpApiEndpoint.post("webhookPost", WEBHOOK_PATH, webhookEndpoint))
   .add(HttpApiEndpoint.put("webhookPut", WEBHOOK_PATH, webhookEndpoint))
   .add(HttpApiEndpoint.patch("webhookPatch", WEBHOOK_PATH, webhookEndpoint))
-  .add(HttpApiEndpoint.get("webhookGet", WEBHOOK_PATH, webhookEndpoint)) {}
+  .add(HttpApiEndpoint.get("webhookGet", WEBHOOK_PATH, webhookEndpoint))
+  .annotate(HttpApi.RedactedNames, { params: ["token"] }) {}
 
 export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentMcpOAuthHttpApi)
+  .add(EnvironmentPeerLinksHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentPullRequestsHttpApi)
   .add(EnvironmentProjectsHttpApi)
   .add(EnvironmentVoiceHttpApi)
   .add(EnvironmentConnectHttpApi)
-  .add(EnvironmentWebhooksHttpApi) {}
+  .add(EnvironmentWebhooksHttpApi)
+  .add(EnvironmentPeerLinkHttpApi) {}

@@ -3,9 +3,14 @@ import * as NodeFS from "node:fs";
 // @effect-diagnostics-next-line nodeBuiltinImport:off - A peer with a certificate this machine does not trust.
 import * as NodeHttps from "node:https";
 import { NodeHttpServer } from "@effect/platform-node";
-import { type ExecutionEnvironmentDescriptor, OrchestratorMcpFailure } from "@t3tools/contracts";
+import {
+  AuthSessionId,
+  type ExecutionEnvironmentDescriptor,
+  OrchestratorMcpFailure,
+} from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -21,6 +26,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { Tool, Toolkit } from "effect/ai";
 import {
   FetchHttpClient,
+  HttpBody,
   HttpClient,
   HttpServer,
   HttpServerRequest,
@@ -156,7 +162,10 @@ it.effect("routes peer reads to readers and sees uncommitted link updates", () =
         expect((yield* links.list)[0]?.label).toBe("Uncommitted box");
       }),
     );
-    expect(yield* links.unlink(box.environmentId)).toBe(true);
+    expect(yield* links.unlink(box.environmentId)).toMatchObject({
+      removed: true,
+      endedThere: false,
+    });
     expect(yield* links.list).toEqual([]);
   }),
 );
@@ -190,7 +199,7 @@ it.effect("links with a pairing code, and the peer holds its agents to the limit
       });
       // B lists the link under A's name, where it can be revoked.
       expect((yield* linkedSessions(b)).map((session) => session.client.label)).toEqual([
-        "T3 Code · Laptop",
+        "iglo.code · Laptop",
       ]);
       expect(
         (yield* a.links.list).map(({ environmentId, status }) => [environmentId, status]),
@@ -199,12 +208,29 @@ it.effect("links with a pairing code, and the peer holds its agents to the limit
       // The caller's limits narrow the link's access; they never widen it.
       expect(
         yield* probe(a, { runtimeMode: "approval-required", interactionMode: "plan" }),
-      ).toEqual({ caller: "T3 Code · Laptop", modes: "approval-required/plan" });
-      expect(yield* probe(a)).toEqual({ caller: "T3 Code · Laptop", modes: "auto/default" });
+      ).toEqual({ caller: "iglo.code · Laptop", modes: "approval-required/plan" });
+      expect(yield* probe(a)).toEqual({ caller: "iglo.code · Laptop", modes: "auto/default" });
 
       // A refusal keeps the peer's reason.
       const notFound = yield* probe(a, undefined, "refuse").pipe(Effect.flip);
       expect(notFound).toMatchObject({ code: "thread_not_found", message: "No such thread." });
+
+      // Unlinking ends the session on B too, instead of leaving a live credential behind.
+      expect(yield* a.links.unlink(box.environmentId)).toMatchObject({
+        removed: true,
+        endedThere: true,
+      });
+      expect(yield* linkedSessions(b)).toEqual([]);
+
+      // An address that now answers as another environment never receives the token.
+      const other = yield* serveApart(descriptorOf("environment-other", "Other"));
+      const relink = yield* b.auth.issuePairingCredential({ access: "auto", purpose: "peer-link" });
+      yield* a.links.link({ url: b.url, pairingCode: relink.credential, access: "auto" });
+      yield* a.sql`UPDATE peer_environment_links SET urls_json = ${JSON.stringify([other.url])}`;
+      expect(yield* a.links.unlink(box.environmentId)).toMatchObject({
+        removed: true,
+        endedThere: false,
+      });
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -241,7 +267,7 @@ it.effect(
         expect(waiting.code).toBe("orchestration_error");
         expect(waiting.message).toContain("has Linked environments turned off");
         yield* b.settings.updateSettings({ linkedEnvironmentsEnabled: true });
-        expect(yield* probe(a)).toEqual({ caller: "T3 Code · Laptop", modes: "auto/default" });
+        expect(yield* probe(a)).toEqual({ caller: "iglo.code · Laptop", modes: "auto/default" });
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -468,12 +494,11 @@ it.effect("resolves a link at its answering address without waiting out a sleepi
       });
 
       yield* Ref.set(b.asleep, true);
+      // The clock never moves: a resolve that probes the sleeping address first never returns.
+      // Advancing it would also expire the answering probe if that one was still in flight.
       const first = yield* a.links.resolve(box.environmentId).pipe(Effect.forkScoped);
       yield* Queue.take(b.unanswered);
-      yield* TestClock.adjust(Duration.seconds(3));
       expect((yield* Fiber.join(first)).url).toBe(elsewhere);
-
-      // The clock no longer moves: a resolve that probes the sleeping address first never returns.
       expect((yield* a.links.resolve(box.environmentId)).url).toBe(elsewhere);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
@@ -574,7 +599,19 @@ it.effect("reads one stored link without asking the peer", () =>
       const stored = yield* a.links.get(box.environmentId);
       expect(Option.map(stored, (link) => link.label)).toEqual(Option.some("Box"));
       expect(Option.isNone(yield* a.links.get(laptop.environmentId))).toBe(true);
+      expect(yield* a.links.names).toEqual([{ environmentId: box.environmentId, label: "Box" }]);
       expect(yield* Ref.get(b.probes)).toBe(0);
+
+      // An older answer that lands after a newer one never moves the expiry back.
+      const expiresAt = Option.getOrThrow(stored).expiresAt;
+      const later = DateTime.add(expiresAt, { days: 20 });
+      yield* a.links.recordExpiry(box.environmentId, later);
+      yield* a.links.recordExpiry(box.environmentId, DateTime.add(expiresAt, { days: 10 }));
+      expect(
+        Option.map(yield* a.links.get(box.environmentId), (link) =>
+          DateTime.formatIso(link.expiresAt),
+        ),
+      ).toEqual(Option.some(DateTime.formatIso(later)));
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -679,6 +716,7 @@ it.effect("tells the agent to link again once the peer revokes the link or it ex
 
       yield* TestClock.adjust(Duration.days(31));
       expect((yield* a.links.list).map((link) => link.status)).toEqual(["expired"]);
+      expect(yield* a.links.names).toEqual([]);
       yield* Ref.set(b.bearers, []);
       const expired = yield* probe(a).pipe(Effect.flip);
       expect(expired.code).toBe("capability_denied");
@@ -805,6 +843,7 @@ it.effect("linking a picked machine that answers nowhere names it and links noth
         })
         .pipe(Effect.flip);
       expect(failed.reason).toBe("unreachable");
+      expect(failed.answeredAs).toBe("Impostor");
       expect(failed.message).toBe(
         `This environment could not reach Box: ${new URL(impostor.url).origin} answered as another environment, Impostor. http://192.168.1.20:3773 is plain http, which would send the link's credentials unencrypted. Use its https address, or its Tailscale address.`,
       );
@@ -821,18 +860,17 @@ it.effect("linking a picked machine that answers nowhere names it and links noth
           expectedLabel: "Box",
         })
         .pipe(Effect.flip);
-      expect(refused.message).toContain("could not reach Box");
+      expect(refused.message).toContain("This environment could not reach Box");
       expect(refused.message).toContain("plain http");
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.live("linking an address with nothing listening says so, unlike one that is not T3 Code", () =>
+it.live("linking an address with nothing listening says so, unlike one that is not iglo.code", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const closed = yield* Effect.scoped(
-        serveRaw(() => Effect.succeed(HttpServerResponse.empty({ status: 404 }))),
-      );
+      // Any test worker can reuse a closed ephemeral port; port 2 is privileged and outside that range.
+      const closed = "http://127.0.0.1:2";
       const notT3 = yield* serveRaw(() =>
         Effect.succeed(
           HttpServerResponse.text("<h1>Not Found</h1>", { status: 404, contentType: "text/html" }),
@@ -843,7 +881,7 @@ it.live("linking an address with nothing listening says so, unlike one that is n
         a.links.link({ url, pairingCode: "unused", access: "auto" }).pipe(Effect.flip);
       expect((yield* linking(closed)).message).toBe(`${closed} did not answer (ECONNREFUSED).`);
       expect((yield* linking(notT3)).message).toBe(
-        `${notT3} answered, but not as a T3 Code environment this version understands.`,
+        `${notT3} answered, but not as an iglo.code environment this version understands.`,
       );
       expect(yield* a.links.list).toEqual([]);
     }),
@@ -916,3 +954,575 @@ it("reads Node's TLS verification code from anywhere in a cause chain", () => {
   expect(PeerLinks.certificateErrorCode({ cause: { code: "ECONNREFUSED" } })).toBeUndefined();
   expect(PeerLinks.certificateErrorCode(new Error("timed out"))).toBeUndefined();
 });
+
+// A reciprocal link needs both environments on sockets of their own, each able
+// to sign the other in; `serveApart` gives A its own, as the tests with an
+// impostor peer do.
+const makeServedA = () => serveApart(laptop);
+
+it.effect("one link serves both directions, and forgetting removes both sides", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      const created = yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      expect(created.reciprocal).toEqual({ kind: "linked" });
+      expect(created).toMatchObject({ environmentId: box.environmentId, access: "auto" });
+      // The peer linked back: its own list holds this environment, at the access the link chose.
+      expect(yield* b.links.list).toMatchObject([
+        { environmentId: laptop.environmentId, label: "Laptop", access: "auto" },
+      ]);
+      // Each side's session for the other, as each Sharing & access lists.
+      expect((yield* linkedSessions(b)).map((session) => session.client.label)).toEqual([
+        "iglo.code · Laptop",
+      ]);
+      expect((yield* linkedSessions(a)).map((session) => session.client.label)).toEqual([
+        "iglo.code · Box",
+      ]);
+      // Forgetting here ends both halves: the row on each side, and the session each held there.
+      const removed = yield* a.links.unlink(box.environmentId);
+      expect(removed).toEqual({ removed: true, endedThere: true, remote: { kind: "removed" } });
+      expect(yield* a.links.list).toEqual([]);
+      expect(yield* b.links.list).toEqual([]);
+      expect(yield* linkedSessions(b)).toEqual([]);
+      expect(yield* linkedSessions(a)).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a link asked to stay one way leaves the peer unlinked back", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      const created = yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: false,
+      });
+      expect(created.reciprocal).toEqual({ kind: "off" });
+      expect(yield* b.links.list).toEqual([]);
+      // The forward half still stands, as one-way links always have.
+      expect((yield* linkedSessions(b)).map((session) => session.client.label)).toEqual([
+        "iglo.code · Laptop",
+      ]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("unlinking a one-way link reports the peer's side as already gone, not kept", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: false,
+      });
+      // B never linked back, so its teardown finds no row there.
+      const removed = yield* a.links.unlink(box.environmentId);
+      expect(removed).toEqual({ removed: true, endedThere: true, remote: { kind: "removed" } });
+      expect(yield* a.links.list).toEqual([]);
+      expect(yield* b.links.list).toEqual([]);
+      // The session B held for this side still went with the link.
+      expect(yield* linkedSessions(b)).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a peer from before reciprocal links keeps linking one way", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const older = descriptorOf("environment-older", "Older", { peerLinkReciprocal: false });
+      const b = yield* serveB(older);
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      const created = yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      expect(created.reciprocal).toEqual({ kind: "unsupported" });
+      expect(yield* b.links.list).toEqual([]);
+      expect(Option.isSome(yield* a.links.get(older.environmentId))).toBe(true);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+// The refused port makes the peer's probe wait out its retry, so the clock runs.
+it.live("a peer that cannot reach back keeps the forward link and says why", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      // Nothing answers for this environment, as a machine behind no tailnet would.
+      yield* Ref.set(a.ownOrigins, ["http://127.0.0.1:1"]);
+      const pairing = yield* b.auth.issuePairingCredential();
+      const created = yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      const reciprocal = created.reciprocal ?? ({ kind: "off" } as const);
+      expect(reciprocal).toMatchObject({ kind: "failed" });
+      if (reciprocal.kind === "failed") {
+        expect(reciprocal.message).toContain("Box could not link back");
+      }
+      expect(Option.isSome(yield* a.links.get(box.environmentId))).toBe(true);
+      expect(yield* b.links.list).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a reciprocal offer may only name the environment its session came from", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const refusal = yield* b.links
+        .acceptReciprocal(
+          {
+            sessionId: AuthSessionId.make("session:impostor"),
+            peerEnvironmentId: "environment-impostor",
+          },
+          {
+            environmentId: laptop.environmentId,
+            label: "Laptop",
+            urls: [b.url],
+            pairingCode: "READ-CCCCCCCCCCCC",
+            access: "auto",
+          },
+        )
+        .pipe(Effect.flip);
+      expect(refusal.reason).toBe("pairing_rejected");
+      expect(yield* b.links.list).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a teardown over a link from before this change ends its session and nothing else", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      // A peer-link session that declared no environment id, as an older iglo.code signs in.
+      const session = yield* b.auth.issueMcpClientSession({
+        label: "iglo.code · Old laptop",
+        access: "auto",
+        peerLink: true,
+        client: { deviceType: "bot" },
+      });
+      const removed = yield* b.links.forgetPeer(
+        { sessionId: session.sessionId, peerEnvironmentId: undefined },
+        laptop.environmentId,
+      );
+      expect(removed).toEqual({ removed: false, kept: false });
+      expect(yield* linkedSessions(b)).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("the reciprocal endpoints refuse a session that is not a peer link", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const session = yield* b.auth.issueMcpClientSession({
+        label: "An agent",
+        access: "read-only",
+        peerLink: false,
+        client: { deviceType: "bot" },
+      });
+      const fetchContext = yield* FetchHttpClient.layer.pipe(Layer.build);
+      const client = Context.get(fetchContext, HttpClient.HttpClient);
+      const response = yield* client.post(`${b.url}/api/peer-links/teardown`, {
+        headers: { authorization: `Bearer ${session.token}` },
+        body: HttpBody.jsonUnsafe({ environmentId: laptop.environmentId }),
+      });
+      expect(response.status).toBe(403);
+      expect(yield* b.links.list).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect(
+  "a link that does not ask for reciprocity links one way, whatever older callers assumed",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const b = yield* serveB(box);
+        const a = yield* makeServedA();
+        const pairing = yield* b.auth.issuePairingCredential();
+        // No `reciprocal` on the wire means no link back: an older client that
+        // never chose silently links one way.
+        const created = yield* a.links.link({
+          url: b.url,
+          pairingCode: pairing.credential,
+          access: "auto",
+        });
+        expect(created.reciprocal).toEqual({ kind: "off" });
+        expect(Option.isSome(yield* a.links.get(box.environmentId))).toBe(true);
+        expect(yield* b.links.list).toEqual([]);
+        expect((yield* linkedSessions(b)).map((session) => session.client.label)).toEqual([
+          "iglo.code · Laptop",
+        ]);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("an accepted offer never moves a link this environment already holds", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      // B now holds a row for A, bound to the session the offer arrived over.
+      const [offeringSession] = yield* linkedSessions(b);
+      // An impostor that answers as A offers its own address for A.
+      const impostor = yield* serveApart(descriptorOf(laptop.environmentId, "Laptop"));
+      const impostorPairing = yield* impostor.auth.issuePairingCredential({
+        access: "auto",
+        purpose: "peer-link",
+      });
+      const refused = yield* b.links
+        .acceptReciprocal(
+          {
+            sessionId: offeringSession!.sessionId,
+            peerEnvironmentId: laptop.environmentId,
+          },
+          {
+            environmentId: laptop.environmentId,
+            label: "Laptop",
+            urls: [impostor.url],
+            pairingCode: impostorPairing.credential,
+            access: "auto",
+          },
+        )
+        .pipe(Effect.flip);
+      expect(refused.reason).toBe("pairing_rejected");
+      expect(refused.message).toContain("already linked");
+      // The row B holds still points at A's real address, and resolves there.
+      expect(Option.getOrUndefined(yield* b.links.get(laptop.environmentId))?.urls).toEqual([
+        a.url,
+      ]);
+      expect((yield* b.links.resolve(laptop.environmentId)).url).toBe(a.url);
+      expect(yield* linkedSessions(impostor)).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("an accepted offer does not move a link that appeared while it signed in", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      // B stores a link row's token through its secret store; wrapping `set`
+      // lets the test drop a competing row for this environment in after the
+      // accept path read the table but before it writes.
+      const gate = yield* Ref.make<Option.Option<SqlClient.SqlClient>>(Option.none());
+      const inserted = yield* Ref.make(false);
+      const wrote = yield* Ref.make<ReadonlyArray<string>>([]);
+      const removed = yield* Ref.make<ReadonlyArray<string>>([]);
+      const secrets = Layer.effect(
+        ServerSecretStore.ServerSecretStore,
+        Effect.map(ServerSecretStore.make, (store) =>
+          ServerSecretStore.ServerSecretStore.of({
+            ...store,
+            set: (name, value) =>
+              Effect.gen(function* () {
+                const sql = yield* Ref.get(gate);
+                if (Option.isSome(sql) && (yield* Ref.getAndSet(inserted, true)) === false) {
+                  yield* sql.value`
+                    INSERT INTO peer_environment_links (
+                      environment_id, secret_name, label, urls_json, access, linked_at, expires_at, fenced
+                    ) VALUES (
+                      ${laptop.environmentId}, 'competing-secret', 'Competing', '["http://127.0.0.1:9"]', 'auto',
+                      '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', 1
+                    )
+                  `.pipe(Effect.orDie);
+                }
+                yield* Ref.update(wrote, (names) => [...names, name]);
+                yield* store.set(name, value);
+              }),
+            remove: (name) =>
+              Ref.update(removed, (names) => [...names, name]).pipe(
+                Effect.andThen(store.remove(name)),
+              ),
+          }),
+        ),
+      );
+      const b = yield* servePeer(
+        box,
+        McpHttpServer.toolkitRegistration(ProbeToolkit, probeHandlers),
+        Layer.empty,
+        secrets,
+      );
+      yield* Ref.set(gate, Option.some(b.sql));
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      const created = yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      const reciprocal = created.reciprocal ?? ({ kind: "off" } as const);
+      expect(reciprocal).toMatchObject({ kind: "failed" });
+      if (reciprocal.kind === "failed") {
+        expect(reciprocal.message).toContain("Box could not link back");
+      }
+      // The forward half still stands.
+      expect(Option.isSome(yield* a.links.get(box.environmentId))).toBe(true);
+      // The row that appeared mid-sign-in is exactly as it was.
+      const rows = yield* b.sql`
+        SELECT secret_name, label, urls_json FROM peer_environment_links
+        WHERE environment_id = ${laptop.environmentId}
+      `;
+      expect(rows).toEqual([
+        {
+          secret_name: "competing-secret",
+          label: "Competing",
+          urls_json: '["http://127.0.0.1:9"]',
+        },
+      ]);
+      // The rejected write's own token was cleaned up; the competing row's was not.
+      const [written] = yield* Ref.get(wrote);
+      expect(yield* Ref.get(removed)).toContain(written);
+      expect(yield* Ref.get(removed)).not.toContain("competing-secret");
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a renewal from the accepting side signs in where the link already reaches", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      // Another socket answers as B, and B's own addresses now list it first.
+      const twin = yield* serveApart(box);
+      yield* Ref.set(b.ownOrigins, [twin.url, b.url]);
+      // B renews both ways; its offer names the twin before its own address.
+      const pairingAgain = yield* a.auth.issuePairingCredential();
+      const renewed = yield* b.links.link({
+        url: a.url,
+        pairingCode: pairingAgain.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      expect(renewed.reciprocal).toEqual({ kind: "linked" });
+      // A's row for B still names only the address it already held.
+      expect(Option.getOrThrow(yield* a.links.get(box.environmentId)).urls).toEqual([b.url]);
+      expect((yield* a.links.resolve(box.environmentId)).url).toBe(b.url);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a teardown only touches the row its own session is bound to", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      // A second linked peer session on B, claiming to be A.
+      const impostorSession = yield* b.auth.issueMcpClientSession({
+        label: "iglo.code · Laptop",
+        access: "auto",
+        peerLink: true,
+        peerEnvironmentId: laptop.environmentId,
+        client: { deviceType: "bot" },
+      });
+      const refused = yield* b.links.forgetPeer(
+        {
+          sessionId: impostorSession.sessionId,
+          peerEnvironmentId: laptop.environmentId,
+        },
+        laptop.environmentId,
+      );
+      expect(refused).toEqual({ removed: false, kept: true });
+      // The row survives, and the impostor's own session is revoked.
+      expect(Option.isSome(yield* b.links.get(laptop.environmentId))).toBe(true);
+      const remaining = yield* linkedSessions(b);
+      expect(remaining.map((session) => session.sessionId)).not.toContain(
+        impostorSession.sessionId,
+      );
+      // The bound session can still forget its own link.
+      const [bound] = yield* linkedSessions(b);
+      const removed = yield* b.links.forgetPeer(
+        { sessionId: bound!.sessionId, peerEnvironmentId: laptop.environmentId },
+        laptop.environmentId,
+      );
+      expect(removed).toEqual({ removed: true, kept: false });
+      expect(yield* b.links.list).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("forgetting ends the peer's session here even when it cannot be asked", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      const pairing = yield* b.auth.issuePairingCredential();
+      yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      expect((yield* linkedSessions(a)).length).toBe(1);
+      // B stops answering entirely.
+      yield* Ref.set(b.asleep, true);
+      const forgetting = yield* a.links.unlink(box.environmentId).pipe(Effect.forkScoped);
+      yield* Queue.take(b.unanswered);
+      // Probe timeout, one retry, probe timeout again.
+      yield* TestClock.adjust(Duration.seconds(8));
+      const removed = yield* Fiber.join(forgetting);
+      expect(removed.removed).toBe(true);
+      expect(removed.remote?.kind).toBe("off");
+      expect(yield* a.links.list).toEqual([]);
+      // The session B held here went with the link, without asking B.
+      expect(yield* linkedSessions(a)).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect(
+  "a peer that keeps its side on teardown is reported as kept, with how to end the session",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const b = yield* serveB(box);
+        const a = yield* makeServedA();
+        const pairing = yield* b.auth.issuePairingCredential();
+        yield* a.links.link({
+          url: b.url,
+          pairingCode: pairing.credential,
+          access: "auto",
+          reciprocal: true,
+        });
+        // B's row for A predates session binding: no peer_session_id.
+        yield* b.sql`UPDATE peer_environment_links SET peer_session_id = NULL`;
+        const removed = yield* a.links.unlink(box.environmentId);
+        expect(removed).toEqual({
+          removed: true,
+          endedThere: true,
+          remote: { kind: "kept", message: expect.stringContaining("Sharing & access") },
+        });
+        expect(yield* a.links.list).toEqual([]);
+        // B kept its row; its own side can still forget it.
+        expect((yield* b.links.list).length).toBe(1);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect(
+  "an old peer without the reciprocal endpoint revokes this side's session there by token",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const older = descriptorOf("environment-older", "Older", { peerLinkReciprocal: false });
+        const b = yield* serveB(older);
+        const a = yield* makeA(laptop);
+        const pairing = yield* b.auth.issuePairingCredential();
+        yield* a.links.link({
+          url: b.url,
+          pairingCode: pairing.credential,
+          access: "auto",
+          reciprocal: false,
+        });
+        yield* Ref.set(b.bearers, []);
+        const removed = yield* a.links.unlink(older.environmentId);
+        expect(removed.removed).toBe(true);
+        expect(removed.endedThere).toBe(true);
+        expect(removed.remote?.kind).toBe("off");
+        if (removed.remote?.kind === "off") {
+          expect(removed.remote.message).toContain("runs an iglo.code version");
+          expect(removed.remote.message).toContain("Connections");
+        }
+        // No teardown call was made: the old peer has no such route.
+        expect(yield* Ref.get(b.bearers)).toEqual([]);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.live("a failed reciprocal offer revokes the one-time code it minted", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeServedA();
+      // Nothing answers for this environment, so the offer fails.
+      yield* Ref.set(a.ownOrigins, ["http://127.0.0.1:1"]);
+      const pairing = yield* b.auth.issuePairingCredential();
+      const created = yield* a.links.link({
+        url: b.url,
+        pairingCode: pairing.credential,
+        access: "auto",
+        reciprocal: true,
+      });
+      expect(created.reciprocal).toMatchObject({ kind: "failed" });
+      // The grant minted for the failed offer is revoked, not live for its lifetime.
+      const active = yield* a.auth.listPairingLinks();
+      expect(active.some((link) => link.label === "Link back to Laptop")).toBe(false);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+// The refused ports make the probe wait out its retry, so the clock runs.
+it.live("a failed offer's answer does not echo per-address probe results", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      // The offering session on B names Laptop.
+      const session = yield* b.auth.issueMcpClientSession({
+        label: "iglo.code · Laptop",
+        access: "auto",
+        peerLink: true,
+        peerEnvironmentId: laptop.environmentId,
+        client: { deviceType: "bot" },
+      });
+      const refused = yield* b.links
+        .acceptReciprocal(
+          { sessionId: session.sessionId, peerEnvironmentId: laptop.environmentId },
+          {
+            environmentId: laptop.environmentId,
+            label: "Laptop",
+            urls: ["http://127.0.0.1:1", "http://127.0.0.1:2"],
+            pairingCode: "unused",
+            access: "auto",
+          },
+        )
+        .pipe(Effect.flip);
+      expect(refused.reason).toBe("unreachable");
+      expect(refused.message).toBe("The offered addresses did not answer as that environment.");
+      expect(refused.message).not.toContain("ECONNREFUSED");
+      expect(yield* b.links.list).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
