@@ -20,21 +20,21 @@ and modes you choose in a draft keep their permissions.
 An administrator can cap the modes available on a machine with a
 [managed policy](./managed-policy.md#permission-modes); modes above the cap show who manages them.
 
-When an agent below **Full access** opens a pull request with T3 Code's own pull request tool and
+When an agent below **Full access** opens a pull request with iglo.code's own pull request tool and
 the push would run one of the repository's Git hooks (`pre-push` or `reference-transaction`, as a
-project with husky has), T3 Code asks you first. The request names the branch and the hooks: the
+project with husky has), iglo.code asks you first. The request names the branch and the hooks: the
 hook files, and any hook set up in Git's configuration (`hook.<name>.command`, which Git 2.54 and
 later run). **Approve** pushes and runs them; **Decline** pushes nothing. You are asked each
 time: there is no "always allow" for this request, and Plan mode asks too. An approval covers the
 contents of the files and the commands it names: if one of them changes, you are asked again. A
-change made in the moment between T3 Code's last look and Git starting the hook is not caught.
+change made in the moment between iglo.code's last look and Git starting the hook is not caught.
 With husky 9 and Vite+ that is the hook's script, such as `.husky/pre-push`, along with the two
 files they generate to start it. It does not cover what those go on to run or read, such as a
 package script or another file a hook sources (`.husky/_/husky.sh` with husky 8), so a change
 there is not asked about. A push that would run no hook is not asked about. An agent
 whose provider cannot show the request pushes without running the hooks and is told so.
-With Claude and Codex the push waits for your answer in T3 Code itself; with any other client
-that asks you by itself, T3 Code goes by the answer that client sends.
+With Claude and Codex the push waits for your answer in iglo.code itself; with any other client
+that asks you by itself, iglo.code goes by the answer that client sends.
 
 This request is for that tool only. An agent that runs `git push` or a command such as
 `gh pr create` itself, in its own shell, goes through its provider's approval for commands as the

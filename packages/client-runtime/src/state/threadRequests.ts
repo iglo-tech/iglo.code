@@ -60,7 +60,7 @@ export interface ThreadPendingApproval {
   readonly reason?: string;
   readonly fullAccessOverride?: ProviderApprovalFullAccessOverride;
   readonly appName?: string;
-  /** Set when T3 Code itself asks to run a repository's push hooks; `detail` is the same in one sentence. */
+  /** Set when iglo.code itself asks to run a repository's push hooks; `detail` is the same in one sentence. */
   readonly pushHooks?: ProviderApprovalPushHooks;
   readonly options?: ReadonlyArray<ProviderApprovalOption>;
   readonly responseCapability: "live" | "not_resumable";

@@ -26,7 +26,7 @@ const config = Schema.decodeSync(ServerConfig)({
     policy: "loopback-browser",
     bootstrapMethods: ["one-time-token"],
     sessionMethods: ["browser-session-cookie"],
-    sessionCookieName: "t3_session",
+    sessionCookieName: "iglo_code_session",
   },
   cwd: "/workspace/labs",
   keybindingsConfigPath: "/workspace/keybindings.json",

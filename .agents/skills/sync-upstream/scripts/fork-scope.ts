@@ -74,6 +74,9 @@ export const REMOVED_PATHS = [
   "apps/server/src/process-launcher.ts",
   "apps/server/src/process/ProcessLauncher.ts",
   "apps/server/src/process/processLauncherWorker.ts",
+  // node-pty adapter and tests; the fork's server spawns terminals through BunPtyAdapter.
+  "apps/server/src/terminal/NodePtyAdapter.*",
+  "apps/server/src/terminal/nodePty*.test.ts",
   // Upstream's e2e scenarios drive the mobile simulator as well as the web client.
   "scripts/scenarios",
   "scripts/e2e.config.*",

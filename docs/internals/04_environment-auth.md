@@ -110,7 +110,7 @@ model.
   (`McpClientInput.answered`): a decline pushes nothing, whatever the hooks are by then. A call
   asks at most three times; the request's state carries the count, so it holds across a
   sessionless client's calls. A client that cannot be asked gets the push with hooks off.
-  The Claude and Codex adapters never answer a request T3 Code's own tool made, whatever the
+  The Claude and Codex adapters never answer a request iglo.code's own tool made, whatever the
   turn's runtime mode and whatever was allowed for the session: it always reaches the person.
   In those threads the approval is the person's answer in the app, not the client's reply. The
   request is kept with the thread's MCP session under an id of its own and the state it was
@@ -119,9 +119,9 @@ model.
   request the reply names (by the id in its state) holds an approval for that state. That reads
   the request once and ends it. A reply of "accept" for a request the person did not approve,
   or one that is gone because the server restarted or the thread's session was replaced, pushes
-  nothing: the tool fails saying T3 Code has no approval from the person, and the next call
+  nothing: the tool fails saying iglo.code has no approval from the person, and the next call
   asks again. A decline or cancel in the reply pushes nothing whatever the app recorded.
-  For a client T3 Code shows no request for (an outside MCP client that declared elicitation,
+  For a client iglo.code shows no request for (an outside MCP client that declared elicitation,
   or a provider whose adapter does not pass on the person's answer), the client's reply is all
   there is and is taken as the person's answer.
   What those files go on to run, such as a package script or a file they source, is not part of

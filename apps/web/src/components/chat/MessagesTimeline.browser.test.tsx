@@ -505,7 +505,7 @@ describe("MessagesTimeline work rows", () => {
     expect(output!.closest('[role="button"]')).toBeNull();
     expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")).toContain(output);
   });
-  it("opens a web search result in the thread's Browser when links open in T3 Code", async () => {
+  it("opens a web search result in the thread's Browser when links open in iglo.code", async () => {
     setup();
     previewAccess.granted = true;
     __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, browserLinkTarget: "app" });
@@ -2603,7 +2603,7 @@ it("renders automatic compaction as one live divider that finishes with its reas
   expect(container.textContent).not.toContain("Compacting before");
 });
 
-it("shows T3 Code's push hooks approval as its own question and another server's as before", async () => {
+it("shows iglo.code's push hooks approval as its own question and another server's as before", async () => {
   setup();
   const fixture = makeStreamingTimelineFixture();
   const sentence =
