@@ -306,8 +306,9 @@ Queued messages stay saved while the limit blocks the thread. They run after
 the continuation finishes. If the queue was held by a restart, resume it then.
 
 When the provider reports a reset time, choose **Resume at reset** to schedule a
-continuation. You can cancel it from the thread. Enable **Resume after
-usage limits** in **Settings → Threads** to schedule limit stops by default.
+continuation. You can cancel it from the thread. **Resume after usage limits**
+in **Settings → Threads** schedules this for every limit stop and is on by
+default; turn it off to choose per thread.
 The environment must be running when the reset arrives; it resumes overdue
 continuations after a restart. Stopping the thread, sending a new message,
 archiving, or settling it prevents a pending continuation from starting.

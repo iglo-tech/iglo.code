@@ -71,6 +71,7 @@ it.effect("applies v1 fork defaults on a fresh server and persists the version m
       assert.strictEqual(settings.linkedEnvironmentsEnabled, true);
       assert.strictEqual(settings.workflowsEnabled, true);
       assert.strictEqual(settings.promptSuggestionsEnabled, true);
+      assert.strictEqual(settings.autoResumeLimitedThreads, true);
 
       const versionRaw = yield* fs.readFileString(
         forkDefaultsVersionPath(config.settingsPath, path),

@@ -31,6 +31,10 @@ export const FORK_SERVER_DEFAULTS_STEPS = [
       promptSuggestionsEnabled: true,
     },
   },
+  {
+    version: 2,
+    patch: { autoResumeLimitedThreads: true },
+  },
 ] as const satisfies ReadonlyArray<ForkServerDefaultsStep>;
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>

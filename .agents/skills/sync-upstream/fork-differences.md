@@ -300,7 +300,8 @@ current when an authorized change replaces a decision.
   dispatch semantics rather than carrying both paths.
 - **Versioned fork server defaults.** `FORK_SERVER_DEFAULTS_STEPS` in
   [contracts forkSettingsDefaults.ts](../../../packages/contracts/src/forkSettingsDefaults.ts)
-  holds iglo.code's server defaults. Never edit or renumber a shipped step;
+  holds iglo.code's server defaults (step 2 turns on `autoResumeLimitedThreads`,
+  so limited threads always continue at their reset). Never edit or renumber a shipped step;
   append a higher version. The server wraps `ServerSettings.layer` with
   `withForkSettingsDefaults` from
   [forkSettingsDefaults.ts](../../../apps/server/src/forkSettingsDefaults.ts) in
