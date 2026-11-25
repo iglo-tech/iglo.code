@@ -24,6 +24,7 @@ export interface LinkedAutoConnectPlan {
   readonly forget: ReadonlyArray<EnvironmentId>;
   /** Joined machines whose session was refused, removed so they are joined afresh. */
   readonly rejoin: ReadonlyArray<EnvironmentId>;
+  /** Joined marks on the machine serving this app, which is always its own. */
   readonly clearJoined: ReadonlyArray<EnvironmentId>;
   readonly clearDismissed: ReadonlyArray<EnvironmentId>;
   readonly clearWaits: ReadonlyArray<EnvironmentId>;
@@ -90,27 +91,26 @@ export function planLinkedAutoConnect(input: {
       ? []
       : [{ environmentId, via, label }],
   );
+  // Only when a machine here can pair it again, so a rejoin never strands it.
   const rejoin = input.environments
     .filter(
       (machine) =>
-        machine.refused === true && isJoined(machine.environmentId) && held(machine.environmentId),
+        machine.refused === true &&
+        isJoined(machine.environmentId) &&
+        (reached.get(machine.environmentId)?.via ?? null) !== null &&
+        input.waiting?.has(machine.environmentId) !== true,
     )
     .map((machine) => machine.environmentId);
+  // Joined stays recorded after a machine is left, so a stale copy of it showing up again (from
+  // another tab's catalog) is still known as joined and left again, never taken as paired by hand.
   const clearJoined = [...input.joined].filter((id) => byId.get(id)?.primary === true);
-  const clearDismissed = [...input.dismissed].filter((id) => byId.has(id));
-  if (unknown) {
-    return { ...EMPTY_LINKED_AUTO_CONNECT_PLAN, connect, rejoin, clearJoined, clearDismissed };
-  }
-  const unheldJoined = [...input.joined].filter((id) => isJoined(id) && !held(id));
+  if (unknown) return { ...EMPTY_LINKED_AUTO_CONNECT_PLAN, connect, rejoin, clearJoined };
   return {
     connect,
-    forget: unheldJoined.filter((id) => byId.has(id)),
+    forget: [...input.joined].filter((id) => isJoined(id) && byId.has(id) && !held(id)),
     rejoin,
-    clearJoined: [...clearJoined, ...unheldJoined.filter((id) => !byId.has(id))],
-    clearDismissed: [
-      ...clearDismissed,
-      ...[...input.dismissed].filter((id) => !byId.has(id) && !held(id)),
-    ],
+    clearJoined,
+    clearDismissed: [...input.dismissed].filter((id) => !byId.has(id) && !held(id)),
     clearWaits: [...(input.waiting ?? [])].filter((id) => !reached.has(id)),
   };
 }

@@ -11,19 +11,27 @@ import { connectionAtomRuntime } from "./runtime";
 
 const onboardingScheduler = createAtomCommandScheduler();
 
+type PairingInput = ConnectionOnboarding.PairingConnectionInput & {
+  /** Joined through a link, not paired by hand: the link, not the user, holds it here. */
+  readonly viaLink?: boolean;
+};
+
 export const connectPairing = createRuntimeCommand(connectionAtomRuntime, {
   label: "web:connection:connect-pairing",
   scheduler: onboardingScheduler,
   concurrency: {
     mode: "singleFlight",
-    key: (input: ConnectionOnboarding.PairingConnectionInput) => JSON.stringify(input),
+    key: (input: PairingInput) => JSON.stringify(input),
   },
-  execute: (input: ConnectionOnboarding.PairingConnectionInput) =>
+  execute: ({ viaLink, ...input }: PairingInput) =>
     ConnectionOnboarding.ConnectionOnboarding.pipe(
       Effect.flatMap((onboarding) => onboarding.registerPairing(input)),
-      // Paired here: the machine is this device's own now. Joining through a link marks it
-      // joined again once this returns.
-      Effect.tap((environmentId) => Effect.sync(() => linkedAutoConnectStore.own(environmentId))),
+      // Paired by hand, the machine is this device's own: no link going takes it away.
+      Effect.tap((environmentId) =>
+        viaLink === true
+          ? Effect.void
+          : Effect.sync(() => linkedAutoConnectStore.own(environmentId)),
+      ),
     ),
 });
 
@@ -37,6 +45,7 @@ export const connectSshEnvironment = createRuntimeCommand(connectionAtomRuntime,
   execute: (input: ConnectionOnboarding.SshConnectionInput) =>
     ConnectionOnboarding.ConnectionOnboarding.pipe(
       Effect.flatMap((onboarding) => onboarding.registerSsh(input)),
+      Effect.tap((environmentId) => Effect.sync(() => linkedAutoConnectStore.own(environmentId))),
     ),
 });
 

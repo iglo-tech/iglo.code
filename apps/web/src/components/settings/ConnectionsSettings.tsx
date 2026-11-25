@@ -749,10 +749,11 @@ function ConnectionsSettingsContent({
     const environmentId = environment.environmentId;
     setRemovingSavedEnvironmentId(environmentId);
     setSavedBackendError(null);
+    // A machine still linked would otherwise come straight back through the link.
+    const undoDismiss = linkedAutoConnectStore.dismiss(environmentId);
     const result = await removeEnvironment(environmentId);
     setRemovingSavedEnvironmentId(null);
-    // A machine still linked would otherwise come straight back through the link.
-    if (result._tag === "Success") linkedAutoConnectStore.dismiss(environmentId);
+    if (result._tag === "Failure") undoDismiss();
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       const message =

@@ -31,6 +31,31 @@ afterEach(() => {
 });
 
 describe("ConnectionStorage.makeCatalogStore", () => {
+  it.effect("writes on top of what another tab stored since this one cached the catalog", () =>
+    Effect.gen(function* () {
+      let stored = encodeCatalog(emptyCatalog);
+      const backend = {
+        read: Effect.sync(() => stored),
+        write: (raw: string) =>
+          Effect.sync(() => {
+            stored = raw;
+          }),
+      };
+      const thisTab = yield* ConnectionStorage.makeCatalogStore(backend);
+      const otherTab = yield* ConnectionStorage.makeCatalogStore(backend);
+      yield* thisTab.read;
+      yield* otherTab.update((catalog) => ({
+        ...catalog,
+        disabledEnvironmentIds: [EnvironmentId.make("other")],
+      }));
+      yield* thisTab.update((catalog) => ({
+        ...catalog,
+        disabledEnvironmentIds: [...catalog.disabledEnvironmentIds, EnvironmentId.make("this")],
+      }));
+      expect(decodeCatalog(stored).disabledEnvironmentIds).toEqual(["other", "this"]);
+    }),
+  );
+
   it.effect("quarantines malformed catalogs and starts from an empty document", () =>
     Effect.gen(function* () {
       const writes: string[] = [];

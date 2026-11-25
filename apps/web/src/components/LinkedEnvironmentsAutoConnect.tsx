@@ -30,49 +30,95 @@ const linkNamesAtom = environmentAtomList("linked-auto-connect:names", (environm
 );
 
 const inFlight = new Set<EnvironmentId>();
+// A machine refusing every fresh session must not loop through removing and pairing it.
+const REJOIN_EVERY_MS = 10 * 60_000;
+const rejoinedAt = new Map<EnvironmentId, number>();
+const mayRejoin = (environmentId: EnvironmentId) => {
+  const now = Date.now();
+  if (now - (rejoinedAt.get(environmentId) ?? 0) < REJOIN_EVERY_MS) return false;
+  rejoinedAt.set(environmentId, now);
+  return true;
+};
 
-/** What `environment` links to now, or null while unknown or its links are paused. */
+type LinkNames = AsyncResult.AsyncResult<{ readonly links: ReadonlyArray<PeerLinkName> }, unknown>;
+
+/** What `environment` links to now, when it says. */
 function liveLinks(
   environment: EnvironmentPresentation,
-  names: AsyncResult.AsyncResult<{ readonly links: ReadonlyArray<PeerLinkName> }, unknown> | null,
+  names: LinkNames | null,
 ): ReadonlyArray<PeerLinkName> | null {
   const config = environment.serverConfig;
   if (environment.connection.phase !== "connected" || config === null) return null;
-  // A server that cannot link links to nothing; one with its beta switched off is only paused.
   if (config.environment.capabilities.peerLinks !== true) return [];
-  if (!offersLinkedEnvironments(config)) return null;
-  return names !== null && AsyncResult.isSuccess(names) ? names.value.links : null;
+  return offersLinkedEnvironments(config) && names !== null && AsyncResult.isSuccess(names)
+    ? names.value.links
+    : null;
 }
+
+/**
+ * What the planner goes by: links now, else the last known. With neither, a machine that answers
+ * but has its links paused, or cannot list them, links to nothing; one not answered yet is unknown.
+ */
+function plannedLinks(
+  environment: EnvironmentPresentation,
+  names: LinkNames | null,
+  last: ReadonlyArray<PeerLinkName> | undefined,
+): ReadonlyArray<PeerLinkName> | null {
+  const live = liveLinks(environment, names);
+  if (live !== null) return live;
+  if (last !== undefined) return last;
+  const config = environment.serverConfig;
+  if (environment.connection.phase !== "connected" || config === null) return null;
+  if (!offersLinkedEnvironments(config)) return [];
+  return names !== null && AsyncResult.isFailure(names) && !names.waiting ? [] : null;
+}
+
+const visible = () => typeof document === "undefined" || document.visibilityState === "visible";
 
 /**
  * Keeps this device connected to every machine its machines link to. A device is paired with one
  * machine; linking that machine to others is what brings them here, and forgetting the link takes
- * them away again. Machines paired by hand are never removed. One tab acts for the device, so two
- * never pair the same machine; the next one takes over when it closes.
+ * them away again. Machines paired by hand are never removed. The tab in use acts for the device
+ * (a Web Lock held while it is visible), so two tabs never pair the same machine.
  */
 export function LinkedEnvironmentsAutoConnect() {
   const [leader, setLeader] = useState(
     () => typeof navigator === "undefined" || navigator.locks === undefined,
   );
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds a Web Lock for as long as this tab is open, so one tab acts for the device
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds a Web Lock while this tab is visible, so the tab in use acts for the device
   useEffect(() => {
     if (typeof navigator === "undefined" || navigator.locks === undefined) return;
-    const abort = new AbortController();
-    let release: (() => void) | undefined;
-    navigator.locks
-      .request(
-        LEADER_LOCK,
-        { signal: abort.signal },
-        () =>
-          new Promise<void>((resolve) => {
-            release = resolve;
-            setLeader(true);
-          }),
-      )
-      .catch(() => undefined);
-    return () => {
-      abort.abort();
+    let abort: AbortController | null = null;
+    let release: (() => void) | null = null;
+    const stop = () => {
+      abort?.abort();
+      abort = null;
       release?.();
+      release = null;
+      setLeader(false);
+    };
+    const start = () => {
+      if (abort !== null) return;
+      const controller = new AbortController();
+      abort = controller;
+      navigator.locks
+        .request(
+          LEADER_LOCK,
+          { signal: controller.signal },
+          () =>
+            new Promise<void>((resolve) => {
+              release = resolve;
+              setLeader(true);
+            }),
+        )
+        .catch(() => undefined);
+    };
+    const sync = () => (visible() ? start() : stop());
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      stop();
     };
   }, []);
   return leader ? <LinkedEnvironmentsAutoConnectLeader /> : null;
@@ -117,10 +163,11 @@ function LinkedEnvironmentsAutoConnectLeader() {
     ? planLinkedAutoConnect({
         environments: environments.map((environment): LinkingEnvironment => ({
           environmentId: environment.environmentId,
-          links:
-            live.get(environment.environmentId) ??
-            stored.links.get(environment.environmentId) ??
-            null,
+          links: plannedLinks(
+            environment,
+            namesById.get(environment.environmentId) ?? null,
+            stored.links.get(environment.environmentId),
+          ),
           mayPair: mayPair.has(environment.environmentId),
           primary: isPrimary(environment),
           refused: environment.connection.credentialRefused === true,
@@ -163,6 +210,7 @@ function LinkedEnvironmentsAutoConnectLeader() {
           host,
           pairingCode,
           expectedEnvironmentId: target.environmentId,
+          viaLink: true,
         });
         return result._tag === "Success";
       },
@@ -187,9 +235,14 @@ function LinkedEnvironmentsAutoConnectLeader() {
       await removeOnce(environmentId, () => linkedAutoConnectStore.leave(environmentId));
     }
     // Still joined, so the next plan joins it again with a fresh session.
-    for (const environmentId of plan.rejoin) await removeOnce(environmentId, () => undefined);
+    for (const environmentId of plan.rejoin) {
+      if (!mayRejoin(environmentId)) continue;
+      await removeOnce(environmentId, () => undefined);
+    }
     for (const target of plan.connect) {
       if (inFlight.has(target.environmentId)) continue;
+      // The user may have removed it by hand since this plan was made.
+      if (linkedAutoConnectStore.getSnapshot().dismissed.has(target.environmentId)) continue;
       inFlight.add(target.environmentId);
       const joined = await join(target).finally(() => inFlight.delete(target.environmentId));
       if (joined) {

@@ -112,24 +112,33 @@ export const linkedAutoConnectStore = {
     }),
   /** Paired by hand: the machine is this device's own, so no link going takes it away. */
   own: (environmentId: EnvironmentId) => {
-    const { joined, dismissed } = current();
+    // Read what is stored, not this tab's copy: only the tab acting for the device follows it.
+    const { joined, dismissed } = readPersisted();
     if (!joined.has(environmentId) && !dismissed.has(environmentId)) return;
     persist((next) => {
       next.joined.delete(environmentId);
       next.dismissed.delete(environmentId);
     });
   },
-  /** Removed from this device by the user: kept away while still linked. */
-  dismiss: (environmentId: EnvironmentId) =>
+  /**
+   * Removed from this device by the user: kept away while still linked. Recorded before the
+   * removal, so the machine is never rejoined in between; the returned undo is for a failed one.
+   */
+  dismiss: (environmentId: EnvironmentId) => {
+    const wasJoined = readPersisted().joined.has(environmentId);
     persist((next) => {
       next.joined.delete(environmentId);
       next.dismissed.add(environmentId);
-      next.links.delete(environmentId);
-    }),
-  /** Left because no link reaches it any more. */
+    });
+    return () =>
+      persist((next) => {
+        next.dismissed.delete(environmentId);
+        if (wasJoined) next.joined.add(environmentId);
+      });
+  },
+  /** Left because no link reaches it any more; it stays recorded as joined, see the planner. */
   leave: (environmentId: EnvironmentId) =>
     persist((next) => {
-      next.joined.delete(environmentId);
       next.links.delete(environmentId);
     }),
   clear: (input: {

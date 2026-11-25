@@ -282,7 +282,7 @@ machines those are linked to, so their projects and threads show up there
 without pairing again. **Forget** takes them
 away from your devices too. A machine you paired with by hand stays when a link
 goes, and a linked machine you remove from a device stays removed until it is
-linked again. The device must be able to reach the other machine's address
+linked again, along with the machines your device reached only through it. The device must be able to reach the other machine's address
 (its Tailscale name does); when it cannot, it tries again later.
 
 Every link goes both ways: the other machine also links back to this one, also

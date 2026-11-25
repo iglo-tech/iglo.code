@@ -241,6 +241,7 @@ export function useConnectLinkedEnvironment(
           host,
           pairingCode,
           expectedEnvironmentId: surface.environmentId,
+          viaLink: true,
         });
         return result._tag === "Success";
       },

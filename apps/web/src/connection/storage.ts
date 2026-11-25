@@ -611,6 +611,9 @@ export const makeCatalogStore = Effect.fn("web.connectionStorage.makeCatalogStor
     function* (transform) {
       yield* lock.withPermits(1)(
         Effect.gen(function* () {
+          // Another tab may have written since this one cached the catalog; writing its stale copy
+          // back would undo that tab's changes.
+          yield* Ref.set(state, Option.none());
           const next = transform(yield* loadUnlocked());
           yield* backend.write(yield* encodeCatalog(next));
           yield* Ref.set(state, Option.some(next));

@@ -112,6 +112,29 @@ describe("planLinkedAutoConnect", () => {
     expect(refused.forget).toEqual([]);
   });
 
+  it("leaves again a joined machine that shows up again after it was left", () => {
+    // Another tab's stale catalog can write a left machine back; it is still recorded as joined.
+    expect(plan([machine(laptop, []), machine(server, [])], { joined: [server] }).forget).toEqual([
+      server,
+    ]);
+  });
+
+  it("keeps a dismissal while another tab still lists the machine", () => {
+    expect(
+      plan([machine(laptop, [server]), machine(server, [laptop])], { dismissed: [server] })
+        .clearDismissed,
+    ).toEqual([]);
+  });
+
+  it("rejoins a refused machine only when a machine here can pair it again", () => {
+    const refused = (mayPair: boolean) =>
+      plan([machine(laptop, [server], { mayPair }), machine(server, [laptop], { refused: true })], {
+        joined: [server],
+      }).rejoin;
+    expect(refused(false)).toEqual([]);
+    expect(refused(true)).toEqual([server]);
+  });
+
   it("waits on a machine that could not be joined, and forgets the wait once unlinked", () => {
     expect(plan([machine(laptop, [server])], { waiting: [server] })).toEqual(empty);
     expect(plan([machine(laptop, [])], { waiting: [server] }).clearWaits).toEqual([server]);
