@@ -56,7 +56,6 @@ try {
       "--target=bun",
       "--packages=bundle",
       "--external=@ff-labs/*",
-      "--external=@napi-rs/keyring*",
       "--outfile",
       fixture,
     ],

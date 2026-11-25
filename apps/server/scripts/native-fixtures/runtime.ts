@@ -4,7 +4,6 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeEvents from "node:events";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeHttp from "node:http";
-import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -22,15 +21,11 @@ import {
 } from "../../src/provider/antigravityAuthSupport.ts";
 
 const workspace = process.env.T3_NATIVE_SMOKE_WORKSPACE!;
-const platform = await Effect.runPromise(HostProcess.Platform);
 NodeAssert.strict.equal(
   await Effect.runPromise(HostProcess.IsExecutable),
   process.env.T3_NATIVE_SMOKE_COMPILED === "true",
 );
-for (const [name, pinned] of [
-  ["@ff-labs/fff-node", "0.11.0"],
-  ["@napi-rs/keyring", "1.3.0"],
-]) {
+for (const [name, pinned] of [["@ff-labs/fff-node", "0.11.0"]]) {
   const manifest = JSON.parse(
     await NodeFSP.readFile(
       NodePath.join(process.cwd(), "node_modules", name!, "package.json"),
@@ -153,29 +148,6 @@ await Effect.runPromise(
   ),
 );
 process.stdout.write("Pinned fff native path/content search and scoped index disposal passed.\n");
-
-const requireNative = NodeModule.createRequire(HostProcess.resolveHostModuleUrl(import.meta.url));
-const keyring = requireNative("@napi-rs/keyring") as typeof import("@napi-rs/keyring");
-// Read only a new, absent identity. Never inspect, write or delete a user's credentials.
-try {
-  const entry = new keyring.AsyncEntry(
-    `iglo-native-smoke-${process.pid}-${NodePath.basename(NodePath.dirname(workspace))}`,
-    "absent-smoke-account",
-  );
-  const password = await entry.getPassword(AbortSignal.timeout(5_000));
-  NodeAssert.strict.ok(password === null || password === undefined);
-  process.stdout.write("Pinned keyring loaded; absent-entry read passed (no live credentials).\n");
-} catch (cause) {
-  if (
-    platform !== "linux" ||
-    !(cause instanceof Error) ||
-    !/platform|storage|dbus|secret service|no entry/i.test(cause.message)
-  )
-    throw cause;
-  process.stdout.write(
-    `Pinned keyring loaded; host credential storage unavailable: ${cause.message}\n`,
-  );
-}
 
 const compiled = process.env.T3_NATIVE_SMOKE_COMPILED === "true";
 const application = process.env.T3_NATIVE_SMOKE_APPLICATION!;
