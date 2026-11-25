@@ -119,6 +119,10 @@
       "types": "./src/linkRequest.ts",
       "default": "./src/linkRequest.ts"
     },
+    "./linked-auto-connect": {
+      "types": "./src/linkedAutoConnect.ts",
+      "default": "./src/linkedAutoConnect.ts"
+    },
     "./linked-thread": {
       "types": "./src/linkedThread.ts",
       "default": "./src/linkedThread.ts"
