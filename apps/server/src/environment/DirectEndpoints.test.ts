@@ -351,14 +351,14 @@ const layerServeProbe = (status: number) =>
     HttpClient.make((request) => Effect.succeed(serveProbeResponse(request, status))),
   );
 
-const layerServeConfig = (host = "127.0.0.1") =>
+const layerServeConfig = (host = "127.0.0.1", tailscaleServeEnabled = true) =>
   Layer.effect(
     ServerConfig.ServerConfig,
     Effect.map(ServerConfig.ServerConfig, (config) => ({
       ...config,
       host,
       port: 3773,
-      tailscaleServeEnabled: true,
+      tailscaleServeEnabled,
       tailscaleServePort: 443,
     })),
   ).pipe(
@@ -456,6 +456,41 @@ describe("DirectEndpoints Tailscale Serve", () => {
   effectIt.effect("leaves the tailnet name out when Serve is not forwarding", () =>
     Effect.gen(function* () {
       expect(yield* resolveWithServe(502)).toEqual([]);
+    }),
+  );
+});
+
+const resolveTailnetNamesWithoutServeSetup = (probeStatus: number) =>
+  Effect.flatMap(DirectEndpoints.DirectEndpoints, (service) =>
+    Effect.all([service.resolveTailnetNames(), service.resolve()]),
+  ).pipe(
+    Effect.provide(
+      DirectEndpoints.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            layerServeConfig("127.0.0.1", false),
+            layerTailscaleUp,
+            layerServeProbe(probeStatus),
+            NodeFileSystem.layer,
+          ),
+        ),
+      ),
+    ),
+  );
+
+describe("DirectEndpoints tailnet names", () => {
+  effectIt.effect("finds a Serve address another process published for this server", () =>
+    Effect.gen(function* () {
+      const [names, advertised] = yield* resolveTailnetNamesWithoutServeSetup(200);
+      expect(names).toEqual([{ kind: "tailnet", httpBaseUrl: "https://bb-1.tail1234.ts.net/" }]);
+      expect(advertised).toEqual([]);
+    }),
+  );
+
+  effectIt.effect("finds nothing when the name does not answer as this server", () =>
+    Effect.gen(function* () {
+      const [names] = yield* resolveTailnetNamesWithoutServeSetup(502);
+      expect(names).toEqual([]);
     }),
   );
 });

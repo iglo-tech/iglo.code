@@ -25,6 +25,7 @@ import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as McpToolAccess from "../mcp/McpToolAccess.ts";
 import * as PeerLinks from "./PeerLinks.ts";
+import * as PeerLinkKeepAlive from "./PeerLinkKeepAlive.ts";
 import * as PeerMcpClient from "./PeerMcpClient.ts";
 import { descriptorOf, layerLinkingEnvironment, linkTo, servePeer } from "./PeerLinks.testkit.ts";
 
@@ -445,5 +446,93 @@ it.effect("bounds the session handshake, not a tool call that waits longer", () 
     yield* TestClock.adjust(Duration.minutes(1));
     yield* Deferred.succeed(answer, undefined);
     expect(yield* Fiber.join(waiting)).toEqual({ modes: "approval-required/plan" });
+  }),
+);
+
+it.effect("keeps an idle link alive with a daily ping while both machines run", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const handlers = McpToolAccess.toLayer(toolkit, {
+        probe: McpToolAccess.reads(() => Effect.succeed({ modes: "" })),
+        hold: McpToolAccess.reads(() => Effect.succeed({ modes: "" })),
+        refuse: McpToolAccess.reads(() => Effect.fail(refusal)),
+      });
+      const box = descriptorOf("environment-box", "Box");
+      const b = yield* servePeer(box, McpHttpServer.toolkitRegistration(toolkit, handlers));
+      const context = yield* Layer.build(
+        layerLinkingEnvironment(descriptorOf("environment-a", "A")),
+      );
+      const links = Context.get(context, PeerLinks.PeerLinks);
+      const linked = yield* linkTo(links, b);
+      const day = 24 * 60 * 60 * 1000;
+      const storedExpiry = links
+        .get(box.environmentId)
+        .pipe(
+          Effect.map((link) => (Option.isSome(link) ? link.value.expiresAt.epochMilliseconds : 0)),
+        );
+      const expiryThere = b.linkedSessions.pipe(
+        Effect.map((sessions) => sessions[0]?.expiresAt.epochMilliseconds),
+      );
+      const keepAlive = PeerLinkKeepAlive.keepAliveOnce.pipe(Effect.provide(context));
+
+      for (let elapsed = 1; elapsed <= 45; elapsed++) {
+        yield* TestClock.adjust("1 day");
+        yield* keepAlive;
+      }
+      const linkedAt = linked.linkedAt.epochMilliseconds;
+      expect(yield* expiryThere).toBe(linkedAt + 75 * day);
+      expect(yield* storedExpiry).toBe(linkedAt + 75 * day);
+      expect((yield* links.list)[0]).toMatchObject({ status: "reachable", lastError: null });
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("records a keepalive the peer refuses on the link", () =>
+  Effect.gen(function* () {
+    const outcomes: Array<string | null> = [];
+    const methods: Array<unknown> = [];
+    const http = HttpClient.make((request) =>
+      Effect.sync(() => {
+        const body =
+          request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "";
+        methods.push((JSON.parse(body) as { method: string }).method);
+        return HttpClientResponse.fromWeb(request, new Response("", { status: 401 }));
+      }),
+    );
+    const box = descriptorOf("environment-box", "Box");
+    const context = yield* Layer.build(
+      PeerMcpClient.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(HttpClient.HttpClient, http),
+            Layer.mock(PeerLinks.PeerLinks)({
+              resolve: () =>
+                Effect.succeed({
+                  link: {
+                    environmentId: box.environmentId,
+                    label: box.label,
+                    urls: ["https://peer.example"],
+                    access: "auto",
+                    linkedAt: DateTime.makeUnsafe(0),
+                    expiresAt: DateTime.makeUnsafe(1),
+                    lastReachedAt: null,
+                    lastError: null,
+                  },
+                  url: "https://peer.example",
+                  token: "fixture",
+                  capabilities: box.capabilities,
+                }),
+              recordOutcome: (_, outcome) => Effect.sync(() => outcomes.push(outcome.error)),
+            }),
+          ),
+        ),
+      ),
+    );
+    const failure = yield* Context.get(context, PeerMcpClient.PeerMcpClient)
+      .keepAlive(box.environmentId)
+      .pipe(Effect.flip);
+    expect(failure.code).toBe("capability_denied");
+    expect(methods).toEqual(["initialize"]);
+    expect(outcomes).toEqual([failure.message]);
   }),
 );

@@ -297,9 +297,11 @@ they are, and exits non-zero if any line failed, so the same file can be run
 again with fresh codes for the failures.
 
 The link back needs an address on this machine the other one can reach and
-send credentials to: its Tailscale address (Tailscale HTTPS counts). If it has
-none — say both machines sit on a plain LAN with no Tailscale — the link still
-works this direction, and you are told the other machine could not link back.
+send credentials to: its Tailscale name, either its Tailscale HTTPS address
+(`iglo.code pair --tailscale` publishes one) or its `*.ts.net` name when the
+server listens on your network (`iglo.code up`). If it has none — say both
+machines sit on a plain LAN with no Tailscale — the link still works this
+direction, and you are told the other machine could not link back.
 The other machine's version must also know how; update it and link again.
 
 You can also ask an agent to link a machine by name, such as "delegate this to
@@ -321,10 +323,11 @@ Paste one only for an address you trust: the code is sent there.
   both machines and ends both sides' sessions when the other machine answers;
   if it does not answer, or runs a version without two-way links, whatever it
   holds stays until you remove it there.
-- A link stays valid while agents use it. One unused for 30 days expires, as
-  does one to a machine on an older iglo.code after 30 days; link again with a
-  new pairing code to renew one. On a both-ways link, renewing from either
-  machine renews both directions.
+- A link stays valid while both machines run iglo.code: each checks in over
+  its links once a day, even when no agent uses them. One that cannot reach the
+  other machine for 30 days expires, as does one to a machine on an older
+  iglo.code after 30 days; link again with a new pairing code to renew one. On
+  a both-ways link, renewing from either machine renews both directions.
 
 On web and desktop, **Settings → Environments** opens as a map of your machines:
 this app, each environment with one line per route (the one in use is

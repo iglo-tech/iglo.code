@@ -248,7 +248,7 @@ const peerOrigin = (url: string) => {
     return Effect.fail(
       new PeerLinkError({
         reason: "unreachable",
-        message: `${parsed.origin} is plain http, which would send the link's credentials unencrypted. Use its https address, or its Tailscale address.`,
+        message: `${parsed.origin} is plain http, which would send the link's credentials unencrypted. Use its https address, or its Tailscale name (*.ts.net).`,
       }),
     );
   }
@@ -659,7 +659,7 @@ const make = Effect.gen(function* () {
         outcome: {
           kind: "failed",
           message:
-            "This machine has no Tailscale address the peer could link back over. Turn on Tailscale (its HTTPS address counts), or link back from there by hand.",
+            "This machine has no Tailscale address the peer could link back over. Publish one with `iglo.code pair --tailscale`, or link back from there by hand.",
         },
         grantId: undefined,
       };

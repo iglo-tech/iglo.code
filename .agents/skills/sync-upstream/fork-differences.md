@@ -181,7 +181,10 @@ current when an authorized change replaces a decision.
   `/api/peer-links/reciprocal`, and the peer links back at the same access with
   the code the offer carried; **Forget** removes the link on both sides and ends
   both sessions when the peer answers. Default on, with a **Link back**
-  checkbox opt-out (`--one-way` on the CLI). Upstream's one-way pieces stay
+  checkbox opt-out (`--one-way` on the CLI). The offered link-back addresses
+  are MagicDNS names probed to answer as this server, even when Serve was
+  published by `pair --tailscale` rather than the service, and the CLI reads the
+  running server's bind and port from its runtime state. Upstream's one-way pieces stay
   intact underneath, so reconcile at their boundaries rather than freezing:
   [PeerLinks.ts](../../../apps/server/src/peer/PeerLinks.ts) (offer, accept,
   teardown hop),
@@ -220,6 +223,16 @@ current when an authorized change replaces a decision.
   ([PeerLinks.testkit.ts](../../../apps/server/src/peer/PeerLinks.testkit.ts)).
   Drop this entry wholesale once upstream ships its own two-way linking and the
   fork moves onto it.
+- **Peer links keep themselves alive.** Upstream renews a link's 30-day session
+  only when traffic crosses it, so an idle link expires. The fork pings each
+  unexpired link it holds over MCP once a day (and at startup), which renews it
+  on the peer and records the new expiry here:
+  [PeerLinkKeepAlive.ts](../../../apps/server/src/peer/PeerLinkKeepAlive.ts) and
+  `keepAlive` in
+  [PeerMcpClient.ts](../../../apps/server/src/peer/PeerMcpClient.ts), wired in
+  `server.ts` beside the other peer layers. Keep it when upstream changes link
+  renewal, unless upstream adds its own keepalive or a setting that removes the
+  idle expiry.
 - **Provider skills and automation delivery.** Preserve fresh workspace-scoped
   skill discovery and explicit invocation availability in the composer; see
   [providerSkills.ts](../../../packages/client-runtime/src/providerSkills.ts).

@@ -51,6 +51,10 @@ export class PeerMcpClient extends Context.Service<
       readonly sender?: OrchestrationV2LinkedSender;
       readonly success: S;
     }) => Effect.Effect<S["Type"], OrchestratorMcpFailure>;
+    /** Pings the peer over the link, which renews the link there and records its new expiry here. */
+    readonly keepAlive: (
+      environmentId: EnvironmentId,
+    ) => Effect.Effect<void, OrchestratorMcpFailure>;
   }
 >()("t3/peer/PeerMcpClient") {}
 
@@ -189,6 +193,74 @@ const make = Effect.gen(function* () {
     (effect, { url }) => Effect.timeout(effect, PeerLinks.probeTimeout(url)),
   );
 
+  /** Posts one message in this peer's MCP session, opening one if it has none or lost it. */
+  const postInSession = Effect.fnUntraced(function* (
+    resolved: PeerLinks.ResolvedPeerLink,
+    limitHeader: Record<string, string>,
+    body: unknown,
+    headers: Record<string, string>,
+  ) {
+    const sessionKey = `${resolved.link.environmentId} ${resolved.url}`;
+    const postOnce = (sessionId: string) =>
+      post(resolved.url, resolved.token, body, {
+        ...limitHeader,
+        ...headers,
+        "mcp-session-id": sessionId,
+        "mcp-protocol-version": PROTOCOL_VERSION,
+      });
+    const existing = (yield* Ref.get(sessions)).get(sessionKey);
+    const sessionId = existing ?? (yield* openSession(resolved, limitHeader));
+    // The initialized session outlives a tool request, including a long wait or cancellation.
+    if (existing === undefined) {
+      yield* Ref.update(sessions, (current) => new Map(current).set(sessionKey, sessionId));
+    }
+    const response = yield* postOnce(sessionId);
+    if (response.status !== 404) return response;
+    const renewed = yield* openSession(resolved, limitHeader);
+    yield* Ref.update(sessions, (current) => new Map(current).set(sessionKey, renewed));
+    return yield* postOnce(renewed);
+  });
+
+  const keepAlive: PeerMcpClient["Service"]["keepAlive"] = Effect.fn("PeerMcpClient.keepAlive")(
+    function* (environmentId) {
+      const resolved = yield* links.resolve(environmentId).pipe(Effect.mapError(fromLinkError));
+      // The narrowest limits: a ping runs nothing.
+      const limitHeader = {
+        [McpInvocationContext.MODE_LIMIT_HEADER]: "approval-required/plan",
+      };
+      const response = yield* postInSession(
+        resolved,
+        limitHeader,
+        { jsonrpc: "2.0", id: 1, method: "ping" },
+        {},
+      ).pipe(Effect.timeout(PeerLinks.probeTimeout(resolved.url)));
+      if (response.status === 401) {
+        return yield* new OrchestratorMcpFailure({
+          code: "capability_denied",
+          message:
+            "The linked environment no longer accepts this link. It may have been revoked there; link it again.",
+        });
+      }
+      if (response.status === 403) return yield* linkedEnvironmentsOffThere;
+      if (response.status !== 200) {
+        return yield* new OrchestratorMcpFailure({
+          code: "orchestration_error",
+          message: `The linked environment answered HTTP ${response.status}.`,
+        });
+      }
+      yield* recordLinkExpiry(resolved.link, response.headers);
+    },
+    (effect, environmentId) =>
+      effect.pipe(
+        Effect.tapError((error) => links.recordOutcome(environmentId, { error: error.message })),
+        Effect.tap(() => links.recordOutcome(environmentId, { error: null })),
+        Effect.catchTags({
+          HttpClientError: () => Effect.fail(stoppedAnswering),
+          TimeoutError: () => Effect.fail(stoppedAnswering),
+        }),
+      ),
+  );
+
   const call: PeerMcpClient["Service"]["call"] = Effect.fn("PeerMcpClient.call")(
     function* (input) {
       const resolved = yield* links
@@ -211,36 +283,17 @@ const make = Effect.gen(function* () {
                 .map((part) => encodeURIComponent(part.toWellFormed()))
                 .join("/"),
             };
-      const sessionKey = `${input.environmentId} ${resolved.url}`;
-      const callOnce = (sessionId: string) =>
-        post(
-          resolved.url,
-          resolved.token,
-          {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "tools/call",
-            params: { name: input.tool, arguments: input.arguments },
-          },
-          {
-            ...limitHeader,
-            ...senderHeader,
-            "mcp-session-id": sessionId,
-            "mcp-protocol-version": PROTOCOL_VERSION,
-          },
-        );
-      const existing = (yield* Ref.get(sessions)).get(sessionKey);
-      const sessionId = existing ?? (yield* openSession(resolved, limitHeader));
-      // The initialized session outlives a tool request, including a long wait or cancellation.
-      if (existing === undefined) {
-        yield* Ref.update(sessions, (current) => new Map(current).set(sessionKey, sessionId));
-      }
-      let response = yield* callOnce(sessionId);
-      if (response.status === 404) {
-        const renewed = yield* openSession(resolved, limitHeader);
-        yield* Ref.update(sessions, (current) => new Map(current).set(sessionKey, renewed));
-        response = yield* callOnce(renewed);
-      }
+      const response = yield* postInSession(
+        resolved,
+        limitHeader,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: input.tool, arguments: input.arguments },
+        },
+        senderHeader,
+      );
       if (response.status === 401) {
         return yield* new OrchestratorMcpFailure({
           code: "capability_denied",
@@ -323,7 +376,7 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  return PeerMcpClient.of({ call });
+  return PeerMcpClient.of({ call, keepAlive });
 });
 
 export const layer = Layer.effect(PeerMcpClient, make);
