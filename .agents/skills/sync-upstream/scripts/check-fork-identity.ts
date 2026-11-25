@@ -27,7 +27,8 @@ const RULES: Rule[] = [
   { label: "helper/telemetry name", pattern: /t3-resource-monitor|t3code-server|"t3-server"/g },
   {
     label: "MCP server/client name",
-    pattern: /mcp__?t3[-_]code|["']t3[-_]code["']\s*:|name: ["']t3[-_]code["']/g,
+    pattern:
+      /mcp__?t3[-_]code|["']t3[-_]code["']\s*:|(?:name|server|serverId): ["']t3[-_]code["']/g,
   },
   {
     label: "t3 CLI command",

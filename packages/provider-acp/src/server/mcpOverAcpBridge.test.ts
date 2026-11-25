@@ -204,7 +204,7 @@ describe("AcpMcpOverAcpBridge", () => {
         },
       });
       for (let index = 0; index < 16; index++) {
-        const { connectionId } = yield* bridge.connect({ serverId: "t3-code" });
+        const { connectionId } = yield* bridge.connect({ serverId: "iglo-code" });
         yield* bridge.message({ connectionId, method: "initialize" });
       }
       const scope = yield* Scope.make();
