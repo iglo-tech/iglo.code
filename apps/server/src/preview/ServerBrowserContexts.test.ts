@@ -23,12 +23,24 @@ vi.spyOn(chromium, "launch").mockImplementation(launches.launch);
 vi.spyOn(chromium, "launchPersistentContext").mockImplementation(launches.persistent);
 vi.mock("node:fs/promises", () => ({ mkdir: launches.mkdir, rm: launches.rm }));
 
-const makeContext = () => {
+const makePage = (initialUrl = "about:blank") => {
+  let currentUrl = initialUrl;
+  return {
+    url: vi.fn(() => currentUrl),
+    goto: vi.fn(async (nextUrl: string) => {
+      currentUrl = nextUrl;
+    }),
+    close: vi.fn(async () => {}),
+    once: vi.fn(),
+  };
+};
+
+const makeContext = (pages: ReadonlyArray<ReturnType<typeof makePage>> = []) => {
   const events = new NodeEvents.EventEmitter();
   let closed = false;
   return {
     on: vi.fn((event: string, listener: () => void) => events.on(event, listener)),
-    pages: vi.fn(() => []),
+    pages: vi.fn(() => pages),
     newPage: vi.fn(async () => ({ once: vi.fn() })),
     isClosed: () => closed,
     close: vi.fn(async () => {
@@ -189,6 +201,32 @@ describe("ServerBrowserContexts", () => {
     expect(launches.mkdir).toHaveBeenCalledWith("/test/profiles/work%2Fteam", { recursive: true });
     await pool.close();
     expect(human.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps one blank anchor page in a persistent context so headed Chrome stays alive", async () => {
+    const blank = makePage("about:blank");
+    const restored = makePage("https://example.test/");
+    const extra = makePage("https://extra.test/");
+    const firstContext = makeContext([blank]);
+    const secondContext = makeContext([restored, extra]);
+    launches.persistent
+      .mockResolvedValueOnce(firstContext as unknown as BrowserContext)
+      .mockResolvedValueOnce(secondContext as unknown as BrowserContext);
+    const pool = new ServerBrowserContexts(options());
+
+    await pool.contextFor("default");
+    expect(blank.close).not.toHaveBeenCalled();
+    expect(blank.goto).not.toHaveBeenCalled();
+
+    await pool.contextFor("restored");
+    expect(restored.close).not.toHaveBeenCalled();
+    expect(restored.goto).toHaveBeenCalledExactlyOnceWith("about:blank", {
+      waitUntil: "commit",
+      timeout: 5_000,
+    });
+    expect(extra.close).toHaveBeenCalledTimes(1);
+
+    await pool.close();
   });
 
   it("diagnoses a launcher failure against the real executable", async () => {

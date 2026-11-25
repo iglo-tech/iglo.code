@@ -143,7 +143,9 @@ current when an authorized change replaces a decision.
   UA-spoofing `presentAsChrome` path this fork deleted. The pane always launches
   headed (`headless: false` in
   [ServerBrowserContexts.ts](../../../apps/server/src/preview/ServerBrowserContexts.ts));
-  there is no headless fallback. A Linux host without a display gets one from
+  there is no headless fallback, and persistent contexts keep one blank anchor
+  page open instead of closing all initial pages so headed Chrome does not exit
+  on Linux and Windows before `newPage()` runs. A Linux host without a display gets one from
   [XvfbServer.ts](../../../apps/server/src/preview/XvfbServer.ts), started on
   demand and closed with the server; a missing Xvfb is a hard
   `PreviewBrowserDisplayError`. `iglo.code browser setup` owns the host story: it
