@@ -321,10 +321,11 @@ Paste one only for an address you trust: the code is sent there.
   both machines and ends both sides' sessions when the other machine answers;
   if it does not answer, or runs a version without two-way links, whatever it
   holds stays until you remove it there.
-- A link stays valid while agents use it. One unused for 30 days expires, as
-  does one to a machine on an older iglo.code after 30 days; link again with a
-  new pairing code to renew one. On a both-ways link, renewing from either
-  machine renews both directions.
+- A link stays valid while both machines run iglo.code: each checks in over
+  its links once a day, even when no agent uses them. One that cannot reach the
+  other machine for 30 days expires, as does one to a machine on an older
+  iglo.code after 30 days; link again with a new pairing code to renew one. On
+  a both-ways link, renewing from either machine renews both directions.
 
 On web and desktop, **Settings → Environments** opens as a map of your machines:
 this app, each environment with one line per route (the one in use is

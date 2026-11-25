@@ -203,6 +203,16 @@ current when an authorized change replaces a decision.
   ([PeerLinks.testkit.ts](../../../apps/server/src/peer/PeerLinks.testkit.ts)).
   Drop this entry wholesale once upstream ships its own two-way linking and the
   fork moves onto it.
+- **Peer links keep themselves alive.** Upstream renews a link's 30-day session
+  only when traffic crosses it, so an idle link expires. The fork pings each
+  unexpired link it holds over MCP once a day (and at startup), which renews it
+  on the peer and records the new expiry here:
+  [PeerLinkKeepAlive.ts](../../../apps/server/src/peer/PeerLinkKeepAlive.ts) and
+  `keepAlive` in
+  [PeerMcpClient.ts](../../../apps/server/src/peer/PeerMcpClient.ts), wired in
+  `server.ts` beside the other peer layers. Keep it when upstream changes link
+  renewal, unless upstream adds its own keepalive or a setting that removes the
+  idle expiry.
 - **Provider skills and automation delivery.** Preserve fresh workspace-scoped
   skill discovery and explicit invocation availability in the composer; see
   [providerSkills.ts](../../../packages/client-runtime/src/providerSkills.ts).

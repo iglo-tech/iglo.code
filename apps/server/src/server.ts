@@ -105,6 +105,7 @@ import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as PeerForwarding from "./peer/PeerForwarding.ts";
 import * as RemoteDelegation from "./peer/RemoteDelegation.ts";
 import * as PeerClientPairing from "./peer/PeerClientPairing.ts";
+import * as PeerLinkKeepAlive from "./peer/PeerLinkKeepAlive.ts";
 import * as PeerClientPairingHttp from "./peer/http.ts";
 import * as PeerLinkRequests from "./peer/PeerLinkRequests.ts";
 import * as PeerLinks from "./peer/PeerLinks.ts";
@@ -978,6 +979,7 @@ const layerMakeRoutes = Layer.mergeAll(
       PeerThreadRelay.layer,
       PeerHostHealthRelay.layer,
       PeerClientPairing.layer,
+      PeerLinkKeepAlive.layer,
     ).pipe(Layer.provideMerge(PeerMcpClient.layer), Layer.provideMerge(PeerLinks.layer)),
   ),
   Layer.provide(
