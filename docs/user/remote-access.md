@@ -277,8 +277,9 @@ makes the pairing code itself; otherwise paste one from that machine's
 access: linked machines are both yours, so there is no access level to pick.
 
 Your devices follow the links. A browser or phone is paired with one machine,
-and it connects by itself to every machine that one is linked to, so their
-projects and threads show up there without pairing again. **Forget** takes them
+and it connects by itself to every machine that one is linked to, and to the
+machines those are linked to, so their projects and threads show up there
+without pairing again. **Forget** takes them
 away from your devices too. A machine you paired with by hand stays when a link
 goes, and a linked machine you remove from a device stays removed until it is
 linked again. The device must be able to reach the other machine's address
