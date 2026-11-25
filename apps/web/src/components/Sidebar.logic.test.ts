@@ -789,7 +789,7 @@ describe("getFallbackThreadIdAfterDelete", () => {
 });
 
 describe("groupSidebarRailThreadsByProject", () => {
-  it("leaves out threads that show under a parent, so their failures don't badge the project", () => {
+  it("leaves out threads without a row in the list's open sections, so they don't badge the project", () => {
     const parent = makeThread({ id: ThreadId.make("thread-parent") });
     const underParent = {
       rootThreadId: parent.id,
@@ -806,9 +806,24 @@ describe("groupSidebarRailThreadsByProject", () => {
       id: ThreadId.make("thread-other"),
       projectId: ProjectId.make("project-2"),
     });
+    const settled = makeThread({
+      id: ThreadId.make("thread-settled"),
+      settledOverride: "settled",
+      settledAt: "2026-03-09T10:06:00.000Z",
+    });
+    const snoozed = makeThread({
+      id: ThreadId.make("thread-snoozed"),
+      snoozedAt: "2026-03-09T10:06:00.000Z",
+      snoozedUntil: "2099-01-01T00:00:00.000Z",
+    });
+    const snoozeOver = makeThread({
+      id: ThreadId.make("thread-snooze-over"),
+      snoozedAt: "2026-03-09T10:06:00.000Z",
+      snoozedUntil: "2026-03-09T10:08:00.000Z",
+    });
 
     const grouped = groupSidebarRailThreadsByProject(
-      [parent, subagent, delegated, archived, otherProject],
+      [parent, subagent, delegated, archived, otherProject, settled, snoozed, snoozeOver],
       [
         {
           projectKey: "key-1",
@@ -816,10 +831,11 @@ describe("groupSidebarRailThreadsByProject", () => {
         },
       ],
       new Set([threadKey({ environmentId: localEnvironmentId, threadId: delegated.id })]),
+      "2026-03-09T10:10:00.000Z",
     );
 
     expect([...grouped.keys()]).toEqual(["key-1"]);
-    expect(grouped.get("key-1")?.map((thread) => thread.id)).toEqual([parent.id]);
+    expect(grouped.get("key-1")?.map((thread) => thread.id)).toEqual([parent.id, snoozeOver.id]);
   });
 });
 

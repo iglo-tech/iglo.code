@@ -15,6 +15,7 @@ import {
   groupSidebarRailThreadsByProject,
   resolveSidebarProjectActivity,
   resolveThreadLastVisitedAt,
+  useSnoozeWakeClock,
 } from "../Sidebar.logic";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { SidebarTrigger } from "../ui/sidebar";
@@ -57,6 +58,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
 }: SidebarProjectSwitcherProps) {
   const gt = useGT();
   const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const snoozeWakeClock = useSnoozeWakeClock(threads);
 
   const isAllSelected = selectedProjectKeys.length === 0;
 
@@ -64,6 +66,7 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
     threads,
     projectGroups,
     delegatedUnderParent,
+    new Date(snoozeWakeClock).toISOString(),
   );
 
   return (

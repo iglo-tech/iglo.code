@@ -1063,13 +1063,18 @@ export function resolveSidebarFolderDot(
 }
 
 /**
- * The project rail's threads per project key: only threads the list gives a row,
- * so a subagent its parent already handles never raises a project's badge.
+ * The project rail's threads per project key: only threads with a row in the
+ * list's open sections, so a subagent its parent handles, or a thread the user
+ * settled or snoozed, never raises a project's badge.
  */
 export function groupSidebarRailThreadsByProject<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage"> & {
-    projectId: string;
-  },
+  T extends Pick<
+    SidebarThreadSummary,
+    "archivedAt" | "environmentId" | "id" | "lineage" | "settledOverride"
+  > &
+    ThreadSnoozeShell & {
+      projectId: string;
+    },
 >(
   threads: readonly T[],
   projectGroups: ReadonlyArray<{
@@ -1077,6 +1082,7 @@ export function groupSidebarRailThreadsByProject<
     memberProjects: ReadonlyArray<{ environmentId: string; id: string }>;
   }>,
   delegatedUnderParent: ReadonlySet<string>,
+  now: string,
 ): Map<string, T[]> {
   const groupKeyByProjectRef = new Map<string, string>();
   for (const group of projectGroups) {
@@ -1086,6 +1092,7 @@ export function groupSidebarRailThreadsByProject<
   }
   const threadsByProjectKey = new Map<string, T[]>();
   for (const thread of filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent)) {
+    if (thread.settledOverride === "settled" || effectiveSnoozed(thread, { now })) continue;
     const projectKey = groupKeyByProjectRef.get(`${thread.environmentId}\0${thread.projectId}`);
     if (!projectKey) continue;
     const list = threadsByProjectKey.get(projectKey);
