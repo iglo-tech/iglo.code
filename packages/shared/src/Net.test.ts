@@ -111,7 +111,8 @@ it.layer(NetService.layer)("NetService", (it) => {
     );
 
     for (const host of ["0.0.0.0", ""]) {
-      it.effect.skipIf(ownIpv4 === undefined)(
+      // macOS lets a wildcard bind share a port that one LAN address holds, so the probe cannot see it.
+      it.effect.skipIf(ownIpv4 === undefined || process.platform === "darwin")(
         `findAvailablePort skips a port a LAN listener holds for wildcard host "${host}"`,
         () =>
           Effect.acquireUseRelease(

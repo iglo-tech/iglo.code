@@ -164,9 +164,9 @@ describe("resolveWorkEntryToolPresentation", () => {
   it("names the reported outcome when it contradicts the row's verb", () => {
     const row = (tool: string, output: unknown) =>
       resolveWorkEntryToolPresentation({
-        label: `T3-code.${tool}`,
+        label: `iglo-code.${tool}`,
         toolLifecycleStatus: "completed",
-        toolData: { output: compactT3McpToolOutput(`t3-code.${tool}`, output) },
+        toolData: { output: compactT3McpToolOutput(`iglo-code.${tool}`, output) },
       })?.displayName;
     expect(row("pull_request_create", { number: 470, created: false })).toBe(
       "Found 1 open pull request",

@@ -106,7 +106,7 @@ describe("summarizeT3ToolCalls", () => {
   it("preserves pull request summary outcomes after MCP tool output compaction", () => {
     const createExisting = completed(
       { title: "t" },
-      compactT3McpToolOutput("t3-code.pull_request_create", {
+      compactT3McpToolOutput("iglo-code.pull_request_create", {
         number: 1,
         repository: "o/r",
         url: "https://github.com/o/r/pull/1",
@@ -119,11 +119,11 @@ describe("summarizeT3ToolCalls", () => {
 
     const mergeQueued = completed(
       { auto: false },
-      compactT3McpToolOutput("t3-code.pull_request_merge", { number: 1, state: "open" }),
+      compactT3McpToolOutput("iglo-code.pull_request_merge", { number: 1, state: "open" }),
     );
     const mergeLanded = completed(
       { auto: true },
-      compactT3McpToolOutput("t3-code.pull_request_merge", { number: 2, state: "merged" }),
+      compactT3McpToolOutput("iglo-code.pull_request_merge", { number: 2, state: "merged" }),
     );
     expect(summarizeT3ToolCalls("merge-pr", [mergeQueued]).label).toBe(
       "Queued 1 pull request to merge",
@@ -132,7 +132,7 @@ describe("summarizeT3ToolCalls", () => {
 
     const guidesMixed = completed(
       {},
-      compactT3McpToolOutput("t3-code.write_pull_request_guides", {
+      compactT3McpToolOutput("iglo-code.write_pull_request_guides", {
         guides: [
           { number: 1, outcome: "started", detail: null },
           { number: 2, outcome: "failed", detail: "Guides disabled" },
@@ -146,14 +146,14 @@ describe("summarizeT3ToolCalls", () => {
 
     const rerunMixed = completed(
       {},
-      compactT3McpToolOutput("t3-code.ci_rerun", {
+      compactT3McpToolOutput("iglo-code.ci_rerun", {
         checks: [
           { name: "test", rerun: true, detail: null },
           { name: "external", rerun: false, detail: "Cannot rerun" },
         ],
       }),
     );
-    const rerunEmpty = completed({}, compactT3McpToolOutput("t3-code.ci_rerun", { checks: [] }));
+    const rerunEmpty = completed({}, compactT3McpToolOutput("iglo-code.ci_rerun", { checks: [] }));
     expect(summarizeT3ToolCalls("ci-rerun", [rerunMixed])).toEqual({
       label: "Re-ran 1 check, 1 refused",
       failedCount: 1,

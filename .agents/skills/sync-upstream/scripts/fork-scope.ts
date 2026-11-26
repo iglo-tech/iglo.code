@@ -70,9 +70,8 @@ export const REMOVED_PATHS = [
   "scripts/lib/cached-tests.*",
   // Node/V8-inspector server benchmark; the fork's server runs on Bun.
   "scripts/server-metrics*",
-  "scripts/metrics/server",
-  // Native app benchmark.
-  "scripts/metrics/mobile",
+  // Upstream benchmarks build on the removed e2e scenarios (scripts/scenarios) and Playwright.
+  "scripts/metrics",
   // Node-only spawn helper (fd passing over IPC) for libuv fork stalls; Bun spawns without forking.
   "apps/server/src/process-launcher.ts",
   "apps/server/src/process/ProcessLauncher.ts",
