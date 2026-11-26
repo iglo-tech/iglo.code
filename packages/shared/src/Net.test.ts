@@ -5,6 +5,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { vi } from "vite-plus/test";
 
+import * as HostProcess from "./HostProcess.ts";
 import * as NetService from "./Net.ts";
 
 const closeServer = (server: NodeNet.Server) =>
@@ -110,9 +111,10 @@ it.layer(NetService.layer)("NetService", (it) => {
       ),
     );
 
+    const macHost = HostProcess.Platform.defaultValue() === "darwin";
     for (const host of ["0.0.0.0", ""]) {
       // macOS lets a wildcard bind share a port that one LAN address holds, so the probe cannot see it.
-      it.effect.skipIf(ownIpv4 === undefined || process.platform === "darwin")(
+      it.effect.skipIf(ownIpv4 === undefined || macHost)(
         `findAvailablePort skips a port a LAN listener holds for wildcard host "${host}"`,
         () =>
           Effect.acquireUseRelease(
