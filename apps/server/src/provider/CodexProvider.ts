@@ -733,7 +733,6 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   readonly launchArgs?: string;
   readonly cwd: string;
   readonly environment?: NodeJS.ProcessEnv;
-  readonly skipNativeUsage?: boolean;
 }) {
   const spawnedAtMs = DateTime.toEpochMillis(yield* DateTime.now);
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -789,9 +788,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
         Effect.flatMap((config) => {
           // Only a confirmed native route may probe or publish the login's quota.
           const nativeUsage =
-            !input.skipNativeUsage &&
-            config !== undefined &&
-            codexRoutesSpendNativeQuota(accountResponse, config.config);
+            config !== undefined && codexRoutesSpendNativeQuota(accountResponse, config.config);
           const readUsage: Effect.Effect<CodexRateLimitsProbe | undefined> = nativeUsage
             ? readCodexRateLimits(client, deadlineMs)
             : Effect.undefined;
@@ -1018,7 +1015,6 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     readonly launchArgs?: string;
     readonly cwd: string;
     readonly environment?: NodeJS.ProcessEnv;
-    readonly skipNativeUsage?: boolean;
   }) => Effect.Effect<
     CodexAppServerProviderSnapshot,
     CodexErrors.CodexAppServerError,
@@ -1064,7 +1060,6 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     launchArgs: resolveCodexLaunchArgs(codexSettings.launchArgs, resolvedEnvironment),
     cwd: process.cwd(),
     environment: resolvedEnvironment,
-    ...(managedAuth ? { skipNativeUsage: true } : {}),
   }).pipe(
     // Process teardown can outlast the work budget without discarding a completed snapshot.
     Effect.timeoutOption(Duration.millis(probeTimeoutMs)),

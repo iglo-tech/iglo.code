@@ -321,6 +321,8 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
   readonly profileDirectory: string;
   readonly authMethod: AntigravitySettings["authMethod"];
   readonly readKeyringSecret?: Effect.Effect<string | undefined, AntigravityKeyringError>;
+  /** Opens and drops an agent session, which makes the CLI renew its saved sign-in. */
+  readonly renewSignIn?: Effect.Effect<void>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -339,6 +341,9 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     | { fingerprint: string; account: string; accessToken: string; expiresAt: number }
     | undefined;
   let generation = 0;
+  // Each launch unpacks about 1 GB, so an expired sign-in is renewed at most this often.
+  const RENEW_EVERY_MS = 30 * 60_000;
+  let renewedAt = Number.NEGATIVE_INFINITY;
 
   const request = (request: HttpClientRequest.HttpClientRequest) =>
     client.execute(request).pipe(
@@ -360,11 +365,14 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     if (!(yield* fs.exists(tokenPath))) {
       cached = undefined;
       // Google account instances bypass the keyring, whose one entry every profile shares.
-      const stored = (yield* fs.exists(cliTokenPath))
-        ? yield* fs.readFileString(cliTokenPath)
-        : input.authMethod === "oauth-business"
-          ? yield* readKeyringSecret
-          : undefined;
+      const readStored = Effect.gen(function* () {
+        return (yield* fs.exists(cliTokenPath))
+          ? yield* fs.readFileString(cliTokenPath)
+          : input.authMethod === "oauth-business"
+            ? yield* readKeyringSecret
+            : undefined;
+      });
+      let stored = yield* readStored;
       if (stored === undefined) {
         return makeUnavailableUsageLimits({
           checkedAt,
@@ -372,8 +380,15 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
           message: "Sign in with Google to see Antigravity limits.",
         });
       }
-      const { token } = yield* decodeCliToken(stored);
-      if (!(Date.parse(token.expiry ?? "") > now + 60_000)) {
+      let { token } = yield* decodeCliToken(stored);
+      const expired = () => !(Date.parse(token.expiry ?? "") > now + 60_000);
+      if (expired() && input.renewSignIn && now - renewedAt >= RENEW_EVERY_MS) {
+        renewedAt = now;
+        yield* input.renewSignIn;
+        stored = yield* readStored;
+        if (stored !== undefined) token = (yield* decodeCliToken(stored)).token;
+      }
+      if (expired()) {
         return makeUnavailableUsageLimits({
           checkedAt,
           reason: "probeFailed",

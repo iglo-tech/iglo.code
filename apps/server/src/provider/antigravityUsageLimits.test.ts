@@ -8,6 +8,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 
@@ -74,6 +75,7 @@ const fixture = Effect.fn("AntigravityUsageTest.fixture")(function* (
     keyringSecret?: string;
     /** Reads the OS keyring instead of `keyringSecret`. */
     nativeKeyring?: boolean;
+    renewSignIn?: Effect.Effect<void>;
   } = {},
 ) {
   const fs = yield* FileSystem.FileSystem;
@@ -141,6 +143,7 @@ const fixture = Effect.fn("AntigravityUsageTest.fixture")(function* (
     profileDirectory,
     authMethod: options.authMethod ?? "oauth-personal",
     ...(options.nativeKeyring ? {} : { readKeyringSecret: Effect.succeed(options.keyringSecret) }),
+    ...(options.renewSignIn ? { renewSignIn: options.renewSignIn } : {}),
   }).pipe(Effect.provideService(HttpClient.HttpClient, http));
   return { ...usage, requests, writeToken, tokenPath };
 });
@@ -688,6 +691,42 @@ describe("Antigravity subscription limits", () => {
         "Sign in with Google to see Antigravity limits.",
       );
       expect(limits.unavailable?.reason).not.toBe("unsupported");
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
+
+  it.effect("renews an expired CLI sign-in through an agent session, at most twice an hour", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe("2026-10-09T12:00:00Z")));
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const renewals = yield* Ref.make(0);
+      let cliTokenPath = "";
+      const writeCliToken = (expiry: string) =>
+        fs.writeFileString(
+          cliTokenPath,
+          JSON.stringify({ token: { access_token: "access-token", refresh_token: "r", expiry } }),
+        );
+      const { probe, tokenPath } = yield* fixture({
+        missingToken: true,
+        userId: "google-user-1",
+        renewSignIn: Ref.update(renewals, (count) => count + 1).pipe(
+          Effect.andThen(Effect.suspend(() => writeCliToken("2026-10-09T13:00:00Z"))),
+          Effect.orDie,
+        ),
+      });
+      cliTokenPath = path.join(path.dirname(tokenPath), "antigravity-oauth-token");
+      yield* writeCliToken("2026-10-09T11:00:00Z");
+
+      const renewed = yield* probe;
+      expect(renewed.unavailable).toBeUndefined();
+      expect(renewed.windows.length).toBeGreaterThan(0);
+      expect(yield* Ref.get(renewals)).toBe(1);
+
+      // Expired again within the half hour: no second launch, the notice explains why.
+      yield* writeCliToken("2026-10-09T11:00:00Z");
+      yield* TestClock.adjust("10 minutes");
+      expect((yield* probe).unavailable?.reason).toBe("probeFailed");
+      expect(yield* Ref.get(renewals)).toBe(1);
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 

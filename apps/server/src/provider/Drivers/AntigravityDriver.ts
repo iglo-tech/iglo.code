@@ -579,6 +579,25 @@ export const AntigravityDriver: ProviderDriver<
     const usage = yield* makeAntigravityUsageProbe({
       profileDirectory,
       authMethod: auth.authMethod,
+      renewSignIn: Effect.gen(function* () {
+        const processScope = yield* Scope.make();
+        yield* Effect.addFinalizer((exit) => Scope.close(processScope, exit));
+        yield* authFlow
+          .withProcess(
+            Scope.close(processScope, Exit.void),
+            Effect.gen(function* () {
+              const runtime = yield* makeDisposableRuntime({});
+              yield* runtime.start();
+            }),
+          )
+          .pipe(Effect.provideService(Scope.Scope, processScope));
+      }).pipe(
+        Effect.scoped,
+        Effect.timeout("90 seconds"),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not renew the Antigravity sign-in for usage limits.", { cause }),
+        ),
+      ),
     }).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),

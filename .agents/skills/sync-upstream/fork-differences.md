@@ -325,9 +325,13 @@ current when an authorized change replaces a decision.
 - **Antigravity usage limits.** The fork keeps the Antigravity limits reader
   (`antigravityUsageLimits.ts`, the provider's background usage read, and the hub's
   Antigravity accounts) that upstream removed in #43026. Keep it on later syncs;
-  without it the Usage page shows no Antigravity limits on any machine.
+  without it the Usage page shows no Antigravity limits on any machine. The CLI's
+  access token lasts an hour and cannot be refreshed without its OAuth client, so
+  when it has expired the read opens and drops a disposable agent session (which
+  renews it) at most every 30 minutes (`renewSignIn` in `AntigravityDriver.ts`).
 - **Managed Codex limits.** A Codex instance signed in through managed ChatGPT
-  auth publishes its `account/rateLimits/read` result when the read succeeds, so
+  auth reads `account/rateLimits/read` like any native route (upstream passed
+  `skipNativeUsage`) and publishes the result when the read succeeds, so
   the Usage page pools it with the same account on other machines; the ChatGPT
   usage link remains the fallback (`CodexManagedProvider.ts`). Upstream always
   publishes only the link.
