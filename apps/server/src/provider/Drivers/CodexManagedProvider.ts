@@ -156,7 +156,7 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
           ...draft,
           auth: managedAuth,
           version: draft.version ?? executable.value.version,
-          usageLimits: draft.usageLimits?.windows.length ? draft.usageLimits : usageLimits,
+          usageLimits,
           models: draft.models.map((model) => ({
             ...model,
             ...(model.capabilities

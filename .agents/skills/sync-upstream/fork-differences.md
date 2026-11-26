@@ -329,12 +329,7 @@ current when an authorized change replaces a decision.
   access token lasts an hour and cannot be refreshed without its OAuth client, so
   when it has expired the read opens and drops a disposable agent session (which
   renews it) at most every 30 minutes (`renewSignIn` in `AntigravityDriver.ts`).
-- **Managed Codex limits.** A Codex instance signed in through managed ChatGPT
-  auth reads `account/rateLimits/read` like any native route (upstream passed
-  `skipNativeUsage`) and publishes the result when the read succeeds, so
-  the Usage page pools it with the same account on other machines; the ChatGPT
-  usage link remains the fallback (`CodexManagedProvider.ts`). Upstream always
-  publishes only the link.
+
 - **Move a thread between projects.** A thread's context menu (sidebar row and
   chat header share one builder) offers **Move to project** with a destination
   submenu: project identity (a custom monogram icon, else the title monogram)

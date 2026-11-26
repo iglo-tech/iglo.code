@@ -698,40 +698,6 @@ it.layer(
       }),
     );
 
-    it.effect("keeps a managed ChatGPT sign-in's rate-limit read so fleets can pool it", () =>
-      Effect.gen(function* () {
-        const managedAuth = {
-          status: "authenticated" as const,
-          type: "chatgpt",
-          label: "ChatGPT",
-          email: "test@example.com",
-        };
-        const statusWith = (rateLimits: CodexAppServerProviderSnapshot["rateLimits"]) =>
-          checkCodexProviderStatus(
-            defaultCodexSettings,
-            () =>
-              Effect.succeed(
-                makeCodexProbeSnapshot({
-                  nativeUsage: true,
-                  ...(rateLimits ? { rateLimits } : {}),
-                }),
-              ),
-            undefined,
-            managedAuth,
-          );
-
-        const read = yield* statusWith({
-          snapshot: { planType: "go", primary: { usedPercent: 40 } },
-          resetCredits: null,
-        });
-        assert.isUndefined(read.usageLimits?.unavailable);
-        assert.strictEqual(read.usageLimits?.windows[0]?.usedPercent, 40);
-
-        const failed = yield* statusWith({ failure: "no answer" });
-        assert.isUndefined(failed.usageLimits);
-      }),
-    );
-
     it.effect("returns unauthenticated when app-server requires OpenAI auth", () =>
       Effect.gen(function* () {
         const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>

@@ -733,6 +733,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   readonly launchArgs?: string;
   readonly cwd: string;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly skipNativeUsage?: boolean;
 }) {
   const spawnedAtMs = DateTime.toEpochMillis(yield* DateTime.now);
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -788,7 +789,9 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
         Effect.flatMap((config) => {
           // Only a confirmed native route may probe or publish the login's quota.
           const nativeUsage =
-            config !== undefined && codexRoutesSpendNativeQuota(accountResponse, config.config);
+            !input.skipNativeUsage &&
+            config !== undefined &&
+            codexRoutesSpendNativeQuota(accountResponse, config.config);
           const readUsage: Effect.Effect<CodexRateLimitsProbe | undefined> = nativeUsage
             ? readCodexRateLimits(client, deadlineMs)
             : Effect.undefined;
@@ -1015,6 +1018,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     readonly launchArgs?: string;
     readonly cwd: string;
     readonly environment?: NodeJS.ProcessEnv;
+    readonly skipNativeUsage?: boolean;
   }) => Effect.Effect<
     CodexAppServerProviderSnapshot,
     CodexErrors.CodexAppServerError,
@@ -1060,6 +1064,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     launchArgs: resolveCodexLaunchArgs(codexSettings.launchArgs, resolvedEnvironment),
     cwd: process.cwd(),
     environment: resolvedEnvironment,
+    ...(managedAuth ? { skipNativeUsage: true } : {}),
   }).pipe(
     // Process teardown can outlast the work budget without discarding a completed snapshot.
     Effect.timeoutOption(Duration.millis(probeTimeoutMs)),
@@ -1179,8 +1184,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         : snapshot.models === undefined
           ? { message: "Codex did not return its model catalog in time." }
           : {}),
-      // Managed sign-in keeps a successful read; its provider supplies the fallback otherwise.
-      ...(managedAuth && usageLimits.windows.length === 0 ? {} : { usageLimits }),
+      ...(managedAuth ? {} : { usageLimits }),
     },
   });
 });
