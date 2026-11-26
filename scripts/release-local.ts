@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// @effect-diagnostics nodeBuiltinImport:off globalConsole:off -- A maintainer script that only shells out to git, docker and gh.
+// @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalDate:off -- A maintainer script that only shells out to git, docker and gh.
 /**
  * Builds the release archives on this Apple Silicon Mac (darwin-arm64 natively, linux-x64 in an
  * x64 Docker container) and publishes them, with release.json and SHA256SUMS, as the GitHub
@@ -151,6 +151,39 @@ async function buildTarget(target: Target, source: string, version: string, chan
   console.log(`[release] Built ${target.key}`);
 }
 
+/**
+ * Each tag leaves 4–5 GB of exported sources and builds, and each image rebuild leaves the old
+ * image dangling, so a published release removes both. Failures here only warn: the release is out.
+ */
+async function cleanUpAfterRelease(workDir: string, defaultParent: string | null) {
+  try {
+    const stale: Array<string> = [workDir];
+    if (defaultParent !== null) {
+      // Earlier tags' folders from failed or interrupted runs; a day old, so a parallel run keeps its own.
+      const dayAgo = Date.now() - 86_400_000;
+      for (const name of NodeFS.readdirSync(defaultParent)) {
+        const folder = NodePath.join(defaultParent, name);
+        if (folder !== workDir && NodeFS.statSync(folder).mtimeMs < dayAgo) stale.push(folder);
+      }
+    }
+    for (const folder of stale) NodeFS.rmSync(folder, { recursive: true, force: true });
+    console.log(
+      `[release] Removed ${stale.length} build folder(s) under ${NodePath.dirname(workDir)}`,
+    );
+  } catch (error) {
+    console.warn(`[release] Could not remove build folders: ${String(error)}`);
+  }
+  for (const args of [
+    ["image", "prune", "--force"],
+    // Keep recent layers so the next image build stays fast.
+    ["builder", "prune", "--force", "--max-used-space", "5gb"],
+  ]) {
+    await run("docker", args).catch((error: unknown) =>
+      console.warn(`[release] docker ${args.join(" ")} failed: ${String(error)}`),
+    );
+  }
+}
+
 async function main() {
   const { values, positionals } = NodeUtil.parseArgs({
     allowPositionals: true,
@@ -165,9 +198,8 @@ async function main() {
   if (NodeOS.platform() !== "darwin" || NodeOS.arch() !== "arm64") {
     fail("Run releases on an Apple Silicon Mac; darwin-arm64 builds natively.");
   }
-  const workDir = NodePath.resolve(
-    values["work-dir"] ?? NodePath.join(NodeOS.homedir(), "Library/Caches/iglo.code-release", tag),
-  );
+  const defaultParent = NodePath.join(NodeOS.homedir(), "Library/Caches/iglo.code-release");
+  const workDir = NodePath.resolve(values["work-dir"] ?? NodePath.join(defaultParent, tag));
   const env = { ...process.env, GH_REPO: REPOSITORY };
 
   await run("git", ["fetch", "--quiet", "origin", "tag", tag]);
@@ -262,6 +294,7 @@ async function main() {
   );
   await run("gh", ["release", "edit", tag, "--draft=false", ...channelFlags], { env });
   console.log(`[release] Published https://github.com/${REPOSITORY}/releases/tag/${tag}`);
+  await cleanUpAfterRelease(workDir, values["work-dir"] === undefined ? defaultParent : null);
 }
 
 await main();

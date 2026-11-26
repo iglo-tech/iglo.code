@@ -60,8 +60,9 @@ it.effect("applies v1 fork defaults on a fresh server and persists the version m
       assert.strictEqual(settings.defaultAutoPull, true);
       assert.strictEqual(settings.storageCleanup.worktreeOnDelete, true);
       assert.strictEqual(settings.storageCleanup.worktreeOnMerge, true);
-      assert.strictEqual(settings.storageCleanup.worktreeAfterDays, 8);
-      assert.strictEqual(settings.storageCleanup.worktreeSettledAfterDays, 8);
+      assert.strictEqual(settings.storageCleanup.worktreeAfterDays, 2);
+      assert.strictEqual(settings.storageCleanup.worktreeSettledAfterDays, 1);
+      assert.strictEqual(settings.storageCleanup.worktreeKeepWhen, "save-changes");
       assert.strictEqual(settings.storageCleanup.worktreeUnchanged, true);
       assert.strictEqual(settings.branchNamingMode, "custom");
       assert.strictEqual(
@@ -164,7 +165,7 @@ it.effect("ignores corrupt settings.json and skips managed policy locked paths",
       const settings = yield* service.getSettings;
       assert.strictEqual(settings.workflowsEnabled, false);
       assert.strictEqual(settings.defaultThreadEnvMode, "local");
-      assert.strictEqual(settings.storageCleanup.worktreeAfterDays, 8);
+      assert.strictEqual(settings.storageCleanup.worktreeAfterDays, 2);
       assert.strictEqual(settings.defaultAutoPull, true);
       assert.strictEqual(settings.storageCleanup.worktreeOnMerge, true);
     }).pipe(Effect.provide(makeServerSettingsLayer(baseDir, { policy })));

@@ -4457,3 +4457,281 @@ it.effect("keeps saved usage data when removing a settled checkout", () =>
     }),
   ),
 );
+
+describe("fork: saved changes and worktrees no thread uses", () => {
+  const savedRefs = <E>(fixture: {
+    command: (cwd: string, args: string[]) => Effect.Effect<{ readonly stdout: string }, E>;
+    repo: string;
+  }) =>
+    fixture
+      .command(fixture.repo, ["for-each-ref", "--format=%(refname)", "refs/iglo.code-saved/"])
+      .pipe(Effect.map((result) => result.stdout.split("\n").filter(Boolean)));
+
+  it.live("saves edits and untracked files to a ref, then removes the worktree", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        fixture.setPolicy("save-changes");
+        const head = (yield* fixture.command(fixture.worktree, [
+          "rev-parse",
+          "HEAD",
+        ])).stdout.trim();
+        yield* fixture.fs.writeFileString(`${fixture.worktree}/tracked.txt`, "agent edit\n");
+        yield* fixture.fs.writeFileString(`${fixture.worktree}/notes.txt`, "untracked\n");
+        yield* fixture.fs.writeFileString(`${fixture.worktree}/.env`, "SECRET=1\n");
+        const report = yield* fixture.service.runNow;
+        const [ref] = yield* savedRefs(fixture);
+        expect(ref).toMatch(/^refs\/iglo\.code-saved\/feature-[0-9a-f]{12}$/);
+        expect(report.entries[0]).toMatchObject({
+          outcome: "removed",
+          reason: expect.stringContaining(`uncommitted changes saved to ${ref}`),
+        });
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
+        const show = (file: string) =>
+          fixture
+            .command(fixture.repo, ["show", `${ref}:${file}`])
+            .pipe(Effect.map((result) => result.stdout));
+        expect(yield* show("tracked.txt")).toBe("agent edit\n");
+        expect(yield* show("notes.txt")).toBe("untracked\n");
+        const files = (yield* fixture.command(fixture.repo, ["ls-tree", "--name-only", ref!]))
+          .stdout;
+        expect(files).not.toContain(".env");
+        expect((yield* fixture.command(fixture.repo, ["rev-parse", `${ref}^`])).stdout.trim()).toBe(
+          head,
+        );
+        // The branch the worktree had checked out is untouched.
+        expect((yield* fixture.command(fixture.repo, ["rev-parse", "feature"])).stdout.trim()).toBe(
+          head,
+        );
+      }),
+    ),
+  );
+
+  it.live("removes a clean worktree without saving anything", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        fixture.setPolicy("save-changes");
+        yield* fixture.fs.writeFileString(`${fixture.worktree}/.env`, "ignored\n");
+        const report = yield* fixture.service.runNow;
+        expect(report.entries[0]).toMatchObject({ outcome: "removed" });
+        expect(report.entries[0]?.reason).not.toContain("saved");
+        expect(yield* savedRefs(fixture)).toEqual([]);
+      }),
+    ),
+  );
+
+  it.live("still keeps tracked edits that git status hides", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        fixture.setPolicy("save-changes");
+        yield* fixture.command(fixture.worktree, [
+          "update-index",
+          "--skip-worktree",
+          "tracked.txt",
+        ]);
+        yield* fixture.fs.writeFileString(`${fixture.worktree}/tracked.txt`, "hidden edit\n");
+        expect((yield* fixture.service.runNow).entries[0]).toMatchObject({ outcome: "kept" });
+        expect(yield* savedRefs(fixture)).toEqual([]);
+      }),
+    ),
+  );
+
+  const orphanFixture = Effect.gen(function* () {
+    const fixture = yield* cleanupFixture();
+    fixture.setThreads([]);
+    fixture.setStoredWorktreePaths([]);
+    const adminDir = `${fixture.repo}/.git/worktrees/feature`;
+    const age = Effect.forEach(
+      [
+        fixture.worktree,
+        adminDir,
+        `${adminDir}/HEAD`,
+        `${adminDir}/index`,
+        `${adminDir}/logs/HEAD`,
+      ],
+      (target) => fixture.fs.utimes(target, 1, 1),
+    );
+    return { ...fixture, age };
+  });
+
+  it.live("removes a worktree no thread uses once its Git activity is past the age limit", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* orphanFixture;
+        yield* fixture.fs.writeFileString(`${fixture.worktree}/.env`, "ignored\n");
+        yield* fixture.age;
+        const report = yield* fixture.service.runNow;
+        expect(report.entries).toEqual([
+          expect.objectContaining({
+            outcome: "removed",
+            path: fixture.worktree,
+            threadId: null,
+            reason: expect.stringMatching(/^No thread uses this worktree, inactive for \d+ days$/),
+          }),
+        ]);
+        expect(report.bytesFreed).toBeGreaterThan(0);
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
+        expect(
+          (yield* fixture.command(fixture.repo, ["branch", "--list", "feature"])).stdout,
+        ).toContain("feature");
+      }),
+    ),
+  );
+
+  it.live("keeps a worktree no thread uses while its Git activity is recent", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* orphanFixture;
+        yield* fixture.fs.utimes(fixture.worktree, 1, 1);
+        expect((yield* fixture.service.runNow).entries).toEqual([
+          expect.objectContaining({ outcome: "kept", reason: "No thread uses this worktree" }),
+        ]);
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
+      }),
+    ),
+  );
+
+  it.live.each(["uncommitted-changes", "save-changes"] as const)(
+    "keeps or saves an old worktree no thread uses that has edits (%s)",
+    (policy) =>
+      runCleanupTest(
+        Effect.gen(function* () {
+          const fixture = yield* orphanFixture;
+          fixture.setPolicy(policy);
+          yield* fixture.fs.writeFileString(`${fixture.worktree}/tracked.txt`, "left behind\n");
+          yield* fixture.age;
+          const [entry] = (yield* fixture.service.runNow).entries;
+          if (policy === "uncommitted-changes") {
+            expect(entry).toMatchObject({
+              outcome: "kept",
+              reason: "No thread uses this worktree. Kept: has uncommitted changes (1 file)",
+            });
+            expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
+            return;
+          }
+          const [ref] = yield* savedRefs(fixture);
+          expect(entry).toMatchObject({
+            outcome: "removed",
+            reason: expect.stringContaining(`uncommitted changes saved to ${ref}`),
+          });
+          expect(
+            (yield* fixture.command(fixture.repo, ["show", `${ref}:tracked.txt`])).stdout,
+          ).toBe("left behind\n");
+        }),
+      ),
+  );
+
+  it.live("keeps an old worktree no thread uses whose detached commits are on no branch", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* orphanFixture;
+        yield* fixture.command(fixture.worktree, ["checkout", "--detach"]);
+        yield* fixture.command(fixture.worktree, ["commit", "--allow-empty", "-m", "unshared"]);
+        yield* fixture.age;
+        expect((yield* fixture.service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason:
+            "No thread uses this worktree. Kept: has commits on no branch or an unfinished Git operation",
+        });
+      }),
+    ),
+  );
+
+  it.effect("keeps edits when only the unchanged rule makes a worktree due", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MS);
+        const fixture = yield* cleanupFixture({
+          ...DEFAULT_SERVER_SETTINGS.storageCleanup,
+          worktreeKeepWhen: "save-changes",
+          worktreeUnchanged: true,
+        });
+        fixture.setThreads([
+          shell({ branch: "feature", worktreePath: fixture.worktree, archivedAt: at(-DAY_MS) }),
+        ]);
+        yield* fixture.fs.writeFileString(`${fixture.worktree}/tracked.txt`, "not committed\n");
+        expect((yield* fixture.service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Has uncommitted changes (1 file)",
+        });
+        expect(yield* savedRefs(fixture)).toEqual([]);
+      }),
+    ),
+  );
+
+  it.live("keeps a worktree paused in a merge instead of saving half of it", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        fixture.setPolicy("save-changes");
+        yield* fixture.command(fixture.repo, ["checkout", "-b", "other"]);
+        yield* fixture.fs.writeFileString(`${fixture.repo}/tracked.txt`, "theirs\n");
+        yield* fixture.command(fixture.repo, ["commit", "-am", "theirs"]);
+        yield* fixture.fs.writeFileString(`${fixture.worktree}/tracked.txt`, "ours\n");
+        yield* fixture.command(fixture.worktree, ["commit", "-am", "ours"]);
+        yield* fixture.command(fixture.worktree, ["merge", "other"]).pipe(Effect.ignore);
+        expect((yield* fixture.service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Has an unfinished Git operation (MERGE_HEAD)",
+        });
+        expect(yield* fixture.fs.exists(`${fixture.worktree}/tracked.txt`)).toBe(true);
+        expect(yield* savedRefs(fixture)).toEqual([]);
+      }),
+    ),
+  );
+
+  it.live("leaves an old worktree of a repository that is not one of this server's projects", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* orphanFixture;
+        const foreign = yield* fixture.fs.realPath(
+          yield* fixture.fs.makeTempDirectoryScoped({ prefix: "cleanup-foreign-" }),
+        );
+        yield* fixture.command(foreign, ["init", "-b", "main"]);
+        yield* fixture.command(foreign, [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@example.test",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "root",
+        ]);
+        const other = `${fixture.config.worktreesDir}/other-install`;
+        yield* fixture.command(foreign, ["worktree", "add", "-b", "elsewhere", other]);
+        const adminDir = `${foreign}/.git/worktrees/other-install`;
+        yield* Effect.forEach(
+          [other, adminDir, `${adminDir}/HEAD`, `${adminDir}/index`, `${adminDir}/logs/HEAD`],
+          (target) => fixture.fs.utimes(target, 1, 1),
+        );
+        yield* fixture.age;
+        const entries = (yield* fixture.service.runNow).entries;
+        expect(entries.find((entry) => entry.path === other)).toMatchObject({
+          outcome: "kept",
+          reason: "No thread uses this worktree",
+        });
+        expect(yield* fixture.fs.exists(other)).toBe(true);
+        expect(entries.find((entry) => entry.path === fixture.worktree)).toMatchObject({
+          outcome: "removed",
+        });
+      }),
+    ),
+  );
+
+  it.live("keeps an old worktree no thread uses while a terminal is open in it", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* orphanFixture;
+        yield* fixture.openTerminal({ cwd: fixture.worktree, worktreePath: null });
+        yield* fixture.age;
+        expect((yield* fixture.service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "No thread uses this worktree. Kept: open terminal",
+        });
+      }),
+    ),
+  );
+});

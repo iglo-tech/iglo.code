@@ -314,6 +314,19 @@ current when an authorized change replaces a decision.
   offers **Turn it back on**
   ([IdleBackgroundWork.ts](../../../apps/server/src/orchestration-v2/IdleBackgroundWork.ts)).
   Upstream has no equivalent yet (its issue 35223); reconcile if it ships one.
+- **Worktree cleanup saves work and clears agent leftovers.** In
+  [storageCleanup.ts](../../../apps/server/src/storageCleanup.ts), the
+  `save-changes` keep-when value ("Nothing, save changes first") commits a due
+  worktree's edits and untracked files under `refs/iglo.code-saved/` and then
+  force-removes it. Only age, settling and deletion save edits; the merged and
+  unchanged rules, task folders, submodules and paused merges or rebases still
+  keep them. A linked worktree no thread uses (upstream only reports these) whose
+  repository is one of the server's projects is removed once its last Git
+  activity passes that project's inactive retention, under the same keep-when
+  rule, unless a detached HEAD holds commits on no branch. Fork defaults
+  step 3 turns on `save-changes` with 2 inactive and 1 settled day.
+  `scripts/release-local.ts` deletes its build folders and prunes Docker
+  leftovers after publishing.
 - **History swipe setting.** The fork carries upstream PR 28370's
   `historySwipeNavigation` setting (off by default). Drop the fork copy once
   upstream merges its own.

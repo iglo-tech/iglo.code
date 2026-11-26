@@ -255,7 +255,12 @@ Active sessions and shared worktrees prevent removal. **Keep worktrees with loca
 to **Uncommitted changes**, which protects tracked edits and untracked files but deletes ignored
 files such as `.env` and build output. **Any local files** also protects ignored files other than
 `node_modules`. **Edited tracked files** protects only tracked edits and allows untracked and
-ignored files to be deleted. Branches and thread history stay; starting another turn recreates the checkout.
+ignored files to be deleted. **Nothing, save changes first** keeps nothing: before a due worktree is
+deleted for age, settling or thread deletion, its tracked edits and untracked files are committed on top of its last commit under
+`refs/iglo.code-saved/<folder>-<time>` (ignored files are not saved), and the results name the ref.
+Restore one with `git checkout -b <branch> refs/iglo.code-saved/<name>` in the project; delete it
+with `git update-ref -d` when you no longer need it. A submodule with its own changes, a paused merge or
+rebase, or a worktree due only to the merged or unchanged rules is still kept. Branches and thread history stay; starting another turn recreates the checkout.
 Merge cleanup requires a merged pull request whose commits are included in the remote default
 branch. A squash or rebase merge on GitHub also counts when the pull request targeted the default
 branch and the worktree is still at the pull request's last commit.
@@ -267,7 +272,11 @@ Existing prompts for deleting a worktree manually remain available when this pol
 
 Choose **Delete now** to run the enabled rules immediately. The latest results show which
 worktrees were removed or kept and why, plus any failures.
-Results also list folders in the worktree folder that no thread uses, with their sizes; cleanup never removes them, so remove them manually if you want.
+Results also list folders in the worktree folder that no thread uses, with their sizes. A Git
+worktree among them, such as one an agent created itself, is removed once its last Git activity is
+older than its project's inactive retention, under the same local-change rule; one with commits
+that are on no branch is kept. Folders that are not Git worktrees are only listed, so remove them
+manually if you want.
 
 The inactive and settled retention periods also apply to the folders of
 [threads without a project](./thread-sidebar.md#start-without-a-project). Those folders are not

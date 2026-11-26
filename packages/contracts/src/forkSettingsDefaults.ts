@@ -69,6 +69,17 @@ export const FORK_SERVER_DEFAULTS_STEPS = [
     version: 2,
     patch: { autoResumeLimitedThreads: true },
   },
+  {
+    // Agents leave worktrees faster than an 8-day window clears them; save work rather than keep it.
+    version: 3,
+    patch: {
+      storageCleanup: {
+        worktreeKeepWhen: "save-changes",
+        worktreeAfterDays: 2,
+        worktreeSettledAfterDays: 1,
+      },
+    },
+  },
 ] as const satisfies ReadonlyArray<ForkServerDefaultsStep>;
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>

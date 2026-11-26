@@ -270,6 +270,7 @@ const KEEP_WHEN_LABELS = {
   "any-local-files": msg("Any local files"),
   "uncommitted-changes": msg("Uncommitted changes"),
   "tracked-changes": msg("Edited tracked files"),
+  "save-changes": msg("Nothing, save changes first"),
 } as const;
 
 function lastRunSummary(
@@ -824,9 +825,13 @@ export function WorktreeCleanupSection() {
                       ? gt("Includes ignored files, except node_modules.")
                       : settings.worktreeKeepWhen === "tracked-changes"
                         ? gt("Deletes untracked and ignored files, including .env.")
-                        : gt(
-                            "Keeps edits and untracked files. Deletes ignored files, including .env.",
-                          )
+                        : settings.worktreeKeepWhen === "save-changes"
+                          ? gt(
+                              "Saves edits and untracked files to a Git ref under refs/iglo.code-saved, then deletes the worktree. Deletes ignored files, including .env.",
+                            )
+                          : gt(
+                              "Keeps edits and untracked files. Deletes ignored files, including .env.",
+                            )
                   }
                   serverScoped={!isProjectScope}
                   control={
@@ -836,7 +841,8 @@ export function WorktreeCleanupSection() {
                         if (
                           next === "any-local-files" ||
                           next === "uncommitted-changes" ||
-                          next === "tracked-changes"
+                          next === "tracked-changes" ||
+                          next === "save-changes"
                         )
                           updateWorktree({ worktreeKeepWhen: next });
                       }}
@@ -857,6 +863,9 @@ export function WorktreeCleanupSection() {
                         </SelectItem>
                         <SelectItem value="tracked-changes">
                           <T>Edited tracked files</T>
+                        </SelectItem>
+                        <SelectItem value="save-changes">
+                          <T>Nothing, save changes first</T>
                         </SelectItem>
                       </SelectPopup>
                     </Select>

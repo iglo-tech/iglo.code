@@ -24,7 +24,10 @@ bun scripts/release-local.ts "v$version"
 x64 Debian container under Rosetta, smoke-tests both, writes `release.json` and `SHA256SUMS`, and
 publishes them with the channel's release flags. `--build-only` stops before publishing. Releases
 carry only those two archives; the installer and `iglo.code update` fail on `darwin-x64` and
-`linux-arm64`. To retry a tag, delete its release and run the script again.
+`linux-arm64`. To retry a tag, delete its release and run the script again. After publishing, the
+script deletes that build folder and earlier tags' folders older than a day, prunes dangling Docker
+images, and trims the Docker build cache to 5 GB. A `--build-only` run keeps its folder until a
+later release, and the script never sweeps beside a `--work-dir`.
 
 The tag picks the channel, matching [release naming](../../packages/shared/src/cliRelease.ts):
 

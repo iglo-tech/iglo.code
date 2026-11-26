@@ -1196,6 +1196,8 @@ export const WorktreeKeepWhen = Schema.Literals([
   "any-local-files",
   "uncommitted-changes",
   "tracked-changes",
+  // Fork: nothing keeps a due worktree; its uncommitted work is saved to a Git ref first.
+  "save-changes",
 ]);
 export type WorktreeKeepWhen = typeof WorktreeKeepWhen.Type;
 
