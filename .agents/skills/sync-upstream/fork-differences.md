@@ -322,6 +322,15 @@ current when an authorized change replaces a decision.
   view), which upstream closed unmerged. Drop the fork copy once upstream
   merges its own; reconcile the reader, the driver/provider lists, and the web
   presentations together.
+- **Antigravity usage limits.** The fork keeps the Antigravity limits reader
+  (`antigravityUsageLimits.ts`, the provider's background usage read, and the hub's
+  Antigravity accounts) that upstream removed in #43026. Keep it on later syncs;
+  without it the Usage page shows no Antigravity limits on any machine.
+- **Managed Codex limits.** A Codex instance signed in through managed ChatGPT
+  auth publishes its `account/rateLimits/read` result when the read succeeds, so
+  the Usage page pools it with the same account on other machines; the ChatGPT
+  usage link remains the fallback (`CodexManagedProvider.ts`). Upstream always
+  publishes only the link.
 - **Move a thread between projects.** A thread's context menu (sidebar row and
   chat header share one builder) offers **Move to project** with a destination
   submenu: project identity (a custom monogram icon, else the title monogram)
