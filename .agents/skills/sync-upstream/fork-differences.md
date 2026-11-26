@@ -383,3 +383,11 @@ current when an authorized change replaces a decision.
   since it describes what the server stores. Preserve
   [forkSettingsDefaults.test.ts](../../../apps/server/src/forkSettingsDefaults.test.ts),
   which pins the Settings values to what the server applies.
+  Per-browser client settings have their own steps, `FORK_CLIENT_DEFAULTS_STEPS`
+  in the same contracts file (step 1 queues follow-ups instead of steering).
+  [clientPersistenceStorage.ts](../../../apps/web/src/clientPersistenceStorage.ts)
+  applies pending steps once to the saved settings and records them in the
+  `iglo-code:fork-client-defaults-version` localStorage key. Client settings
+  are saved whole rather than sparse, so `DEFAULT_CLIENT_SETTINGS` does include
+  the steps: a browser with nothing saved starts from them, and Settings resets
+  to them. Same rule: never edit or renumber a shipped step.

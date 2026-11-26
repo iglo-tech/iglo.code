@@ -1,11 +1,34 @@
-import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
+import {
+  ClientSettingsSchema,
+  FORK_CLIENT_DEFAULTS_VERSION,
+  withForkClientDefaults,
+  type ClientSettings,
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 
-import { getLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
+import {
+  getLocalStorageItem,
+  LocalStorageOperationError,
+  setLocalStorageItem,
+} from "./hooks/useLocalStorage";
 
 const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
+const FORK_CLIENT_DEFAULTS_VERSION_KEY = "iglo-code:fork-client-defaults-version";
+const ForkClientDefaultsVersion = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const isLocalStorageOperationError = Schema.is(LocalStorageOperationError);
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";
+}
+
+function readForkClientDefaultsVersion(): number {
+  try {
+    return getLocalStorageItem(FORK_CLIENT_DEFAULTS_VERSION_KEY, ForkClientDefaultsVersion) ?? 0;
+  } catch (error) {
+    // A corrupt marker reapplies the steps, like the server's fork-defaults-version file.
+    if (isLocalStorageOperationError(error) && error.operation === "decode") return 0;
+    throw error;
+  }
 }
 
 export function readBrowserClientSettings(): ClientSettings | null {
@@ -13,7 +36,25 @@ export function readBrowserClientSettings(): ClientSettings | null {
     return null;
   }
 
-  return getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, ClientSettingsSchema);
+  const saved = getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, ClientSettingsSchema);
+  const appliedVersion = readForkClientDefaultsVersion();
+  if (appliedVersion >= FORK_CLIENT_DEFAULTS_VERSION) {
+    return saved;
+  }
+  const migrated = saved === null ? null : withForkClientDefaults(saved, appliedVersion);
+  const changed =
+    saved !== null &&
+    migrated !== null &&
+    Object.entries(migrated).some(([key, value]) => saved[key as keyof ClientSettings] !== value);
+  if (changed) {
+    setLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, migrated, ClientSettingsSchema);
+  }
+  setLocalStorageItem(
+    FORK_CLIENT_DEFAULTS_VERSION_KEY,
+    FORK_CLIENT_DEFAULTS_VERSION,
+    ForkClientDefaultsVersion,
+  );
+  return migrated;
 }
 
 export function writeBrowserClientSettings(settings: ClientSettings): void {

@@ -53,7 +53,7 @@ import {
   ProviderInstanceId,
   ProviderDriverKind,
 } from "./providerInstance.ts";
-import { withForkServerDefaults } from "./forkSettingsDefaults.ts";
+import { withForkClientDefaults, withForkServerDefaults } from "./forkSettingsDefaults.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
 import {
   CloudSpeechModelId,
@@ -630,7 +630,10 @@ export const ClientSettingsSchema = Schema.Struct({
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
-export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
+// iglo.code: client settings are saved whole, so fork defaults can live in the defaults themselves.
+export const DEFAULT_CLIENT_SETTINGS: ClientSettings = withForkClientDefaults(
+  Schema.decodeSync(ClientSettingsSchema)({}),
+);
 
 const UsageModelTokenPrice = Schema.Number.check(
   Schema.isFinite(),

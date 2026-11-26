@@ -1,4 +1,4 @@
-import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS, FORK_CLIENT_DEFAULTS_VERSION } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 function createLocalStorageStub(): Storage {
@@ -76,6 +76,37 @@ describe("clientPersistenceStorage", () => {
       }),
     );
     expect(readBrowserClientSettings()).toEqual(settings);
-    expect(write).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalledWith("t3code:client-settings:v1", expect.anything());
+  });
+
+  it("applies fork client defaults to saved settings once", async () => {
+    const testWindow = getTestWindow();
+    const saved = { ...DEFAULT_CLIENT_SETTINGS, followUpBehavior: "steer" as const };
+    testWindow.localStorage.setItem("t3code:client-settings:v1", JSON.stringify(saved));
+    const { readBrowserClientSettings } = await import("./clientPersistenceStorage");
+
+    expect(readBrowserClientSettings()?.followUpBehavior).toBe("queue");
+    expect(
+      JSON.parse(testWindow.localStorage.getItem("t3code:client-settings:v1")!).followUpBehavior,
+    ).toBe("queue");
+    expect(testWindow.localStorage.getItem("iglo-code:fork-client-defaults-version")).toBe(
+      String(FORK_CLIENT_DEFAULTS_VERSION),
+    );
+
+    const chosen = { ...saved, followUpBehavior: "steer" as const };
+    testWindow.localStorage.setItem("t3code:client-settings:v1", JSON.stringify(chosen));
+    expect(readBrowserClientSettings()).toEqual(chosen);
+  });
+
+  it("starts a browser without saved settings from the fork defaults", async () => {
+    const testWindow = getTestWindow();
+    const { readBrowserClientSettings } = await import("./clientPersistenceStorage");
+
+    expect(readBrowserClientSettings()).toBeNull();
+    expect(DEFAULT_CLIENT_SETTINGS.followUpBehavior).toBe("queue");
+    expect(testWindow.localStorage.getItem("t3code:client-settings:v1")).toBeNull();
+    expect(testWindow.localStorage.getItem("iglo-code:fork-client-defaults-version")).toBe(
+      String(FORK_CLIENT_DEFAULTS_VERSION),
+    );
   });
 });

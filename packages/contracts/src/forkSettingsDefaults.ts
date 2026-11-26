@@ -1,4 +1,38 @@
-import type { ServerSettings, ServerSettingsPatch } from "./settings.ts";
+import type {
+  ClientSettings,
+  ClientSettingsPatch,
+  ServerSettings,
+  ServerSettingsPatch,
+} from "./settings.ts";
+
+export interface ForkClientDefaultsStep {
+  readonly version: number;
+  readonly patch: ClientSettingsPatch;
+}
+
+/**
+ * iglo.code's per-browser defaults: each browser applies pending steps once to its saved client
+ * settings, and a browser with none starts from them. Never edit or renumber a shipped step.
+ */
+const FORK_CLIENT_DEFAULTS_STEPS = [
+  {
+    version: 1,
+    patch: { followUpBehavior: "queue" },
+  },
+] as const satisfies ReadonlyArray<ForkClientDefaultsStep>;
+
+export const FORK_CLIENT_DEFAULTS_VERSION =
+  FORK_CLIENT_DEFAULTS_STEPS[FORK_CLIENT_DEFAULTS_STEPS.length - 1]?.version ?? 0;
+
+export const withForkClientDefaults = (
+  settings: ClientSettings,
+  appliedVersion = 0,
+  steps: ReadonlyArray<ForkClientDefaultsStep> = FORK_CLIENT_DEFAULTS_STEPS,
+): ClientSettings =>
+  Object.assign(
+    { ...settings },
+    ...steps.filter((step) => step.version > appliedVersion).map((step) => step.patch),
+  );
 
 export interface ForkServerDefaultsStep {
   readonly version: number;
