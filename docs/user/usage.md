@@ -166,6 +166,9 @@ row to see when it resets and your pace. Turn on **Context window** to also show
 context use against the model's limit. A tick on the bar marks where the provider compacts
 automatically, when it reports that point.
 
+OpenCode 2 servers with usage reporting show Go allowances and Console budgets for the connected
+workspace. Local servers can also report Go usage from a Go API key (`OPENCODE_API_KEY`).
+
 OpenCode Go reports its session, weekly, and monthly allowance when OpenCode runs locally in
 the environment. iglo.code cannot report limits for external OpenCode servers because their credentials
 belong to the remote server. Limits need an OpenCode Go API key, or an OpenCode Console connected

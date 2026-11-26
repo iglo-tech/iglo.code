@@ -50,6 +50,8 @@ network and Tailscale addresses. It still does not answer on public addresses.
 Anyone on the same network can reach the port, so a pairing code is all that
 keeps them out. For other ways in, see [Remote access](./remote-access.md).
 
+The service never writes a pairing code to its log. To connect a device, run `iglo.code pair` on the host, or `iglo.code up` to set up access from your other devices.
+
 A service installed before `IGLO_CODE_LAN` existed keeps listening on the local
 network. `iglo.code status` says so, and `iglo.code up --no-lan` turns it off. Any
 `IGLO_CODE_HOST` value replaces this setting.

@@ -1,6 +1,6 @@
 # Devices
 
-The Device panel shows a live iOS Simulator or Android Emulator next to a
+The Device panel shows a live iOS Simulator or Android device next to a
 thread, so you can watch an agent verify mobile work and tap the device
 yourself. Agents get the same device through `device_*` tools and the
 `agent-device` command line, which iglo.code sets up for them.
@@ -32,6 +32,14 @@ and Command-line Tools (latest), plus a virtual device created in Android
 Studio's Device Manager. iglo.code detects standard SDK locations; set
 `ANDROID_HOME` for a custom location. The panel explains missing dependencies.
 After installing SDK tools, restart the environment server and refresh devices.
+
+### Physical Android devices
+
+A physical Android device connected to the machine that hosts the environment server needs only the SDK Platform-Tools. Turn on USB debugging in Developer options, connect the device over USB, and approve the prompt on the device.
+
+For wireless debugging, turn on Wireless debugging in Developer options. Once, choose "Pair device with pairing code" and run `adb pair <address>:<pairing port>` on that machine, entering the code. Then run `adb connect <address>:<port>` with the address and port shown on the Wireless debugging screen (they differ from the pairing ones), and refresh devices.
+
+Some Xiaomi phones ignore touch and keys until "USB debugging (Security settings)" is on.
 
 Android emulator video also needs `ffmpeg` with the libx264 encoder on the device
 host's PATH, or an executable selected by `SERVE_EMU_FFMPEG` on that host. If
@@ -110,7 +118,7 @@ Local installed environments use their packaged Bun interpreter; device tools
 install automatically with Bun.
 iglo.code checks common Homebrew and Android SDK locations; custom installations need
 the appropriate PATH and `ANDROID_HOME` or `ANDROID_SDK_ROOT` on the host.
-Android on an SSH host needs the same SDK tools as a local environment; adb on
+Android on an SSH host needs SDK Platform-Tools, Android Emulator, and Command-line Tools (latest), even for physical devices; adb on
 the PATH alone does not enable it. Android emulator video needs
 `ffmpeg` with libx264 on that host; physical Android devices use scrcpy and do
 not need ffmpeg.

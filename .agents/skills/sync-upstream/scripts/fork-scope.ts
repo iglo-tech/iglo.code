@@ -70,6 +70,9 @@ export const REMOVED_PATHS = [
   "scripts/lib/cached-tests.*",
   // Node/V8-inspector server benchmark; the fork's server runs on Bun.
   "scripts/server-metrics*",
+  "scripts/metrics/server",
+  // Native app benchmark.
+  "scripts/metrics/mobile",
   // Node-only spawn helper (fd passing over IPC) for libuv fork stalls; Bun spawns without forking.
   "apps/server/src/process-launcher.ts",
   "apps/server/src/process/ProcessLauncher.ts",
@@ -100,6 +103,8 @@ export const REMOVED_PATHS = [
   "apps/web/src/components/ProjectComboboxRow.tsx",
   // Upstream GitHub star nag popup removed in iglo.code.
   "apps/web/src/components/GitHubStarPrompt.*",
+  // Typings patch for the mobile app's GB18030 TextDecoder polyfill.
+  "patches/@exodus__bytes@*.patch",
 ];
 
 export const mobileDependency = (name: string) =>

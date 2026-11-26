@@ -1,8 +1,7 @@
 # Product analytics
 
 The server owns analytics delivery, opt-out, and identity for every connected client. Clients never
-load the PostHog browser SDK, PostHog person profiles stay disabled, and loading the web client without
-an authenticated connection does not count as product use. iglo.code sends nothing unless
+load an analytics browser SDK, and loading the web client without an authenticated connection does not count as product use. iglo.code sends nothing unless
 `IGLO_CODE_POSTHOG_HOST` names an endpoint (upstream's `ingest.t3.codes` is not contacted).
 
 ## Identity

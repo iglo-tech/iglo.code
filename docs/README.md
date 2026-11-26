@@ -2,14 +2,19 @@
 
 ## Using iglo.code
 
+- [User guide index](./user/README.md)
 - [Install iglo.code](./user/install.md)
 - [Messages and context](./user/composer.md)
 - [Working with threads](./user/thread-sidebar.md)
 - [Permission modes](./user/permission-modes.md)
 - [Terminal history](./user/terminal.md)
 - [Source control](./user/source-control.md)
+- [Diffs](./user/diffs.md)
+- [Subagents](./user/subagents.md)
+- [Built-in browser](./user/browser.md)
 - [Workflows](./user/workflows.md)
 - [Project settings](./user/project-settings.md)
+- [Project config (`iglo.code.json`)](./user/iglo-code-json.md)
 - [Projects with several repositories](./user/multi-repo-projects.md)
 - [Appearance and themes](./user/appearance.md)
 - [Keyboard shortcuts](./user/keybindings.md)
@@ -26,7 +31,9 @@
 - [Running in the background](./user/background-service.md)
 - [Updating iglo.code](./user/updating.md)
 - [Triage an issue](./user/triage.md)
-- Provider guides: [Codex](./user/providers-codex.md) · [Claude](./user/providers-claude.md) · [OpenCode](./user/providers-opencode.md) · [Antigravity](./user/providers-antigravity.md) · [Kiro](./user/providers-kiro.md) · [Pi](./user/providers-pi.md) · [Muse Code](./user/providers-muse.md) · [fx](./user/providers-fx.md)
+- [Maintenance & diagnostics](./user/diagnostics.md)
+- [CLI reference](./user/cli.md)
+- Provider guides: [Codex](./user/providers-codex.md) · [Claude](./user/providers-claude.md) · [Grok Build](./user/providers-grok.md) · [OpenCode](./user/providers-opencode.md) · [Antigravity](./user/providers-antigravity.md) · [Kiro](./user/providers-kiro.md) · [Pi](./user/providers-pi.md) · [Muse Code](./user/providers-muse.md) · [fx](./user/providers-fx.md)
 
 ---
 

@@ -58,6 +58,8 @@ without a code; that starts at **Read only**:
   change what workflows store, or read webhook paths. Lower modes can still
   read runs.
 
+Some agents have modes of their own that skip approvals; only an agent with **Full access** can pick one.
+
 ## What outside agents can call
 
 Some tools only work for an agent running inside an iglo.code thread, because they act

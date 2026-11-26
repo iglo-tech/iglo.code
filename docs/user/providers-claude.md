@@ -85,6 +85,10 @@ Claude Code holds the turn until that window reopens, so it can keep showing as
 working. Wait for the reset, or stop the turn and continue later. The warning's
 timestamp shows when the displayed wait started.
 
+## Auto mode
+
+In **Auto**, Claude asks about the actions its review leaves open. Where Claude's settings (`disableAutoMode` in managed, user, or project settings) turn its Auto mode off, the permissions menu shows **Auto** as unavailable for that project, with whose settings do it. A Claude thread set to Auto anyway, or whose model has no Auto mode, asks like **Supervised** and says so once in the thread. See [Permission modes](./permission-modes.md#provider-differences).
+
 ## Steering
 
 A steer waits until Claude finishes the tool calls it is running, then Claude reads it

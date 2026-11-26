@@ -8,7 +8,7 @@ import {
 
 import { Button } from "../ui/button";
 import { SidebarInput } from "../ui/sidebar";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 
 export interface SidebarThreadHeaderProps {
   onNewThread: (event: ReactMouseEvent) => void;
@@ -95,37 +95,38 @@ export function SidebarThreadHeader({
           </Button>
         ) : null}
       </div>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={newThreadTitle}
-              disabled={newThreadDisabled}
-              onClick={onNewThread}
-            />
-          }
-        >
-          <SquarePenIcon />
-        </TooltipTrigger>
-        <TooltipPopup side="bottom">
-          {showNewThreadInProjectHint ? (
-            <span className="flex flex-col gap-0.5">
-              <span>{newThreadLabel}</span>
-              <span className="text-muted-foreground">
-                {newThreadInProjectShortcutLabel
-                  ? gt("New thread in current project: Shift+click ({shortcut})", {
-                      shortcut: newThreadInProjectShortcutLabel,
-                    })
-                  : gt("New thread in current project: Shift+click")}
+      <SharedTooltipTrigger
+        render={
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={newThreadTitle}
+            disabled={newThreadDisabled}
+            onClick={onNewThread}
+          />
+        }
+        side="bottom"
+        label={
+          <>
+            {showNewThreadInProjectHint ? (
+              <span className="flex flex-col gap-0.5">
+                <span>{newThreadLabel}</span>
+                <span className="text-muted-foreground">
+                  {newThreadInProjectShortcutLabel
+                    ? gt("New thread in current project: Shift+click ({shortcut})", {
+                        shortcut: newThreadInProjectShortcutLabel,
+                      })
+                    : gt("New thread in current project: Shift+click")}
+                </span>
               </span>
-            </span>
-          ) : (
-            newThreadLabel
-          )}
-        </TooltipPopup>
-      </Tooltip>
+            ) : (
+              newThreadLabel
+            )}
+          </>
+        }
+      >
+        <SquarePenIcon />
+      </SharedTooltipTrigger>
     </div>
   );
 }

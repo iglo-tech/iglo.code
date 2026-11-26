@@ -192,6 +192,10 @@ Stashes containing uploaded files must be restored in their original environment
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
+The stash holds up to 100 prompts, and images take up most of its browser storage. When it is full,
+stashing leaves the composer as it is; restore or delete a stash to make room. Stashes are never
+discarded automatically.
+
 ## Voice input
 
 Use the composer's microphone or `mod+shift+d` to dictate into your draft. Audio

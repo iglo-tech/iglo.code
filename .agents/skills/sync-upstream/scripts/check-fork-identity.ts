@@ -69,6 +69,11 @@ const ALLOW: [string, string, string][] = [
   ["TRADEMARK.md", "product name", "upstream's trademark policy, kept verbatim"],
   ["CONTRIBUTING.md", "product name", "upstream contribution guide and trademark notice"],
   ["AGENTS.md", "product name", "documents fork scope and upstream T3 Code attribution"],
+  [
+    "apps/server/src/speech/SpeechService.test.ts",
+    "product name",
+    "vocabulary fixture: a spoken brand with a digit (T 3 code) exercises term matching",
+  ],
   [".github/SECURITY.md", "product name", "upstream security reporting notice"],
   [
     "docs/internals/06_t3-connect.md",

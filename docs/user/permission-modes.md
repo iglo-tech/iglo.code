@@ -55,6 +55,8 @@ Antigravity offers **Auto** only when your Antigravity sign-in provides its Auto
 including some personal Google accounts, do not. Without it, an Antigravity thread already set to
 **Auto** runs in **Supervised**.
 
+In **Auto**, Claude asks about the actions its review leaves open. Where Claude's settings (`disableAutoMode` in managed, user, or project settings) turn its Auto mode off, the permissions menu shows **Auto** as unavailable for that project, with whose settings do it. A Claude thread set to Auto anyway, or whose model has no Auto mode, asks like **Supervised** and says so once in the thread.
+
 Muse Code offers only **Supervised** and **Full access**. A Muse thread already set to another mode
 runs in **Supervised**.
 

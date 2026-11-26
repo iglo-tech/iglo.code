@@ -61,21 +61,21 @@ custom server name as GitHub once it has a credential for that host.
 ### Forgejo and Gitea
 
 Install [Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli) or
-[Gitea CLI (`tea`)](https://gitea.com/gitea/tea) 0.16 or later on your iglo.code server.
-Sign in with `fj --host https://your-server auth add-token` or `tea login add`.
+[Gitea CLI (`gt`)](https://gitea.com/gitea/cli) 2.0 or later on your iglo.code server.
+Sign in with `fj --host https://your-server auth add-token` or `gt auth login --host https://your-server`. `gt` replaces the archived `tea`, so sign in again if you used `tea` before.
 Repeat for each server you use, including Codeberg.
 
-iglo.code prefers a matching `fj` login and falls back to `tea` when `fj` is unavailable
+iglo.code prefers a matching `fj` login and falls back to `gt` when `fj` is unavailable
 or has no login for that server. Once an account is selected, failed actions stay on that
 account. Settings shows the detected CLI. Forgejo and Gitea share one integration entry.
-Servers hosted under a URL subpath, such as `https://example.com/forgejo`, use `tea` because
+Servers hosted under a URL subpath, such as `https://example.com/forgejo`, use `gt` because
 fj does not preserve the subpath when checking its account.
 
 When cloning or publishing, use a full repository URL to select a specific server.
-You can use `owner/repo` when only one fj server is configured, or with your default `tea`
-login when fj is unavailable or unconfigured. With multiple fj servers, use the full URL.
-If you have multiple `tea` accounts on one server, select one with
-`tea login default <login-name>`. Git push and clone also need Git credentials or an SSH key
+You can use `owner/repo` when only one fj server is configured, or with your default `gt`
+server when fj is unavailable or unconfigured. With multiple fj servers, use the full URL.
+With several `gt` servers and no `fj` login, `owner/repo` and newly published repositories go to `gt`'s default server; set it with `gt config set default_host https://your-server`. If you have several `gt` accounts on one server, select one with
+`gt auth switch <user> --host https://your-server`. If an SSH remote uses a different host name than the server's web address, run `gt config set ssh_host <ssh-host> --host https://your-server`. Git push and clone also need Git credentials or an SSH key
 for that server.
 
 ### GitLab
