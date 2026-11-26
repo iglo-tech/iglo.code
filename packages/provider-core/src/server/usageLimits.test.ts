@@ -241,3 +241,46 @@ describe("resolveUsageLimitsAfterProbe", () => {
     );
   });
 });
+
+describe("link-only limits", () => {
+  // Managed ChatGPT sign-ins cannot poll usage, but their turns still stream readings.
+  const linkOnly = {
+    checkedAt,
+    windows: [],
+    unavailable: { reason: "unsupported" as const, message: "Open ChatGPT usage." },
+    externalUsage: { label: "ChatGPT usage", url: "https://chatgpt.com/#settings/Usage" },
+  };
+
+  it("lets a streamed reading replace the external usage link", () => {
+    const next = applyUsageLimitsUpdate({
+      previous: linkOnly,
+      checkedAt: "2026-09-03T12:01:00.000Z",
+      update: { windows: [session] },
+    });
+    expect(next?.windows).toEqual([session]);
+    expect(next?.unavailable).toBeUndefined();
+    expect(next?.externalUsage).toBeUndefined();
+  });
+
+  it("keeps streamed bars when a later probe can only link out", () => {
+    const streamed = applyUsageLimitsUpdate({
+      previous: linkOnly,
+      checkedAt: "2026-09-03T12:01:00.000Z",
+      update: { windows: [session] },
+    });
+    expect(
+      resolveUsageLimitsAfterProbe({
+        published: streamed,
+        probed: { ...linkOnly, checkedAt: "2026-09-03T12:02:00.000Z" },
+      }),
+    ).toBe(streamed);
+    expect(resolveUsageLimitsAfterProbe({ published: linkOnly, probed: linkOnly })).toBe(linkOnly);
+  });
+
+  it("still ignores streamed readings for an account with no limits", () => {
+    const none = { checkedAt, windows: [], unavailable: { reason: "unsupported" as const } };
+    expect(
+      applyUsageLimitsUpdate({ previous: none, checkedAt, update: { windows: [session] } }),
+    ).toBe(none);
+  });
+});

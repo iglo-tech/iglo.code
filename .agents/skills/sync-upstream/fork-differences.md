@@ -342,6 +342,12 @@ current when an authorized change replaces a decision.
   access token lasts an hour and cannot be refreshed without its OAuth client, so
   when it has expired the read opens and drops a disposable agent session (which
   renews it) at most every 30 minutes (`renewSignIn` in `AntigravityDriver.ts`).
+- **Streamed limits replace an external usage link.** A provider that publishes only a
+  usage link (managed ChatGPT Codex, whose token the usage endpoint refuses) still
+  streams `account/rateLimits/updated` during turns. Upstream drops those because the
+  limits are `unsupported`; the fork lets them replace the link and keeps them across
+  link-only health checks (`linkOnly` in `provider-core/src/server/usageLimits.ts`).
+  The link card reads "Used by {provider} on {environment}".
 
 - **Move a thread between projects.** A thread's context menu (sidebar row and
   chat header share one builder) offers **Move to project** with a destination

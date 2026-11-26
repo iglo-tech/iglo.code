@@ -1312,7 +1312,7 @@
   "23eed587f1bef1a6": "Grok、Composer、Auto はこの使用枠を使います。",
   "d2becdc27390c92c": "その他のモデル",
   "3abbefc7732635ff": "Claude、GPT、Gemini などのサードパーティモデル用の使用枠です。",
-  "7d72af75b2812d60": "{environment} の {provider}",
+  "b75c8c279b73d22c": "{environment} の {provider} が使用",
   "bb34eaf6ddc55a72": "このアカウントにはサブスクリプションの上限がありません。",
   "42a2622893a6bced": "上限を読み取れませんでした。",
   "4897e228d3185c96": "報告された上限はありません。",

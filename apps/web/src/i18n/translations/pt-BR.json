@@ -1312,7 +1312,7 @@
   "23eed587f1bef1a6": "Grok, Composer e Auto usam esta cota.",
   "d2becdc27390c92c": "Outros modelos",
   "3abbefc7732635ff": "Cota de uso para modelos de terceiros, como Claude, GPT e Gemini.",
-  "7d72af75b2812d60": "{provider} em {environment}",
+  "b75c8c279b73d22c": "Usado por {provider} em {environment}",
   "bb34eaf6ddc55a72": "Esta conta não tem limites de assinatura.",
   "42a2622893a6bced": "Não foi possível ler os limites.",
   "4897e228d3185c96": "Nenhum limite informado.",

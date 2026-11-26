@@ -1312,7 +1312,7 @@
   "23eed587f1bef1a6": "Grok, Composer och Auto använder den här kvoten.",
   "d2becdc27390c92c": "Andra modeller",
   "3abbefc7732635ff": "Användningskvot för tredjepartsmodeller som Claude, GPT och Gemini.",
-  "7d72af75b2812d60": "{provider} på {environment}",
+  "b75c8c279b73d22c": "Används av {provider} på {environment}",
   "bb34eaf6ddc55a72": "Det här kontot har inga prenumerationsgränser.",
   "42a2622893a6bced": "Kunde inte läsa gränser.",
   "4897e228d3185c96": "Inga gränser rapporterades.",

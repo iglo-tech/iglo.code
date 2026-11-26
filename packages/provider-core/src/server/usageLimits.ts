@@ -52,9 +52,11 @@ export function applyUsageLimitsUpdate(input: {
   readonly update: ProviderUsageLimitsUpdate;
   readonly checkedAt: string;
 }): ServerProviderUsageLimits | undefined {
-  const { previous, update } = input;
+  const { previous: published, update } = input;
+  // An external usage link stands in only until the provider streams a reading of its own.
+  const previous = linkOnly(published) ? undefined : published;
   if (update.windows.length === 0 || previous?.unavailable?.reason === "unsupported") {
-    return previous;
+    return published;
   }
   const merged = new Map(previous?.windows.map((window) => [window.id, window] as const));
   // Codex repeats unchanged limits on token ticks; avoid allocating snapshots for no-ops.
@@ -80,7 +82,11 @@ export function applyUsageLimitsUpdate(input: {
     return previous;
   }
   const unavailable =
-    previous === undefined ? { reason: "probeFailed" as const } : previous.unavailable;
+    previous === undefined
+      ? published === undefined
+        ? { reason: "probeFailed" as const }
+        : undefined
+      : previous.unavailable;
   return {
     ...makeUsageLimits({ checkedAt: input.checkedAt, windows: merged.values() }),
     // A sparse streamed update is not a fresh probe; only a complete update or a successful
@@ -113,11 +119,20 @@ function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageW
   );
 }
 
+/** Limits the provider cannot poll, published only as a link to the vendor's usage page. */
+function linkOnly(limits: ServerProviderUsageLimits | undefined): boolean {
+  return limits?.unavailable?.reason === "unsupported" && limits.externalUsage !== undefined;
+}
+
 export function resolveUsageLimitsAfterProbe(input: {
   readonly published: ServerProviderUsageLimits | undefined;
   readonly probed: ServerProviderUsageLimits | undefined;
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
+  // A probe that can only link out does not replace bars streamed from the provider's turns.
+  if (linkOnly(probed) && published && !published.unavailable && published.windows.length > 0) {
+    return published;
+  }
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
     // Keep the last good bars, but never republish them as a fresh reading: the failed check
     // is recorded in `stale` so clients can tell the numbers are outdated.

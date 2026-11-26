@@ -63,7 +63,7 @@ export function collectExternalUsageLinks(
   resolve: MFunctionType = mFallback,
 ) {
   return collectExternalUsageLinksWith(presentations, (provider, environment) =>
-    resolve(msg("{provider} on {environment}", { provider, environment })),
+    resolve(msg("Used by {provider} on {environment}", { provider, environment })),
   );
 }
 

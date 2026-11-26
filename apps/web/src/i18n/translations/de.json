@@ -1312,7 +1312,7 @@
   "23eed587f1bef1a6": "Grok, Composer und Auto nutzen dieses Kontingent.",
   "d2becdc27390c92c": "Andere Modelle",
   "3abbefc7732635ff": "Nutzungskontingent für Modelle von Drittanbietern wie Claude, GPT und Gemini.",
-  "7d72af75b2812d60": "{provider} auf {environment}",
+  "b75c8c279b73d22c": "Verwendet von {provider} auf {environment}",
   "bb34eaf6ddc55a72": "Dieses Konto hat keine Abonnementlimits.",
   "42a2622893a6bced": "Limits konnten nicht gelesen werden.",
   "4897e228d3185c96": "Keine Limits gemeldet.",

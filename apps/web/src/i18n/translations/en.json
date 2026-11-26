@@ -1312,7 +1312,7 @@
   "23eed587f1bef1a6": "Grok, Composer, and Auto use this allowance.",
   "d2becdc27390c92c": "Other Models",
   "3abbefc7732635ff": "Usage allowance for third-party models such as Claude, GPT, and Gemini.",
-  "7d72af75b2812d60": "{provider} on {environment}",
+  "b75c8c279b73d22c": "Used by {provider} on {environment}",
   "bb34eaf6ddc55a72": "This account has no subscription limits.",
   "42a2622893a6bced": "Could not read limits.",
   "4897e228d3185c96": "No limits reported.",
