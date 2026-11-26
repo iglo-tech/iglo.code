@@ -335,13 +335,14 @@ current when an authorized change replaces a decision.
   view), which upstream closed unmerged. Drop the fork copy once upstream
   merges its own; reconcile the reader, the driver/provider lists, and the web
   presentations together.
-- **Antigravity usage limits.** The fork keeps the Antigravity limits reader
-  (`antigravityUsageLimits.ts`, the provider's background usage read, and the hub's
-  Antigravity accounts) that upstream removed in #43026. Keep it on later syncs;
-  without it the Usage page shows no Antigravity limits on any machine. The CLI's
-  access token lasts an hour and cannot be refreshed without its OAuth client, so
-  when it has expired the read opens and drops a disposable agent session (which
-  renews it) at most every 30 minutes (`renewSignIn` in `AntigravityDriver.ts`).
+- **Antigravity usage limits.** Upstream removed the Antigravity limits reader in #43026
+  because it called Google's internal quota APIs, which Google said can flag an account.
+  The fork reads them through the CLI instead: `antigravityUsageLimits.ts` runs
+  `agy -p /usage` against the instance's profile (`readUsage` in `AntigravityDriver.ts`
+  gives it a home whose `.gemini` links to that profile) and parses the printed rows, at
+  most every 5 minutes. The CLI refreshes its own sign-in. Readings pool across machines
+  by the signed-in Google e-mail. Hub Antigravity accounts stay unread, as upstream.
+  Keep this on later syncs; without it no machine shows Antigravity limits.
 - **Streamed limits replace an external usage link.** A provider that publishes only a
   usage link (managed ChatGPT Codex, whose token the usage endpoint refuses) still
   streams `account/rateLimits/updated` during turns. Upstream drops those because the

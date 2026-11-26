@@ -27,7 +27,6 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import { HttpClient } from "effect/http";
 import * as AcpErrors from "effect-acp/errors";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
@@ -57,7 +56,10 @@ import {
   type AntigravityAcpRuntimeInput,
 } from "../acp/AntigravityAcpSupport.ts";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
-import type { ServerProviderDraft } from "@t3tools/provider-core/server/snapshotProbe";
+import {
+  spawnAndCollect,
+  type ServerProviderDraft,
+} from "@t3tools/provider-core/server/snapshotProbe";
 import {
   removeAntigravitySessionFiles,
   retireAntigravityRuntimeTempDirs,
@@ -115,7 +117,6 @@ export type AntigravityDriverEnv =
   | Digest.Digest
   | SecureRandom.SecureRandom
   | FileSystem.FileSystem
-  | HttpClient.HttpClient
   | IdAllocator.IdAllocatorV2
   | McpProviderSessions.McpProviderSessions
   | ModelCatalog.ModelCatalog
@@ -143,7 +144,6 @@ export const AntigravityDriver: ProviderDriver<
     const digest = yield* Digest.Digest;
     const random = yield* SecureRandom.SecureRandom;
     const fileSystem = yield* FileSystem.FileSystem;
-    const httpClient = yield* HttpClient.HttpClient;
     const path = yield* Path.Path;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const host = yield* ProviderHost.ProviderHost;
@@ -231,6 +231,7 @@ export const AntigravityDriver: ProviderDriver<
       {
         readonly executable: AntigravityInstallation.AntigravityExecutable;
         readonly spawn: AcpSessionRuntime.AcpSpawnInput;
+        readonly runtimeTempDirectory: string;
       },
       AcpErrors.AcpError | ProviderSetupError,
       Scope.Scope
@@ -300,6 +301,7 @@ export const AntigravityDriver: ProviderDriver<
       );
       return {
         executable,
+        runtimeTempDirectory,
         spawn: buildAntigravityAcpSpawnInput({
           installation: executable,
           profile,
@@ -576,33 +578,44 @@ export const AntigravityDriver: ProviderDriver<
       };
     });
 
+    // `agy -p /usage` reads ~/.gemini/antigravity-cli, so it runs with a home that links there
+    // to this instance's profile.
+    const readUsage = Effect.gen(function* () {
+      const { spawn, runtimeTempDirectory } = yield* prepareSpawn(directories.runtimeTemp, {
+        ...processEnvironment,
+      });
+      const gemini = path.join(runtimeTempDirectory, "home", ".gemini");
+      const links = [
+        [path.join(profileDirectory, "antigravity-acp"), path.join(gemini, "antigravity-cli")],
+        [path.join(profileDirectory, "config"), path.join(gemini, "config")],
+      ] as const;
+      yield* fileSystem.makeDirectory(gemini, { recursive: true });
+      // Unlink first, so removing the temp directory can never reach the profile.
+      yield* Effect.acquireRelease(
+        Effect.forEach(links, ([target, link]) => fileSystem.symlink(target, link)),
+        () => Effect.forEach(links, ([, link]) => fileSystem.remove(link)).pipe(Effect.ignore),
+      );
+      const { DISPLAY: _display, WAYLAND_DISPLAY: _wayland, ...env } = spawn.env ?? {};
+      const { stdout } = yield* spawnAndCollect(
+        spawn.command,
+        ChildProcess.make(spawn.command, ["-p", "/usage"], {
+          cwd: runtimeTempDirectory,
+          env: { ...env, HOME: path.join(runtimeTempDirectory, "home") },
+          extendEnv: false,
+          shell: false,
+          stdin: "ignore",
+        }),
+      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+      return stdout;
+    }).pipe(Effect.scoped, Effect.timeout("20 seconds"));
     const usage = yield* makeAntigravityUsageProbe({
       profileDirectory,
       authMethod: auth.authMethod,
-      renewSignIn: Effect.gen(function* () {
-        const processScope = yield* Scope.make();
-        yield* Effect.addFinalizer((exit) => Scope.close(processScope, exit));
-        yield* authFlow
-          .withProcess(
-            Scope.close(processScope, Exit.void),
-            Effect.gen(function* () {
-              const runtime = yield* makeDisposableRuntime({});
-              yield* runtime.start();
-            }),
-          )
-          .pipe(Effect.provideService(Scope.Scope, processScope));
-      }).pipe(
-        Effect.scoped,
-        Effect.timeout("90 seconds"),
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Could not renew the Antigravity sign-in for usage limits.", { cause }),
-        ),
-      ),
+      readUsage,
     }).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.provideService(Digest.Digest, digest),
-      Effect.provideService(HttpClient.HttpClient, httpClient),
     );
     const provider = yield* makeAntigravityProvider(settings, {
       environment: processEnvironment,
