@@ -194,6 +194,7 @@ export const T3_CLI_COMMANDS: ReadonlyArray<string> = [
   "iglo.code trace",
   "iglo.code trace summary",
   "iglo.code doctor",
+  "iglo.code import",
   "iglo.code policy",
   "iglo.code policy show",
   "iglo.code policy check",
