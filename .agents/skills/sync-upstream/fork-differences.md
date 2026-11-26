@@ -117,7 +117,8 @@ current when an authorized change replaces a decision.
   [WorkflowRuntime](../../../apps/server/src/workflows/WorkflowRuntime.ts) keeps its
   `evaluatingUnderBun` fallback for the load in progress; without it every
   `T3.workflow(…)` call in a definition file fails. Upstream's Node/V8-inspector
-  `scripts/server-metrics*` benchmark stays removed.
+  server benchmark (`scripts/metrics/server`) stays removed, as does the mobile one
+  (`scripts/metrics/mobile`); the web benchmark (`report:client`) and `scripts/metrics/core` stay.
   Upstream's Linux `ProcessLauncher` (`process-launcher.ts`, `processLauncherWorker.ts`)
   stays removed and the server keeps `NonBlockingSpawner`: it works around libuv forking the
   whole Node server per spawn and hands pipes back over Node IPC; Bun spawns without that fork.
