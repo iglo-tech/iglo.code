@@ -129,6 +129,7 @@
       // Worktree setup (scripts/setup-worktree.ts) runs this directly, and evidence
       // fixtures run under node.
       "entry": [
+        "src/epubPreviewMain.tsx!",
         "scripts/warm-dep-cache.ts",
         "scripts/verify-built-boot.ts",
         "test/fixtures/**/*.mjs",

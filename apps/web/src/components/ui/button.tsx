@@ -36,6 +36,7 @@ const buttonVariants = cva(
         sm: "h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:h-7",
         // A full-width, start-aligned list row: palettes and other vertical action lists.
         row: "h-8 w-full justify-start gap-2 px-2 text-sm sm:h-7",
+        "sm-touch": "h-11 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:h-7",
         "sm-pill": "h-8 gap-1.5 rounded-full px-2.5 sm:h-7",
         "sm-multiline":
           "min-h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] py-[calc(--spacing(1)-1px)] whitespace-normal sm:min-h-7",

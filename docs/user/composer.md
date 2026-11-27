@@ -349,6 +349,8 @@ Files open beside the conversation with the same controls as a workspace
 file: a header row with the view toggle, **Copy contents** and **Save file**. A ZIP up to
 50 MB opens as a folder list.
 
+When a preview asks for a file password, enter it and select **Unlock**. iglo.code uses the password on your device. Supported PDF, ZIP, Office, and OpenDocument files can be unlocked. Ebooks protected by DRM need a compatible reader.
+
 ## Images and videos in messages
 
 Select an image or video attachment or link to preview it. Playback support depends
