@@ -118,8 +118,9 @@ current when an authorized change replaces a decision.
   `evaluatingUnderBun` fallback for the load in progress; without it every
   `T3.workflow(…)` call in a definition file fails. Upstream's benchmarks (`scripts/metrics`: Node/V8-inspector server, web and
   mobile) stay removed: they build on the removed e2e scenarios and Playwright.
-  Upstream's Linux `ProcessLauncher` (`process-launcher.ts`, `processLauncherWorker.ts`)
-  stays removed and the server keeps `NonBlockingSpawner`: it works around libuv forking the
+  Upstream's Linux `ProcessLauncher` (`process/ProcessLauncher.ts`, now Effect's
+  `NodeChildProcessProxy`, with its `__process-launcher` dispatch in `bin.ts` and its
+  `processRunner.test.ts` cases) stays removed and the server keeps `NonBlockingSpawner`: it works around libuv forking the
   whole Node server per spawn and hands pipes back over Node IPC; Bun spawns without that fork.
   Upstream code that asks the launcher for its PID (such as PortScanner's and ProviderProcesses' launcher-child checks)
   stays out with it: agent CLIs are direct children of the server here.

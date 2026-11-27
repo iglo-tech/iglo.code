@@ -43,6 +43,7 @@
     "packages/shared/src/codexAuthCallback.ts": ["exports"],
     "packages/shared/src/databaseMigrationLog.ts": ["exports"],
     "packages/shared/src/fileLinks.ts": ["exports"],
+    "packages/shared/src/htmlRender.ts": ["exports"],
     "packages/shared/src/filePreview.ts": ["exports"],
     "packages/shared/src/markdownLinks.ts": ["exports"],
     "packages/shared/src/remote.ts": ["exports"],

@@ -928,7 +928,7 @@ function ScheduledTaskRow({
               <MenuSeparator />
               <MenuItem disabled={busy || !canOperate} onClick={() => void act("delete")}>
                 <Trash2Icon />
-                <T>Delete</T>
+                <T context="verb, delete the scheduled task">Delete</T>
               </MenuItem>
             </MenuPopup>
           </Menu>

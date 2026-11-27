@@ -158,7 +158,7 @@ for the live screen and for input.
 
 The picker lists the models your workers can make. Opening one takes a lease;
 closing it with **Return device to the pool**, or removing the host, returns it
-wiped. The panel keeps a watched device leased up to the host's lease limit.
+(simulators and emulators wiped; enrolled phones are not). The panel keeps a watched device leased up to the host's lease limit.
 You can tap, swipe, type, and press Home, and Back and Recents on Android.
 Rotation, appearance, text size, device tools, and screenshots are not offered
 for Simlock devices; agents can still do them through `device_open`. On iOS 27
@@ -168,6 +168,14 @@ version as iglo.code (see Device tool updates), and agent-device accepts app ins
 for a lease only from the folder it was opened from, which `device_open`
 names. A device cannot reach development servers on your machine through
 localhost; use an address its worker can reach.
+
+### Enrolled phones and tablets
+
+The enrolled phones and tablets that are ready on a connected, undrained worker appear in the list next to its simulators and emulators, marked **Physical**, one entry per model and OS version. Worker setup is covered in Simlock's [Use a real phone](https://incubator.callstack.com/simlock/docs/using-devices/agent-device#use-a-real-phone).
+
+- A phone is not wiped when its lease ends. Simlock removes apps that weren't on the phone when it was enrolled, except App Store and TestFlight apps on an iPhone; settings, files, accounts, keychain items, and the data of every other app stay for whoever leases it next.
+- A leased phone has no stop button in the device list. Open it and choose **Return device to the pool**.
+- An iPhone's screen needs iOS 27 or later and a worker on Xcode 27 or later, and it takes no clicks or typing from the panel. Agents can still drive it.
 
 ## Device tool updates
 

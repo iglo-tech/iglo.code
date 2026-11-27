@@ -2711,7 +2711,7 @@ export function AboutSettingsPanel() {
           description={
             telemetryOff === undefined
               ? gt(
-                  "How we handle your data, including the anonymous usage data iglo.code collects.",
+                  "How we handle your data, including the pseudonymous product usage data iglo.code collects.",
                 )
               : gt("How we handle your data. {telemetryOff}", { telemetryOff })
           }
