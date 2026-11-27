@@ -1,7 +1,31 @@
 # Source control
 
-iglo.code integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, Azure DevOps, GitCafe, and Cursor
-Origin to clone and publish repositories, create pull requests, and review changes.
+iglo.code integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, Azure DevOps, GitCafe, Cursor Origin, Linear, and Jira Cloud to clone/publish repos, review and merge pull requests, manage issues, and watch CI.
+
+## Connect an account
+
+Install Git and authenticate on the machine running your iglo.code server (for remote environments, do this on the remote machine), then click **Rescan** in **Settings → Source control & issues**.
+
+| Host                               | Setup                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GitHub**                         | 1) Save a token in **Settings → Source control & issues → GitHub**, 2) set `GH_TOKEN` (`GH_ENTERPRISE_TOKEN` + `GH_HOST` for Enterprise), or 3) sign in with [GitHub CLI](https://cli.github.com/) 2.81.0+ (`gh auth login`; use `--hostname` for Enterprise). Pick accounts or disable hosts in Settings when multiple `gh` logins exist.                                                                                         |
+| **GitLab**                         | Install [GitLab CLI](https://gitlab.com/gitlab-org/cli) and run `glab auth login`.                                                                                                                                                                                                                                                                                                                                                 |
+| **Forgejo / Gitea**                | Install [`fj`](https://codeberg.org/forgejo-contrib/forgejo-cli) (`fj --host https://your-server auth add-token`) or [`gt`](https://gitea.com/gitea/cli) 2.0+ (`gt auth login --host https://your-server`; it replaces the archived `tea`, so sign in again). Prefers `fj`, falls back to `gt` (use `gt` for subpath-hosted servers). Use full URLs when multiple servers exist.                                                   |
+| **Bitbucket**                      | Save a repo/project/workspace **Access token** or **Atlassian email + API token** (with repo/PR read-write, `read:user:bitbucket`, `read:workspace:bitbucket`) in **Settings → Source control & issues → Bitbucket**, or set `IGLO_CODE_BITBUCKET_ACCESS_TOKEN` / `IGLO_CODE_BITBUCKET_EMAIL` + `IGLO_CODE_BITBUCKET_API_TOKEN` in the server env (or [`service.env`](./background-service.md#configure-the-service-environment)). |
+| **Azure DevOps**                   | Install [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), run `az extension add --name azure-devops`, then `az login`.                                                                                                                                                                                                                                                                                                    |
+| **GitCafe**                        | Save a token in Settings, set `CAFE_TOKEN` (+ `CAFE_HOST`), or install `@gitcafe/cli` and run `cafe auth login --host https://git.cafe/api`. Line comments are not yet supported; stack merges/updates are native.                                                                                                                                                                                                                 |
+| **Cursor Origin**                  | Install [Origin CLI](https://cursor.com/docs/origin/cli) and run `origin auth login` (`origin auth setup-git` if push prompts for credentials). Uses private HTTPS repos; GitHub-mirrored PRs stay on GitHub.                                                                                                                                                                                                                      |
+| **TanStack Source** (private beta) | Set `IGLO_CODE_FEATURE_FLAGS=tanstack_source` and restart the server. Save a token in Settings, set `SRC_TOKEN`, or run `src auth login --web`. Supports live CI logs, private PRs on public repos, and issues.                                                                                                                                                                                                                    |
+
+> Note: Git `push` and `clone` still require Git SSH/HTTPS credentials on the server, separate from API tokens.
+
+> Note: With several `gt` servers and no `fj` login, `owner/repo` and newly published repositories go to `gt`'s default server (`gt config set default_host https://your-server`). With several `gt` accounts on one server, pick one with `gt auth switch <user> --host https://your-server`. If an SSH remote uses a different host name than the server's web address, run `gt config set ssh_host <ssh-host> --host https://your-server`.
+
+## Start, clone, or publish a project
+
+- **New project**: Run **New project** from the command palette (`Cmd/Ctrl+K`) or **Add Project** to initialize a new Git repo in `~/.iglo.code/projects/<slug>` with a README, icon, and first commit (optionally creating a private GitHub repo).
+- **Clone**: Use **Add Project** to pick a host (enable non-GitHub hosts in **Settings → Source control & issues**) or paste a Git URL or web page URL. Cloning runs in the background so you can draft your first prompt immediately; falls back to HTTPS if SSH auth fails. Enable **Clone into host folders** (**Settings → Threads**) for `ghq`-style `<host>/<owner>/<repo>` paths.
+- **Publish**: For a local repo without a remote, **Publish Repository** creates the remote, adds `origin`, and pushes commits.
 
 ## Review turn changes
 
@@ -78,251 +102,12 @@ With several `gt` servers and no `fj` login, `owner/repo` and newly published re
 `gt auth switch <user> --host https://your-server`. If an SSH remote uses a different host name than the server's web address, run `gt config set ssh_host <ssh-host> --host https://your-server`. Git push and clone also need Git credentials or an SSH key
 for that server.
 
-### GitLab
+Open **Issues** from the sidebar utility row or **Open issues** in the command palette to browse, filter, search, save views, comment, edit, and transition issues across GitHub, GitLab, Azure DevOps, Forgejo, Linear, and Jira Cloud.
 
-Install [GitLab CLI](https://gitlab.com/gitlab-org/cli), then sign in:
-
-```bash
-glab auth login
-```
-
-### Bitbucket
-
-Open **Settings → Source control & issues**, expand **Bitbucket**, and enter one of:
-
-- **Access token**: a token created for one repository, project, or workspace. It can only reach
-  what it was created for.
-- **Atlassian account email** and **API token**: an Atlassian API token for your account. It can
-  reach every repository you can. Give it read/write access to repositories and pull requests, plus
-  user read access (`read:user:bitbucket`) and workspace read access (`read:workspace:bitbucket`).
-
-A field saves when you leave it, and applies right away. The access token wins when both are saved.
-Credentials are saved on the environment's server, so select a remote environment to configure
-it. Saved tokens can't be viewed again; enter a new one to replace it, or choose **Remove** to clear
-everything saved for Bitbucket.
-
-If no credentials are saved, iglo.code falls back to these variables in the server's environment.
-Restart the server after changing them:
-
-```bash
-export IGLO_CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
-# or
-export IGLO_CODE_BITBUCKET_EMAIL="you@example.com"
-export IGLO_CODE_BITBUCKET_API_TOKEN="your-token"
-```
-
-For a background service, put these `KEY=VALUE` entries in
-[`service.env`](./background-service.md#configure-the-service-environment)
-in the iglo.code home directory, then run `iglo.code service restart`. Service installation and updates
-preserve that file.
-
-### Azure DevOps
-
-Install [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), add the DevOps extension, and sign in:
-
-```bash
-az extension add --name azure-devops
-az login
-```
-
-### GitCafe
-
-Install the GitCafe CLI and sign in:
-
-```bash
-bun install -g @gitcafe/cli
-cafe auth login --host https://git.cafe/api
-```
-
-Alternatively, open **Settings → Source control & issues**, expand **GitCafe**, and enter a token. It is
-kept in the server's secret store, applies right away, and is used before `CAFE_TOKEN` and the
-`cafe` login. Or set `CAFE_TOKEN` in the server's environment and restart it. Both tokens are only
-sent to `git.cafe`; `CAFE_TOKEN` follows `CAFE_HOST` if you set it. Repositories on
-`staging.git.cafe` need their own login with `--host https://staging.git.cafe/api`.
-
-Line comments are not available for GitCafe pull requests yet.
-Merging a stack lands it through GitCafe, and updating a branch restacks the layers above it.
-
-### TanStack Source
-
-TanStack Source is in private beta, so the server shows it only when its environment turns the flag
-on: `export IGLO_CODE_FEATURE_FLAGS=tanstack_source` in your shell profile, then restart iglo.code. Separate
-several flags with commas. A value already set in the server's own environment, such as a service
-definition, is used instead of the profile. Install its CLI and sign in:
-
-```sh
-curl -fsSL https://source.tanstack.com/install | sh
-src auth login --web
-```
-
-Alternatively, open **Settings → Source control & issues**, expand **TanStack Source**, and enter a token
-from `https://source.tanstack.com/settings/tokens`. A saved token is used before `SRC_TOKEN`, which is
-used before the `src` login. With several `src` logins, pick the account there too.
-
-Pull requests show the runs of TanStack Source CI with their logs, and update live while open. An
-agent can open a private pull request on a public repository when you ask for one: its branch goes
-to the repository's private companion and never to the repository itself. Issues
-can be listed, filed, edited, commented on and closed. Reactions and picking reviewers or assignees
-from a list are not available yet.
-
-### Cursor Origin
-
-Install the [Origin CLI](https://cursor.com/docs/origin/cli) and sign in. Signing in also sets up Git
-credentials for `origin.cursor.com`:
-
-```bash
-curl -fsSL https://downloads.cursor.com/origin/install.sh | sh
-origin auth login
-```
-
-If cloning or pushing asks for a username, run `origin auth setup-git` to point Git at the CLI's
-credentials again. Origin repositories use HTTPS and are published privately. Repositories mirrored
-from GitHub keep their pull requests on GitHub; open those from the GitHub remote.
-
-## Start, clone, or publish a project
-
-To start from nothing, choose **New project** in the command palette (`Cmd/Ctrl+K`), or
-**New project** under **Add Project** on any client, and type a name. iglo.code makes a Git
-repository in `~/.iglo.code/projects` (the `projects` folder of your iglo.code data directory) with a README,
-an icon, and a first commit, then opens a new thread in it. Until the project has a thread, new
-threads work in its folder, even when your default is a new worktree. The folder is named after the project,
-like `pinball-stats` for "Pinball Stats". Turn on **Create private repository on GitHub** to also
-publish it. If Git has no name or email on that machine, the project is created without the
-first commit.
-
-Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
-provider or paste a Git URL, then choose where to save it. Only GitHub is listed at first. To list
-another provider here and in **Publish Repository**, turn on its switch under
-**Settings → Source control & issues**. A branch or file page copied from GitHub,
-GitLab, GitCafe, Codeberg or Bitbucket also works: iglo.code clones that repository's default branch.
-On other hosts, paste the repository's clone URL. The project opens right away while the
-clone runs in the background: you can write your first prompt, and sending waits until the files
-are in place. A toast tracks progress and lets you cancel; if the clone fails, retry it from the
-toast or from the banner above the composer. When the host refuses the machine's SSH key, iglo.code
-clones over HTTPS with Git's credentials for that host instead, and the project's remote uses the
-HTTPS URL.
-
-To lay clones out like [ghq](https://github.com/x-motemen/ghq), turn on **Clone into host folders**
-under **Settings → Threads**. Clones then default to
-`<host>/<owner>/<repo>` under **Add project starts in**, so set that to `~/ghq` to share ghq's
-folders. You can still change the destination before cloning.
-
-For a local Git repository without a remote, **Publish Repository** creates a hosted repository,
-adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;
-make your first commit before pushing.
-
-## Create a pull request
-
-Use a thread's Git actions to commit, push, and create a pull request. iglo.code can generate commit
-messages, review titles, and descriptions from your changes. Descriptions also draw on the work in
-the thread, including the checks it ran.
-
-An existing fork PR can appear beside the branch even if you pushed without setting an upstream.
-If its badge is missing because several remotes hold that branch, set the branch's upstream to
-the intended remote with `git branch --set-upstream-to=<remote>/<branch>`.
-
-Choose how commit messages and pull request titles and descriptions are written in
-**Settings → Source control & issues → Commits & pull requests**. **Repository conventions** uses the
-project's instructions and recent commit subjects. **Custom instructions** applies your own
-instructions to commits and pull requests.
-
-## Review and merge
-
-Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
-or merge. You can edit review titles and descriptions and your own comments where the host allows it.
-Where you can edit a description, you can also tick its checkboxes from the Summary tab.
-GitLab calls these merge requests.
-
-A merge or review applies to the commits you opened the pull request on. When someone pushes
-meanwhile, the web app offers **Load new commits**; until you do, a merge or review is refused and your
-review draft is kept. Merging from a thread's pull request row, or from the list, lands the head that
-row had when you confirmed.
-
-Save a filter setup with **Views → Save current view** on the Pull Requests page. For example, choose
-**Reviewing** (**Your review** on mobile) and save it as "PRs Requesting My Review". Choose a saved view to restore its search,
-filters, sort order, and server/project scope. After changing filters, use **Update saved view** to
-keep the changes, or save another view. You can also rename or delete views from the same menu.
-Saved views stay in the browser or app where you created them and do not sync across devices.
-
-A link to part of a pull request opens that part: a comment or review is marked in the activity, a
-changed-line link opens the file at those lines, a checks link opens the checks, and a commit link
-opens that commit's changes. Hovering a comment or commit link previews it.
-
-Enable **Remove agent credits when merging** in Settings → Source control & issues to remove recognized
-agent co-author and generated-by lines from GitHub merge and squash commit messages. Human
-co-authors stay credited. The setting is off by default and projects can override it. It also
-applies to auto-merge, but not merge queues or native stack merges. Original commits keep their
-messages, so merge and rebase can still retain agent credits in those commits.
-
-Hold **Shift** in the GitHub pull request list for quick actions.
-To close several, press **Close**, drag across the rows in the same group, and release.
-Press **Escape** before releasing to cancel. Failed closes stay in the list so you can retry them.
-
-GitHub, GitLab, and Azure DevOps support auto-merge while checks are outstanding. GitHub also
-supports approving waiting fork workflows and opening a revert pull request for a merged change.
-
-Pull request sharing is off by default. In Settings → Environments → Pull request sharing, choose **Read PRs** or **Read and act** for each
-environment you trust to share its source control access.
-Enable both the original environment and the environment answering its requests on this client.
-**Read and act** can use broader permissions than the original environment's credential;
-only enable it for environments you control and trust. Changing a saved endpoint or removing an
-environment clears its permission.
-
-Review details, linked PR status, and permitted review actions can then use another connected
-environment signed in to the same account on the same host. Each needs a project on that host.
-A connected local environment is preferred for actions and can answer slow or failed reads.
-Browsers need a paired environment to use its GitHub credentials.
-Credentials stay on their machines. Previously verified credentials remain usable for routing
-for ten minutes during a GitHub outage; new credentials must be verified first. An action with
-an uncertain result is never automatically retried elsewhere. Listings, diffs, and checkout or
-PR creation from Git actions continue to use the project's environment.
-
-For Azure DevOps, use the host website to change comments. Bitbucket does not support reopening a
-declined pull request.
-
-### Review guides
-
-Review guides are in beta. Turn on **Review guides** in Settings → Source control & issues to add the
-**Guide** tab to pull requests on that server.
-
-The **Guide** tab gives you a tour of a pull request without reading it line by line: stops
-through the change in reading order. Each stop points at the lines worth reading, and a stop marked
-**Look closely** has a call only a maintainer can make. Mechanical changes such as renames and
-snapshots are grouped at the end, and every changed file appears somewhere on the tour.
-Conversations already resolved in review are left out. For a pull request in a stack, the guide
-covers that layer only, and may point out what a lower layer introduced or what a higher one uses.
-
-Choose **Write guide** to have the review guide model from Settings → Source control & issues read the
-change in a temporary checkout; without one set, the source control writer model is used. Nothing
-in the checkout is changed, and a large pull request takes a few minutes; you can go elsewhere in
-the app; you are told when the guide is ready. Claude and Codex can write guides. Claude writes them with your user settings, but
-tool approvals in those settings do not apply: it reads files and runs `git diff`, `git log` and
-`git show`, nothing else. The guide is
-kept for everyone using this server. To write it again, for example after a push or after changing
-the model or instructions, choose **Rewrite guide** from the pull request's **⋯** menu.
-
-On web, while reading a stop, select lines in an excerpt to add a comment to your review or ask an agent
-about them; comments wait with the ones from the **Code** tab until you send the review. Choose a
-suggested question, or **Ask about this stop**, to open a thread that already knows which stop you
-are on. **Finish review** on the last stop opens the review with everything you collected.
-
-Agents can write guides too: ask one to prepare guides for a set of pull requests, and it starts
-them for you. Each is read through the project whose checkout has that repository.
-
-To shape guides to your taste, write **Review guide instructions** in Settings → Source control & issues,
-such as what to show first or what to skip; projects can override them. They change emphasis and
-ordering, not the guide's layout or which files it covers.
-
-### Mark files as viewed
-
-Tick a file off in the **Code** tab once you have read it and it collapses; the toolbar keeps a
-running count. A tick belongs to the pull request rather than to a commit, so scoping the tab to a
-single commit keeps them. A file pushed to after you cleared it comes back marked **Changed**.
-
-On GitHub these are GitHub's own viewed marks, so a review carries between iglo.code and github.com
-in either direction. Forgejo, GitLab, Bitbucket, Azure DevOps, and Cursor Origin expose no record
-iglo.code can read, so the server you are connected to keeps them instead: they follow you across the
-apps connected to that server, but the host's own site will not show them, and the count reads **viewed in iglo.code**.
+- **Linear**: Connect an API key in **Settings → Source control & issues** and bind one or more teams per project (supports multiple Linear accounts). Agents file new issues in the first bound team unless another is named.
+- **Jira Cloud**: Connect your site (`yourteam.atlassian.net`), account email, and an [API token](https://id.atlassian.com/manage-profile/security/api-tokens) in **Settings → Source control & issues**, then bind Jira projects (supports multiple Jira sites and accounts). Issues move along their workflow's transitions; reactions and linked pull requests are not available, and new issues are filed as a Task.
+- **Link to threads**: Click **Link to this thread** on an issue beside a thread (or let agents call `link_issue`) to track it in **Linked items**.
+- Remote issue writes require the `source-control:write` scope.
 
 ## Troubleshooting
 
