@@ -83,6 +83,7 @@ overrides:
   "@ff-labs/fff-node": 0.11.0
   "@legendapp/list": 3.9.0
   "@pierre/diffs": 1.7.0-beta.4
+  "@vitest/browser": 5.1.1
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.
   "@exodus/bytes>@noble/hashes": "1.8.0"
   # The SDK always receives the user's Claude executable, so its bundled binaries are unused.
@@ -176,6 +177,10 @@ patchedDependencies:
   # Bun child processes have an IPC channel without unref(); Vitest 5.1 calls it when starting its
   # watchdog, which fails every forks worker when tests run under `bun --bun`.
   vitest@5.1.1: patches/vitest@5.1.1.patch
+  # A browser test's first tester socket can close before opening on a busy runner; the
+  # reconnect then opens but the tester keeps waiting on the dead attempt and fails after 60s.
+  # https://github.com/vitest-dev/vitest/issues/10166
+  "@vitest/browser@5.1.1": patches/@vitest__browser@5.1.1.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.

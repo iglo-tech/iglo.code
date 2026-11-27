@@ -129,6 +129,8 @@ export const UsageLimitSourceSnapshot = Schema.Struct({
   checkedAt: IsoDateTime,
   accounts: ForwardCompatibleArray(UsageLimitSourceAccount),
   quotaAccounts: Schema.optional(ForwardCompatibleArray(HttpQuotaAccount)),
+  /** Hub provider names of enabled accounts that iglo.code cannot read. */
+  unreadProviders: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   error: Schema.optional(TrimmedNonEmptyString),
 });
 export type UsageLimitSourceSnapshot = typeof UsageLimitSourceSnapshot.Type;

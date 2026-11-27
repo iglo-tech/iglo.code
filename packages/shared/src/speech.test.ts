@@ -73,7 +73,7 @@ describe("resolveSpeechVocabulary", () => {
       project: [{ term: "effect", aliases: ["a fact"] }],
       hints: ["  T3   Code ", "word1", "", "x".repeat(51), "t3 code"],
     });
-    expect(resolved.speechHints).toEqual(["iglo.code"]);
+    expect(resolved.speechHints).toEqual(["T3 Code"]);
     expect(resolved.speechCustomWords).toHaveLength(100);
     expect(resolved.speechCustomWords.slice(0, 2)).toEqual([
       { term: "effect", aliases: ["a fact"] },

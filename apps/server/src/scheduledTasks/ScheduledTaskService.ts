@@ -1149,6 +1149,7 @@ export const layer = Layer.effect(
                 commandId,
                 projectId: active.projectId,
                 title: active.title,
+                titleRenamed: true,
                 modelSelection: active.modelSelection,
                 runtimeMode: active.runtimeMode,
                 interactionMode: active.interactionMode,

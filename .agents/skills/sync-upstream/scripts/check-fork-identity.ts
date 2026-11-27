@@ -76,6 +76,16 @@ const ALLOW: [string, string, string][] = [
   ],
   [".github/SECURITY.md", "product name", "upstream security reporting notice"],
   [
+    "packages/shared/src/paletteSearch.test.ts",
+    "product name",
+    "search fixture: a two-word title matching the glued query beside the t3code branch prefix",
+  ],
+  [
+    "packages/shared/src/speech.test.ts",
+    "product name",
+    "vocabulary fixture: whitespace and case folding of a two-word hint",
+  ],
+  [
     "docs/internals/06_t3-connect.md",
     "product name",
     "names upstream T3 Code where T3 Connect lives",
