@@ -154,7 +154,7 @@ it("rejects contradictory service state", () => {
 });
 
 const unitPlan = (root: string, version: string) => ({
-  program: [`${root}/runtime/versions/${version}/t3`, "__service-launcher"],
+  program: [`${root}/runtime/versions/${version}/iglo.code`, "__service-launcher"],
   baseDir: root,
   logPath: `${root}/logs/boot-service.log`,
   unitPath: `${root}/unit/iglo.code.service`,
@@ -735,6 +735,38 @@ process.exit(0);
       );
 
       assert.isTrue(yield* fs.exists(path.join(versionDir, "started")));
+    }),
+  );
+
+  it.effect("restores the runtime its unit names when the service state file is missing", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-service-launcher-unit-state-" });
+      const home = path.join(root, "home");
+      const unitPath = path.join(home, "Library", "LaunchAgents", "t3code.plist");
+      yield* fs.makeDirectory(path.dirname(unitPath), { recursive: true });
+      yield* fs.writeFileString(
+        unitPath,
+        renderBootServicePlist(unitPlan(root, "1.0.0"), { homeDir: home, environmentPath: "" }),
+      );
+      const started = `
+import { writeFileSync } from "node:fs";
+writeFileSync(new URL("./started", import.meta.url), "");
+process.exit(0);
+`;
+      for (const version of ["1.0.0", "2.0.0"]) {
+        yield* writeFakeRuntime(fs, path, path.join(root, "runtime", "versions", version), started);
+      }
+      vi.stubEnv("HOME", home);
+      vi.stubEnv("IGLO_CODE_BOOT_SERVICE_UNIT", "t3code.plist");
+
+      yield* Effect.promise(() =>
+        expect(runLauncher(root)).rejects.toThrow("Active child exited unexpectedly (0)."),
+      );
+
+      assert.isTrue(yield* fs.exists(path.join(root, "runtime", "versions", "1.0.0", "started")));
+      assert.isFalse(yield* fs.exists(path.join(root, "runtime", "versions", "2.0.0", "started")));
     }),
   );
 
