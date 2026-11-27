@@ -2393,6 +2393,7 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
         ),
         Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
         Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-proxy-test-" })),
+        Layer.provide(NodeServices.layer),
         Layer.provide(
           Layer.mock(McpSessionRegistry.McpSessionRegistry)({
             resolve: (token) => Effect.succeed(scopes.get(token)),

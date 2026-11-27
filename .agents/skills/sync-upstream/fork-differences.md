@@ -121,7 +121,7 @@ current when an authorized change replaces a decision.
   Upstream's Linux `ProcessLauncher` (`process-launcher.ts`, `processLauncherWorker.ts`)
   stays removed and the server keeps `NonBlockingSpawner`: it works around libuv forking the
   whole Node server per spawn and hands pipes back over Node IPC; Bun spawns without that fork.
-  Upstream code that asks the launcher for its PID (such as PortScanner's launcher-child checks)
+  Upstream code that asks the launcher for its PID (such as PortScanner's and ProviderProcesses' launcher-child checks)
   stays out with it: agent CLIs are direct children of the server here.
   Upstream's `NodePtyAdapter` and its node-pty tests stay pruned in `fork-scope.ts`; terminals
   spawn through `BunPtyAdapter`.
