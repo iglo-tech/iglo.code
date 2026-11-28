@@ -5,7 +5,11 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { peerLinkHealth, type PeerLinkHealth } from "@t3tools/client-runtime/state/peerLinks";
+import {
+  linkUnusableFromPage,
+  peerLinkHealth,
+  type PeerLinkHealth,
+} from "@t3tools/client-runtime/state/peerLinks";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -48,6 +52,7 @@ import { useSearchableSetting } from "./settingsSearch";
 
 // Console log labels for the atom commands.
 const UNLINK_COMMAND_LABEL = "unlink environment";
+const CHECK_COMMAND_LABEL = "check environment link";
 const LINK_COMMAND_LABEL = "link environment";
 
 const failureToast = (title: string, description: string) =>
@@ -137,6 +142,7 @@ function LinkedEnvironmentRow({
   const health = peerLinkHealth(link, DateTime.makeUnsafe(nowMinute));
   const canUnlink = useAtomValue(peerLinkEnvironment.unlink.permissionAtom(environmentId));
   const { busy, forget } = useForgetPeerLink(environmentId, link);
+  const checking = useCheckPeerLink(environmentId, link);
   const status = peerLinkStatusText(health, gt);
   return (
     <div className={ITEM_ROW_CLASSNAME}>
@@ -164,17 +170,30 @@ function LinkedEnvironmentRow({
               : `${m(accessConfig[link.access].label)} · ${status}`}
           </p>
           <p className="truncate text-xs text-muted-foreground/80">{link.urls.join(", ")}</p>
+          <LinkUnusableFromPageNote link={link} />
         </div>
-        {canUnlink ? (
+        {canUnlink || checking.canCheck ? (
           <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
-            <Button
-              size="xs"
-              variant="destructive-outline"
-              disabled={busy}
-              onClick={() => void forget()}
-            >
-              {busy ? gt("Forgetting…") : gt("Forget")}
-            </Button>
+            {checking.canCheck ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={checking.busy}
+                onClick={() => void checking.check()}
+              >
+                {checking.busy ? gt("Checking…") : gt("Check now")}
+              </Button>
+            ) : null}
+            {canUnlink ? (
+              <Button
+                size="xs"
+                variant="destructive-outline"
+                disabled={busy}
+                onClick={() => void forget()}
+              >
+                {busy ? gt("Forgetting…") : gt("Forget")}
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -593,6 +612,39 @@ export function peerLinkStatusText(health: PeerLinkHealth, gt: ReturnType<typeof
               { days: health.expiresInDays },
             )
           : gt("Reachable");
+}
+
+/** Checks `link` from `environmentId` now; the list shows what came of it. */
+export function useCheckPeerLink(environmentId: EnvironmentId, link: PeerLinkSummary) {
+  const gt = useGT();
+  const run = useAtomCommand(peerLinkEnvironment.check, { label: CHECK_COMMAND_LABEL });
+  const canCheck = useAtomValue(peerLinkEnvironment.check.permissionAtom(environmentId));
+  const [busy, setBusy] = useState(false);
+  const check = async () => {
+    setBusy(true);
+    const result = await run({ environmentId, input: { environmentId: link.environmentId } });
+    setBusy(false);
+    if (result._tag !== "Success" && !isAtomCommandInterrupted(result)) {
+      failureToast(gt("Could not check the link"), String(squashAtomCommandFailure(result)));
+    }
+  };
+  return { canCheck, busy, check };
+}
+
+/** Says when this page cannot open any of a link's addresses, which hides that machine here. */
+export function LinkUnusableFromPageNote({ link }: { readonly link: PeerLinkSummary }) {
+  const gt = useGT();
+  if (typeof window === "undefined" || !linkUnusableFromPage(link, window.location.protocol)) {
+    return null;
+  }
+  return (
+    <p className="text-xs text-warning">
+      {gt(
+        "This page uses https, so this browser cannot open {label}''s plain-http addresses, and its projects do not show here. Serve {label} over https (Tailscale Serve), then check the link.",
+        { label: link.label },
+      )}
+    </p>
+  );
 }
 
 /** Forgets `link` from `environmentId` after the user confirms. */

@@ -36,6 +36,12 @@ type NetworkInterfacesMap = ReturnType<typeof NodeOS.networkInterfaces>;
 
 // Stay below the config discovery timeout so slow Tailscale drops only the tailnet name.
 const TAILSCALE_ENDPOINT_TIMEOUT = Duration.seconds(3);
+/**
+ * A Serve name's first HTTPS request makes Tailscale issue its certificate, which
+ * takes tens of seconds. Offering addresses to a peer can wait that long; the
+ * status read before the probes keeps its own short budget.
+ */
+export const TAILNET_NAME_PROBE_TIMEOUT = Duration.seconds(60);
 
 export class DirectEndpoints extends Context.Service<
   DirectEndpoints,
@@ -47,7 +53,10 @@ export class DirectEndpoints extends Context.Service<
      * HTTPS address even when another process published it, and the plain-http
      * name while the server listens on its tailnet address.
      */
-    readonly resolveTailnetNames: () => Effect.Effect<ReadonlyArray<ServerDirectEndpoint>>;
+    readonly resolveTailnetNames: (options?: {
+      /** How long each address may take to answer, apart from reading Tailscale's status. */
+      readonly probeTimeout?: Duration.Duration;
+    }) => Effect.Effect<ReadonlyArray<ServerDirectEndpoint>>;
   }
 >()("t3/environment/DirectEndpoints") {}
 
@@ -214,26 +223,47 @@ export const make = Effect.gen(function* () {
     return endpoints;
   });
 
-  /** The base URLs among `candidates` that answer as this server, in order. */
-  const answering = (candidates: (magicDnsName: string) => ReadonlyArray<string>) =>
-    readTailscaleStatus.pipe(
-      Effect.flatMap(({ magicDnsName }) =>
-        Effect.forEach(
-          magicDnsName === null ? [] : candidates(magicDnsName),
-          (baseUrl) =>
-            probeTailscaleHttpsEndpoint({ baseUrl, environmentId }).pipe(
-              Effect.map((reachable) => (reachable ? [baseUrl] : [])),
+  /**
+   * The base URLs among `candidates` that answer as this server, in order.
+   * Without `probeTimeout`, the status read and the probes share one short budget.
+   */
+  const answering = (
+    candidates: (magicDnsName: string) => ReadonlyArray<string>,
+    probeTimeout?: Duration.Duration,
+  ) => {
+    const probeAll = (magicDnsName: string | null) =>
+      Effect.forEach(
+        magicDnsName === null ? [] : candidates(magicDnsName),
+        (baseUrl) =>
+          probeTailscaleHttpsEndpoint({
+            baseUrl,
+            environmentId,
+            ...(probeTimeout === undefined ? {} : { timeout: probeTimeout }),
+          }).pipe(Effect.map((reachable) => (reachable ? [baseUrl] : []))),
+        { concurrency: "unbounded" },
+      ).pipe(Effect.map((found) => found.flat()));
+    const found =
+      probeTimeout === undefined
+        ? readTailscaleStatus.pipe(
+            Effect.flatMap(({ magicDnsName }) => probeAll(magicDnsName)),
+            Effect.timeoutOption(TAILSCALE_ENDPOINT_TIMEOUT),
+          )
+        : readTailscaleStatus.pipe(
+            Effect.timeoutOption(TAILSCALE_ENDPOINT_TIMEOUT),
+            Effect.flatMap(
+              Option.match({
+                onNone: () => Effect.succeedNone,
+                onSome: ({ magicDnsName }) => Effect.asSome(probeAll(magicDnsName)),
+              }),
             ),
-          { concurrency: "unbounded" },
-        ),
-      ),
-      Effect.map((found) => found.flat()),
-      Effect.timeoutOption(TAILSCALE_ENDPOINT_TIMEOUT),
+          );
+    return found.pipe(
       Effect.map(Option.getOrElse((): ReadonlyArray<string> => [])),
       Effect.orElseSucceed((): ReadonlyArray<string> => []),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
+  };
 
   const serveUrl = (magicDnsName: string) =>
     buildTailscaleHttpsBaseUrl({ magicDnsName, servePort: config.tailscaleServePort });
@@ -247,14 +277,17 @@ export const make = Effect.gen(function* () {
     return yield* resolveAvailable();
   });
 
-  const resolveTailnetNames = Effect.gen(function* () {
+  const resolveTailnetNames = Effect.fnUntraced(function* (probeTimeout?: Duration.Duration) {
     const listensOnTailnet = (yield* resolveAvailable()).some(
       (endpoint) => endpoint.kind === "tailnet" && endpoint.httpBaseUrl.startsWith("http:"),
     );
-    const found = yield* answering((magicDnsName) => [
-      serveUrl(magicDnsName),
-      ...(listensOnTailnet ? [`http://${magicDnsName}:${config.port}/`] : []),
-    ]);
+    const found = yield* answering(
+      (magicDnsName) => [
+        serveUrl(magicDnsName),
+        ...(listensOnTailnet ? [`http://${magicDnsName}:${config.port}/`] : []),
+      ],
+      probeTimeout,
+    );
     return found.map((httpBaseUrl): ServerDirectEndpoint => ({ kind: "tailnet", httpBaseUrl }));
   });
 
@@ -263,8 +296,8 @@ export const make = Effect.gen(function* () {
     resolve: Effect.fn("DirectEndpoints.resolve")(function () {
       return resolve;
     }),
-    resolveTailnetNames: Effect.fn("DirectEndpoints.resolveTailnetNames")(function () {
-      return resolveTailnetNames;
+    resolveTailnetNames: Effect.fn("DirectEndpoints.resolveTailnetNames")(function (options) {
+      return resolveTailnetNames(options?.probeTimeout);
     }),
   });
 });

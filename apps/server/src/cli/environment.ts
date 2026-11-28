@@ -218,7 +218,7 @@ const linkBatch = Effect.fn("environment.linkBatch")(function* (
               Effect.map(({ link, reciprocal, alreadyLinked }) => ({
                 linked: true,
                 text: alreadyLinked
-                  ? `${linkBatchEntryName(entry)}: already linked as ${link.label} (${link.environmentId}), left as it is`
+                  ? `${linkBatchEntryName(entry)}: already linked as ${link.label} (${link.environmentId}), kept; checked it and refreshed its addresses`
                   : `${linkBatchEntryName(entry)}: linked ${link.label} (${link.environmentId})${
                       reciprocal.kind === "failed"
                         ? `; ${reciprocal.message}`
@@ -273,7 +273,7 @@ const environmentLinkCommand = Command.make("link", {
   ),
   from: Flag.String("from").pipe(
     Flag.withDescription(
-      "Link several environments: a file with one `<url> <pairing-code>` per line, or - for stdin. Environments already linked are left as they are.",
+      "Link several environments: a file with one `<url> <pairing-code>` per line, or - for stdin. Environments already linked are kept, and checked so both sides learn each other's current addresses.",
     ),
     Flag.optional,
   ),
@@ -356,6 +356,35 @@ const environmentListCommand = Command.make("list", { ...authLocationFlags, json
   ),
 );
 
+const environmentCheckCommand = Command.make("check", {
+  ...authLocationFlags,
+  json: jsonFlag,
+  environmentId: Argument.String("environment-id").pipe(
+    Argument.withDescription("The linked environment's id, from `iglo.code environment list`."),
+    Argument.optional,
+  ),
+}).pipe(
+  Command.withDescription(
+    "Check linked environments now with a signed-in call, all of them or one: a working link clears its last error, a refused one records why, and both sides learn each other's current addresses. The server also does this every few minutes.",
+  ),
+  Command.withHandler((flags) =>
+    runWithPeerLinks(
+      flags,
+      (links) =>
+        Effect.gen(function* () {
+          const ids = Option.isSome(flags.environmentId)
+            ? [EnvironmentId.make(flags.environmentId.value)]
+            : (yield* links.names).map((link) => link.environmentId);
+          const checked = yield* Effect.forEach(ids, links.check, { concurrency: 4 });
+          yield* Console.log(
+            flags.json ? `${yield* encodeLinks(checked)}\n` : formatLinks(checked),
+          );
+        }),
+      { quietLogs: flags.json },
+    ),
+  ),
+);
+
 const environmentUnlinkCommand = Command.make("unlink", {
   ...authLocationFlags,
   environmentId: Argument.String("environment-id").pipe(
@@ -392,6 +421,7 @@ export const environmentCommand = Command.make("environment").pipe(
   Command.withSubcommands([
     environmentLinkCommand,
     environmentListCommand,
+    environmentCheckCommand,
     environmentUnlinkCommand,
   ]),
 );

@@ -159,6 +159,27 @@ export const PeerLinkReciprocalTeardownResult = Schema.Struct({
 });
 export type PeerLinkReciprocalTeardownResult = typeof PeerLinkReciprocalTeardownResult.Type;
 
+/**
+ * Where a linked peer says it answers now, sent over its link session, and the receiver's own
+ * addresses in reply. Each side adds only the addresses that answer as the other, so a link made
+ * while an address was not ready yet (a Tailscale certificate still being issued) picks it up later.
+ * The receiver probes them, so the count is bounded as an offer's is.
+ */
+export const PeerLinkOriginsExchange = Schema.Struct({
+  environmentId: EnvironmentId,
+  urls: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(MAX_RECIPROCAL_OFFER_URLS)),
+});
+export type PeerLinkOriginsExchange = typeof PeerLinkOriginsExchange.Type;
+
+export const PeerLinkOriginsAnswer = Schema.Struct({
+  urls: Schema.Array(TrimmedNonEmptyString),
+});
+export type PeerLinkOriginsAnswer = typeof PeerLinkOriginsAnswer.Type;
+
+/** Checks a link now: an authenticated call to the peer, recorded on the link. */
+export const PeerLinkCheckInput = Schema.Struct({ environmentId: EnvironmentId });
+export type PeerLinkCheckInput = typeof PeerLinkCheckInput.Type;
+
 export const PeerLinkRemoveInput = Schema.Struct({ environmentId: EnvironmentId });
 export type PeerLinkRemoveInput = typeof PeerLinkRemoveInput.Type;
 

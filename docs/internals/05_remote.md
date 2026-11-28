@@ -37,6 +37,18 @@ side lists and revokes it in Sharing & access like any other session, and owns i
   answer as this environment whatever process published Serve, so a CLI link and a service that
   never set `IGLO_CODE_TAILSCALE_SERVE` still offer one. A bare 100.64.0.0/10 address is refused
   there, since other VPNs share the range, so it is never offered.
+- **Links are re-checked and trade addresses (fork).** A link stores only addresses that answered
+  when it was made, and its `last_error` used to clear only on the next call through it. Each
+  server now runs `PeerLinks.check` on every link on a timer
+  ([PeerLinkKeepAlive](../../apps/server/src/peer/PeerLinkKeepAlive.ts)), on **Check now**, on
+  `iglo.code environment check`, and when `linkUnlessLinked` meets a held link. The check calls
+  `/api/peer-links/origins` with the link's token: a refusal is recorded, an answer clears the
+  record, and silence only lists the peer unreachable. The call carries the caller's own addresses
+  and the answer the callee's; each side adds only those that answer as the other, never moving or
+  dropping one it holds. Pushed addresses join only a row bound to the calling session, and nothing
+  about them is echoed back. A Serve name's first HTTPS request issues its certificate, which can
+  take tens of seconds, so [OwnLinkOrigins](../../apps/server/src/peer/OwnLinkOrigins.ts) gives
+  that self-probe its own long budget, apart from `tailscale status`.
 - **Forget is two teardowns.** `PeerLinks.unlink` removes the link and revokes the peer's session
   here, then asks the peer over `/api/peer-links/teardown` to do the same; each hop fires only when
   a row was removed, so the hops stop. Each row's `peer_session_id` names the one session that may

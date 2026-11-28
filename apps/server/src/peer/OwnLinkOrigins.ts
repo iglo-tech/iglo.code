@@ -45,9 +45,13 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
     return OwnLinkOrigins.of({
-      // The MagicDNS names come first, so the peer's first try is an https one.
+      // The MagicDNS names come first, so the peer's first try is an https one. A peer
+      // keeps only addresses that answer, so a Serve name still getting its certificate
+      // is waited for rather than left out.
       origins: Effect.zipWith(
-        directEndpoints.resolveTailnetNames(),
+        directEndpoints.resolveTailnetNames({
+          probeTimeout: DirectEndpoints.TAILNET_NAME_PROBE_TIMEOUT,
+        }),
         directEndpoints.resolveAvailable(),
         (names, bound) => ownOriginsFor({ endpoints: [...names, ...bound] }),
         { concurrent: true },

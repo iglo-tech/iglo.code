@@ -299,8 +299,8 @@ only those again. Machines already linked are left as they are.
 For machines no app is connected to, put one `<address> <pairing-code>` per
 line in a file (make each code with `iglo.code pair` on that machine) and run
 `iglo.code environment link --from <file>`, or `--from -` to read
-standard input. It prints a result per line, leaves machines already linked as
-they are, and exits non-zero if any line failed, so the same file can be run
+standard input. It prints a result per line, keeps machines already linked
+(checking each, so both sides learn the other's current addresses), and exits non-zero if any line failed, so the same file can be run
 again with fresh codes for the failures.
 
 The link back needs an address on this machine the other one can reach and
@@ -338,6 +338,16 @@ Paste one only for an address you trust: the code is sent there.
   other machine for 30 days expires, as does one to a machine on an older
   iglo.code after 30 days; link again with a new pairing code to renew one. On
   a both-ways link, renewing from either machine renews both directions.
+- Each machine also checks its links every few minutes, and sooner after one
+  fails, so a link marked **Failing** clears by itself once the other machine
+  answers again, and a revoked one shows as soon as it is. **Check now** on a
+  link, or `iglo.code environment check`, checks at once. Checking also trades
+  each machine's current addresses, so a Tailscale HTTPS address that was not
+  ready when you linked (a renamed machine waits for its certificate) is
+  picked up later.
+- A browser on an https address can reach a linked machine only at an https
+  address of it. When a link has only plain-http addresses, its details say so,
+  and that machine's projects do not show in that browser.
 
 On web and desktop, **Settings → Environments** opens as a map of your machines:
 this app, each environment with one line per route (the one in use is

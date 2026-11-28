@@ -30,7 +30,11 @@ import type { LinkedThreadView } from "../linkedThread.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { v2MessageRow, v2Projection, v2ThreadId } from "./orchestrationV2TestFixtures.ts";
-import { createPeerLinkEnvironmentAtoms, linkThroughRoutes } from "./peerLinks.ts";
+import {
+  createPeerLinkEnvironmentAtoms,
+  linkThroughRoutes,
+  linkUnusableFromPage,
+} from "./peerLinks.ts";
 
 // regression: #40544 earlier messages vanished when a linked thread's view opened again
 it.effect(
@@ -266,4 +270,24 @@ describe("refreshNamesLacking", () => {
       ).toEqual([id("known"), id("new")]);
     }).pipe(Effect.scoped),
   );
+});
+
+describe("linkUnusableFromPage", () => {
+  const link = (...urls: string[]) => ({ urls });
+
+  it("flags a link an https page can reach only over plain http", () => {
+    expect(linkUnusableFromPage(link("http://box.tail1234.ts.net:4773"), "https:")).toBe(true);
+    expect(
+      linkUnusableFromPage(
+        link("http://box.tail1234.ts.net:4773", "https://box.tail1234.ts.net"),
+        "https:",
+      ),
+    ).toBe(false);
+  });
+
+  it("leaves plain-http pages, loopback addresses and address-less links alone", () => {
+    expect(linkUnusableFromPage(link("http://box.tail1234.ts.net:4773"), "http:")).toBe(false);
+    expect(linkUnusableFromPage(link("http://127.0.0.1:4773"), "https:")).toBe(false);
+    expect(linkUnusableFromPage(link(), "https:")).toBe(false);
+  });
 });

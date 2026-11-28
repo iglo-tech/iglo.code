@@ -84,6 +84,8 @@ import {
 import { Project, ProjectMutation, ProjectSnapshot } from "./project.ts";
 import {
   PeerLink,
+  PeerLinkOriginsAnswer,
+  PeerLinkOriginsExchange,
   PeerLinkReciprocalOffer,
   PeerLinkReciprocalTeardownInput,
   PeerLinkReciprocalTeardownResult,
@@ -762,6 +764,14 @@ class EnvironmentPeerLinksHttpApi extends HttpApiGroup.make("peerLinks")
       headers: OptionalBearerHeaders,
       payload: PeerLinkReciprocalTeardownInput,
       success: PeerLinkReciprocalTeardownResult,
+      error: [PeerLinkReciprocalError],
+    }).middleware(PeerLinkAuthenticated),
+  )
+  .add(
+    HttpApiEndpoint.post("origins", "/api/peer-links/origins", {
+      headers: OptionalBearerHeaders,
+      payload: PeerLinkOriginsExchange,
+      success: PeerLinkOriginsAnswer,
       error: [PeerLinkReciprocalError],
     }).middleware(PeerLinkAuthenticated),
   ) {}

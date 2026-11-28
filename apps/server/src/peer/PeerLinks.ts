@@ -18,10 +18,13 @@ import {
   type PeerLinkReciprocalTeardownResult,
   type PeerLinkRemoveResult,
   type PeerLinkName,
+  type PeerLinkOriginsAnswer,
+  type PeerLinkOriginsExchange,
   type PeerLinkSummary,
   type PeerLinkTeardownOutcome,
   PeerLinkReciprocalError,
   AuthSessionId,
+  MAX_RECIPROCAL_OFFER_URLS,
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Cause from "effect/Cause";
@@ -122,7 +125,8 @@ export class PeerLinks extends Context.Service<
     ) => Effect.Effect<PeerLinkCreateResult, PeerLinkError>;
     /**
      * Links like `link`, except that a machine whose link has not expired is
-     * left as it is, with its pairing code unused.
+     * kept, with its pairing code unused: it is checked instead, which trades
+     * both sides' current addresses.
      */
     readonly linkUnlessLinked: (input: PeerLinkCreateInput) => Effect.Effect<
       {
@@ -168,6 +172,22 @@ export class PeerLinks extends Context.Service<
     readonly resolve: (
       environmentId: EnvironmentId,
     ) => Effect.Effect<ResolvedPeerLink, PeerLinkError>;
+    /**
+     * Checks the link now with an authenticated call to the peer, which also trades each
+     * side's current addresses. A refusal is recorded on the link and a success clears what
+     * an earlier call recorded; a peer that does not answer is listed unreachable and
+     * leaves the record as it was.
+     */
+    readonly check: (environmentId: EnvironmentId) => Effect.Effect<PeerLinkSummary, PeerLinkError>;
+    /**
+     * A linked peer saying where it answers now. Its addresses that answer as it join
+     * the link this environment holds to it, when that link is bound to the calling
+     * session; the answer is this environment's own addresses.
+     */
+    readonly exchangeOrigins: (
+      caller: { readonly sessionId: AuthSessionId; readonly peerEnvironmentId: string | undefined },
+      offer: PeerLinkOriginsExchange,
+    ) => Effect.Effect<PeerLinkOriginsAnswer, PeerLinkError>;
     /** Records the outcome of a call, so listing shows whether the peer answered last time. */
     readonly recordOutcome: (
       environmentId: EnvironmentId,
@@ -180,6 +200,12 @@ export class PeerLinks extends Context.Service<
     ) => Effect.Effect<void>;
   }
 >()("t3/peer/PeerLinks") {}
+
+/**
+ * How long trading addresses waits. The peer may first wait out its own Serve
+ * certificate (DirectEndpoints' TAILNET_NAME_PROBE_TIMEOUT), then probe ours.
+ */
+const ORIGINS_EXCHANGE_TIMEOUT = Duration.seconds(90);
 
 /** How long a reciprocal offer waits on the peer linking back here. */
 const RECIPROCAL_OFFER_TIMEOUT = Duration.seconds(30);
@@ -733,7 +759,7 @@ const make = Effect.gen(function* () {
     readonly fromReciprocalOffer?: boolean;
     /** The session the offer arrived over, bound to the row this link creates. */
     readonly bindSessionId?: AuthSessionId;
-    /** Set by linkUnlessLinked: a machine whose link has not expired is left as it is. */
+    /** Set by linkUnlessLinked: a machine whose link has not expired is kept and checked. */
     readonly keepLinked?: boolean;
     /**
      * The access the link has. Every link made here is full access; only an accepted offer
@@ -772,7 +798,14 @@ const make = Effect.gen(function* () {
         ? existing
         : undefined;
     if (options.keepLinked === true && current !== undefined) {
-      return { link: current, reciprocal: { kind: "off" } as const, alreadyLinked: true };
+      // Linking again trades both sides' current addresses, so a link made while one was
+      // not ready yet picks it up. Addresses given here alone never join a held link.
+      const checked = yield* check(current.environmentId).pipe(Effect.option);
+      const { status: _status, ...refreshed } = Option.getOrElse(checked, () => ({
+        ...current,
+        status: "reachable" as const,
+      }));
+      return { link: refreshed, reciprocal: { kind: "off" } as const, alreadyLinked: true };
     }
     if (existing !== undefined && options.fromReciprocalOffer === true) {
       // A renewal from the accepting side signs in where the row already
@@ -943,7 +976,7 @@ const make = Effect.gen(function* () {
   /** The public link: a flat link with what came of linking back. */
   const link: PeerLinks["Service"]["link"] = (input) =>
     Effect.map(linkImpl(input), ({ link: linked, reciprocal }) => ({ ...linked, reciprocal }));
-  /** Links like `link`, except a machine whose link has not expired is left as it is. */
+  /** Links like `link`, except a machine whose link has not expired is kept and checked. */
   const linkUnlessLinked: PeerLinks["Service"]["linkUnlessLinked"] = (input) =>
     Effect.map(
       linkImpl(input, { keepLinked: true }),
@@ -1368,6 +1401,163 @@ const make = Effect.gen(function* () {
     },
   );
 
+  /**
+   * Adds the addresses among `offered` that answer as the linked peer to its row. It never
+   * drops or reorders one the row holds, and writes only over the row it read, so a link
+   * made again meanwhile keeps its own. With `boundTo`, only a row bound to that session
+   * takes them: the session is the claim to speak for the peer.
+   */
+  const mergeOrigins = Effect.fn("PeerLinks.mergeOrigins")(function* (
+    environmentId: EnvironmentId,
+    offered: ReadonlyArray<string>,
+    boundTo?: AuthSessionId,
+  ) {
+    const row = yield* readRow(environmentId);
+    if (Option.isNone(row)) return;
+    if (boundTo !== undefined && row.value.peer_session_id !== boundTo) return;
+    const link = yield* toLink(row.value);
+    const candidates = new Set<string>();
+    for (const url of offered.slice(0, MAX_RECIPROCAL_OFFER_URLS)) {
+      const origin = yield* peerOrigin(url).pipe(Effect.option);
+      if (
+        Option.isSome(origin) &&
+        !link.urls.includes(origin.value) &&
+        !isOwnLoopback(new URL(origin.value).hostname)
+      ) {
+        candidates.add(origin.value);
+      }
+    }
+    if (candidates.size === 0) return;
+    const answering = yield* Effect.forEach(
+      [...candidates],
+      (origin) =>
+        answersAs(origin, environmentId).pipe(
+          Effect.map((found) => (Option.isSome(found) ? [origin] : [])),
+        ),
+      { concurrency: "unbounded" },
+    );
+    const added = answering.flat();
+    if (added.length === 0) return;
+    const urlsJson = yield* encodeUrls([...link.urls, ...added]).pipe(Effect.catch(failStorage));
+    yield* sql`
+      UPDATE peer_environment_links SET urls_json = ${urlsJson}
+      WHERE environment_id = ${environmentId}
+        AND secret_name = ${row.value.secret_name}
+        AND urls_json = ${row.value.urls_json}
+    `.pipe(Effect.catch(failStorage));
+    yield* Effect.logInfo("A linked environment answers at new addresses.", {
+      environmentId,
+      added,
+    });
+  });
+
+  const exchangeOrigins: PeerLinks["Service"]["exchangeOrigins"] = Effect.fn(
+    "PeerLinks.exchangeOrigins",
+  )(function* (caller, offer) {
+    if (!(yield* enabled)) {
+      return yield* new PeerLinkError({ reason: "disabled", message: LINKED_ENVIRONMENTS_OFF });
+    }
+    if (
+      caller.peerEnvironmentId === undefined ||
+      caller.peerEnvironmentId !== offer.environmentId
+    ) {
+      return yield* new PeerLinkError({
+        reason: "pairing_rejected",
+        message:
+          "That session belongs to another environment, so it may not name this one's addresses.",
+      });
+    }
+    // What came of the offered addresses stays here: echoing it would make the call a scanner.
+    const [, urls] = yield* Effect.all(
+      [
+        mergeOrigins(offer.environmentId, offer.urls, caller.sessionId).pipe(
+          Effect.ignoreCause({ log: true }),
+        ),
+        ownOrigins.origins,
+      ],
+      { concurrency: "unbounded" },
+    );
+    return { urls };
+  });
+
+  /** Why the peer refused a check, in words a user can act on; none when it just did not answer. */
+  const checkFailure = (label: string, error: unknown): string | null => {
+    if (isAuthInvalid(error) || isHttpForbidden(error)) {
+      return `${label} no longer accepts this link. It may have been revoked there; link it again.`;
+    }
+    if (isPeerLinkReciprocalError(error)) {
+      return error.reason === "disabled"
+        ? `Linked environments is off on ${label}. Turn it on there in Settings → Labs.`
+        : `${label} refused the check: ${error.message}`;
+    }
+    if (Cause.isTimeoutError(error)) return null;
+    if (HttpClientError.isHttpClientError(error)) {
+      return error.reason._tag === "TransportError"
+        ? null
+        : `${label} answered the check with an error.`;
+    }
+    return `${label} answered in a shape this version does not understand. Update both environments.`;
+  };
+
+  const check: PeerLinks["Service"]["check"] = Effect.fn("PeerLinks.check")(
+    function* (environmentId) {
+      const before = yield* get(environmentId);
+      if (Option.isNone(before)) {
+        return yield* new PeerLinkError({
+          reason: "unknown_link",
+          message: `This environment is not linked to ${environmentId}.`,
+        });
+      }
+      const listed = (status: PeerLinkSummary["status"]) =>
+        get(environmentId).pipe(
+          Effect.map((current) => ({ ...Option.getOrElse(current, () => before.value), status })),
+        );
+      if (DateTime.isLessThanOrEqualTo(before.value.expiresAt, yield* DateTime.now)) {
+        return { ...before.value, status: "expired" as const };
+      }
+      const resolved = yield* resolve(environmentId).pipe(Effect.result);
+      if (Result.isFailure(resolved)) {
+        if (resolved.failure.reason === "unreachable") return yield* listed("unreachable");
+        // It answered, but the link cannot be used as it stands.
+        yield* recordOutcome(environmentId, { error: resolved.failure.message });
+        return yield* listed(resolved.failure.reason === "expired" ? "expired" : "reachable");
+      }
+      const { link, url, token } = resolved.success;
+      const self = yield* environment.getDescriptor;
+      const urls = yield* ownOrigins.origins;
+      const answer = yield* clientFor(url).pipe(
+        Effect.flatMap((client) =>
+          client.peerLinks.origins({
+            headers: { authorization: `Bearer ${token}` },
+            payload: {
+              environmentId: self.environmentId,
+              urls: urls.slice(0, MAX_RECIPROCAL_OFFER_URLS),
+            },
+          }),
+        ),
+        Effect.timeout(ORIGINS_EXCHANGE_TIMEOUT),
+        Effect.result,
+        Effect.annotateLogs({ "peer_link.peer": environmentId }),
+      );
+      if (Result.isSuccess(answer)) {
+        yield* recordOutcome(environmentId, { error: null });
+        yield* mergeOrigins(environmentId, answer.success.urls).pipe(
+          Effect.ignoreCause({ log: true }),
+        );
+        return yield* listed("reachable");
+      }
+      const error = answer.failure;
+      // A peer from before this check answers 404: it answered, but its token is not checked.
+      if (HttpClientError.isHttpClientError(error) && missingEndpoint(error)) {
+        return yield* listed("reachable");
+      }
+      const message = checkFailure(link.label, error);
+      if (message === null) return yield* listed("unreachable");
+      yield* recordOutcome(environmentId, { error: message });
+      return yield* listed("reachable");
+    },
+  );
+
   const recordOutcome: PeerLinks["Service"]["recordOutcome"] = (environmentId, outcome) =>
     DateTime.now.pipe(
       Effect.flatMap((now) =>
@@ -1403,6 +1593,8 @@ const make = Effect.gen(function* () {
     acceptReciprocal,
     forgetPeer,
     resolve,
+    check,
+    exchangeOrigins,
     recordOutcome,
     recordExpiry,
   });

@@ -103,11 +103,11 @@ it.effect("links a file of environments, reports each line, and fails when one d
       yield* link("~/retry.txt").pipe(Effect.provideService(HostProcess.HomeDirectory, baseDir));
       const retried = (yield* reports).at(-1) ?? "";
       expect(retried).toContain(
-        `${one.url}: already linked as VM 1 (environment-vm-1), left as it is`,
+        `${one.url}: already linked as VM 1 (environment-vm-1), kept; checked it and refreshed its addresses`,
       );
       expect(retried).toContain(`${two.url}: linked VM 2 (environment-vm-2)`);
       expect(retried).toContain(
-        `${three.url}: already linked as VM 3 (environment-vm-3), left as it is`,
+        `${three.url}: already linked as VM 3 (environment-vm-3), kept; checked it and refreshed its addresses`,
       );
       expect(retried).toContain("3 of 3 linked.");
       expect((yield* one.linkedSessions).length).toBe(1);
@@ -136,6 +136,44 @@ it.effect("links a file of environments, reports each line, and fails when one d
       expect(redacted).toContain("http://192.168.1.20:3773: unreachable: ");
       expect(redacted).toContain("line 3: unreachable: ");
       expect(redacted).not.toMatch(/alice|hunter2|s3cret/);
+    }),
+  ).pipe(Effect.provide(Layer.mergeAll(layerCliRuntime, TestConsole.layer))),
+);
+
+it.effect("checks links now: a working one stays clear and a revoked one says why", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-environment-cli-" });
+      const { settingsPath } = yield* ServerConfig.deriveServerPaths(baseDir, undefined);
+      yield* fs.makeDirectory(NodePath.dirname(settingsPath), { recursive: true });
+      yield* fs.writeFileString(settingsPath, JSON.stringify({ linkedEnvironmentsEnabled: true }));
+      const machine = yield* serveMachine(descriptorOf("environment-vm-1", "VM 1"));
+      const pairing = yield* machine.auth.issuePairingCredential({
+        access: "full-access",
+        purpose: "peer-link",
+      });
+      yield* runCli([
+        "environment",
+        "link",
+        machine.url,
+        "--pairing-code",
+        pairing.credential,
+        "--base-dir",
+        baseDir,
+      ]);
+      const lastLine = TestConsole.logLines.pipe(
+        Effect.map((lines) => String(lines.filter((line) => typeof line === "string").at(-1))),
+      );
+
+      yield* runCli(["environment", "check", "--base-dir", baseDir]);
+      expect(yield* lastLine).toContain("VM 1 (environment-vm-1)\n  reachable");
+      expect(yield* lastLine).not.toContain("last error");
+
+      const [session] = yield* machine.linkedSessions;
+      yield* machine.auth.revokeSession(session!.sessionId);
+      yield* runCli(["environment", "check", "environment-vm-1", "--base-dir", baseDir]);
+      expect(yield* lastLine).toContain("last error: VM 1 no longer accepts this link");
     }),
   ).pipe(Effect.provide(Layer.mergeAll(layerCliRuntime, TestConsole.layer))),
 );
