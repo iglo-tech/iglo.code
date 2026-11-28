@@ -1,5 +1,5 @@
 import type { ServerDirectEndpoint } from "@t3tools/contracts";
-import { isTailnetHost } from "@t3tools/shared/hostClassification";
+import { isLocalLoopbackHost, isTailnetHost } from "@t3tools/shared/hostClassification";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -27,18 +27,32 @@ export class OwnLinkOrigins extends Context.Service<
  */
 const peerAccepts = (url: URL) => url.protocol === "https:" || isTailnetHost(url.hostname);
 
+/**
+ * Plain http belongs in a link only while no https address is known: once a Serve name
+ * answers, the bound port beside it is dropped. Loopback is a test or dev peer and stays.
+ */
+export const preferHttps = (origins: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const parsed = origins.map((origin) => ({ origin, url: URL.parse(origin) }));
+  if (!parsed.some(({ url }) => url?.protocol === "https:")) return origins;
+  return parsed.flatMap(({ origin, url }) =>
+    url !== null && (url.protocol === "https:" || isLocalLoopbackHost(url.hostname))
+      ? [origin]
+      : [],
+  );
+};
+
 /** The tailnet origins a peer accepts, which are the ones it can link back over. */
 export function ownOriginsFor(input: {
   readonly endpoints: ReadonlyArray<ServerDirectEndpoint>;
 }): ReadonlyArray<string> {
-  return [
+  return preferHttps([
     ...new Set(
       input.endpoints.flatMap((endpoint) => {
         const url = URL.parse(endpoint.httpBaseUrl);
         return endpoint.kind === "tailnet" && url !== null && peerAccepts(url) ? [url.origin] : [];
       }),
     ),
-  ];
+  ]);
 }
 
 const ORIGINS_TTL = Duration.seconds(30);

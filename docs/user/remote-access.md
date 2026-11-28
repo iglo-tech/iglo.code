@@ -344,7 +344,8 @@ Paste one only for an address you trust: the code is sent there.
   link, or `iglo.code environment check`, checks at once. Checking also trades
   each machine's current addresses, so a Tailscale HTTPS address that was not
   ready when you linked (a renamed machine waits for its certificate) is
-  picked up later.
+  picked up later. Once a link has an https address, it drops the plain-http
+  ones and uses https only.
 - A browser on an https address can reach a linked machine only at an https
   address of it. When a link has only plain-http addresses, its details say so,
   and that machine's projects do not show in that browser.
