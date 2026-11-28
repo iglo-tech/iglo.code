@@ -315,7 +315,7 @@ function makeHarness(options: HarnessOptions = {}) {
         layerLaunchThreads,
         layerReceipts,
         layerOrchestrator,
-        ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
+        ProjectionStore.layer.pipe(Layer.provide(NodeCrypto.layer), Layer.provide(layerDatabase)),
         NodeServices.layer,
         IdAllocator.layer,
         Layer.succeed(

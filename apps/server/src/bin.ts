@@ -44,8 +44,11 @@ if (
 
 async function runCliCommand(command: string | undefined) {
   // Guard sockets before either dispatch path can load outbound-capable modules.
-  const { ignoreMacosTypeOfServiceEinval } = await import("./outboundHttp.ts");
+  // Fast paths such as the Cursor SDK worker never reach runCli, so they need these here too.
+  const { extendConnectionAttemptTimeout, ignoreMacosTypeOfServiceEinval } =
+    await import("./outboundHttp.ts");
   ignoreMacosTypeOfServiceEinval();
+  extendConnectionAttemptTimeout();
   if (command === "__document-text") {
     const { extractDocumentText } = await import("./provider/documentTextWorker.ts");
     try {
