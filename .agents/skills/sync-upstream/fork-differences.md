@@ -222,7 +222,10 @@ current when an authorized change replaces a decision.
   ([environmentHttp.ts](../../../packages/contracts/src/environmentHttp.ts)),
   [OwnLinkOrigins.ts](../../../apps/server/src/peer/OwnLinkOrigins.ts) (addresses
   a peer can reach back: tailnet entries only — plain-http LAN and loopback are
-  refused by the peer's own address rules), the `peerLinkReciprocal` capability,
+  refused by the peer's own address rules — and `preferHttps`, which drops every
+  non-loopback plain-http origin once an https one is known; PeerLinks applies it
+  when offering, reading, storing and merging a link's addresses, and a check
+  rewrites a stored row that still lists both), the `peerLinkReciprocal` capability,
   the `reciprocal` fields in
   [peerLink.ts](../../../packages/contracts/src/peerLink.ts) and the link
   request answer, and the results (`PeerLinkCreateResult`, `PeerLinkRemoveResult.remote`)

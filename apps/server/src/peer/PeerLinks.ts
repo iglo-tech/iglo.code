@@ -458,7 +458,8 @@ const make = Effect.gen(function* () {
     return {
       environmentId: EnvironmentId.make(row.environment_id),
       label: row.label,
-      urls: yield* decodeUrls(row.urls_json),
+      // A row stored before https was preferred may still list the plain-http port beside it.
+      urls: OwnLinkOrigins.preferHttps(yield* decodeUrls(row.urls_json)),
       access: yield* decodeAccess(row.access),
       linkedAt: DateTime.makeUnsafe(row.linked_at),
       // Its token predates link fencing, so the peer would not fence its work:
@@ -658,14 +659,15 @@ const make = Effect.gen(function* () {
         ...(answeredAs === undefined ? {} : { answeredAs }),
       });
     }
-    // Each address is kept once, even when two spellings share an origin.
+    // Each address is kept once, even when two spellings share an origin. The caller
+    // narrows what it stores; signing in goes to an https one whenever one answered.
     const origins = [...new Set(matching.map((found) => found.origin))];
-    return { primary: first.origin, peer: first.descriptor, origins };
+    return { primary: OwnLinkOrigins.preferHttps(origins)[0]!, peer: first.descriptor, origins };
   });
 
   /** The peer at `url`, with every address checked for credentials first. */
   const answeringAt = Effect.fn("PeerLinks.answeringAt")(function* (urls: ReadonlyArray<string>) {
-    const origins = yield* Effect.forEach(urls, peerOrigin);
+    const origins = OwnLinkOrigins.preferHttps(yield* Effect.forEach(urls, peerOrigin));
     const primary = origins[0]!;
     return { primary, peer: yield* probe(primary), origins };
   });
@@ -874,7 +876,7 @@ const make = Effect.gen(function* () {
     const linked: PeerLink = {
       environmentId: peer.environmentId,
       label: peer.label,
-      urls: origins,
+      urls: OwnLinkOrigins.preferHttps(origins),
       access,
       linkedAt: now,
       expiresAt: DateTime.add(now, { seconds: issued.expires_in }),
@@ -889,7 +891,7 @@ const make = Effect.gen(function* () {
       .pipe(Effect.catch(failStorage));
     // A token no row names could never be removed.
     const previous = yield* Effect.gen(function* () {
-      const urlsJson = yield* encodeUrls(origins).pipe(Effect.catch(failStorage));
+      const urlsJson = yield* encodeUrls(linked.urls).pipe(Effect.catch(failStorage));
       const previous = yield* readRow(peer.environmentId);
       if (options.fromReciprocalOffer === true) {
         // The guard read `existingRow` before signing in, which can take as
@@ -1436,19 +1438,22 @@ const make = Effect.gen(function* () {
     if (Option.isNone(row)) return;
     if (boundTo !== undefined && row.value.peer_session_id !== boundTo) return;
     const link = yield* toLink(row.value);
-    if (link.urls.length >= MAX_LINK_URLS) return;
+    const room = MAX_LINK_URLS - link.urls.length;
+    // A link with an https address takes no plain-http one; it would only be dropped again.
+    const httpsOnly = link.urls.some((url) => url.startsWith("https:"));
     const candidates = new Set<string>();
-    for (const url of offered.slice(0, MAX_RECIPROCAL_OFFER_URLS)) {
+    for (const url of room > 0 ? offered.slice(0, MAX_RECIPROCAL_OFFER_URLS) : []) {
       const origin = yield* peerOrigin(url).pipe(Effect.option);
       if (Option.isNone(origin) || link.urls.includes(origin.value)) continue;
-      const host = new URL(origin.value).hostname;
+      const parsed = new URL(origin.value);
+      const host = parsed.hostname;
+      if (httpsOnly && parsed.protocol === "http:" && !isLocalLoopbackHost(host)) continue;
       // Only tailnet names, which is all a peer offers: an announced public host would
       // otherwise join the row for good. Loopback that is not this machine's is a test peer.
       if (isTailnetHost(host) || (isLocalLoopbackHost(host) && !isOwnLoopback(host))) {
         candidates.add(origin.value);
       }
     }
-    if (candidates.size === 0) return;
     const answering = yield* Effect.forEach(
       [...candidates],
       (origin) =>
@@ -1457,9 +1462,13 @@ const make = Effect.gen(function* () {
         ),
       { concurrency: "unbounded" },
     );
-    const added = answering.flat().slice(0, MAX_LINK_URLS - link.urls.length);
-    if (added.length === 0) return;
-    const urlsJson = yield* encodeUrls([...link.urls, ...added]).pipe(Effect.catch(failStorage));
+    const added = answering.flat().slice(0, Math.max(room, 0));
+    // An https address that answers retires the plain-http ones, and a row stored with
+    // both is rewritten here even when nothing new answers.
+    const urlsJson = yield* encodeUrls(OwnLinkOrigins.preferHttps([...link.urls, ...added])).pipe(
+      Effect.catch(failStorage),
+    );
+    if (urlsJson === row.value.urls_json) return;
     const written = yield* sql<{ readonly one: number }>`
       UPDATE peer_environment_links SET urls_json = ${urlsJson}
       WHERE environment_id = ${environmentId}
@@ -1467,7 +1476,7 @@ const make = Effect.gen(function* () {
         AND urls_json = ${row.value.urls_json}
       RETURNING 1 AS one
     `.pipe(Effect.catch(failStorage));
-    if (written.length === 0) return;
+    if (written.length === 0 || added.length === 0) return;
     yield* Effect.logInfo("A linked environment answers at new addresses.", {
       environmentId,
       added,

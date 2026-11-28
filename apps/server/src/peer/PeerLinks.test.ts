@@ -1565,6 +1565,30 @@ it.effect(
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
+// The bound tailnet port was once offered and kept beside the peer's Serve name.
+it.effect("a stored plain-http address beside an https one is dropped and cleaned up", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { a, b } = yield* linkBothWays;
+      const stored = [b.url, "https://box.example.ts.net", "http://box.example.ts.net:4773"];
+      yield* a.sql`
+        UPDATE peer_environment_links SET urls_json = ${JSON.stringify(stored)}
+        WHERE environment_id = ${box.environmentId}
+      `;
+      const kept = [b.url, "https://box.example.ts.net"];
+      expect(yield* urlsOf(a.links, box.environmentId)).toEqual(kept);
+
+      // Plain http is not taken back while the link holds an https address.
+      yield* Ref.set(b.ownOrigins, [b.url, "http://box.example.ts.net:4773"]);
+      expect((yield* a.links.check(box.environmentId)).urls).toEqual(kept);
+      const rows = yield* a.sql<{ readonly urls_json: string }>`
+        SELECT urls_json FROM peer_environment_links WHERE environment_id = ${box.environmentId}
+      `;
+      expect(JSON.parse(rows[0]!.urls_json)).toEqual(kept);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
 it.effect("linking a linked machine again refreshes the addresses its link back holds", () =>
   Effect.scoped(
     Effect.gen(function* () {
