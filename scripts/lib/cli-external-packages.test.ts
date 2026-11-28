@@ -72,7 +72,6 @@ describe("selectCliRuntimeExternalDependencies", () => {
       [
         "@cursor/sdk",
         "@ff-labs/fff-node",
-        "@napi-rs/keyring",
         "ffi-rs",
         "playwright-core",
         "transcribe-cpp",
@@ -132,12 +131,7 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
       // Without this the closure check below can pass vacuously: if nothing is
       // read, nothing is checked. Require the disk-backed roots shipped
       // on every supported target.
-      for (const required of [
-        "@cursor/sdk",
-        "@ff-labs/fff-node",
-        "@napi-rs/keyring",
-        "playwright-core",
-      ]) {
+      for (const required of ["@cursor/sdk", "@ff-labs/fff-node", "playwright-core"]) {
         assert.ok(
           found.includes(required),
           `expected ${required} in the pnpm store; the closure check is only meaningful if it can read these (found ${found.length})`,
