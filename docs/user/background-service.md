@@ -109,6 +109,14 @@ protection takes effect at once. The server's protection from the kernel's
 out-of-memory killer takes effect after `iglo.code service restart`. `iglo.code service status` reports whether
 the protection is in place, and `iglo.code service protect --undo` removes it.
 
+When the host is in trouble, the sidebar says so: **Memory is slowing agents down** (this can happen before
+memory runs out), **Almost out of disk space** (where iglo.code keeps its data and
+worktrees), or **Machine overloaded** (work waiting for a CPU or for the disk).
+A machine that is merely busy shows nothing. With several machines in trouble,
+one notice covers them all. On Linux the warning names the agents using the most
+memory or CPU, and you can force stop one there to free the machine for the
+rest. Their threads also show a warning icon in the thread list.
+
 ## Troubleshooting
 
 Start with `iglo.code service status` on the host. It prints the log path and, on Linux,

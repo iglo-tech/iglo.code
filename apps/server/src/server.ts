@@ -354,7 +354,7 @@ const layerUsage = UsageService.layer.pipe(
 );
 
 const layerResourceDiagnostics = Layer.mergeAll(
-  HostResources.layer,
+  HostResources.layer.pipe(Layer.provide(layerNativeTelemetry)),
   HostHealthService.layerLive,
   layerResourceTelemetry,
   ProcessDiagnostics.layer.pipe(Layer.provide(layerResourceTelemetry)),

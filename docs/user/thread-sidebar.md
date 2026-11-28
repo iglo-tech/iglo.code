@@ -77,7 +77,8 @@ project, use **Turn into project** instead.
 
 ## Pin and reorder threads
 
-Pin a thread from its menu to keep it above your active work.
+Pin a thread from its menu, or from the pin button that appears when you hover or
+focus its card, to keep it above your active work.
 
 Unpinning, settling, snoozing, and archiving a thread each show
 a notification with **Undo** for five seconds. Undo restores the thread's previous
@@ -409,7 +410,8 @@ selected, the options apply to every connected environment.
 Choose **Snooze → Custom…** from a thread's menu to pick a date and time in your
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. You can also snooze
-several selected threads together. Choose **Wake thread** to bring a thread back early.
+several selected threads together. **Snooze → Indefinitely** keeps a thread snoozed
+until you wake it. Choose **Wake thread** to bring a thread back early.
 
 A snoozed thread keeps working and stays hidden until its wake time, even while
 its agent wakes itself for background work. It comes back early for an approval,

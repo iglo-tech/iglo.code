@@ -17,6 +17,7 @@ import {
   resolveThreadLastVisitedAt,
   useSnoozeWakeClock,
 } from "../Sidebar.logic";
+import { groupIconFallbacks } from "@t3tools/client-runtime/state/project-grouping";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { SidebarTrigger } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -214,7 +215,11 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
                           : undefined
                       }
                     >
-                      <ProjectFavicon project={project} className="size-5 shrink-0" />
+                      <ProjectFavicon
+                        project={project}
+                        fallbackProjects={groupIconFallbacks(project.memberProjects, project)}
+                        className="size-5 shrink-0"
+                      />
 
                       {/* Pin indicator */}
                       {project.pinned ? (

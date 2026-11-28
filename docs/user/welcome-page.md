@@ -7,6 +7,10 @@ on one page: your agents and projects from your Claude Code, Codex, and Pi histo
 To see the page again, go to **Settings → About → Welcome page** and select
 **Open**. Direct links, such as Settings, open normally before setup is done.
 
+To import more projects later, open **Settings → Projects → Import projects and
+their threads**. It scans the environment shown there; pick another environment in
+Settings to import from it.
+
 To add more computers, use **Settings → Environments**.
 
 If iglo.code cannot confirm the workspace during startup, it shows

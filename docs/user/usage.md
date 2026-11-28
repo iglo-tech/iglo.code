@@ -13,6 +13,12 @@ cost, split by token type and by speed. These estimates are not your subscriptio
 split, such as a provider-reported cost for a model without public rates, shows as **Other**.
 Select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.
 
+iglo.code reads an agent's local history only for agents you have turned on and
+allowed. The first time you open Usage, it asks which agents to include; change your
+answer per agent in **Settings → Providers → Usage access**. Grok and OpenCode Go limits,
+Claude reset credits, and matching Claude limits to your account read the agent's
+sign-in, so they also wait for that answer.
+
 Totals depend on the history available on each server. Grok turns without a saved completed-turn
 record are missing from the totals.
 Text generation (thread titles, commit messages, PR text, branch names and review guides) is not in

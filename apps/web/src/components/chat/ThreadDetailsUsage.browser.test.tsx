@@ -1,4 +1,5 @@
 import {
+  EnvironmentId,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
@@ -47,6 +48,7 @@ describe("ThreadDetailsUsage stale limits", () => {
     const sources: UsageLimitSourceSnapshots = [];
     await using screen = await render(
       <ThreadDetailsUsage
+        environmentId={EnvironmentId.make("local")}
         providerInstanceId={ProviderInstanceId.make("antigravity")}
         model={null}
         providers={[provider(limits)]}
@@ -65,6 +67,7 @@ describe("ThreadDetailsUsage stale limits", () => {
     const sources: UsageLimitSourceSnapshots = [];
     await using screen = await render(
       <ThreadDetailsUsage
+        environmentId={EnvironmentId.make("local")}
         providerInstanceId={ProviderInstanceId.make("antigravity")}
         model={null}
         providers={[provider(limits)]}

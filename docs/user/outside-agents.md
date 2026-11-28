@@ -18,6 +18,8 @@ https://<environment-address>/mcp
 
 The copied URL uses the route this device is connected over, so an agent on
 the same device can reach it.
+For the environment you are connected to, **MCP URL** in **Settings → Sharing &
+access** copies the same address.
 
 - **An agent on your own computers** can use `localhost` on the host or any
   `https` address, such as
