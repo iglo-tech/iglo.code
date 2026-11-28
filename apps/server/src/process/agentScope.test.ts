@@ -350,7 +350,7 @@ describe("AgentScope service", () => {
     withFakeSystemd(({ scope, units, cgroupRoot, stateDir }) =>
       Effect.gen(function* () {
         expect(yield* scope.controlGroups).toBeUndefined();
-        units.set("app-t3code-agents.slice", {
+        units.set("app-iglocode-agents.slice", {
           activeState: "active",
           result: "success",
           controlGroup: "/agents",

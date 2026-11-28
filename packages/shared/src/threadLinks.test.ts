@@ -531,7 +531,10 @@ describe("hosted thread links", () => {
         "http://box.tailnet.ts.net:4773",
       );
       expect(link).toBe("http://box.tailnet.ts.net:4773/threads/env-1/thread-1");
-      expect(fresh.parseThreadLinkHref(link)).toEqual({ ...ref("env-1", "thread-1"), hosted: true });
+      expect(fresh.parseThreadLinkHref(link)).toEqual({
+        ...ref("env-1", "thread-1"),
+        hosted: true,
+      });
       expect(fresh.threadLinkRefs(`See ${link}.`, local)).toEqual([ref("env-1", "thread-1")]);
       expect(fresh.parseThreadLinkHref("http://other.test/threads/env-1/thread-1")).toBeNull();
     } finally {
@@ -654,7 +657,11 @@ describe("hosted thread links", () => {
     const thread = ref("local", "work item");
     const titles = titlesIn({ local: { "work item": "Review", "work%20item": "Encoded" } });
 
-    const relabeled = relabelThreadLinks(hostedThreadLink(thread, "https://app.t3.codes"), local, titles);
+    const relabeled = relabelThreadLinks(
+      hostedThreadLink(thread, "https://app.t3.codes"),
+      local,
+      titles,
+    );
     expect(parseThreadLinkHref(linkUrl(relabeled) ?? "")).toEqual({ ...thread, hosted: true });
     expect(threadLinkRefs(relabeled, local)).toEqual([thread]);
 

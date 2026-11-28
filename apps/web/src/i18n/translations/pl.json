@@ -3279,10 +3279,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "na komputerze, który otworzył tę stronę"
-      ]
+      "c": [" ", "na komputerze, który otworzył tę stronę"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3294,10 +3291,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· dostęp otrzymuje każdy, kto go uruchamia"
-      ]
+      "c": [" ", "· dostęp otrzymuje każdy, kto go uruchamia"]
     }
   ],
   "c54cc9c75db9dc58": "Zatwierdzaj tylko logowanie, które właśnie rozpocząłeś.",

@@ -42,7 +42,7 @@ export interface AgentScopeShape {
 }
 
 export interface AgentControlGroups {
-  /** Relative to the cgroup root, such as `/user.slice/.../app-t3code-agents.slice`. */
+  /** Relative to the cgroup root, such as `/user.slice/.../app-iglocode-agents.slice`. */
   readonly slice: string;
   readonly scopes: ReadonlyArray<{
     readonly path: string;

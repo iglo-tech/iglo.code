@@ -451,7 +451,7 @@ export const make = Effect.gen(function* () {
     return {
       slice: sliceControlGroup,
       scopes: entries.flatMap((unit) => {
-        const agent = /^t3code-(.+)-[0-9a-f]{8}\.scope$/.exec(unit)?.[1];
+        const agent = /^iglo-code-(.+)-[0-9a-f]{8}\.scope$/.exec(unit)?.[1];
         return agent === undefined
           ? []
           : [{ path: path.join(ownedControlGroup, unit), threadId: threadByUnit.get(unit), agent }];

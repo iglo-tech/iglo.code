@@ -431,7 +431,7 @@ describe("pressure levels", () => {
 });
 
 describe("HostResources pressure on Linux", () => {
-  const scope = "/agents/owned/t3code-claude-0123abcd.scope";
+  const scope = "/agents/owned/iglo-code-claude-0123abcd.scope";
   const pressured = (overrides: Record<string, ReadonlyArray<string>>) =>
     linuxHost({
       "/proc/pressure/memory": ["some avg10=0.00 avg60=0.00\nfull avg10=0.00 avg60=0.00\n"],
