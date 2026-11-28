@@ -107,6 +107,19 @@ export const layer = HttpApiBuilder.group(
         }),
       )
       .handle(
+        "origins",
+        Effect.fn("environment.peerLinks.origins")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          const principal = yield* PeerLinkPrincipal;
+          return yield* peerLinks
+            .exchangeOrigins(principal, args.payload)
+            .pipe(
+              Effect.mapError(toReciprocalError),
+              Effect.annotateLogs({ "peer_link.peer": args.payload.environmentId }),
+            );
+        }),
+      )
+      .handle(
         "teardown",
         Effect.fn("environment.peerLinks.teardown")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);

@@ -36,7 +36,12 @@ import {
   linkNeedsAttention,
   linkTroubleRank,
 } from "./environmentsMap.logic";
-import { peerLinkStatusText, useForgetPeerLink } from "./LinkedEnvironmentsSettings";
+import {
+  LinkUnusableFromPageNote,
+  peerLinkStatusText,
+  useCheckPeerLink,
+  useForgetPeerLink,
+} from "./LinkedEnvironmentsSettings";
 import { savedBackendStatus } from "./SavedEnvironmentRows";
 
 type GT = ReturnType<typeof useGT>;
@@ -801,6 +806,7 @@ function LinkDetails({
     peerLinkEnvironment.unlink.permissionAtom(edge.sourceEnvironmentId),
   );
   const { busy, forget } = useForgetPeerLink(edge.sourceEnvironmentId, link);
+  const checking = useCheckPeerLink(edge.sourceEnvironmentId, link);
   const access = accessConfig[link.access];
   const when = (value: DateTime.Utc) => formatAccessTimestamp(DateTime.formatIso(value));
   const term = "text-muted-foreground";
@@ -836,6 +842,16 @@ function LinkDetails({
               {gt("Link back…", {
                 $context: "button: also link the second machine to the first one",
               })}
+            </Button>
+          ) : null}
+          {checking.canCheck ? (
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={checking.busy}
+              onClick={() => void checking.check()}
+            >
+              {checking.busy ? gt("Checking…") : gt("Check now")}
             </Button>
           ) : null}
           {canUnlink ? (
@@ -898,6 +914,9 @@ function LinkDetails({
           </>
         ) : null}
       </dl>
+      <div className="mt-2 max-w-2xl">
+        <LinkUnusableFromPageNote link={link} />
+      </div>
     </div>
   );
 }

@@ -145,6 +145,20 @@ export function createPeerLinkEnvironmentAtoms<R, E>(
           refreshLinks(registry, input.environmentId);
         }),
     }),
+    /** Checks one link now; the peer's list may change too, since the two trade addresses. */
+    check: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:peer-links:check",
+      tag: WS_METHODS.peerLinksCheck,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.environmentId]),
+      },
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() => {
+          refreshLinks(registry, environmentId);
+          refreshLinks(registry, input.environmentId);
+        }),
+    }),
     threadView: (target: LinkedThreadViewTarget) => threadView(threadViewKey(target)),
     lastThreadView: (target: LinkedThreadViewTarget) => lastThreadView(threadViewKey(target)),
     /** One item of a linked environment's thread in full, for a row the reader opened. */
@@ -214,7 +228,7 @@ export type PeerLinkHealth =
 /**
  * Listing only checks that the peer answers, so a link whose last call failed
  * (the peer revoked it, say) is `failing` with the recorded reason; the next
- * successful call clears it.
+ * successful call or check clears it, and the server checks every link on a timer.
  */
 export function peerLinkHealth(link: PeerLinkSummary, now: DateTime.Utc): PeerLinkHealth {
   if (link.status === "expired" || DateTime.isLessThanOrEqualTo(link.expiresAt, now)) {
@@ -224,6 +238,27 @@ export function peerLinkHealth(link: PeerLinkSummary, now: DateTime.Utc): PeerLi
   if (link.lastError !== null) return { kind: "failing", detail: link.lastError };
   const days = Math.ceil(Duration.toDays(DateTime.distance(now, link.expiresAt)));
   return { kind: "reachable", expiresInDays: days <= EXPIRY_WARNING_DAYS ? days : null };
+}
+
+/**
+ * Whether a page at `pageProtocol` can open none of a link's addresses: an https page may not
+ * call plain http, except on this device's own loopback.
+ */
+export function linkUnusableFromPage(
+  link: { readonly urls: ReadonlyArray<string> },
+  pageProtocol: string,
+): boolean {
+  if (pageProtocol !== "https:" || link.urls.length === 0) return false;
+  return !link.urls.some((url) => {
+    const parsed = URL.parse(url);
+    return (
+      parsed !== null &&
+      (parsed.protocol === "https:" ||
+        parsed.hostname === "localhost" ||
+        parsed.hostname === "127.0.0.1" ||
+        parsed.hostname === "[::1]")
+    );
+  });
 }
 
 /** A linked machine, and the environment that can get a pairing code from it. */

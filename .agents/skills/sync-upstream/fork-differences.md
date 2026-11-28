@@ -204,7 +204,13 @@ current when an authorized change replaces a decision.
   an accepted reciprocal offer and stored rows keep an older peer's lower access. The offered link-back addresses
   are MagicDNS names probed to answer as this server, even when Serve was
   published by `pair --tailscale` rather than the service, and the CLI reads the
-  running server's bind and port from its runtime state. Devices follow links: the web client connects itself to every machine its
+  running server's bind and port from its runtime state; that self-probe waits
+  out a Serve certificate being issued (`TAILNET_NAME_PROBE_TIMEOUT` in
+  [DirectEndpoints.ts](../../../apps/server/src/environment/DirectEndpoints.ts)).
+  Links are re-checked: `PeerLinks.check` calls `/api/peer-links/origins` with the
+  link's token on a timer (PeerLinkKeepAlive), from **Check now** (`peerLinks.check`
+  RPC), `iglo.code environment check` and a re-link of a held machine, records or
+  clears `last_error`, and trades both sides' current addresses. Devices follow links: the web client connects itself to every machine its
   connected machines link to, through the one-step link pairing
   ([LinkedEnvironmentsAutoConnect](../../../apps/web/src/components/LinkedEnvironmentsAutoConnect.tsx)),
   and drops the ones it joined that way when the link goes. Upstream's one-way pieces stay

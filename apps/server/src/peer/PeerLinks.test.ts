@@ -1527,3 +1527,159 @@ it.live("a failed offer's answer does not echo per-address probe results", () =>
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
+
+/** A links to B both ways, as `environment link` does. */
+const linkBothWays = Effect.gen(function* () {
+  const b = yield* serveB(box);
+  const a = yield* makeServedA();
+  yield* a.links.link({
+    url: b.url,
+    pairingCode: (yield* b.auth.issuePairingCredential()).credential,
+    reciprocal: true,
+  });
+  return { a, b };
+});
+
+const urlsOf = (links: PeerLinks.PeerLinks["Service"], environmentId: typeof box.environmentId) =>
+  links.get(environmentId).pipe(Effect.map((link) => Option.getOrThrow(link).urls));
+
+it.effect(
+  "a check trades each side's current addresses, keeping only those that answer as it",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { a, b } = yield* linkBothWays;
+        // Each side now also answers somewhere it did not when linking, as a Serve name
+        // whose certificate was still being issued; one address answers as someone else.
+        const twinA = yield* serveApart(laptop);
+        const twinB = yield* serveApart(box);
+        const stranger = yield* serveApart(descriptorOf("environment-stranger", "Stranger"));
+        yield* Ref.set(a.ownOrigins, [a.url, twinA.url, stranger.url]);
+        yield* Ref.set(b.ownOrigins, [b.url, twinB.url, stranger.url]);
+
+        const checked = yield* a.links.check(box.environmentId);
+        expect(checked).toMatchObject({ status: "reachable", lastError: null });
+        expect(checked.urls).toEqual([b.url, twinB.url]);
+        expect(yield* urlsOf(b.links, laptop.environmentId)).toEqual([a.url, twinA.url]);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("linking a linked machine again refreshes the addresses its link back holds", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { a, b } = yield* linkBothWays;
+      expect(yield* urlsOf(b.links, laptop.environmentId)).toEqual([a.url]);
+      const twinA = yield* serveApart(laptop);
+      yield* Ref.set(a.ownOrigins, [twinA.url, a.url]);
+
+      const again = yield* a.links.linkUnlessLinked({
+        url: b.url,
+        pairingCode: (yield* b.auth.issuePairingCredential()).credential,
+        reciprocal: true,
+      });
+      expect(again).toMatchObject({ alreadyLinked: true, reciprocal: { kind: "off" } });
+      expect(again.link).not.toHaveProperty("status");
+      // Added after what the row held, never in its place.
+      expect(yield* urlsOf(b.links, laptop.environmentId)).toEqual([a.url, twinA.url]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("only the session a link is bound to may add addresses to it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { a, b } = yield* linkBothWays;
+      const twinA = yield* serveApart(laptop);
+      const answer = yield* b.links.exchangeOrigins(
+        {
+          sessionId: AuthSessionId.make("session:someone-else"),
+          peerEnvironmentId: "environment-laptop",
+        },
+        { environmentId: laptop.environmentId, urls: [twinA.url] },
+      );
+      expect(answer).toEqual({ urls: [b.url] });
+      expect(yield* urlsOf(b.links, laptop.environmentId)).toEqual([a.url]);
+      // A session may only speak for the environment it signed in as.
+      const refused = yield* b.links
+        .exchangeOrigins(
+          {
+            sessionId: AuthSessionId.make("session:someone-else"),
+            peerEnvironmentId: "environment-x",
+          },
+          { environmentId: laptop.environmentId, urls: [twinA.url] },
+        )
+        .pipe(Effect.flip);
+      expect(refused.reason).toBe("pairing_rejected");
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a check clears an error a failed call left, and records a revoked link", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { a, b } = yield* linkBothWays;
+      // One call failed while the peer restarted; nothing has used the link since.
+      yield* a.links.recordOutcome(box.environmentId, {
+        error: "The linked environment stopped answering.",
+      });
+      expect((yield* a.links.list)[0]?.lastError).not.toBeNull();
+      expect(yield* a.links.check(box.environmentId)).toMatchObject({
+        status: "reachable",
+        lastError: null,
+      });
+
+      const [session] = (yield* linkedSessions(b)).filter(
+        (entry) => entry.client.label === "iglo.code · Laptop",
+      );
+      yield* b.auth.revokeSession(session!.sessionId);
+      const revoked = yield* a.links.check(box.environmentId);
+      expect(revoked.status).toBe("reachable");
+      expect(revoked.lastError).toContain("no longer accepts this link");
+      expect(Option.getOrThrow(yield* a.links.get(box.environmentId)).lastError).toBe(
+        revoked.lastError,
+      );
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("a check of a peer that does not answer lists it unreachable and keeps its record", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const b = yield* serveB(box);
+      const a = yield* makeA(laptop);
+      yield* a.links.link({
+        url: b.url,
+        pairingCode: (yield* b.auth.issuePairingCredential()).credential,
+      });
+      yield* Ref.set(b.asleep, true);
+      const checking = yield* a.links.check(box.environmentId).pipe(Effect.forkScoped);
+      yield* Queue.take(b.unanswered);
+      yield* TestClock.adjust(PeerLinks.probeTimeout(b.url));
+      const checked = yield* Fiber.join(checking);
+      expect(checked).toMatchObject({ status: "unreachable", lastError: null });
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("linking a machine again whose link it revoked links it anew with the code given", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { a, b } = yield* linkBothWays;
+      const [session] = (yield* linkedSessions(b)).filter(
+        (entry) => entry.client.label === "iglo.code · Laptop",
+      );
+      yield* b.auth.revokeSession(session!.sessionId);
+      const again = yield* a.links.linkUnlessLinked({
+        url: b.url,
+        pairingCode: (yield* b.auth.issuePairingCredential()).credential,
+        reciprocal: true,
+      });
+      expect(again).toMatchObject({ alreadyLinked: false, link: { lastError: null } });
+      expect(yield* a.links.check(box.environmentId)).toMatchObject({
+        status: "reachable",
+        lastError: null,
+      });
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);

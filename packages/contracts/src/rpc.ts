@@ -33,6 +33,7 @@ import {
   PeerLinkError,
   PeerLinkName,
   PeerLinkRemoveInput,
+  PeerLinkCheckInput,
   PeerLinkRemoveResult,
   PeerLinkRequestAnswerInput,
   PeerLinkRequestAnswerResult,
@@ -626,6 +627,7 @@ export const WS_METHODS = {
   peerLinksNames: "peerLinks.names",
   peerLinksLink: "peerLinks.link",
   peerLinksUnlink: "peerLinks.unlink",
+  peerLinksCheck: "peerLinks.check",
   peerLinksAnswerRequest: "peerLinks.answerRequest",
   peerLinksSubscribeThread: "peerLinks.subscribeThread",
   peerLinksThreadHistoryPage: "peerLinks.threadHistoryPage",
@@ -1023,6 +1025,13 @@ const WsPeerLinksLinkRpc = Rpc.make(WS_METHODS.peerLinksLink, {
 const WsPeerLinksUnlinkRpc = Rpc.make(WS_METHODS.peerLinksUnlink, {
   payload: PeerLinkRemoveInput,
   success: PeerLinkRemoveResult,
+  error: Schema.Union([PeerLinkError, EnvironmentAuthorizationError]),
+});
+
+/** Checks one link now, with an authenticated call to the peer, and lists it as it stands. */
+const WsPeerLinksCheckRpc = Rpc.make(WS_METHODS.peerLinksCheck, {
+  payload: PeerLinkCheckInput,
+  success: PeerLinkSummary,
   error: Schema.Union([PeerLinkError, EnvironmentAuthorizationError]),
 });
 
@@ -2615,6 +2624,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPeerLinksNamesRpc,
   WsPeerLinksLinkRpc,
   WsPeerLinksUnlinkRpc,
+  WsPeerLinksCheckRpc,
   WsPeerLinksAnswerRequestRpc,
   WsPeerLinksSubscribeThreadRpc,
   WsPeerLinksThreadHistoryPageRpc,

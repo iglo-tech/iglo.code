@@ -189,4 +189,7 @@ export const linkedAutoConnectStore = {
   rememberUrls: (environmentId: EnvironmentId, urls: ReadonlyArray<string>) => {
     knownUrls.set(environmentId, urls);
   },
+  forgetUrls: (environmentId: EnvironmentId) => {
+    knownUrls.delete(environmentId);
+  },
 };

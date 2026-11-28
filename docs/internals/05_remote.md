@@ -37,6 +37,15 @@ side lists and revokes it in Sharing & access like any other session, and owns i
   answer as this environment whatever process published Serve, so a CLI link and a service that
   never set `IGLO_CODE_TAILSCALE_SERVE` still offer one. A bare 100.64.0.0/10 address is refused
   there, since other VPNs share the range, so it is never offered.
+- **Links are re-checked and trade addresses (fork).** `PeerLinks.check` (timer, Check now,
+  `environment check`, re-linking a held machine) calls `/api/peer-links/origins` with the link's
+  token: a refusal sets `last_error`, an answer clears it, silence does not touch it. Each side
+  sends its own addresses and keeps only the other's that answer as it. Rows only grow and only
+  with tailnet names: an announced public host would otherwise hold a token's destination for
+  good. Pushed addresses join only a row bound to the calling session, and the answer never says
+  what came of them. A Serve name's first HTTPS request issues its certificate, which can take
+  tens of seconds, so [OwnLinkOrigins](../../apps/server/src/peer/OwnLinkOrigins.ts) gives that
+  self-probe a long budget of its own, apart from `tailscale status`.
 - **Forget is two teardowns.** `PeerLinks.unlink` removes the link and revokes the peer's session
   here, then asks the peer over `/api/peer-links/teardown` to do the same; each hop fires only when
   a row was removed, so the hops stop. Each row's `peer_session_id` names the one session that may

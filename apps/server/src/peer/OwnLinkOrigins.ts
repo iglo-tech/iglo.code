@@ -1,6 +1,7 @@
 import type { ServerDirectEndpoint } from "@t3tools/contracts";
 import { isTailnetHost } from "@t3tools/shared/hostClassification";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -40,18 +41,29 @@ export function ownOriginsFor(input: {
   ];
 }
 
+const ORIGINS_TTL = Duration.seconds(30);
+
 export const layer = Layer.effect(
   OwnLinkOrigins,
   Effect.gen(function* () {
     const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
-    return OwnLinkOrigins.of({
-      // The MagicDNS names come first, so the peer's first try is an https one.
-      origins: Effect.zipWith(
-        directEndpoints.resolveTailnetNames(),
+    // A round of checks asks once per link, and each call runs `tailscale status` and probes.
+    const origins = yield* Effect.cachedWithTTL(
+      Effect.zipWith(
+        directEndpoints.resolveTailnetNames({
+          probeTimeout: DirectEndpoints.TAILNET_NAME_PROBE_TIMEOUT,
+        }),
         directEndpoints.resolveAvailable(),
         (names, bound) => ownOriginsFor({ endpoints: [...names, ...bound] }),
         { concurrent: true },
       ),
+      ORIGINS_TTL,
+    );
+    return OwnLinkOrigins.of({
+      // The MagicDNS names come first, so the peer's first try is an https one. A peer
+      // keeps only addresses that answer, so a Serve name still getting its certificate
+      // is waited for rather than left out.
+      origins,
     });
   }),
 );

@@ -6,6 +6,7 @@ import type * as NodeOS from "node:os";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Fiber from "effect/Fiber";
 import * as Ref from "effect/Ref";
 import * as Layer from "effect/Layer";
@@ -15,6 +16,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import type * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as TestClock from "effect/testing/TestClock";
 import { describe, expect, it } from "vite-plus/test";
 
 import * as ServerConfig from "../config.ts";
@@ -491,6 +493,51 @@ describe("DirectEndpoints tailnet names", () => {
     Effect.gen(function* () {
       const [names] = yield* resolveTailnetNamesWithoutServeSetup(502);
       expect(names).toEqual([]);
+    }),
+  );
+});
+
+describe("DirectEndpoints tailnet names while a certificate is issued", () => {
+  // A renamed node's first HTTPS request makes Tailscale issue its certificate; here it took 37s.
+  const CERTIFICATE_DELAY = Duration.seconds(37);
+  const resolveSlowServe = (options?: { readonly probeTimeout: Duration.Duration }) =>
+    Effect.gen(function* () {
+      const probeStarted = yield* Deferred.make<void>();
+      const service = yield* DirectEndpoints.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            layerServeConfig("127.0.0.1", false),
+            layerTailscaleUp,
+            NodeFileSystem.layer,
+            Layer.succeed(
+              HttpClient.HttpClient,
+              HttpClient.make((request) =>
+                Deferred.succeed(probeStarted, undefined).pipe(
+                  Effect.andThen(Effect.sleep(CERTIFICATE_DELAY)),
+                  Effect.as(serveProbeResponse(request, 200)),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      const resolving = yield* Effect.forkScoped(service.resolveTailnetNames(options));
+      yield* Deferred.await(probeStarted);
+      yield* TestClock.adjust(CERTIFICATE_DELAY);
+      return yield* Fiber.join(resolving);
+    });
+
+  effectIt.effect("waits for the Serve name when given a probe budget that covers it", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* resolveSlowServe({ probeTimeout: DirectEndpoints.TAILNET_NAME_PROBE_TIMEOUT }),
+      ).toEqual([{ kind: "tailnet", httpBaseUrl: "https://bb-1.tail1234.ts.net/" }]);
+    }),
+  );
+
+  effectIt.effect("leaves it out under the short default budget", () =>
+    Effect.gen(function* () {
+      expect(yield* resolveSlowServe()).toEqual([]);
     }),
   );
 });

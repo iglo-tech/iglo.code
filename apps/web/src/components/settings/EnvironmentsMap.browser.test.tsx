@@ -44,6 +44,29 @@ vi.mock(import("../../state/environments"), async (original) => ({
   }),
 }));
 
+// What "Check now" asked for; the check itself is the server's.
+const checks = vi.hoisted(() => [] as Array<unknown>);
+vi.mock(import("~/state/peerLinks"), async (original) => {
+  const actual = await original();
+  const { Atom } = await import("effect/reactivity");
+  const EffectModule = await import("effect/Effect");
+  const granted = Atom.make(true);
+  return {
+    ...actual,
+    peerLinkEnvironment: {
+      ...actual.peerLinkEnvironment,
+      check: {
+        ...actual.peerLinkEnvironment.check,
+        permissionAtom: () => granted,
+        run: (_registry: unknown, input: unknown) =>
+          EffectModule.sync(() => {
+            checks.push(input);
+          }),
+      } as never,
+    },
+  };
+});
+
 const linkedAt = DateTime.makeUnsafe("2026-11-19T12:00:00.000Z");
 const hub: FleetEnvironmentInput = {
   environmentId: EnvironmentId.make("hub"),
@@ -205,6 +228,53 @@ describe("EnvironmentsMap", () => {
     await expect.element(filter).toHaveValue("");
     await userEvent.keyboard("{Escape}");
     await expect.element(settings).not.toBeInTheDocument();
+  });
+
+  it("checks a failing link now from its details", async () => {
+    const failing: FleetEnvironmentInput = {
+      ...hub,
+      outgoing: {
+        state: "loaded",
+        links: [
+          {
+            ...(hub.outgoing.state === "loaded" ? hub.outgoing.links[0]! : ({} as never)),
+            lastError: "The linked environment stopped answering.",
+          },
+        ],
+      },
+    };
+    const graph = buildFleetGraph({
+      clientLabel: "This browser",
+      environments: [failing],
+      connectMachines: [],
+      now: linkedAt,
+    });
+    const edge = graph.edges.find((entry) => entry.kind === "link")!;
+    checks.length = 0;
+    await using screen = await render(
+      <FleetDetails
+        graph={graph}
+        stacks={[]}
+        environments={[]}
+        connectProblem={null}
+        selection={{ kind: "edge", id: edge.id }}
+        found={null}
+        onSelect={() => {}}
+        onLinkFrom={() => {}}
+        onLinkBack={() => {}}
+        onToggleStack={() => {}}
+        renderSavedEnvironment={() => null}
+        renderConnectMachine={() => null}
+        onAddEnvironment={() => {}}
+      />,
+    );
+    await expect
+      .element(screen.getByText("The linked environment stopped answering."))
+      .toBeVisible();
+    await screen.getByRole("button", { name: "Check now" }).click();
+    await vi.waitFor(() =>
+      expect(checks).toEqual([{ environmentId: "hub", input: { environmentId: "vm-1" } }]),
+    );
   });
 
   it("keeps the map search on Escape and Enter that belong to an IME", async () => {

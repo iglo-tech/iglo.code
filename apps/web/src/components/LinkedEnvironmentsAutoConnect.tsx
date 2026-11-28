@@ -191,7 +191,11 @@ function LinkedEnvironmentsAutoConnectLeader() {
   const join = async (target: LinkedAutoConnectPlan["connect"][number]) => {
     // A code is minted only once this device is known to reach the machine, after a first try.
     const known = linkedAutoConnectStore.knownUrls(target.environmentId);
-    if (known !== undefined && !(await reachesAny(target.environmentId, known))) return false;
+    if (known !== undefined && !(await reachesAny(target.environmentId, known))) {
+      // The link may have learned an address since (a Serve name, a rename): ask again next try.
+      linkedAutoConnectStore.forgetUrls(target.environmentId);
+      return false;
+    }
     const outcome = await connectLinkedEnvironment({
       label: target.label,
       requestPairing: async () => {
