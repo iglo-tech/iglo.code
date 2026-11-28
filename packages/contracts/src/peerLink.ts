@@ -172,7 +172,7 @@ export const PeerLinkOriginsExchange = Schema.Struct({
 export type PeerLinkOriginsExchange = typeof PeerLinkOriginsExchange.Type;
 
 export const PeerLinkOriginsAnswer = Schema.Struct({
-  urls: Schema.Array(TrimmedNonEmptyString),
+  urls: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(MAX_RECIPROCAL_OFFER_URLS)),
 });
 export type PeerLinkOriginsAnswer = typeof PeerLinkOriginsAnswer.Type;
 

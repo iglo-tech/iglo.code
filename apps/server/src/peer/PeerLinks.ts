@@ -20,6 +20,7 @@ import {
   type PeerLinkName,
   type PeerLinkOriginsAnswer,
   type PeerLinkOriginsExchange,
+  type PeerLinkStatus,
   type PeerLinkSummary,
   type PeerLinkTeardownOutcome,
   PeerLinkReciprocalError,
@@ -133,6 +134,8 @@ export class PeerLinks extends Context.Service<
         readonly link: PeerLink;
         readonly reciprocal: PeerLinkReciprocalOutcome;
         readonly alreadyLinked: boolean;
+        /** For a machine already linked: how its link answered the check linking ran instead. */
+        readonly status?: PeerLinkStatus;
       },
       PeerLinkError
     >;
@@ -206,6 +209,9 @@ export class PeerLinks extends Context.Service<
  * certificate (DirectEndpoints' TAILNET_NAME_PROBE_TIMEOUT), then probe ours.
  */
 const ORIGINS_EXCHANGE_TIMEOUT = Duration.seconds(90);
+
+/** Most addresses a link keeps; trading addresses only ever adds. */
+const MAX_LINK_URLS = 16;
 
 /** How long a reciprocal offer waits on the peer linking back here. */
 const RECIPROCAL_OFFER_TIMEOUT = Duration.seconds(30);
@@ -801,11 +807,24 @@ const make = Effect.gen(function* () {
       // Linking again trades both sides' current addresses, so a link made while one was
       // not ready yet picks it up. Addresses given here alone never join a held link.
       const checked = yield* check(current.environmentId).pipe(Effect.option);
-      const { status: _status, ...refreshed } = Option.getOrElse(checked, () => ({
-        ...current,
-        status: "reachable" as const,
-      }));
-      return { link: refreshed, reciprocal: { kind: "off" } as const, alreadyLinked: true };
+      // A peer that answered and refused the link (revoked there, say) is linked again
+      // with the code given, which is what its recorded error asks for.
+      const refused =
+        Option.isSome(checked) &&
+        checked.value.status === "reachable" &&
+        checked.value.lastError !== null;
+      if (!refused) {
+        const { status, ...refreshed } = Option.getOrElse(checked, () => ({
+          ...current,
+          status: "unreachable" as const,
+        }));
+        return {
+          link: refreshed,
+          reciprocal: { kind: "off" } as const,
+          alreadyLinked: true,
+          status,
+        };
+      }
     }
     if (existing !== undefined && options.fromReciprocalOffer === true) {
       // A renewal from the accepting side signs in where the row already
@@ -980,10 +999,11 @@ const make = Effect.gen(function* () {
   const linkUnlessLinked: PeerLinks["Service"]["linkUnlessLinked"] = (input) =>
     Effect.map(
       linkImpl(input, { keepLinked: true }),
-      ({ link: linked, reciprocal, alreadyLinked }) => ({
+      ({ link: linked, reciprocal, alreadyLinked, ...rest }) => ({
         link: linked,
         reciprocal,
         alreadyLinked,
+        ...("status" in rest && rest.status !== undefined ? { status: rest.status } : {}),
       }),
     );
 
@@ -1416,14 +1436,15 @@ const make = Effect.gen(function* () {
     if (Option.isNone(row)) return;
     if (boundTo !== undefined && row.value.peer_session_id !== boundTo) return;
     const link = yield* toLink(row.value);
+    if (link.urls.length >= MAX_LINK_URLS) return;
     const candidates = new Set<string>();
     for (const url of offered.slice(0, MAX_RECIPROCAL_OFFER_URLS)) {
       const origin = yield* peerOrigin(url).pipe(Effect.option);
-      if (
-        Option.isSome(origin) &&
-        !link.urls.includes(origin.value) &&
-        !isOwnLoopback(new URL(origin.value).hostname)
-      ) {
+      if (Option.isNone(origin) || link.urls.includes(origin.value)) continue;
+      const host = new URL(origin.value).hostname;
+      // Only tailnet names, which is all a peer offers: an announced public host would
+      // otherwise join the row for good. Loopback that is not this machine's is a test peer.
+      if (isTailnetHost(host) || (isLocalLoopbackHost(host) && !isOwnLoopback(host))) {
         candidates.add(origin.value);
       }
     }
@@ -1436,15 +1457,17 @@ const make = Effect.gen(function* () {
         ),
       { concurrency: "unbounded" },
     );
-    const added = answering.flat();
+    const added = answering.flat().slice(0, MAX_LINK_URLS - link.urls.length);
     if (added.length === 0) return;
     const urlsJson = yield* encodeUrls([...link.urls, ...added]).pipe(Effect.catch(failStorage));
-    yield* sql`
+    const written = yield* sql<{ readonly one: number }>`
       UPDATE peer_environment_links SET urls_json = ${urlsJson}
       WHERE environment_id = ${environmentId}
         AND secret_name = ${row.value.secret_name}
         AND urls_json = ${row.value.urls_json}
+      RETURNING 1 AS one
     `.pipe(Effect.catch(failStorage));
+    if (written.length === 0) return;
     yield* Effect.logInfo("A linked environment answers at new addresses.", {
       environmentId,
       added,
@@ -1477,7 +1500,7 @@ const make = Effect.gen(function* () {
       ],
       { concurrency: "unbounded" },
     );
-    return { urls };
+    return { urls: urls.slice(0, MAX_RECIPROCAL_OFFER_URLS) };
   });
 
   /** Why the peer refused a check, in words a user can act on; none when it just did not answer. */
@@ -1501,6 +1524,9 @@ const make = Effect.gen(function* () {
 
   const check: PeerLinks["Service"]["check"] = Effect.fn("PeerLinks.check")(
     function* (environmentId) {
+      if (!(yield* enabled)) {
+        return yield* new PeerLinkError({ reason: "disabled", message: LINKED_ENVIRONMENTS_OFF });
+      }
       const before = yield* get(environmentId);
       if (Option.isNone(before)) {
         return yield* new PeerLinkError({

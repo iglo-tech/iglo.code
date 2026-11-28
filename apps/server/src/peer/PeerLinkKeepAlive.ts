@@ -73,7 +73,13 @@ const checkLinksForever = Effect.gen(function* () {
   yield* Effect.sleep(FIRST_CHECK_DELAY);
   let failures = 0;
   while (true) {
-    failures = (yield* checkLinksOnce) ? 0 : failures + 1;
+    // A defect in one round must not end the loop, or a stale error would stay until restart.
+    const healthy = yield* checkLinksOnce.pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Checking peer links failed.", { cause }).pipe(Effect.as(false)),
+      ),
+    );
+    failures = healthy ? 0 : failures + 1;
     yield* Effect.sleep(nextCheckDelay(failures));
   }
 });

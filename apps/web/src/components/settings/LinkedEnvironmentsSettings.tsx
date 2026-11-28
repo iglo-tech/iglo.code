@@ -634,7 +634,13 @@ export function useCheckPeerLink(environmentId: EnvironmentId, link: PeerLinkSum
 /** Says when this page cannot open any of a link's addresses, which hides that machine here. */
 export function LinkUnusableFromPageNote({ link }: { readonly link: PeerLinkSummary }) {
   const gt = useGT();
-  if (typeof window === "undefined" || !linkUnusableFromPage(link, window.location.protocol)) {
+  // A machine this browser reaches on a route of its own shows here anyway.
+  const connected = useEnvironment(link.environmentId)?.connection.phase === "connected";
+  if (
+    connected ||
+    typeof window === "undefined" ||
+    !linkUnusableFromPage(link, window.location.protocol)
+  ) {
     return null;
   }
   return (

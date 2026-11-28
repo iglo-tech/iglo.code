@@ -1661,3 +1661,25 @@ it.effect("a check of a peer that does not answer lists it unreachable and keeps
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
+
+it.effect("linking a machine again whose link it revoked links it anew with the code given", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { a, b } = yield* linkBothWays;
+      const [session] = (yield* linkedSessions(b)).filter(
+        (entry) => entry.client.label === "iglo.code · Laptop",
+      );
+      yield* b.auth.revokeSession(session!.sessionId);
+      const again = yield* a.links.linkUnlessLinked({
+        url: b.url,
+        pairingCode: (yield* b.auth.issuePairingCredential()).credential,
+        reciprocal: true,
+      });
+      expect(again).toMatchObject({ alreadyLinked: false, link: { lastError: null } });
+      expect(yield* a.links.check(box.environmentId)).toMatchObject({
+        status: "reachable",
+        lastError: null,
+      });
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);

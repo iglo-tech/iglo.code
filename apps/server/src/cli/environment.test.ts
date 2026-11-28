@@ -103,11 +103,11 @@ it.effect("links a file of environments, reports each line, and fails when one d
       yield* link("~/retry.txt").pipe(Effect.provideService(HostProcess.HomeDirectory, baseDir));
       const retried = (yield* reports).at(-1) ?? "";
       expect(retried).toContain(
-        `${one.url}: already linked as VM 1 (environment-vm-1), kept; checked it and refreshed its addresses`,
+        `${one.url}: already linked as VM 1 (environment-vm-1), kept; checked it and traded current addresses`,
       );
       expect(retried).toContain(`${two.url}: linked VM 2 (environment-vm-2)`);
       expect(retried).toContain(
-        `${three.url}: already linked as VM 3 (environment-vm-3), kept; checked it and refreshed its addresses`,
+        `${three.url}: already linked as VM 3 (environment-vm-3), kept; checked it and traded current addresses`,
       );
       expect(retried).toContain("3 of 3 linked.");
       expect((yield* one.linkedSessions).length).toBe(1);

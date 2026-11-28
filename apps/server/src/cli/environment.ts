@@ -215,10 +215,14 @@ const linkBatch = Effect.fn("environment.linkBatch")(function* (
         : links
             .linkUnlessLinked({ url: entry.url, pairingCode: entry.pairingCode, reciprocal: true })
             .pipe(
-              Effect.map(({ link, reciprocal, alreadyLinked }) => ({
+              Effect.map(({ link, reciprocal, alreadyLinked, status }) => ({
                 linked: true,
                 text: alreadyLinked
-                  ? `${linkBatchEntryName(entry)}: already linked as ${link.label} (${link.environmentId}), kept; checked it and refreshed its addresses`
+                  ? `${linkBatchEntryName(entry)}: already linked as ${link.label} (${link.environmentId}), kept; ${
+                      status === "reachable"
+                        ? "checked it and traded current addresses"
+                        : `it did not answer at ${link.urls.join(", ")}, so its addresses were not refreshed`
+                    }${link.lastError === null ? "" : `; last error: ${link.lastError}`}`
                   : `${linkBatchEntryName(entry)}: linked ${link.label} (${link.environmentId})${
                       reciprocal.kind === "failed"
                         ? `; ${reciprocal.message}`
